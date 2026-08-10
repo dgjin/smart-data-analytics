@@ -1,0 +1,196 @@
+/**
+ * 管理员用户管理路由（仅 ADMIN 角色）。
+ * 保护规则：不能修改/删除自己，且必须始终保留至少一个 ACTIVE 管理员。
+ */
+import { Router } from 'express';
+import { authMiddleware, requireRole } from '../auth';
+import { getPool } from '../db';
+import { hashPassword } from '../passwords';
+
+const router = Router();
+router.use(authMiddleware, requireRole('ADMIN'));
+
+const VALID_ROLES = ['ADMIN', 'ANALYST', 'VIEWER'] as const;
+const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
+
+async function countActiveAdmins(excludeId?: number): Promise<number> {
+  const [rows] = await getPool().query(
+    `SELECT COUNT(*) AS cnt FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE'${excludeId ? ' AND id != ?' : ''}`,
+    excludeId ? [excludeId] : []
+  );
+  return Number((rows as any[])[0]?.cnt || 0);
+}
+
+// GET /api/admin/users
+router.get('/users', async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT id, username, display_name AS displayName, role, status,
+              created_at AS createdAt, last_login_at AS lastLoginAt
+       FROM users ORDER BY id ASC`
+    );
+    return res.json({ success: true, users: rows });
+  } catch (err) {
+    console.error('[Admin] list users failed:', err);
+    return res.status(500).json({ error: '用户列表获取失败' });
+  }
+});
+
+// POST /api/admin/users { username, password, displayName, role }
+router.post('/users', async (req, res) => {
+  const { username, password, displayName, role } = req.body || {};
+  if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) {
+    return res.status(400).json({ error: '用户名需为 3-20 位字母、数字或下划线' });
+  }
+  if (typeof password !== 'string' || password.length < 6 || password.length > 64) {
+    return res.status(400).json({ error: '密码长度需为 6-64 位' });
+  }
+  if (!VALID_ROLES.includes(role)) {
+    return res.status(400).json({ error: '角色无效，可选：ADMIN / ANALYST / VIEWER' });
+  }
+
+  try {
+    const [result] = await getPool().query(
+      'INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)',
+      [username, hashPassword(password), String(displayName || username).slice(0, 50), role]
+    );
+    const insertId = (result as any).insertId;
+    return res.status(201).json({
+      success: true,
+      user: { id: insertId, username, displayName: displayName || username, role, status: 'ACTIVE' },
+    });
+  } catch (err: any) {
+    if (err?.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: '用户名已存在' });
+    }
+    console.error('[Admin] create user failed:', err);
+    return res.status(500).json({ error: '用户创建失败' });
+  }
+});
+
+// PUT /api/admin/users/:id { displayName?, role?, status? }
+router.put('/users/:id', async (req, res) => {
+  const targetId = Number(req.params.id);
+  if (!Number.isInteger(targetId)) {
+    return res.status(400).json({ error: '用户 ID 无效' });
+  }
+
+  const { displayName, role, status } = req.body || {};
+  const updates: string[] = [];
+  const params: any[] = [];
+
+  if (displayName !== undefined) {
+    updates.push('display_name = ?');
+    params.push(String(displayName).slice(0, 50));
+  }
+  if (role !== undefined) {
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: '角色无效' });
+    }
+    updates.push('role = ?');
+    params.push(role);
+  }
+  if (status !== undefined) {
+    if (!['ACTIVE', 'DISABLED'].includes(status)) {
+      return res.status(400).json({ error: '状态无效' });
+    }
+    updates.push('status = ?');
+    params.push(status);
+  }
+  if (updates.length === 0) {
+    return res.status(400).json({ error: '没有需要更新的字段' });
+  }
+
+  // 自我保护：不允许降级/禁用自己
+  if (targetId === req.user!.id && (role !== undefined || status !== undefined)) {
+    return res.status(400).json({ error: '不能修改自己的角色或状态' });
+  }
+
+  // 保证至少保留一个 ACTIVE 管理员
+  const demotingAdmin = role !== undefined && role !== 'ADMIN';
+  const disabling = status === 'DISABLED';
+  if (demotingAdmin || disabling) {
+    const [rows] = await getPool().query('SELECT role, status FROM users WHERE id = ?', [targetId]);
+    const target = (rows as any[])[0];
+    if (target?.role === 'ADMIN' && target?.status === 'ACTIVE') {
+      const remaining = await countActiveAdmins(targetId);
+      if (remaining < 1) {
+        return res.status(400).json({ error: '系统至少需要保留一个可用管理员' });
+      }
+    }
+  }
+
+  try {
+    params.push(targetId);
+    const [result] = await getPool().query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
+      params
+    );
+    if ((result as any).affectedRows === 0) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Admin] update user failed:', err);
+    return res.status(500).json({ error: '用户更新失败' });
+  }
+});
+
+// POST /api/admin/users/:id/reset-password { newPassword }
+router.post('/users/:id/reset-password', async (req, res) => {
+  const targetId = Number(req.params.id);
+  const { newPassword } = req.body || {};
+  if (!Number.isInteger(targetId)) {
+    return res.status(400).json({ error: '用户 ID 无效' });
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 64) {
+    return res.status(400).json({ error: '新密码长度需为 6-64 位' });
+  }
+
+  try {
+    const [result] = await getPool().query('UPDATE users SET password_hash = ? WHERE id = ?', [
+      hashPassword(newPassword),
+      targetId,
+    ]);
+    if ((result as any).affectedRows === 0) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Admin] reset password failed:', err);
+    return res.status(500).json({ error: '密码重置失败' });
+  }
+});
+
+// DELETE /api/admin/users/:id
+router.delete('/users/:id', async (req, res) => {
+  const targetId = Number(req.params.id);
+  if (!Number.isInteger(targetId)) {
+    return res.status(400).json({ error: '用户 ID 无效' });
+  }
+  if (targetId === req.user!.id) {
+    return res.status(400).json({ error: '不能删除当前登录的管理员账号' });
+  }
+
+  try {
+    const [rows] = await getPool().query('SELECT role, status FROM users WHERE id = ?', [targetId]);
+    const target = (rows as any[])[0];
+    if (!target) {
+      return res.status(404).json({ error: '用户不存在' });
+    }
+    if (target.role === 'ADMIN' && target.status === 'ACTIVE') {
+      const remaining = await countActiveAdmins(targetId);
+      if (remaining < 1) {
+        return res.status(400).json({ error: '系统至少需要保留一个可用管理员' });
+      }
+    }
+
+    await getPool().query('DELETE FROM users WHERE id = ?', [targetId]);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Admin] delete user failed:', err);
+    return res.status(500).json({ error: '用户删除失败' });
+  }
+});
+
+export default router;

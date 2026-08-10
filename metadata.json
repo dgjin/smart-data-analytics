@@ -1,0 +1,8 @@
+{
+  "name": "智能问数据分析系统",
+  "description": "通用、可配置的智能问数据分析系统，支持多数据源接入、自然语言交互查询、自动可视化报表生成与AI决策洞察。",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

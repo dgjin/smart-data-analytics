@@ -1,0 +1,15 @@
+{
+  "name": "ponytail",
+  "displayName": "Ponytail",
+  "version": "0.1.0",
+  "description": "Forces the laziest solution that actually works — simplest, shortest, most minimal. YAGNI as a reflex.",
+  "descriptionZh": "强制采用最简单可行的方案——最短、最小、够用即可，把 YAGNI 变成本能。",
+  "author": { "name": "DietrichGebert" },
+  "homepage": "https://github.com/DietrichGebert/ponytail",
+  "repository": "https://github.com/DietrichGebert/ponytail",
+  "logo": "./assets/avatar.svg",
+  "keywords": ["qoder-plugin", "skill", "yagni", "minimalism"],
+  "category": "developer-tools",
+  "tags": ["skill", "productivity"],
+  "skills": "./skills/"
+}

@@ -1,0 +1,101 @@
+/**
+ * L3 上下文层：加载进入 LLM 上下文的数据源 Schema。
+ * 防御链：落库 schema → scope 白名单过滤 → 敏感列过滤 → 摘要生成，结果缓存 5 分钟
+ * （对应架构图 Caffeine 缓存；数据源写操作后由路由侧调用 invalidateSchemaCache 失效）。
+ * 同时返回数据源 status，作为数据源级"AI 问数开关"（disconnected 拒绝问数）。
+ */
+import { getPool } from './db';
+import { applyDataScope } from './scope';
+import { summarizeSchema } from './schemaGuidance';
+import { filterSensitiveColumns } from './queryGuard';
+
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CacheEntry {
+  schema: any[];
+  guidance: string;
+  status: string;
+  sensitiveRemoved: string[];
+  at: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+
+/** 数据源配置/结构变更后调用，使缓存失效 */
+export function invalidateSchemaCache(dataSourceId?: string): void {
+  if (dataSourceId) cache.delete(dataSourceId);
+  else cache.clear();
+}
+
+export interface SchemaContext {
+  schema: any[];
+  guidance: string;
+  /** null 表示数据源未落库（使用前端提交的 schema，不缓存） */
+  status: string | null;
+  sensitiveRemoved: string[];
+}
+
+function parseJson(v: any, fallback: any) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'object') return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+}
+
+function fromClientSchema(clientSchema: unknown): SchemaContext {
+  const filtered = filterSensitiveColumns(Array.isArray(clientSchema) ? clientSchema : []);
+  return {
+    schema: filtered.schema,
+    guidance: summarizeSchema(filtered.schema),
+    status: null,
+    sensitiveRemoved: filtered.removed,
+  };
+}
+
+export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unknown): Promise<SchemaContext> {
+  if (typeof dataSourceId !== 'string' || !dataSourceId) {
+    return fromClientSchema(clientSchema);
+  }
+
+  const cached = cache.get(dataSourceId);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    return {
+      schema: cached.schema,
+      guidance: cached.guidance,
+      status: cached.status,
+      sensitiveRemoved: cached.sensitiveRemoved,
+    };
+  }
+
+  try {
+    const [rows] = await getPool().query(
+      'SELECT schema_json, scope_json, status FROM data_sources WHERE id = ?',
+      [dataSourceId]
+    );
+    const ds = (rows as any[])[0];
+    if (!ds) return fromClientSchema(clientSchema);
+
+    const scoped = applyDataScope(parseJson(ds.schema_json, []), parseJson(ds.scope_json, null));
+    const filtered = filterSensitiveColumns(scoped);
+    const entry: CacheEntry = {
+      schema: filtered.schema,
+      guidance: summarizeSchema(filtered.schema),
+      status: String(ds.status || 'connected'),
+      sensitiveRemoved: filtered.removed,
+      at: Date.now(),
+    };
+    cache.set(dataSourceId, entry);
+    return {
+      schema: entry.schema,
+      guidance: entry.guidance,
+      status: entry.status,
+      sensitiveRemoved: entry.sensitiveRemoved,
+    };
+  } catch (err) {
+    console.warn('[Schema] load datasource schema failed, fallback to client schema:', err);
+    return fromClientSchema(clientSchema);
+  }
+}
