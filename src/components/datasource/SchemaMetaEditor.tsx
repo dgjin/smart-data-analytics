@@ -46,6 +46,14 @@ export const SchemaMetaEditor: React.FC<SchemaMetaEditorProps> = ({ ds, onClose,
   });
   const [expanded, setExpanded] = useState<string | null>(ds.tables[0]?.id ?? null);
   const [saving, setSaving] = useState(false);
+  // 表级业务口径说明（P2）：随 schema-meta 保存，注入 AI 问数/报表 prompt
+  const [notes, setNotes] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const t of ds.tables) {
+      init[t.id] = t.businessNote || '';
+    }
+    return init;
+  });
 
   // 问数范围内的表排在前面并加徽标，便于管理员聚焦会进入 AI 上下文的表
   const scopedIds = new Set(ds.scope?.tables?.length ? ds.scope.tables : ds.tables.map((t) => t.id));
@@ -77,6 +85,7 @@ export const SchemaMetaEditor: React.FC<SchemaMetaEditorProps> = ({ ds, onClose,
       const payload = {
         tables: ds.tables.map((t) => ({
           id: t.id,
+          businessNote: notes[t.id] ?? '',
           columns: t.columns.map((c) => {
             const m = meta[t.id][c.name];
             return {
@@ -163,6 +172,17 @@ export const SchemaMetaEditor: React.FC<SchemaMetaEditorProps> = ({ ds, onClose,
 
                 {isOpen && (
                   <div className="px-3 pb-3 pt-1 border-t border-slate-800/60 space-y-1">
+                    {/* 表级业务口径说明：约束 AI 生成 SQL 的计算口径 */}
+                    <div className="px-2 py-1.5">
+                      <input
+                        type="text"
+                        value={notes[table.id] ?? ''}
+                        maxLength={500}
+                        placeholder="业务口径说明（可选，如：复购率=90天内≥2单客户/总客户；将注入 AI 问数上下文）"
+                        onChange={(e) => setNotes((prev) => ({ ...prev, [table.id]: e.target.value }))}
+                        className="w-full bg-slate-950 border border-amber-500/30 rounded-lg px-2 py-1 text-[11px] text-amber-200 placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
                     {table.columns.map((col) => {
                       const m = meta[table.id]?.[col.name];
                       if (!m) return null;

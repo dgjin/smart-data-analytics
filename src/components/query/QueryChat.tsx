@@ -210,10 +210,26 @@ export const QueryChat: React.FC = () => {
     setQueryLoading(true);
 
     // Pass recent conversation turns for multi-turn context
-    const history = chatMessages
+    // P2 多轮增强：assistant 消息附带上轮真实结果摘要（作为 user 角色合成消息，
+    // 服务端 L4 仅放行 user 消息，assistant 原文本就不发送，避免回流污染）
+    const history: { role: 'user' | 'assistant'; content: string }[] = [];
+    const recentTurns = chatMessages
       .filter((m) => m.role === 'user' || (m.role === 'assistant' && !m.error))
-      .slice(-6)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .slice(-6);
+    for (const m of recentTurns) {
+      if (m.role === 'user') {
+        history.push({ role: 'user', content: m.content });
+        continue;
+      }
+      const qr = m.queryResult;
+      if (qr && Array.isArray(qr.rows) && qr.rows.length > 0) {
+        const sample = JSON.stringify(qr.rows.slice(0, 5)).slice(0, 400);
+        history.push({
+          role: 'user',
+          content: `（上一轮查询的真实结果摘要：共 ${qr.totalCount ?? qr.rows.length} 行，样本数据 ${sample}）`,
+        });
+      }
+    }
 
     const controller = new AbortController();
     const timeoutTimer = setTimeout(() => controller.abort(), 200_000);
@@ -234,9 +250,11 @@ export const QueryChat: React.FC = () => {
       const resData = await response.json();
 
       if (resData.success && resData.result) {
+        const provenance = resData.dataProvenance === 'live' ? 'live' : 'simulated';
         const queryRes: QueryResultData = {
           ...resData.result,
           executionTimeMs: resData.executionTimeMs || 120,
+          dataProvenance: provenance,
         };
 
         const aiMsg: ChatMessage = {
@@ -247,6 +265,7 @@ export const QueryChat: React.FC = () => {
           queryResult: queryRes,
           suggestedQuestions: queryRes.suggestedQuestions,
           isFallback: Boolean(resData.isFallback),
+          dataProvenance: provenance,
           sensitiveFiltered: Number(resData.defense?.sensitiveFiltered) || 0,
         };
 
@@ -386,6 +405,20 @@ export const QueryChat: React.FC = () => {
                   <div className="p-2 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-300 text-[11px] flex items-center space-x-1.5">
                     <Lightbulb className="w-3.5 h-3.5 shrink-0" />
                     <span>AI 服务当前不可用，以下展示为内置示例数据，仅用于演示界面功能。</span>
+                  </div>
+                )}
+
+                {/* 数据来源徽标（P1：live = 真实库执行；simulated = 演示数据，CSV/demo 等场景强制标记） */}
+                {!isUser && msg.queryResult && msg.dataProvenance === 'live' && (
+                  <div className="p-2 rounded-lg bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-[11px] flex items-center space-x-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>真实数据：SQL 已在数据库中实际执行，图表与解读均基于返回的 {msg.queryResult.totalCount} 行结果。</span>
+                  </div>
+                )}
+                {!isUser && msg.queryResult && !msg.isFallback && msg.dataProvenance === 'simulated' && (
+                  <div className="p-2 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-300 text-[11px] flex items-center space-x-1.5">
+                    <Lightbulb className="w-3.5 h-3.5 shrink-0" />
+                    <span>演示数据：当前数据源不支持真实查询（非 MySQL 直连），以下为 AI 生成的模拟数据，仅供演示。</span>
                   </div>
                 )}
 
@@ -704,9 +737,60 @@ export const QueryChat: React.FC = () => {
           isOpen={!!inspectModalResult}
           onClose={() => setInspectModalResult(null)}
           queryResult={inspectModalResult}
-          onReRunSQL={(sql) => {
-            // Re-run SQL override
-            handleSendQuery(`重跑 SQL: ${sql}`);
+          onReRunSQL={async (sql) => {
+            // P0：编辑后的 SQL 直接走真实执行端点（服务端 SELECT-only + 白名单校验）
+            if (!activeDataSourceId) return;
+            const ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            try {
+              const resp = await apiFetch('/api/query/execute-sql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataSourceId: activeDataSourceId, sql }),
+              });
+              const data = await resp.json();
+              if (!resp.ok || !data.success) {
+                throw new Error(data.error || 'SQL 执行失败');
+              }
+              const rows: Record<string, any>[] = Array.isArray(data.rows) ? data.rows : [];
+              const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+              // 轴键矫正：x 取首个非数值列，y 取数值列（最多 2 个）
+              const numericCols = columns.filter((c) => rows.some((r) => typeof r[c] === 'number'));
+              const dimCols = columns.filter((c) => !numericCols.includes(c));
+              const xAxisKey = dimCols[0] || columns[0] || '';
+              const yAxisKeys = numericCols.length > 0
+                ? numericCols.slice(0, 2)
+                : columns.filter((c) => c !== xAxisKey).slice(0, 1);
+              const queryResult: QueryResultData = {
+                columns,
+                rows,
+                totalCount: Number(data.rowCount) || rows.length,
+                executionTimeMs: Number(data.executionTimeMs) || 0,
+                generatedSQL: data.finalSql || sql,
+                dataProvenance: 'live',
+                aiExplanation: `SQL 重跑完成，返回 ${Number(data.rowCount) || rows.length} 行真实数据${data.truncated ? '（结果已按 500 行上限截断）' : ''}。`,
+                keyInsights: [],
+                suggestedQuestions: [],
+                ...(xAxisKey && yAxisKeys.length > 0
+                  ? { chartConfig: { type: 'bar' as const, title: 'SQL 重跑结果', xAxisKey, yAxisKeys } }
+                  : {}),
+              };
+              addChatMessage({
+                id: `msg-ai-rerun-${Date.now()}`,
+                role: 'assistant',
+                content: queryResult.aiExplanation || 'SQL 重跑完成。',
+                timestamp: ts,
+                queryResult,
+                dataProvenance: 'live',
+              });
+            } catch (err: any) {
+              addChatMessage({
+                id: `msg-err-rerun-${Date.now()}`,
+                role: 'assistant',
+                content: `SQL 重跑被拒绝：${err?.message || '未知错误'}`,
+                timestamp: ts,
+                error: err?.message,
+              });
+            }
           }}
         />
       )}

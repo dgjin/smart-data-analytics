@@ -28,6 +28,8 @@ export interface TableSchema {
   description: string;
   rowCount: number;
   columns: ColumnSchema[];
+  /** 表级业务口径说明（管理员登记，注入问数/报表 prompt 约束口径，P2） */
+  businessNote?: string;
 }
 
 /**
@@ -76,6 +78,8 @@ export interface QueryResultData {
   rows: Record<string, any>[];
   totalCount: number;
   executionTimeMs: number;
+  /** 数据来源：live = 真实数据库执行（双阶段）；simulated = 演示/降级数据 */
+  dataProvenance?: 'live' | 'simulated';
   generatedSQL?: string;
   thoughtProcess?: string[];
   aiExplanation?: string;
@@ -102,6 +106,8 @@ export interface ChatMessage {
   error?: string;
   /** True when the result came from offline fallback data instead of the LLM */
   isFallback?: boolean;
+  /** 数据来源标识：live = 真实数据库执行；simulated = 演示/降级数据（UI 徽标） */
+  dataProvenance?: 'live' | 'simulated';
   /** L7 敏感标记：本次问数被服务端安全策略从 AI 上下文中剔除的敏感列数量（>0 时 UI 展示提示） */
   sensitiveFiltered?: number;
 }

@@ -96,12 +96,26 @@ export async function initSchema(): Promise<void> {
       question VARCHAR(500) NOT NULL DEFAULT '',
       status VARCHAR(20) NOT NULL,
       detail VARCHAR(255) NOT NULL DEFAULT '',
+      executed_sql VARCHAR(2000) NOT NULL DEFAULT '',
+      row_count INT NOT NULL DEFAULT -1,
       duration_ms INT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_audit_user_created (user_id, created_at),
       INDEX idx_audit_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // 存量库迁移：审计表补充真实执行留痕列（P1）
+  try {
+    await pool.query('ALTER TABLE query_audit_log ADD COLUMN executed_sql VARCHAR(2000) NOT NULL DEFAULT \'\' AFTER detail');
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query('ALTER TABLE query_audit_log ADD COLUMN row_count INT NOT NULL DEFAULT -1 AFTER executed_sql');
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
 
   // 4. Seed default admin when users table is empty
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');

@@ -15,6 +15,8 @@ interface CacheEntry {
   schema: any[];
   guidance: string;
   status: string;
+  /** 数据源类型（mysql 才走真实 SQL 执行；null = 前端提交 schema 的演示模式） */
+  dsType: string | null;
   sensitiveRemoved: string[];
   at: number;
 }
@@ -32,6 +34,8 @@ export interface SchemaContext {
   guidance: string;
   /** null 表示数据源未落库（使用前端提交的 schema，不缓存） */
   status: string | null;
+  /** 数据源类型；null 表示未落库（演示模式） */
+  dsType: string | null;
   sensitiveRemoved: string[];
 }
 
@@ -51,6 +55,7 @@ function fromClientSchema(clientSchema: unknown): SchemaContext {
     schema: filtered.schema,
     guidance: summarizeSchema(filtered.schema),
     status: null,
+    dsType: null,
     sensitiveRemoved: filtered.removed,
   };
 }
@@ -66,13 +71,14 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       schema: cached.schema,
       guidance: cached.guidance,
       status: cached.status,
+      dsType: cached.dsType,
       sensitiveRemoved: cached.sensitiveRemoved,
     };
   }
 
   try {
     const [rows] = await getPool().query(
-      'SELECT schema_json, scope_json, status FROM data_sources WHERE id = ?',
+      'SELECT schema_json, scope_json, status, type FROM data_sources WHERE id = ?',
       [dataSourceId]
     );
     const ds = (rows as any[])[0];
@@ -84,6 +90,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       schema: filtered.schema,
       guidance: summarizeSchema(filtered.schema),
       status: String(ds.status || 'connected'),
+      dsType: String(ds.type || ''),
       sensitiveRemoved: filtered.removed,
       at: Date.now(),
     };
@@ -92,6 +99,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       schema: entry.schema,
       guidance: entry.guidance,
       status: entry.status,
+      dsType: entry.dsType,
       sensitiveRemoved: entry.sensitiveRemoved,
     };
   } catch (err) {

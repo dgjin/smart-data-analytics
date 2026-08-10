@@ -22,6 +22,9 @@ export interface AuditEntry {
   question?: string;
   status: AuditStatus;
   detail?: string;
+  /** 真实执行的 SQL（P0 双阶段模式）；-1 行数表示未执行 */
+  executedSql?: string;
+  rowCount?: number;
   durationMs?: number;
 }
 
@@ -29,8 +32,8 @@ export function writeAudit(entry: AuditEntry): void {
   getPool()
     .query(
       `INSERT INTO query_audit_log
-        (user_id, username, endpoint, data_source_id, question, status, detail, duration_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (user_id, username, endpoint, data_source_id, question, status, detail, executed_sql, row_count, duration_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.userId,
         entry.username,
@@ -39,6 +42,8 @@ export function writeAudit(entry: AuditEntry): void {
         (entry.question || '').slice(0, 500),
         entry.status,
         (entry.detail || '').slice(0, 255),
+        (entry.executedSql || '').slice(0, 2000),
+        entry.rowCount === undefined ? -1 : Math.round(entry.rowCount),
         Math.max(0, Math.round(entry.durationMs || 0)),
       ]
     )

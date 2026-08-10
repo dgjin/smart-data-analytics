@@ -9,6 +9,7 @@ import { authMiddleware, requireRole } from '../auth';
 import { getPool } from '../db';
 import { sanitizeDataScope } from '../scope';
 import { invalidateSchemaCache } from '../schemaContext';
+import { invalidateExecutorPool } from '../sqlExecutor';
 
 const router = Router();
 router.use(authMiddleware);
@@ -216,12 +217,16 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
 
     // 保留管理员在"指标维度维护"中对仍存在列的手工标注（新列用自动推导结果）
     const oldMeta = new Map<string, any>();
+    const oldTableNotes = new Map<string, string>();
     for (const t of safeJson(ds.schema_json, []) as any[]) {
+      if (t?.businessNote) oldTableNotes.set(String(t.name), String(t.businessNote));
       for (const c of t?.columns || []) {
         oldMeta.set(`${t.name}.${c.name}`, c);
       }
     }
     for (const t of tables) {
+      const note = oldTableNotes.get(String(t.name));
+      if (note) t.businessNote = note; // 表级业务口径说明同步时保留
       t.columns = (t.columns || []).map((c: any) => {
         const old = oldMeta.get(`${t.name}.${c.name}`);
         if (!old) return c;
@@ -242,6 +247,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
       [JSON.stringify(tables), JSON.stringify(config), cleanedScope ? JSON.stringify(cleanedScope) : null, 'connected', id]
     );
     invalidateSchemaCache(id);
+    invalidateExecutorPool(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
   } catch (err) {
@@ -297,6 +303,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
       return res.status(404).json({ error: '数据源不存在' });
     }
     invalidateSchemaCache(id);
+    invalidateExecutorPool(id);
     return res.json({ success: true });
   } catch (err) {
     console.error('[DataSources] update failed:', err);
@@ -313,6 +320,7 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
       return res.status(404).json({ error: '数据源不存在' });
     }
     invalidateSchemaCache(id);
+    invalidateExecutorPool(id);
     return res.json({ success: true });
   } catch (err) {
     console.error('[DataSources] delete failed:', err);
@@ -321,8 +329,8 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
 });
 
 // PUT /api/datasources/:id/schema-meta（ADMIN）
-// 管理员动态维护列的指标/维度角色与描述；按 表id+列名 匹配合并进 schema_json。
-// body: { tables: [{ id, columns: [{ name, isMetric?, isDimension?, description? }] }] }
+// 管理员动态维护列的指标/维度角色与描述，以及表级业务口径说明（businessNote，注入问数 prompt）。
+// body: { tables: [{ id, businessNote?, columns: [{ name, isMetric?, isDimension?, description? }] }] }
 router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   const payloadTables = req.body?.tables;
@@ -345,7 +353,16 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     for (const pt of payloadTables) {
       if (!pt || typeof pt !== 'object') continue;
       const table = tables.find((t: any) => t.id === pt.id || t.name === pt.name);
-      if (!table || !Array.isArray(pt.columns)) continue;
+      if (!table) continue;
+      // 表级业务口径说明（P2）：如"复购率=90天内≥2单客户/总客户"，将随 Schema 注入 LLM 上下文
+      if (pt.businessNote !== undefined) {
+        if (typeof pt.businessNote !== 'string') return res.status(400).json({ error: 'businessNote 必须为字符串' });
+        const note = pt.businessNote.trim().slice(0, 500);
+        if (note) table.businessNote = note;
+        else delete table.businessNote;
+        touched++;
+      }
+      if (!Array.isArray(pt.columns)) continue;
       for (const pc of pt.columns) {
         if (!pc || typeof pc.name !== 'string') continue;
         const col = (table.columns || []).find((c: any) => c.name === pc.name);
@@ -367,6 +384,7 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
 
     await getPool().query('UPDATE data_sources SET schema_json = ? WHERE id = ?', [JSON.stringify(tables), id]);
     invalidateSchemaCache(id);
+    invalidateExecutorPool(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, touched, dataSource: rowToDataSource((updated as any[])[0]) });
   } catch (err) {
@@ -397,6 +415,7 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
       id,
     ]);
     invalidateSchemaCache(id);
+    invalidateExecutorPool(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
   } catch (err) {
