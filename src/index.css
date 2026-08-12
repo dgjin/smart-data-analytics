@@ -1,1 +1,74 @@
 @import "tailwindcss";
+
+/* 浅色主题：重映射 Tailwind slate 色阶（深色为默认主题，零改动兼容）。
+   工具类（bg-slate-900/text-slate-100 等）底层引用 --color-* 变量，
+   在 html.light 下覆盖变量即可整体翻转，含 /opacity 修饰（color-mix）。 */
+html.light {
+  color-scheme: light;
+  /* 深色表面 → 浅色表面 */
+  --color-slate-950: #f1f5f9; /* 页面底色 */
+  --color-slate-900: #ffffff; /* 卡片/面板 */
+  --color-slate-800: #e2e8f0; /* 次级表面/悬停 */
+  --color-slate-700: #cbd5e1; /* 边框/分隔 */
+  --color-slate-600: #94a3b8;
+  /* 浅色文字 → 深色文字 */
+  --color-slate-400: #64748b;
+  --color-slate-300: #475569;
+  --color-slate-200: #1e293b;
+  --color-slate-100: #0f172a;
+  /* 强调色 300/400 档主要用作文字与图标，提深以保证浅底可读性 */
+  --color-indigo-300: #4f46e5;
+  --color-indigo-400: #4f46e5;
+  --color-cyan-300: #0e7490;
+  --color-cyan-400: #0891b2;
+  --color-emerald-300: #059669;
+  --color-emerald-400: #059669;
+  --color-rose-300: #e11d48;
+  --color-rose-400: #e11d48;
+  --color-amber-300: #d97706;
+  --color-amber-400: #d97706;
+  /* 100/200 档文字同样提深（提示卡、徽章内的浅色文字） */
+  --color-indigo-100: #4338ca;
+  --color-indigo-200: #4338ca;
+  --color-cyan-200: #0e7490;
+  --color-amber-200: #b45309;
+  --color-rose-200: #be123c;
+  --color-emerald-200: #047857;
+  /* 950/900 档半透明深底（提示卡/徽章）翻转为对应浅色调底 */
+  --color-rose-950: #fff1f2;
+  --color-rose-900: #ffe4e6;
+  --color-emerald-950: #d1fae5;
+  --color-emerald-900: #a7f3d0;
+  --color-indigo-950: #e0e7ff;
+  --color-indigo-900: #c7d2fe;
+  --color-cyan-950: #cffafe;
+  --color-cyan-900: #a5f3fc;
+  --color-amber-950: #fef3c7;
+  --color-amber-900: #fde68a;
+  --color-sky-950: #e0f2fe;
+  --color-sky-900: #bae6fd;
+}
+
+html.light body {
+  background-color: #f1f5f9;
+}
+
+/* 浅色主题字体优化：用户气泡为靛蓝底，其内部头部行仍沿用深主题浅色文字变量，
+   被重映射成深色后在靛蓝底上不可读——此处强制恢复为近白色并微调字重 */
+html.light .bg-indigo-600\/90 .text-slate-300 {
+  color: #f8fafc;
+}
+html.light .bg-indigo-600\/90 .text-slate-400 {
+  color: #e8edf6;
+}
+html.light .bg-indigo-600\/90 {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+html.light .bg-indigo-600\/90 .border-slate-800\/60 {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+/* 气泡内「复制/再次编辑」等操作按钮（靛蓝底上的 indigo-100 系文字） */
+html.light .bg-indigo-600\/90 .text-indigo-100\/80 {
+  color: #eef2ff;
+}

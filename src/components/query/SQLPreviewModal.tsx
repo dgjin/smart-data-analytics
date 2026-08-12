@@ -7,8 +7,12 @@ import {
   Brain,
   Sparkles,
   Copy,
+  BookOpen,
+  Gauge,
+  Loader2,
 } from 'lucide-react';
 import { QueryResultData } from '../../types/analytics';
+import { apiFetch } from '../../api/client';
 
 interface SQLPreviewModalProps {
   isOpen: boolean;
@@ -25,6 +29,9 @@ export const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
 }) => {
   const [sqlText, setSqlText] = useState(queryResult.generatedSQL || '');
   const [copied, setCopied] = useState(false);
+  // SQL AI 助手（借鉴 Chat2DB：SQL 解释 / 优化建议）
+  const [assistLoading, setAssistLoading] = useState<'explain' | 'optimize' | null>(null);
+  const [assistResult, setAssistResult] = useState<{ type: 'explain' | 'optimize'; text: string } | null>(null);
 
   if (!isOpen) return null;
 
@@ -32,6 +39,25 @@ export const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
     navigator.clipboard.writeText(sqlText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSqlAssist = async (action: 'explain' | 'optimize') => {
+    if (assistLoading) return;
+    setAssistLoading(action);
+    try {
+      const resp = await apiFetch('/api/query/sql-assist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, sql: sqlText }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || '请求失败');
+      setAssistResult({ type: action, text: String(data.text || '') });
+    } catch (err: any) {
+      setAssistResult({ type: action, text: `AI 助手调用失败：${String(err?.message || err)}` });
+    } finally {
+      setAssistLoading(null);
+    }
   };
 
   return (
@@ -86,13 +112,33 @@ export const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
                 <span>生成的 SQL 查询语句 (可手动修改调试):</span>
               </label>
-              <button
-                onClick={handleCopy}
-                className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 bg-slate-800 px-2 py-1 rounded border border-slate-700"
-              >
-                {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                <span>{copied ? '已复制' : '复制 SQL'}</span>
-              </button>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  onClick={() => handleSqlAssist('explain')}
+                  disabled={assistLoading !== null}
+                  className="flex items-center space-x-1 text-[11px] text-cyan-300 hover:text-cyan-200 bg-cyan-950/50 px-2 py-1 rounded border border-cyan-500/30 disabled:opacity-50 transition-colors"
+                  title="用自然语言解释这条 SQL 的业务含义"
+                >
+                  {assistLoading === 'explain' ? <Loader2 className="w-3 h-3 animate-spin" /> : <BookOpen className="w-3 h-3" />}
+                  <span>AI 解释</span>
+                </button>
+                <button
+                  onClick={() => handleSqlAssist('optimize')}
+                  disabled={assistLoading !== null}
+                  className="flex items-center space-x-1 text-[11px] text-emerald-300 hover:text-emerald-200 bg-emerald-950/50 px-2 py-1 rounded border border-emerald-500/30 disabled:opacity-50 transition-colors"
+                  title="给出索引与写法层面的优化建议"
+                >
+                  {assistLoading === 'optimize' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Gauge className="w-3 h-3" />}
+                  <span>优化建议</span>
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 bg-slate-800 px-2 py-1 rounded border border-slate-700"
+                >
+                  {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copied ? '已复制' : '复制 SQL'}</span>
+                </button>
+              </div>
             </div>
 
             <textarea
@@ -101,6 +147,27 @@ export const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
               rows={6}
               className="w-full p-3 bg-slate-950 border border-slate-700 rounded-xl font-mono text-xs text-indigo-300 focus:outline-none focus:border-indigo-500 leading-relaxed"
             />
+
+            {/* SQL AI 助手输出（解释 / 优化建议） */}
+            {assistResult && (
+              <div
+                className={`p-3.5 rounded-xl border space-y-1.5 ${
+                  assistResult.type === 'explain'
+                    ? 'bg-cyan-950/30 border-cyan-500/30'
+                    : 'bg-emerald-950/30 border-emerald-500/30'
+                }`}
+              >
+                <div
+                  className={`flex items-center space-x-1.5 font-semibold text-xs ${
+                    assistResult.type === 'explain' ? 'text-cyan-300' : 'text-emerald-300'
+                  }`}
+                >
+                  {assistResult.type === 'explain' ? <BookOpen className="w-3.5 h-3.5" /> : <Gauge className="w-3.5 h-3.5" />}
+                  <span>{assistResult.type === 'explain' ? 'SQL 业务解读' : 'SQL 优化建议'}</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed whitespace-pre-wrap">{assistResult.text}</p>
+              </div>
+            )}
           </div>
         </div>
 

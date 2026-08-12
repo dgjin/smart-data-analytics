@@ -7,8 +7,10 @@ import { getPool } from './db';
 
 export type AuditStatus =
   | 'SUCCESS'
+  | 'CACHE'
   | 'FALLBACK'
   | 'ERROR'
+  | 'CLARIFY'
   | 'DENIED_INPUT'
   | 'DENIED_AUTH'
   | 'DENIED_RATE'

@@ -7,6 +7,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // 渲染前应用已保存的 UI 主题，避免浅色/深色切换闪烁
+      try {
+        if (localStorage.getItem('app-ui-theme') === 'light') {
+          document.documentElement.classList.add('light');
+        }
+      } catch (e) {}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

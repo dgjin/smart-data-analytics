@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveColumnRole, mapMysqlType } from './datasources';
+import { deriveColumnRole, mapMysqlType, mapPgType } from './datasources';
 
 describe('mapMysqlType', () => {
   it('整型与浮点映射为 number', () => {
@@ -64,5 +64,37 @@ describe('deriveColumnRole', () => {
   it('普通业务字符串列名不受 id 规则误伤', () => {
     expect(deriveColumnRole('identity_type', 'string', false, 'varchar', 32)).toEqual({ isMetric: false, isDimension: true });
     expect(deriveColumnRole('valid', 'string', false, 'varchar', 8)).toEqual({ isMetric: false, isDimension: true });
+  });
+});
+
+describe('mapPgType（PostgreSQL/Greenplum）', () => {
+  it('整型/浮点/序列/货币映射为 number', () => {
+    for (const t of ['smallint', 'integer', 'bigint', 'numeric', 'decimal', 'real', 'double precision', 'serial', 'bigserial', 'money']) {
+      expect(mapPgType(t)).toBe('number');
+    }
+  });
+
+  it('日期时间映射为 date（含 PG 完整写法）', () => {
+    for (const t of ['date', 'timestamp without time zone', 'timestamp with time zone', 'time without time zone', 'time with time zone']) {
+      expect(mapPgType(t)).toBe('date');
+    }
+  });
+
+  it('布尔映射为 boolean', () => {
+    expect(mapPgType('boolean')).toBe('boolean');
+  });
+
+  it('文本/JSON/UUID 等回落为 string', () => {
+    for (const t of ['character varying', 'character', 'text', 'json', 'jsonb', 'uuid', 'bytea', 'xml']) {
+      expect(mapPgType(t)).toBe('string');
+    }
+  });
+});
+
+describe('deriveColumnRole: PG 系长文本', () => {
+  it('jsonb/bytea/xml 不参与指标与维度', () => {
+    for (const raw of ['jsonb', 'bytea', 'xml']) {
+      expect(deriveColumnRole('detail', 'string', false, raw, null)).toEqual({ isMetric: false, isDimension: false });
+    }
   });
 });

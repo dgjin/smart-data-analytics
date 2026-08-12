@@ -11,6 +11,9 @@ import {
   Layers,
   Sparkles,
   GitFork,
+  BookOpen,
+  FileCode2,
+  ScanSearch,
   Table as TableIcon,
   Trash2,
   SlidersHorizontal,
@@ -24,7 +27,12 @@ import { apiFetch } from '../../api/client';
 import { SchemaViewer } from './SchemaViewer';
 import { DataLineageView } from './DataLineageView';
 import { SchemaMetaEditor } from './SchemaMetaEditor';
+import { KnowledgeBasePanel } from './KnowledgeBasePanel';
+import { SqlExamplesPanel } from './SqlExamplesPanel';
 import { DataScope, DataSource, DataSourceType, TableSchema } from '../../types/analytics';
+
+// 支持真实连接的数据库类型（服务端提取完整 Schema，其余类型用占位表）
+const DB_TYPES: DataSourceType[] = ['mysql', 'postgresql', 'greenplum'];
 
 export const DataSourceManager: React.FC = () => {
   const {
@@ -38,7 +46,7 @@ export const DataSourceManager: React.FC = () => {
     setActiveTable,
   } = useAnalyticsStore();
 
-  const [activeSubTab, setActiveSubTab] = useState<'schema' | 'lineage'>('schema');
+  const [activeSubTab, setActiveSubTab] = useState<'schema' | 'lineage' | 'knowledge' | 'examples'>('schema');
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [dsName, setDsName] = useState('');
   const [dsType, setDsType] = useState<DataSourceType>('postgresql');
@@ -117,12 +125,30 @@ export const DataSourceManager: React.FC = () => {
     }
   };
 
+  // 数据源级数据自省开关（Vanna intermediate_sql 借鉴）：问数前可先执行轻量自省 SQL 确认真实取值
+  const handleToggleIntrospection = async (ds: DataSource) => {
+    const next = !ds.allowIntrospection;
+    try {
+      const res = await apiFetch(`/api/datasources/${ds.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowIntrospection: next }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '更新失败');
+      updateDataSource({ ...ds, allowIntrospection: next });
+      setImportNotice(`数据源「${ds.name}」数据自省已${next ? '开启' : '关闭'}。`);
+    } catch (err: any) {
+      setActionError(err.message || '更新自省开关失败');
+    }
+  };
+
   const handleSaveDataSource = async () => {
     if (!dsName.trim() || isSaving) return;
 
-    // 非 MySQL 类型构造一张占位表；MySQL 由服务端真实连接并提取完整 Schema
+    // 非数据库类型构造一张占位表；数据库类型由服务端真实连接并提取完整 Schema
     const placeholderTables: TableSchema[] =
-      dsType === 'mysql'
+      DB_TYPES.includes(dsType)
         ? []
         : [
             {
@@ -162,7 +188,7 @@ export const DataSourceManager: React.FC = () => {
       setIsAddingNew(false);
       setDsName('');
       setTestResult(null);
-      if (dsType === 'mysql') {
+      if (DB_TYPES.includes(dsType)) {
         // 统计自动推导结果并自动打开问数范围编辑器，引导管理员完成"选范围 → 调指标维度"闭环
         const allCols = savedDS.tables.flatMap((t) => t.columns);
         const metricCount = allCols.filter((c) => c.isMetric).length;
@@ -452,6 +478,7 @@ export const DataSourceManager: React.FC = () => {
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
               >
                 <option value="postgresql">PostgreSQL 数据库</option>
+                <option value="greenplum">Greenplum 数据库</option>
                 <option value="mysql">MySQL 数据库</option>
                 <option value="api">RESTful API 接口源</option>
               </select>
@@ -566,10 +593,38 @@ export const DataSourceManager: React.FC = () => {
           <GitFork className="w-4 h-4 text-cyan-400" />
           <span>全链路数据血缘视图 (Data Lineage Graph)</span>
         </button>
+
+        <button
+          onClick={() => setActiveSubTab('knowledge')}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeSubTab === 'knowledge'
+              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+          }`}
+        >
+          <BookOpen className="w-4 h-4 text-amber-400" />
+          <span>业务知识库 (Knowledge Base)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('examples')}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            activeSubTab === 'examples'
+              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+          }`}
+        >
+          <FileCode2 className="w-4 h-4 text-violet-400" />
+          <span>SQL 样例库 (Training Data)</span>
+        </button>
       </div>
 
       {activeSubTab === 'lineage' ? (
         <DataLineageView />
+      ) : activeSubTab === 'knowledge' ? (
+        <KnowledgeBasePanel dataSources={dataSources} initialId={activeDataSourceId} />
+      ) : activeSubTab === 'examples' ? (
+        <SqlExamplesPanel dataSources={dataSources} initialId={activeDataSourceId} />
       ) : (
         /* Main Grid: Data Sources List & Active Schema Inspector */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -633,7 +688,23 @@ export const DataSourceManager: React.FC = () => {
                       >
                         <ListChecks className="w-3.5 h-3.5" />
                       </button>
-                      {ds.type === 'mysql' && (
+                      {DB_TYPES.includes(ds.type) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleIntrospection(ds);
+                          }}
+                          title={ds.allowIntrospection ? '数据自省：已开启（问数前可先执行轻量 SQL 确认真实取值）' : '数据自省：已关闭（点击开启）'}
+                          className={`p-1 rounded-lg border transition-colors ${
+                            ds.allowIntrospection
+                              ? 'text-violet-300 bg-violet-950/40 border-violet-800/50'
+                              : 'text-slate-500 hover:text-violet-300 hover:bg-violet-950/40 hover:border-violet-800/50 border-transparent'
+                          }`}
+                        >
+                          <ScanSearch className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {DB_TYPES.includes(ds.type) && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

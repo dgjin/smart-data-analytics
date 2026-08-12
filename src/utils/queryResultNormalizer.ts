@@ -4,7 +4,7 @@
  * 服务端与单元测试共享该逻辑，避免裸 JSON.parse 直接信任模型输出。
  */
 
-const VALID_CHART_TYPES = ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'scatter', 'kpi', 'table'] as const;
+const VALID_CHART_TYPES = ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'scatter', 'treemap', 'heatmap', 'kpi', 'table'] as const;
 
 /**
  * 剥离模型输出中可能包裹的 markdown 代码块标记
@@ -51,10 +51,12 @@ export interface NormalizedQueryResult {
     xAxisKey: string;
     yAxisKeys: string[];
     yAxisNames?: Record<string, string>;
+    xAxisName?: string;
     stacked?: boolean;
     description?: string;
   } | null;
   rows: Record<string, any>[];
+  columnNames?: Record<string, string>;
   columns: string[];
   totalCount: number;
   kpiMetrics?: {
@@ -65,6 +67,8 @@ export interface NormalizedQueryResult {
     subtext?: string;
   }[];
   suggestedQuestions: string[];
+  /** 本次回答使用的专家角色标签（按问题关键词路由，见 server/expertPersona.ts） */
+  expertPersona?: string;
 }
 
 /**
@@ -96,6 +100,7 @@ export function normalizeQueryResult(raw: any): NormalizedQueryResult | null {
         stacked: Boolean(cc.stacked),
       };
       if (cc.yAxisNames && typeof cc.yAxisNames === 'object') chartConfig.yAxisNames = cc.yAxisNames;
+      if (typeof cc.xAxisName === 'string') chartConfig.xAxisName = cc.xAxisName;
       if (typeof cc.description === 'string') chartConfig.description = cc.description;
     }
   }
@@ -113,6 +118,14 @@ export function normalizeQueryResult(raw: any): NormalizedQueryResult | null {
       : [],
     chartConfig,
     rows,
+    columnNames:
+      raw.columnNames && typeof raw.columnNames === 'object'
+        ? (Object.fromEntries(
+            Object.entries(raw.columnNames).filter(
+              ([k, v]) => typeof k === 'string' && typeof v === 'string'
+            )
+          ) as Record<string, string>)
+        : undefined,
     columns,
     totalCount: rows.length,
     kpiMetrics: Array.isArray(raw.kpiMetrics)
@@ -129,6 +142,7 @@ export function normalizeQueryResult(raw: any): NormalizedQueryResult | null {
     suggestedQuestions: Array.isArray(raw.suggestedQuestions)
       ? raw.suggestedQuestions.filter((s: any) => typeof s === 'string').slice(0, 5)
       : [],
+    expertPersona: typeof raw.expertPersona === 'string' ? raw.expertPersona : undefined,
   };
 }
 
@@ -142,7 +156,15 @@ export function normalizeReport(raw: any): Record<string, any> | null {
   return {
     ...raw,
     insights: Array.isArray(raw.insights) ? raw.insights : [],
-    kpiList: Array.isArray(raw.kpiList) ? raw.kpiList : [],
+    // KPI 字段矫正：LLM 输出的 change 可能是 null/number/缺省，统一为字符串（前端异常扫描依赖）
+    kpiList: (Array.isArray(raw.kpiList) ? raw.kpiList : [])
+      .filter((k: any) => k && typeof k === 'object' && typeof k.label === 'string' && k.label.trim())
+      .map((k: any) => ({
+        label: String(k.label).trim(),
+        value: k.value != null ? String(k.value) : '',
+        change: k.change != null ? String(k.change) : '',
+        status: ['good', 'bad', 'neutral'].includes(k.status) ? k.status : 'neutral',
+      })),
     charts: Array.isArray(raw.charts) ? raw.charts : [],
   };
 }

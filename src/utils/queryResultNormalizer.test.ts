@@ -94,6 +94,16 @@ describe('normalizeQueryResult', () => {
     expect(result!.chartConfig?.type).toBe('bar');
   });
 
+  it('P2-B 新增图表类型 treemap/heatmap 透传不矫正', () => {
+    for (const type of ['treemap', 'heatmap'] as const) {
+      const result = normalizeQueryResult({
+        ...baseValid,
+        chartConfig: { ...baseValid.chartConfig, type },
+      });
+      expect(result!.chartConfig?.type).toBe(type);
+    }
+  });
+
   it('yAxisKeys 为空时 chartConfig 置为 null', () => {
     const result = normalizeQueryResult({
       ...baseValid,

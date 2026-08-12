@@ -1,20 +1,27 @@
 /**
  * 数据源管理路由。
  * 读取对所有登录用户开放（查询页需要 schema）；写入与连接测试仅 ADMIN。
- * mysql 类型执行真实连接探测，其余类型返回模拟结果。
+ * mysql/postgresql/greenplum 类型执行真实连接探测与 Schema 提取，其余类型返回模拟结果。
  */
 import { Router } from 'express';
 import mysql from 'mysql2/promise';
+import pg from 'pg';
 import { authMiddleware, requireRole } from '../auth';
 import { getPool } from '../db';
 import { sanitizeDataScope } from '../scope';
 import { invalidateSchemaCache } from '../schemaContext';
 import { invalidateExecutorPool } from '../sqlExecutor';
+import { decryptSecret, encryptConfigPassword } from '../secretsCrypto';
 
 const router = Router();
 router.use(authMiddleware);
 
-const VALID_TYPES = ['mysql', 'postgresql', 'csv', 'json', 'api', 'demo'];
+const VALID_TYPES = ['mysql', 'postgresql', 'greenplum', 'csv', 'json', 'api', 'demo'];
+
+/** 支持真实 Schema 提取/同步的数据库类型 */
+function isDbType(type: string): boolean {
+  return type === 'mysql' || type === 'postgresql' || type === 'greenplum';
+}
 
 function rowToDataSource(row: any) {
   const config = safeJson(row.config_json, {});
@@ -28,6 +35,7 @@ function rowToDataSource(row: any) {
     config: safeConfig,
     tables: safeJson(row.schema_json, []),
     scope: safeJson(row.scope_json, null),
+    allowIntrospection: Number(row.allow_introspection) === 1,
     lastSyncedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
   };
 }
@@ -39,6 +47,16 @@ export function mapMysqlType(dataType: string): string {
   if (['date', 'datetime', 'timestamp', 'time'].includes(t)) return 'date';
   if (['enum', 'set'].includes(t)) return 'category';
   if (['bit', 'bool', 'boolean'].includes(t)) return 'boolean';
+  return 'string';
+}
+
+// PostgreSQL / Greenplum data_type（information_schema 完整写法）→ 前端 ColumnSchema.type
+export function mapPgType(dataType: string): string {
+  const t = String(dataType).toLowerCase();
+  if (['smallint', 'integer', 'bigint', 'decimal', 'numeric', 'real', 'double precision', 'serial', 'bigserial', 'smallserial', 'money'].includes(t)) return 'number';
+  if (t === 'date' || t.startsWith('timestamp') || t.startsWith('time')) return 'date';
+  if (['boolean', 'bool'].includes(t)) return 'boolean';
+  // 短文本（varchar/char ≤64 字符）是否维度由 deriveColumnRole 依据 maxLength 判定
   return 'string';
 }
 
@@ -62,9 +80,37 @@ export function deriveColumnRole(
   if (['date', 'category', 'boolean'].includes(type)) return { isMetric: false, isDimension: true };
   const rawType = String(dataType).toLowerCase();
   const isLongText =
-    ['text', 'tinytext', 'mediumtext', 'longtext', 'json', 'blob'].includes(rawType) ||
+    ['text', 'tinytext', 'mediumtext', 'longtext', 'json', 'jsonb', 'blob', 'bytea', 'xml'].includes(rawType) ||
     (maxLength != null && maxLength > 64);
   return { isMetric: false, isDimension: !isLongText };
+}
+
+// 表/列元数据组装（MySQL 与 PG 系共用）：列按表分组、推导角色、拼 TableSchema
+function assembleTables(tableRows: any[], colRows: any[], mapType: (dataType: string) => string) {
+  const colsByTable = new Map<string, any[]>();
+  for (const c of colRows) {
+    const type = mapType(c.dataType);
+    const isPK = c.columnKey === 'PRI';
+    const role = deriveColumnRole(c.name, type, isPK, c.dataType, c.maxLength != null ? Number(c.maxLength) : null);
+    const col = {
+      name: c.name,
+      type,
+      description: c.comment || '',
+      isPrimaryKey: isPK || undefined,
+      ...role,
+    };
+    if (!colsByTable.has(c.tableName)) colsByTable.set(c.tableName, []);
+    colsByTable.get(c.tableName)!.push(col);
+  }
+
+  return tableRows.map((t) => ({
+    id: `tbl_${t.name}`,
+    name: t.name,
+    displayName: t.comment ? String(t.comment).split(';')[0].split('\n')[0] || t.name : t.name,
+    description: t.comment || `数据表 ${t.name}`,
+    rowCount: Number(t.rowCount || 0),
+    columns: colsByTable.get(t.name) || [],
+  }));
 }
 
 // 真实连接 MySQL 并提取全部表与列结构（information_schema）
@@ -73,7 +119,7 @@ async function extractMysqlSchema(config: any) {
     host: config?.host || '127.0.0.1',
     port: Number(config?.port) || 3306,
     user: config?.username || 'root',
-    password: config?.password || '',
+    password: decryptSecret(config?.password || ''),
     database: config?.database || undefined,
     connectTimeout: 5000,
   });
@@ -95,34 +141,67 @@ async function extractMysqlSchema(config: any) {
        ORDER BY table_name, ordinal_position`,
       [db]
     );
-
-    const colsByTable = new Map<string, any[]>();
-    for (const c of colRows as any[]) {
-      const type = mapMysqlType(c.dataType);
-      const isPK = c.columnKey === 'PRI';
-      const role = deriveColumnRole(c.name, type, isPK, c.dataType, c.maxLength != null ? Number(c.maxLength) : null);
-      const col = {
-        name: c.name,
-        type,
-        description: c.comment || '',
-        isPrimaryKey: isPK || undefined,
-        ...role,
-      };
-      if (!colsByTable.has(c.tableName)) colsByTable.set(c.tableName, []);
-      colsByTable.get(c.tableName)!.push(col);
-    }
-
-    return (tableRows as any[]).map((t) => ({
-      id: `tbl_${t.name}`,
-      name: t.name,
-      displayName: t.comment ? String(t.comment).split(';')[0].split('\n')[0] || t.name : t.name,
-      description: t.comment || `数据表 ${t.name}`,
-      rowCount: Number(t.rowCount || 0),
-      columns: colsByTable.get(t.name) || [],
-    }));
+    return assembleTables(tableRows as any[], colRows as any[], mapMysqlType);
   } finally {
     await conn.end();
   }
+}
+
+// 真实连接 PostgreSQL / Greenplum 并提取全部表与列结构。
+// 表清单走 pg_catalog（reltuples 行数估算、obj_description 表注释）；
+// 列走 information_schema.columns + col_description 列注释 + PRIMARY KEY 子查询。
+async function extractPgSchema(config: any) {
+  const client = new pg.Client({
+    host: config?.host || '127.0.0.1',
+    port: Number(config?.port) || 5432,
+    user: config?.username || 'postgres',
+    password: decryptSecret(config?.password || ''),
+    database: config?.database || undefined,
+    connectionTimeoutMillis: 5000,
+    statement_timeout: 15000,
+  });
+  await client.connect();
+  try {
+    const schema = String(config?.schema || 'public').trim() || 'public';
+    const { rows: tableRows } = await client.query(
+      `SELECT c.relname AS name, GREATEST(c.reltuples, 0)::bigint AS "rowCount",
+              obj_description(c.oid, 'pg_class') AS comment
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = $1 AND c.relkind IN ('r', 'p')
+       ORDER BY c.relname LIMIT 500`,
+      [schema]
+    );
+    const { rows: colRows } = await client.query(
+      `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
+              CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
+              col_description(format('%I.%I', col.table_schema, col.table_name)::regclass, col.ordinal_position) AS comment,
+              col.character_maximum_length AS "maxLength"
+       FROM information_schema.columns col
+       LEFT JOIN (
+         SELECT kcu.table_schema, kcu.table_name, kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON kcu.constraint_name = tc.constraint_name
+          AND kcu.table_schema = tc.table_schema
+          AND kcu.table_name = tc.table_name
+         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+       ) pk ON pk.table_schema = col.table_schema
+          AND pk.table_name = col.table_name
+          AND pk.column_name = col.column_name
+       WHERE col.table_schema = $1
+       ORDER BY col.table_name, col.ordinal_position`,
+      [schema]
+    );
+    return assembleTables(tableRows, colRows, mapPgType);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/** 按数据源类型分派真实 Schema 提取 */
+async function extractDbSchema(type: string, config: any) {
+  return type === 'mysql' ? extractMysqlSchema(config) : extractPgSchema(config);
 }
 
 function safeJson(text: any, fallback: any) {
@@ -136,10 +215,20 @@ function safeJson(text: any, fallback: any) {
 }
 
 // GET /api/datasources（所有登录用户）
-router.get('/', async (_req, res) => {
+// 表结构详情（tables）仅 ADMIN 可见；其他角色剥离 tables 并附 tableCount 供徽标展示。
+// 问数链路不依赖该字段（服务端 loadSchemaContext 直接读落库 schema），功能不受影响。
+router.get('/', async (req, res) => {
   try {
+    const isAdmin = req.user?.role === 'ADMIN';
     const [rows] = await getPool().query('SELECT * FROM data_sources ORDER BY created_at ASC');
-    return res.json({ dataSources: (rows as any[]).map(rowToDataSource) });
+    return res.json({
+      dataSources: (rows as any[]).map((row) => {
+        const ds = rowToDataSource(row);
+        if (isAdmin) return ds;
+        const { tables, ...rest } = ds;
+        return { ...rest, tables: [], tableCount: (tables as any[]).length };
+      }),
+    });
   } catch (err) {
     console.error('[DataSources] list failed:', err);
     return res.status(500).json({ error: '数据源列表获取失败' });
@@ -147,7 +236,7 @@ router.get('/', async (_req, res) => {
 });
 
 // POST /api/datasources（ADMIN）
-// mysql 类型忽略前端提交的 tables，真实连接数据库提取完整 Schema
+// 数据库类型（mysql/postgresql/greenplum）忽略前端提交的 tables，真实连接数据库提取完整 Schema
 router.post('/', requireRole('ADMIN'), async (req, res) => {
   const { name, type, config, tables } = req.body || {};
   if (typeof name !== 'string' || !name.trim()) {
@@ -158,9 +247,9 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   }
 
   let schemaTables = Array.isArray(tables) ? tables : [];
-  if (type === 'mysql') {
+  if (isDbType(type)) {
     try {
-      schemaTables = await extractMysqlSchema(config);
+      schemaTables = await extractDbSchema(type, config);
     } catch (err: any) {
       return res.status(400).json({ error: `数据库连接失败，无法提取表结构：${err?.message || '未知错误'}` });
     }
@@ -174,7 +263,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         id,
         name.trim().slice(0, 128),
         type,
-        JSON.stringify(config && typeof config === 'object' ? config : {}),
+        JSON.stringify(encryptConfigPassword(config && typeof config === 'object' ? config : {})),
         JSON.stringify(schemaTables),
         'connected',
         req.user!.username,
@@ -188,7 +277,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   }
 });
 
-// POST /api/datasources/:id/sync-schema（ADMIN，仅 mysql）
+// POST /api/datasources/:id/sync-schema（ADMIN，数据库类型）
 // 重新连接数据库提取最新表结构并覆盖 schema_json
 router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
@@ -198,8 +287,8 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
     }
-    if (ds.type !== 'mysql') {
-      return res.status(400).json({ error: '仅 MySQL 数据源支持自动同步 Schema' });
+    if (!isDbType(String(ds.type))) {
+      return res.status(400).json({ error: '仅 MySQL / PostgreSQL / Greenplum 数据源支持自动同步 Schema' });
     }
 
     const config = safeJson(ds.config_json, {});
@@ -210,7 +299,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
 
     let tables;
     try {
-      tables = await extractMysqlSchema(config);
+      tables = await extractDbSchema(String(ds.type), config);
     } catch (err: any) {
       return res.status(400).json({ error: `同步失败，无法连接数据库：${err?.message || '未知错误'}` });
     }
@@ -244,7 +333,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
 
     await getPool().query(
       'UPDATE data_sources SET schema_json = ?, config_json = ?, scope_json = ?, status = ? WHERE id = ?',
-      [JSON.stringify(tables), JSON.stringify(config), cleanedScope ? JSON.stringify(cleanedScope) : null, 'connected', id]
+      [JSON.stringify(tables), JSON.stringify(encryptConfigPassword(config)), cleanedScope ? JSON.stringify(cleanedScope) : null, 'connected', id]
     );
     invalidateSchemaCache(id);
     invalidateExecutorPool(id);
@@ -259,7 +348,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
 // PUT /api/datasources/:id（ADMIN）
 router.put('/:id', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
-  const { name, type, config, tables, status } = req.body || {};
+  const { name, type, config, tables, status, allowIntrospection } = req.body || {};
 
   const updates: string[] = [];
   const params: any[] = [];
@@ -276,7 +365,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
   }
   if (config !== undefined) {
     updates.push('config_json = ?');
-    params.push(JSON.stringify(config && typeof config === 'object' ? config : {}));
+    params.push(JSON.stringify(encryptConfigPassword(config && typeof config === 'object' ? config : {})));
   }
   if (tables !== undefined) {
     updates.push('schema_json = ?');
@@ -288,6 +377,10 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
     }
     updates.push('status = ?');
     params.push(status);
+  }
+  if (allowIntrospection !== undefined) {
+    updates.push('allow_introspection = ?');
+    params.push(allowIntrospection ? 1 : 0);
   }
   if (updates.length === 0) {
     return res.status(400).json({ error: '没有需要更新的字段' });
@@ -425,11 +518,49 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
 });
 
 // POST /api/datasources/test-connection（ADMIN）
-// mysql 类型真实探测；其余类型保持模拟响应
+// mysql/postgresql/greenplum 类型真实探测；其余类型保持模拟响应
 router.post('/test-connection', requireRole('ADMIN'), async (req, res) => {
   const { type, config } = req.body || {};
   if (!type) {
     return res.status(400).json({ error: 'Data source type is required.' });
+  }
+
+  if (type === 'postgresql' || type === 'greenplum') {
+    const startedAt = Date.now();
+    const label = type === 'greenplum' ? 'Greenplum' : 'PostgreSQL';
+    try {
+      const client = new pg.Client({
+        host: config?.host || '127.0.0.1',
+        port: Number(config?.port) || 5432,
+        user: config?.username || 'postgres',
+        // 测试连接的密码来自前端表单明文（尚未落库），不做解密
+        password: config?.password || '',
+        database: config?.database || undefined,
+        connectionTimeoutMillis: 5000,
+        statement_timeout: 10000,
+      });
+      await client.connect();
+      await client.query('SELECT 1');
+      const { rows } = await client.query(
+        `SELECT COUNT(*)::int AS cnt FROM information_schema.tables
+         WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
+        [String(config?.schema || 'public').trim() || 'public']
+      );
+      await client.end();
+      return res.json({
+        success: true,
+        message: `成功连接 ${label} 数据源 (${config?.database || config?.host})`,
+        latencyMs: Date.now() - startedAt,
+        tableCount: Number(rows[0]?.cnt || 0),
+      });
+    } catch (err: any) {
+      return res.status(200).json({
+        success: false,
+        message: `连接失败：${err?.message || '未知错误'}`,
+        latencyMs: Date.now() - startedAt,
+        tableCount: 0,
+      });
+    }
   }
 
   if (type === 'mysql') {

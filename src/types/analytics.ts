@@ -1,4 +1,4 @@
-export type DataSourceType = 'mysql' | 'postgresql' | 'csv' | 'json' | 'api' | 'demo';
+export type DataSourceType = 'mysql' | 'postgresql' | 'greenplum' | 'csv' | 'json' | 'api' | 'demo';
 
 // ---- Auth & RBAC ----
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
@@ -56,11 +56,15 @@ export interface DataSource {
     fileSize?: string;
   };
   tables: TableSchema[];
+  /** 数据自省开关（Vanna intermediate_sql 借鉴）：允许问数链路先执行轻量自省 SQL 确认真实取值 */
+  allowIntrospection?: boolean;
+  /** 表数量（非管理员不下发 tables 详情时由服务端提供，供 UI 徽标展示） */
+  tableCount?: number;
   scope?: DataScope | null;
   lastSyncedAt: string;
 }
 
-export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'radar' | 'scatter' | 'kpi' | 'table';
+export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'radar' | 'scatter' | 'treemap' | 'heatmap' | 'kpi' | 'table';
 
 export interface ChartConfig {
   type: ChartType;
@@ -68,6 +72,8 @@ export interface ChartConfig {
   xAxisKey: string;
   yAxisKeys: string[];
   yAxisNames?: Record<string, string>;
+  /** 维度（X 轴）中文名，用于 tooltip/图例展示 */
+  xAxisName?: string;
   stacked?: boolean;
   colors?: string[];
   description?: string;
@@ -80,6 +86,10 @@ export interface QueryResultData {
   executionTimeMs: number;
   /** 数据来源：live = 真实数据库执行（双阶段）；simulated = 演示/降级数据 */
   dataProvenance?: 'live' | 'simulated';
+  /** 本次回答的专家角色标签（按问题关键词路由：财务/不良/客户/风险/默认金融分析师） */
+  expertPersona?: string;
+  /** 结果列名 → 中文表头（schema 业务含义 + LLM 聚合别名映射） */
+  columnNames?: Record<string, string>;
   generatedSQL?: string;
   thoughtProcess?: string[];
   aiExplanation?: string;
@@ -110,6 +120,15 @@ export interface ChatMessage {
   dataProvenance?: 'live' | 'simulated';
   /** L7 敏感标记：本次问数被服务端安全策略从 AI 上下文中剔除的敏感列数量（>0 时 UI 展示提示） */
   sensitiveFiltered?: number;
+  /** P1 反馈闭环：本条 assistant 消息对应的用户原始提问（反馈落库用） */
+  question?: string;
+  /** P1 反馈闭环：用户对本条回答的评价（已提交后置灰按钮） */
+  feedback?: 'UP' | 'DOWN';
+  /** 歧义澄清：语义理解存在多种可能时由服务端返回，用户点选确认后重新提交 */
+  clarification?: {
+    question: string;
+    options: { label: string; query: string }[];
+  };
 }
 
 export interface AnomalyItem {
@@ -190,6 +209,8 @@ export interface DashboardWidget {
   title: string;
   chartConfig: ChartConfig;
   data: Record<string, any>[];
+  /** 固化时所在的问数数据源（旧数据可能缺失，消费方需兜底） */
+  dataSourceId?: string;
   colSpan?: 1 | 2 | 3;
   height?: number;
 }

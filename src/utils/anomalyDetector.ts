@@ -13,7 +13,8 @@ export function scanReportForAnomalies(report: SavedReport): SavedReport {
 
   // 1. Scan KPIs for Anomalies
   const updatedKpiList = report.kpiList.map((kpi, idx) => {
-    const rawChangeNum = parseFloat(kpi.change.replace(/[^0-9.-]/g, ''));
+    // LLM 输出的 change 可能是 null/number/缺省（契约仅"数据支持时给出"），统一转字符串再解析
+    const rawChangeNum = parseFloat(String(kpi.change ?? '').replace(/[^0-9.-]/g, ''));
     let isAnomaly = false;
     let anomalyNote = '';
 

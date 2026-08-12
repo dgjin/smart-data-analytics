@@ -11,6 +11,8 @@ import {
 interface DataTableProps {
   data: Record<string, any>[];
   columns?: string[];
+  /** 列名 → 中文表头映射（schema 业务含义 + LLM 聚合别名） */
+  columnNames?: Record<string, string>;
   title?: string;
   pageSize?: number;
 }
@@ -18,6 +20,7 @@ interface DataTableProps {
 export const DataTable: React.FC<DataTableProps> = ({
   data,
   columns: customColumns,
+  columnNames,
   title = '明细查询结果数据',
   pageSize = 10,
 }) => {
@@ -78,10 +81,13 @@ export const DataTable: React.FC<DataTableProps> = ({
     }
   };
 
+  // 表头显示名：优先中文映射，悬浮提示原始列名
+  const columnLabel = (col: string) => columnNames?.[col] || col;
+
   // CSV Export
   const exportCSV = () => {
     if (!data || data.length === 0) return;
-    const headerRow = columns.join(',');
+    const headerRow = columns.map((col) => `"${columnLabel(col).replace(/"/g, '""')}"`).join(',');
     const bodyRows = data.map((row) =>
       columns
         .map((col) => {
@@ -150,16 +156,17 @@ export const DataTable: React.FC<DataTableProps> = ({
       {/* Responsive Table Container */}
       <div className="overflow-x-auto border border-slate-800 rounded-xl">
         <table className="w-full text-left text-xs text-slate-300 divide-y divide-slate-800">
-          <thead className="bg-slate-950 text-slate-400 font-semibold uppercase text-[11px] select-none">
+          <thead className="bg-slate-950 text-slate-400 font-semibold text-[11px] select-none">
             <tr>
               {columns.map((col) => (
                 <th
                   key={col}
                   onClick={() => handleSort(col)}
+                  title={columnNames?.[col] ? col : undefined}
                   className="px-3.5 py-2.5 hover:bg-slate-900 cursor-pointer transition-colors whitespace-nowrap"
                 >
                   <div className="flex items-center space-x-1">
-                    <span>{col}</span>
+                    <span>{columnLabel(col)}</span>
                     <ArrowUpDown className="w-3 h-3 text-slate-500" />
                   </div>
                 </th>

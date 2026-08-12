@@ -6,7 +6,23 @@
  * 数据源连接按 dataSourceId 建池缓存；配置变更后由路由侧 invalidateExecutorPool 失效。
  */
 import mysql from 'mysql2/promise';
+import pg from 'pg';
+// node-sql-parser 是 CJS 包，ESM 下需默认导入后解构（tsx/Node ESM 命名导出不可用）
+import sqlParserPkg from 'node-sql-parser';
 import { getPool } from './db';
+import { decryptSecret } from './secretsCrypto';
+
+const { Parser: SqlAstParser } = sqlParserPkg;
+
+/** 执行引擎方言：mysql 走 mysql2；postgresql/greenplum 同属 PG 协议走 pg 驱动 */
+export type SqlDialect = 'mysql' | 'pg';
+
+/** 数据源类型 → 执行方言；不支持的类型返回 null */
+export function dialectOfDsType(dsType: string): SqlDialect | null {
+  if (dsType === 'mysql') return 'mysql';
+  if (dsType === 'postgresql' || dsType === 'greenplum') return 'pg';
+  return null;
+}
 
 const MAX_ROWS = 500;
 const QUERY_TIMEOUT_MS = 10_000;
@@ -67,6 +83,34 @@ export function extractTableRefs(strippedSql: string): string[] {
   return [...refs];
 }
 
+// P1 AST 二道防线：node-sql-parser 语法树级复核。
+// 解析成功 → 强校验（所有语句类型必须为 select、AST 提取的表必须全在白名单）；
+// 解析失败 → 放行不误伤（MySQL 方言边界），此时第一道正则防线的结论已生效。
+const astParser = new SqlAstParser();
+export function checkAstSafety(
+  sql: string,
+  allowedTables: Set<string>,
+  dialect: SqlDialect = 'mysql'
+): { ok: true } | { ok: false; reason: string } {
+  let entries: string[];
+  try {
+    entries = astParser.tableList(sql, { database: dialect === 'pg' ? 'PostgreSQL' : 'MySQL' });
+  } catch {
+    return { ok: true };
+  }
+  for (const entry of entries) {
+    // 条目格式：`<action>::<db>::<table>`，如 `select::null::orders`
+    const [action, , table] = String(entry).split('::');
+    if (action !== 'select') {
+      return { ok: false, reason: `SQL 包含非只读操作（${action}）` };
+    }
+    if (table && table !== 'null' && !allowedTables.has(table.toLowerCase())) {
+      return { ok: false, reason: `SQL 引用了问数范围外的表：${table}` };
+    }
+  }
+  return { ok: true };
+}
+
 /**
  * 校验 LLM 生成的 SQL 是否允许对真实数据源执行。
  * allowedTables：已通过 scope 白名单与敏感列过滤的 Schema（含列名清单）。
@@ -76,7 +120,8 @@ export function extractTableRefs(strippedSql: string): string[] {
 export function validateSelectSql(
   rawSql: unknown,
   allowedTables: { name: string; columns?: { name: string }[] }[],
-  sensitiveColumns: string[] = []
+  sensitiveColumns: string[] = [],
+  dialect: SqlDialect = 'mysql'
 ): SqlSafetyResult {
   if (typeof rawSql !== 'string' || !rawSql.trim()) {
     return { ok: false, reason: 'SQL 为空或格式无效' };
@@ -110,6 +155,11 @@ export function validateSelectSql(
   if (illegal.length > 0) {
     return { ok: false, reason: `SQL 引用了问数范围外的表：${illegal.join(', ')}` };
   }
+  // P1 AST 二道防线（正则白名单之后）：语法树级复核语句类型与表引用
+  const astCheck = checkAstSafety(withoutTrailing, allowed, dialect);
+  if (astCheck.ok !== true) {
+    return { ok: false, reason: astCheck.reason };
+  }
   // 敏感列拒绝（裸列名整词匹配，覆盖反引号写法）
   for (const col of sensitiveColumns) {
     const name = String(col).split('.').pop() || '';
@@ -120,6 +170,7 @@ export function validateSelectSql(
     }
   }
   // 强制 LIMIT：无 LIMIT 追加；有 LIMIT 则将返回行数 clamp 到 MAX_ROWS
+  // 方言差异：MySQL 支持 LIMIT offset,count；PG/Greenplum 仅支持 LIMIT n OFFSET m
   let finalSql = withoutTrailing;
   const limitRe = /\blimit\s+(\d+)(?:\s*,\s*(\d+)|\s+offset\s+(\d+))?\s*$/i;
   const lm = finalSql.match(limitRe);
@@ -129,27 +180,33 @@ export function validateSelectSql(
     const count = lm[2] ? Number(lm[2]) : Number(lm[1]);
     const offset = lm[2] ? Number(lm[1]) : lm[3] ? Number(lm[3]) : 0;
     const clamped = Math.min(count, MAX_ROWS);
-    finalSql = finalSql.replace(
-      limitRe,
-      offset > 0 ? `LIMIT ${offset}, ${clamped}` : `LIMIT ${clamped}`
-    );
+    const replacement =
+      dialect === 'pg'
+        ? offset > 0
+          ? `LIMIT ${clamped} OFFSET ${offset}`
+          : `LIMIT ${clamped}`
+        : offset > 0
+          ? `LIMIT ${offset}, ${clamped}`
+          : `LIMIT ${clamped}`;
+    finalSql = finalSql.replace(limitRe, replacement);
   }
   return { ok: true, sql: finalSql };
 }
 
-// ---- 数据源连接池（按数据源 ID 缓存） ----
-const dsPools = new Map<string, mysql.Pool>();
+// ---- 数据源连接池（按数据源 ID 缓存；mysql 走 mysql2，PG 系走 pg 驱动） ----
+type DsPoolEntry = { dialect: 'mysql'; pool: mysql.Pool } | { dialect: 'pg'; pool: pg.Pool };
+const dsPools = new Map<string, DsPoolEntry>();
 
 /** 数据源配置变更/删除后调用，使连接池失效 */
 export function invalidateExecutorPool(dataSourceId?: string): void {
   if (dataSourceId) {
-    const p = dsPools.get(dataSourceId);
+    const entry = dsPools.get(dataSourceId);
     dsPools.delete(dataSourceId);
-    p?.end().catch(() => undefined);
+    entry?.pool.end().catch(() => undefined);
   } else {
-    for (const [id, p] of dsPools) {
+    for (const [id, entry] of dsPools) {
       dsPools.delete(id);
-      p.end().catch(() => undefined);
+      entry.pool.end().catch(() => undefined);
     }
   }
 }
@@ -175,30 +232,54 @@ async function loadDataSourceConfig(dataSourceId: string): Promise<{ type: strin
   if (typeof config === 'string') {
     try { config = JSON.parse(config); } catch { config = {}; }
   }
-  return { type: String(ds.type || ''), config: config || {} };
+  config = config || {};
+  // P0：落库密码为 AES-256-GCM 密文，连接前解密（明文存量透传）
+  if (config.password) config.password = decryptSecret(String(config.password));
+  return { type: String(ds.type || ''), config };
 }
 
-function getDsPool(dataSourceId: string, config: any): mysql.Pool {
-  let pool = dsPools.get(dataSourceId);
-  if (!pool) {
-    pool = mysql.createPool({
-      host: config?.host || '127.0.0.1',
-      port: Number(config?.port) || 3306,
-      user: config?.username || 'root',
-      password: config?.password || '',
-      database: config?.database || undefined,
-      connectionLimit: 3,
-      connectTimeout: CONNECT_TIMEOUT_MS,
-      multipleStatements: false,
-      // 只读保障以 SELECT-only 校验 + 单语句为主防线；建议数据源配置只读账号
-    });
-    dsPools.set(dataSourceId, pool);
+function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any): DsPoolEntry {
+  let entry = dsPools.get(dataSourceId);
+  if (!entry) {
+    if (dialect === 'pg') {
+      // PostgreSQL / Greenplum：同属 PG 协议。超时由服务端 statement_timeout 强制，
+      // 连接级超时用 connectionTimeoutMillis；只读保障以 SELECT-only 校验 + 单语句为主防线。
+      entry = {
+        dialect: 'pg',
+        pool: new pg.Pool({
+          host: config?.host || '127.0.0.1',
+          port: Number(config?.port) || 5432,
+          user: config?.username || 'postgres',
+          password: config?.password || '',
+          database: config?.database || undefined,
+          max: 3,
+          connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+          statement_timeout: QUERY_TIMEOUT_MS,
+        }),
+      };
+    } else {
+      entry = {
+        dialect: 'mysql',
+        pool: mysql.createPool({
+          host: config?.host || '127.0.0.1',
+          port: Number(config?.port) || 3306,
+          user: config?.username || 'root',
+          password: config?.password || '',
+          database: config?.database || undefined,
+          connectionLimit: 3,
+          connectTimeout: CONNECT_TIMEOUT_MS,
+          multipleStatements: false,
+        }),
+      };
+    }
+    dsPools.set(dataSourceId, entry);
   }
-  return pool;
+  return entry;
 }
 
 /**
- * 校验并执行 SQL。dataSourceId 必须是 mysql 类型数据源，否则返回不支持错误（调用方走演示模式）。
+ * 校验并执行 SQL。dataSourceId 必须是支持真实执行的数据源类型
+ * （mysql / postgresql / greenplum），否则返回 UNSUPPORTED_DS_TYPE（调用方走演示模式）。
  */
 export async function executeSafeSql(
   dataSourceId: string,
@@ -206,19 +287,27 @@ export async function executeSafeSql(
   allowedTables: { name: string; columns?: { name: string }[] }[],
   sensitiveColumns: string[] = []
 ): Promise<ExecOutcome> {
-  const check = validateSelectSql(rawSql, allowedTables, sensitiveColumns);
-  if (check.ok !== true) return { ok: false, reason: check.reason };
-
   const ds = await loadDataSourceConfig(dataSourceId);
   if (!ds) return { ok: false, reason: '数据源不存在' };
-  if (ds.type !== 'mysql') {
-    return { ok: false, reason: 'NOT_MYSQL' };
+  const dialect = dialectOfDsType(ds.type);
+  if (!dialect) {
+    return { ok: false, reason: 'UNSUPPORTED_DS_TYPE' };
   }
 
+  const check = validateSelectSql(rawSql, allowedTables, sensitiveColumns, dialect);
+  if (check.ok !== true) return { ok: false, reason: check.reason };
+
   try {
-    const pool = getDsPool(dataSourceId, ds.config);
-    const [rows] = await pool.query({ sql: check.sql, timeout: QUERY_TIMEOUT_MS });
-    const list = (Array.isArray(rows) ? rows : []) as Record<string, any>[];
+    const entry = getDsPool(dataSourceId, dialect, ds.config);
+    let list: Record<string, any>[];
+    if (entry.dialect === 'pg') {
+      // pg 驱动：超时由建池时的 statement_timeout 承担，结果在 result.rows
+      const result = await entry.pool.query(check.sql);
+      list = Array.isArray(result.rows) ? result.rows : [];
+    } else {
+      const [rows] = await entry.pool.query({ sql: check.sql, timeout: QUERY_TIMEOUT_MS });
+      list = (Array.isArray(rows) ? rows : []) as Record<string, any>[];
+    }
     return {
       ok: true,
       result: {

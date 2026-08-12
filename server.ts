@@ -20,13 +20,22 @@ import { sanitizeQuestion, sanitizeHistory, containsInjection } from './server/q
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from './server/userQueryLimit';
 import { writeAudit } from './server/auditLog';
 import { loadSchemaContext } from './server/schemaContext';
-import { callLLMJson, llmEngineLabel, ChatMessage } from './server/llmClient';
-import { runLiveQuery } from './server/liveQuery';
+import { callLLMJson, callLLMText, llmEngineLabel, llmEngineInfo, ChatMessage } from './server/llmClient';
+import { runLiveQuery, buildColumnNames } from './server/liveQuery';
 import { runLiveReport } from './server/liveReport';
 import { executeSafeSql } from './server/sqlExecutor';
+import { saveFeedback } from './server/queryFeedback';
+import { getCachedQuery, setCachedQuery, cacheKey } from './server/queryCache';
+import { emitBeforeQuery, emitAfterQuery } from './server/queryHooks';
+import { requestLogger } from './server/requestLogger';
 import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
 import datasourceRoutes from './server/routes/datasources';
+import knowledgeRoutes from './server/routes/knowledge';
+import sqlExampleRoutes from './server/routes/sqlExamples';
+import skillRoutes from './server/routes/skills';
+import queryContextRoutes from './server/routes/queryContext';
+import helpRoutes from './server/routes/help';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -38,11 +47,37 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
   // Default to loopback-only for local development safety; set HOST=0.0.0.0 to expose.
   const HOST = process.env.HOST || '127.0.0.1';
+  const isProd = process.env.NODE_ENV === 'production';
+
+  // P0 生产安全检查：关键密钥缺失直接拒绝启动（fail-fast），
+  // 防止 JWT 落到 dev 默认密钥被伪造 token（数据源凭据加密缺省时也依赖 JWT_SECRET）。
+  if (isProd && !process.env.JWT_SECRET) {
+    console.error('[Security] 生产环境必须设置 JWT_SECRET 环境变量，拒绝启动');
+    process.exit(1);
+  }
 
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
 
   app.use(express.json({ limit: '2mb' }));
+
+  // P0 安全响应头（等价 helmet 核心项，零依赖）；CSP 仅生产启用（Vite dev/HMR 依赖内联脚本）
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (isProd) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'"
+      );
+    }
+    next();
+  });
+
+  // P2 可观测性：requestId + API 访问日志（位于鉴权之前，被拒请求同样有留痕）
+  app.use(requestLogger);
 
   console.log(`[AI Engine] ${llmEngineLabel()}`);
 
@@ -51,12 +86,22 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // 1b. API Endpoint: 当前 AI 引擎信息（登录用户；前端按实际模型展示提示，不暴露内网地址）
+  app.get('/api/system/engine', authMiddleware, (_req, res) => {
+    res.json(llmEngineInfo());
+  });
+
   // 2. Auth / RBAC / Data source management routes
   app.use('/api/auth', authRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/datasources', datasourceRoutes);
   // Legacy alias: /api/datasource/test-connection -> /api/datasources/test-connection
   app.use('/api/datasource', datasourceRoutes);
+  app.use('/api/knowledge', knowledgeRoutes);
+  app.use('/api/sql-examples', sqlExampleRoutes);
+  app.use('/api/skills', skillRoutes);
+  app.use('/api/query', queryContextRoutes);
+  app.use('/api/help', helpRoutes);
 
   // 3. API Endpoint: Natural Language Query to Analysis (NL2SQL / Analytics)
   app.post('/api/query/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
@@ -100,6 +145,42 @@ async function startServer() {
     // L3 上下文层：落库 schema + scope 白名单 + 敏感列过滤 + 5min 缓存（不信任前端提交的 schema）
     const ctx = await loadSchemaContext(dataSourceId, schema);
 
+    // P2-7 SSE：客户端请求流式时，live 链路按阶段推送事件（早期校验错误仍返 JSON，前端按 Content-Type 区分）
+    const streamMode = req.body.stream === true;
+    let sseStarted = false;
+    const sseSend = (event: string, data: any) => {
+      if (!streamMode || res.writableEnded) return;
+      if (!sseStarted) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        });
+        sseStarted = true;
+      }
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const respond = (payload: any, event = 'done') => {
+      if (streamMode) {
+        sseSend(event, payload);
+        res.end();
+        return;
+      }
+      return res.json(payload);
+    };
+
+    // P2-10 生命周期钩子：进入/结束事件广播（审计、缓存与未来插件可挂接）
+    const hookCtx = {
+      userId: user.id,
+      username: user.username,
+      dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+      question: query,
+      startedAt,
+      meta: { stream: streamMode },
+    };
+    emitBeforeQuery(hookCtx);
+
     try {
       // 数据源级 AI 开关：数据源被停用（disconnected）后拒绝问数
       if (ctx.status === 'disconnected') {
@@ -114,28 +195,50 @@ async function startServer() {
       // L4 历史层：assistant 输出一律丢弃（防回流污染），user 消息逐条过注入检测，最多 5 轮
       const sanitizedHistory: ChatMessage[] = sanitizeHistory(req.body.history);
 
-      // P0 双阶段真实执行：仅对落库的 mysql 数据源启用（LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
-      const canRunLive = ctx.dsType === 'mysql' && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+      // P0 双阶段真实执行：对落库的数据库型数据源启用（mysql/postgresql/greenplum，LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
+      const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
       if (canRunLive) {
+        // P1-6 结果缓存：同数据源相同问题（归一化后）短期内复用成功结果
+        const ck = cacheKey(dataSourceId, query);
+        const cached = getCachedQuery(ck);
+        if (cached) {
+          writeAudit({ ...auditBase, question: query, status: 'CACHE', executedSql: String(cached.executedSql || ''), rowCount: typeof cached.rowCount === 'number' ? cached.rowCount : -1, durationMs: Date.now() - startedAt });
+          emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
+          return respond({ ...cached, fromCache: true, executionTimeMs: Date.now() - startedAt });
+        }
+
         const live = await runLiveQuery({
           query,
           history: sanitizedHistory,
           schema: effectiveSchema,
           guidance: schemaGuidance,
           dataSourceId,
+          dsType: ctx.dsType || undefined,
           sensitiveRemoved: ctx.sensitiveRemoved,
+          allowIntrospection: ctx.allowIntrospection,
+          onStage: streamMode ? (stage, info) => sseSend('stage', { stage, ...(info || {}) }) : undefined,
         });
+        if (live.ok === 'clarify') {
+          // 歧义澄清：不执行 SQL，先把澄清问题与候选理解返回前端，由用户确认后重新提交
+          writeAudit({ ...auditBase, question: query, status: 'CLARIFY', detail: live.clarification.question.slice(0, 200), durationMs: Date.now() - startedAt });
+          emitAfterQuery(hookCtx, { status: 'CLARIFY', durationMs: Date.now() - startedAt });
+          return respond({
+            success: true,
+            executionTimeMs: Date.now() - startedAt,
+            needClarification: true,
+            clarification: live.clarification,
+            defense,
+            dataProvenance: 'live',
+          }, 'clarify');
+        }
         if (live.ok === true) {
           const normalized = normalizeQueryResult(live.result);
           if (normalized) {
             writeAudit({ ...auditBase, question: query, status: 'SUCCESS', executedSql: live.executedSql, rowCount: live.rowCount, durationMs: Date.now() - startedAt });
-            return res.json({
-              success: true,
-              executionTimeMs: Date.now() - startedAt,
-              result: normalized,
-              defense,
-              dataProvenance: 'live',
-            });
+            emitAfterQuery(hookCtx, { status: 'SUCCESS', executedSql: live.executedSql, rowCount: live.rowCount, durationMs: Date.now() - startedAt });
+            const basePayload = { success: true, result: normalized, defense, dataProvenance: 'live' };
+            setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount });
+            return respond({ ...basePayload, executionTimeMs: Date.now() - startedAt });
           }
         }
         // 真实执行链路失败：审计留痕后降级演示模式（可用性优先）
@@ -147,8 +250,9 @@ async function startServer() {
           executedSql: live.executedSql,
           durationMs: Date.now() - startedAt,
         });
+        emitAfterQuery(hookCtx, { status: 'FALLBACK', durationMs: Date.now() - startedAt });
         const fallbackRaw = generateFallbackQueryResult(query, effectiveSchema);
-        return res.json({
+        return respond({
           success: true,
           executionTimeMs: Date.now() - startedAt,
           isFallback: true,
@@ -183,8 +287,9 @@ ${schemaGuidance}
 4. keyInsights: 3条突出的数据洞察或异常提示。
 5. chartConfig: 最佳可视图表配置，包含 type ('bar' | 'line' | 'area' | 'pie' | 'donut' | 'radar' | 'scatter' | 'kpi'), title, xAxisKey, yAxisKeys (数组), yAxisNames (键值映射), stacked (boolean)。
 6. data: 符合该图表的结构化数据集数组 (至少5-12条数据，字段名与 chartConfig 一致，数值要逼真且符合常理)。
-7. kpiMetrics: 2-4个关键KPI指标卡片，包含 label, value, change, trend ('up'|'down'|'neutral'), subtext。
-8. suggestedQuestions: 3个推荐的后续追问提示词。
+7. columnNames: data 中每个字段的中文表头映射 {"字段名": "中文表头"}（用于明细表表头展示，所有字段都要覆盖）。
+8. kpiMetrics: 2-4个关键KPI指标卡片，包含 label, value, change, trend ('up'|'down'|'neutral'), subtext。
+9. suggestedQuestions: 3个推荐的后续追问提示词。
 
 请只输出纯JSON，不要包含任何markdown代码块标记或其他说明文字。
 `;
@@ -192,6 +297,28 @@ ${schemaGuidance}
       try {
         const resultText = await callLLMJson(systemPrompt, query, sanitizedHistory);
         const parsed = safeParseJson(resultText);
+        // 中文表头：schema 列业务含义兜底 + LLM 映射覆盖（与 live 链路同一组装逻辑）
+        if (parsed && Array.isArray(parsed.data)) {
+          parsed.columnNames = buildColumnNames(
+            parsed.data.filter((r: any) => r && typeof r === 'object'),
+            effectiveSchema || [],
+            parsed.chartConfig?.yAxisNames,
+            parsed.columnNames
+          );
+          // 图表轴名中文化：yAxisNames 缺失指标补齐 + 维度中文名（图例/tooltip 不出现英文列名）
+          const cc = parsed.chartConfig;
+          if (cc && typeof cc === 'object') {
+            cc.yAxisNames = cc.yAxisNames && typeof cc.yAxisNames === 'object' ? cc.yAxisNames : {};
+            for (const k of Array.isArray(cc.yAxisKeys) ? cc.yAxisKeys : []) {
+              if (typeof k === 'string' && !cc.yAxisNames[k] && parsed.columnNames[k]) {
+                cc.yAxisNames[k] = parsed.columnNames[k];
+              }
+            }
+            if (typeof cc.xAxisKey === 'string' && !cc.xAxisName && parsed.columnNames[cc.xAxisKey]) {
+              cc.xAxisName = parsed.columnNames[cc.xAxisKey];
+            }
+          }
+        }
         const normalized = parsed ? normalizeQueryResult(parsed) : null;
 
         if (!normalized) {
@@ -229,7 +356,34 @@ ${schemaGuidance}
     }
   });
 
-  // 3b. API Endpoint: SQL 重跑（P0：SQL 预览弹窗的真实执行入口）
+  // 3b. API Endpoint: 问数反馈（P1 反馈闭环）
+  // 点赞/点踩落库；点赞的 live 问答自动成为 few-shot 样例
+  app.post('/api/query/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const { dataSourceId, question, sql, verdict, provenance } = req.body || {};
+    if (verdict !== 'UP' && verdict !== 'DOWN') {
+      return res.status(400).json({ error: '反馈类型无效' });
+    }
+    if (typeof question !== 'string' || !question.trim()) {
+      return res.status(400).json({ error: '缺少问题内容' });
+    }
+    try {
+      await saveFeedback({
+        userId: req.user!.id,
+        username: req.user!.username,
+        dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+        question: question.trim(),
+        executedSql: typeof sql === 'string' ? sql : '',
+        verdict,
+        provenance: typeof provenance === 'string' ? provenance : '',
+      });
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('[Feedback] save failed:', err);
+      return res.status(500).json({ error: '反馈保存失败' });
+    }
+  });
+
+  // 3c. API Endpoint: SQL 重跑（P0：SQL 预览弹窗的真实执行入口）
   // 复用 SELECT-only 安全执行层；仅落库 mysql 数据源可执行
   app.post('/api/query/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
     const startedAt = Date.now();
@@ -262,9 +416,9 @@ ${schemaGuidance}
 
     const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved);
     if (outcome.ok !== true) {
-      const status = outcome.reason === 'NOT_MYSQL' ? 400 : 422;
+      const status = outcome.reason === 'UNSUPPORTED_DS_TYPE' ? 400 : 422;
       writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_INPUT', detail: outcome.reason.slice(0, 200), durationMs: Date.now() - startedAt });
-      return res.status(status).json({ error: outcome.reason === 'NOT_MYSQL' ? '仅 MySQL 数据源支持 SQL 真实执行' : outcome.reason });
+      return res.status(status).json({ error: outcome.reason === 'UNSUPPORTED_DS_TYPE' ? '仅 MySQL / PostgreSQL / Greenplum 数据源支持 SQL 真实执行' : outcome.reason });
     }
 
     writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'SUCCESS', executedSql: outcome.result.finalSql, rowCount: outcome.result.rowCount, durationMs: Date.now() - startedAt });
@@ -277,6 +431,33 @@ ${schemaGuidance}
       finalSql: outcome.result.finalSql,
       dataProvenance: 'live',
     });
+  });
+
+  // 3d. API Endpoint: SQL AI 助手（借鉴 Chat2DB 的 SQL 解释/优化）
+  // 纯文本输出；只读分析场景不支持方言转换
+  app.post('/api/query/sql-assist', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const { action, sql } = req.body || {};
+    if (action !== 'explain' && action !== 'optimize') {
+      return res.status(400).json({ error: 'action 仅支持 explain / optimize' });
+    }
+    if (typeof sql !== 'string' || !sql.trim()) {
+      return res.status(400).json({ error: '缺少 SQL 内容' });
+    }
+    if (sql.length > 4000) {
+      return res.status(400).json({ error: 'SQL 长度超出限制' });
+    }
+
+    const system =
+      action === 'explain'
+        ? '你是 SQL 解释专家。用简明中文分点解释给定 MySQL SELECT 查询：查了什么表、筛选条件、聚合口径、输出列的业务含义。150 字以内，纯文本，不要使用 markdown。'
+        : '你是 MySQL 查询优化专家。针对给定 SELECT 查询给出可落地的优化建议：索引建议、写法改写、潜在性能风险。分点列出，200 字以内，纯文本，不要使用 markdown。若无需优化直接说明。';
+    try {
+      const text = (await callLLMText(system, sql.trim())).trim();
+      return res.json({ success: true, text: text || '（AI 未返回内容）' });
+    } catch (err: any) {
+      console.error('[SqlAssist] failed:', err?.message || err);
+      return res.status(502).json({ error: 'AI 服务暂时不可用，请稍后重试' });
+    }
   });
 
   // 4. API Endpoint: Automatic Visual Analytics Executive Report Generation
@@ -329,8 +510,8 @@ ${schemaGuidance}
       const effectiveSchema = ctx.schema;
       const schemaGuidance = ctx.guidance;
 
-      // P1 报表真实化：mysql 数据源走双阶段（查询计划 → 真实执行 → 真实数据摘要撰写）
-      const canRunLive = ctx.dsType === 'mysql' && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+      // P1 报表真实化：数据库型数据源走双阶段（查询计划 → 真实执行 → 真实数据摘要撰写）
+      const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
       if (canRunLive) {
         const live = await runLiveReport({
           templateType: safeTemplate,
@@ -338,6 +519,7 @@ ${schemaGuidance}
           schema: effectiveSchema,
           guidance: schemaGuidance,
           dataSourceId,
+          dsType: ctx.dsType || undefined,
           sensitiveRemoved: ctx.sensitiveRemoved,
         });
         if (live.ok === true) {

@@ -74,6 +74,8 @@ function buildSchemaAwareFallback(query: string, schema: any[]) {
       title: `${tableLabel}：按 ${dimName} 的 ${metricLabel(mainMetric)} 分析`,
       xAxisKey: dimName,
       yAxisKeys: metricNames,
+      yAxisNames: Object.fromEntries(metrics.map((m) => [m.name, metricLabel(m)])),
+      xAxisName: dimension.description?.split(/[(（]/)[0]?.trim() || dimName,
       stacked: false,
       description: `维度 ${dimName} × 指标 ${metricNames.join('/')}`,
     },
@@ -115,6 +117,8 @@ export function generateFallbackQueryResult(query: string, schema?: any[]) {
         title: '各营销渠道投放成本与ROI对比分析',
         xAxisKey: 'channel',
         yAxisKeys: ['roi', 'cost'],
+        yAxisNames: { roi: '投放 ROI', cost: '投放成本（元）' },
+        xAxisName: '营销渠道',
         stacked: false,
         description: '展示各渠道的投资回报率(ROI)与资金投入对比',
       },
@@ -151,6 +155,8 @@ export function generateFallbackQueryResult(query: string, schema?: any[]) {
         title: '核心SKU实际库存与安全库存水位对比',
         xAxisKey: 'product_name',
         yAxisKeys: ['stock_qty', 'safety_stock'],
+        yAxisNames: { stock_qty: '实际库存（件）', safety_stock: '安全库存（件）' },
+        xAxisName: '产品名称',
         stacked: false,
         description: '对比当前实际库存与预设安全库存线',
       },
@@ -188,6 +194,8 @@ export function generateFallbackQueryResult(query: string, schema?: any[]) {
       title: '2026上半年月度销售额与净利润增长趋势',
       xAxisKey: 'date',
       yAxisKeys: ['revenue', 'profit'],
+      yAxisNames: { revenue: '销售额（元）', profit: '净利润（元）' },
+      xAxisName: '月份',
       stacked: false,
       description: '展现月度营收与净利润的双轴平滑趋势曲线',
     },
@@ -240,6 +248,10 @@ export function getFallbackExecutiveReport(templateType: string, schema?: any[])
             title: `${t.displayName || t.name} ${dimName} 分析`,
             xAxisKey: dimName,
             yAxisKeys: metricNames,
+            yAxisNames: Object.fromEntries(
+              axes.metrics.map((m: any) => [m.name, m.description?.split(/[(（]/)[0]?.trim() || m.name])
+            ),
+            xAxisName: axes.dimension.description?.split(/[(（]/)[0]?.trim() || dimName,
           },
           data: enums.map((v, i) => {
             const row: Record<string, any> = { [dimName]: v };
@@ -317,6 +329,8 @@ export function getFallbackExecutiveReport(templateType: string, schema?: any[])
           title: '月度营收与利润走势',
           xAxisKey: 'date',
           yAxisKeys: ['revenue', 'profit'],
+          yAxisNames: { revenue: '销售额（万元）', profit: '净利润（万元）' },
+          xAxisName: '月份',
         },
         data: [
           { date: '1月', revenue: 450, profit: 162 },
@@ -335,6 +349,8 @@ export function getFallbackExecutiveReport(templateType: string, schema?: any[])
           title: '渠道投放成本与ROI',
           xAxisKey: 'channel',
           yAxisKeys: ['roi'],
+          yAxisNames: { roi: '投放 ROI' },
+          xAxisName: '营销渠道',
         },
         data: [
           { channel: '信息流广告', roi: 3.85 },

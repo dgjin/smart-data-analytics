@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Database,
   Sparkles,
@@ -8,10 +8,15 @@ import {
   RefreshCw,
   CheckCircle2,
   LogOut,
+  Sun,
+  Moon,
+  HelpCircle,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { UserRole } from '../types/analytics';
+import { getUITheme, toggleUITheme, UI_THEME_EVENT, UIThemeMode } from '../utils/uiTheme';
+import { HelpModal } from './help/HelpModal';
 
 const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: '管理员',
@@ -35,7 +40,18 @@ export const Header: React.FC = () => {
   } = useAnalyticsStore();
   const { user, logout } = useAuthStore();
 
+  // 帮助弹窗开关
+  const [helpOpen, setHelpOpen] = useState(false);
+
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
+
+  // 深浅色主题切换：监听全局主题事件，保证多处入口状态一致
+  const [themeMode, setThemeMode] = useState<UIThemeMode>(getUITheme);
+  useEffect(() => {
+    const onThemeChange = (e: Event) => setThemeMode((e as CustomEvent<UIThemeMode>).detail);
+    window.addEventListener(UI_THEME_EVENT, onThemeChange);
+    return () => window.removeEventListener(UI_THEME_EVENT, onThemeChange);
+  }, []);
 
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 text-slate-100 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-md">
@@ -108,6 +124,24 @@ export const Header: React.FC = () => {
           </button>
         )}
 
+        {/* 深浅色主题切换 */}
+        <button
+          onClick={() => toggleUITheme()}
+          title={themeMode === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+          className="p-2 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+        >
+          {themeMode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+        </button>
+
+        {/* 帮助：打开系统功能说明书 */}
+        <button
+          onClick={() => setHelpOpen(true)}
+          title="帮助 · 系统功能说明书"
+          className="p-2 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+        >
+          <HelpCircle className="w-4 h-4" />
+        </button>
+
         {/* Current User Chip + Logout */}
         {user && (
           <div className="flex items-center space-x-2 pl-3 border-l border-slate-700/80">
@@ -134,6 +168,9 @@ export const Header: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* 帮助弹窗 */}
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
     </header>
   );
 };

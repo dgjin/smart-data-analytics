@@ -18,6 +18,8 @@ interface CacheEntry {
   /** 数据源类型（mysql 才走真实 SQL 执行；null = 前端提交 schema 的演示模式） */
   dsType: string | null;
   sensitiveRemoved: string[];
+  /** 数据源级数据自省开关（Vanna intermediate_sql 借鉴） */
+  allowIntrospection: boolean;
   at: number;
 }
 
@@ -37,6 +39,8 @@ export interface SchemaContext {
   /** 数据源类型；null 表示未落库（演示模式） */
   dsType: string | null;
   sensitiveRemoved: string[];
+  /** 数据自省开关；演示模式恒关 */
+  allowIntrospection: boolean;
 }
 
 function parseJson(v: any, fallback: any) {
@@ -57,6 +61,7 @@ function fromClientSchema(clientSchema: unknown): SchemaContext {
     status: null,
     dsType: null,
     sensitiveRemoved: filtered.removed,
+    allowIntrospection: false,
   };
 }
 
@@ -73,12 +78,13 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       status: cached.status,
       dsType: cached.dsType,
       sensitiveRemoved: cached.sensitiveRemoved,
+      allowIntrospection: cached.allowIntrospection,
     };
   }
 
   try {
     const [rows] = await getPool().query(
-      'SELECT schema_json, scope_json, status, type FROM data_sources WHERE id = ?',
+      'SELECT schema_json, scope_json, status, type, allow_introspection FROM data_sources WHERE id = ?',
       [dataSourceId]
     );
     const ds = (rows as any[])[0];
@@ -92,6 +98,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       status: String(ds.status || 'connected'),
       dsType: String(ds.type || ''),
       sensitiveRemoved: filtered.removed,
+      allowIntrospection: Number(ds.allow_introspection) === 1,
       at: Date.now(),
     };
     cache.set(dataSourceId, entry);
@@ -101,6 +108,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       status: entry.status,
       dsType: entry.dsType,
       sensitiveRemoved: entry.sensitiveRemoved,
+      allowIntrospection: entry.allowIntrospection,
     };
   } catch (err) {
     console.warn('[Schema] load datasource schema failed, fallback to client schema:', err);

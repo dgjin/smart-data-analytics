@@ -22,6 +22,9 @@ import {
   PolarRadiusAxis,
   Brush,
   LabelList,
+  ScatterChart,
+  Scatter,
+  Treemap,
 } from 'recharts';
 import { ChartConfig } from '../../types/analytics';
 import {
@@ -216,10 +219,11 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   const chartData = processComparisonData(visibleData, activeComparisonMode);
 
-  // Format large number in tooltip/axis
+  // Format large number in tooltip/axis（中文计数单位：万/亿）
   const formatValue = (val: any) => {
     if (typeof val === 'number') {
-      if (Math.abs(val) >= 1000000) return `¥${(val / 1000000).toFixed(1)}M`;
+      if (Math.abs(val) >= 100000000) return `¥${(val / 100000000).toFixed(2)}亿`;
+      if (Math.abs(val) >= 1000000) return `¥${(val / 10000).toFixed(1)}万`;
       if (Math.abs(val) >= 10000) return `${(val / 10000).toFixed(1)}万`;
       return val.toLocaleString();
     }
@@ -268,10 +272,17 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const isPieLike = type === 'pie' || type === 'donut';
+      // pie/donut：label 为空，维度值在 payload[0].name（nameKey）；标题补维度中文名（如"客户类型: 产业客户"）
+      const dimValue = isPieLike ? payload[0]?.name : label;
+      const titleText =
+        isPieLike && config.xAxisName && dimValue
+          ? `${config.xAxisName}: ${dimValue}`
+          : dimValue || '数据详情';
       return (
         <div className="bg-slate-900/95 border border-slate-700/80 p-3 rounded-xl shadow-xl text-xs space-y-1.5 z-50 min-w-[180px]">
           <div className="font-semibold text-slate-200 border-b border-slate-800 pb-1 flex items-center justify-between">
-            <span>{label || '维度指标'}</span>
+            <span>{titleText}</span>
             {activeComparisonMode !== 'none' && (
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold">
                 {activeComparisonMode === 'yoy' ? '同比 (YoY) 对比' : '环比 (MoM) 对比'}
@@ -280,6 +291,10 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
           </div>
           {payload.map((entry: any, index: number) => {
             if (entry.dataKey && String(entry.dataKey).endsWith('_diff_pct')) return null;
+            // pie/donut 的 entry.name 是维度值（已在标题展示），系列行改显示指标中文名
+            const seriesName = isPieLike
+              ? config.yAxisNames?.[yAxisKeys[0]] || '数值'
+              : entry.name;
             return (
               <div key={index} className="flex items-center justify-between space-x-4">
                 <span className="flex items-center space-x-1.5" style={{ color: entry.color }}>
@@ -287,7 +302,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                     className="w-2 h-2 rounded-full inline-block"
                     style={{ backgroundColor: entry.color }}
                   />
-                  <span className="text-slate-300 font-medium">{entry.name}:</span>
+                  <span className="text-slate-300 font-medium">{seriesName}:</span>
                 </span>
                 <span className="font-bold text-slate-100">{formatValue(entry.value)}</span>
               </div>
@@ -506,6 +521,94 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             ))}
           </RadarChart>
         );
+
+      case 'scatter': {
+        const syKey = yAxisKeys[0];
+        return (
+          <ScatterChart>
+            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
+            <XAxis dataKey={xAxisKey} stroke={textColor} fontSize={12} tickLine={false} tickFormatter={formatValue} />
+            <YAxis dataKey={syKey} stroke={textColor} fontSize={12} tickLine={false} tickFormatter={formatValue} />
+            <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+            <Legend wrapperStyle={{ fontSize: '12px' }} />
+            <Scatter data={data} fill={effectiveColors[0]} name={config.yAxisNames?.[syKey] || syKey} />
+          </ScatterChart>
+        );
+      }
+
+      case 'treemap': {
+        const tmValueKey = yAxisKeys[0] || 'value';
+        return (
+          <Treemap
+            data={data}
+            dataKey={tmValueKey}
+            nameKey={xAxisKey}
+            stroke="#0f172a"
+            content={(props: any) => {
+              const { x, y, width, height, name, index } = props;
+              if (!width || !height || width <= 0 || height <= 0) return <g key={`tm-${index}`} />;
+              const fill = effectiveColors[(index || 0) % effectiveColors.length];
+              const label = String(name ?? '');
+              return (
+                <g key={`tm-${index}`}>
+                  <rect x={x} y={y} width={width} height={height} fill={fill} fillOpacity={0.72} stroke="#0f172a" strokeWidth={1.5} rx={4} />
+                  {width > 46 && height > 20 && (
+                    <text x={x + 7} y={y + 17} fill="#f1f5f9" fontSize={11} fontWeight={600}>
+                      {label.slice(0, Math.max(1, Math.floor(width / 13)))}
+                    </text>
+                  )}
+                </g>
+              );
+            }}
+          />
+        );
+      }
+
+      case 'heatmap': {
+        const metrics = yAxisKeys;
+        const nums = data.flatMap((r) => metrics.map((m) => Number(r[m]))).filter((v) => Number.isFinite(v));
+        const maxV = nums.length ? Math.max(...nums) : 0;
+        const minV = nums.length ? Math.min(...nums) : 0;
+        const baseColor = effectiveColors[0];
+        return (
+          <div className="w-full h-full overflow-auto p-2">
+            <div className="grid gap-px" style={{ gridTemplateColumns: `130px repeat(${metrics.length}, minmax(64px, 1fr))` }}>
+              <div />
+              {metrics.map((m) => (
+                <div key={m} className="text-[10px] text-slate-300 font-medium p-1.5 text-center truncate">
+                  {config.yAxisNames?.[m] || m}
+                </div>
+              ))}
+              {data.map((r, ri) => (
+                <React.Fragment key={ri}>
+                  <div className="text-[10px] text-slate-300 p-1.5 truncate flex items-center">{String(r[xAxisKey])}</div>
+                  {metrics.map((m) => {
+                    const v = Number(r[m]);
+                    if (!Number.isFinite(v)) {
+                      return (
+                        <div key={m} className="text-[10px] text-slate-500 p-1.5 text-center bg-slate-900 rounded flex items-center justify-center">
+                          -
+                        </div>
+                      );
+                    }
+                    const t = maxV === minV ? 0.5 : (v - minV) / (maxV - minV);
+                    return (
+                      <div
+                        key={m}
+                        className="text-[10px] text-slate-100 p-1.5 text-center rounded flex items-center justify-center font-mono"
+                        style={{ backgroundColor: baseColor, opacity: 0.18 + t * 0.82 }}
+                        title={`${config.yAxisNames?.[m] || m}: ${formatValue(v)}`}
+                      >
+                        {formatValue(v)}
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        );
+      }
 
       case 'bar':
       default:
@@ -792,9 +895,13 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
         ref={containerRef}
         className="w-full h-full"
       >
-        <ResponsiveContainer width="100%" height="90%">
-          {renderChart()}
-        </ResponsiveContainer>
+        {type === 'heatmap' ? (
+          renderChart()
+        ) : (
+          <ResponsiveContainer width="100%" height="90%">
+            {renderChart()}
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

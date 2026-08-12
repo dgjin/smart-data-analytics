@@ -7,7 +7,7 @@
 import { callLLMJson } from './llmClient';
 import { executeSafeSql } from './sqlExecutor';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
-import { buildColumnStats, coerceNumericColumns, extractBusinessNotes } from './liveQuery';
+import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes } from './liveQuery';
 
 const MAX_REPORT_QUERIES = 4;
 const SAMPLE_ROWS_PER_CHART = 10;
@@ -18,6 +18,8 @@ export interface LiveReportInput {
   schema: any[];
   guidance: string;
   dataSourceId: string;
+  /** 数据源类型（mysql/postgresql/greenplum），用于阶段一 SQL 方言提示 */
+  dsType?: string;
   sensitiveRemoved: string[];
 }
 
@@ -31,21 +33,24 @@ interface ReportQueryPlan {
   chartType: string;
   xAxisKey: string;
   yAxisKeys: string[];
+  columnNames?: Record<string, string>;
   purpose: string;
 }
 
-function buildReportStage1System(schema: any[], guidance: string): string {
-  return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 MySQL SELECT 聚合查询。你不生成任何数据，只生成 SQL。
+function buildReportStage1System(schema: any[], guidance: string, dsType?: string): string {
+  const dialect = dialectPromptOf(dsType);
+  return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 ${dialect.label} SELECT 聚合查询。你不生成任何数据，只生成 SQL。
 
 数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列）:
 ${JSON.stringify(schema)}
 
 ${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}
 【强制约束】
-- 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","purpose"}]}
+- 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","purpose"}]}
+- columnNames: 该查询 SQL 输出每一列的中文表头映射 {"列名/别名": "中文名"}，维度列与聚合别名都要覆盖
 - 每条 sql 为单条 SELECT；表名与列名必须来自上述 Schema；指标用聚合函数并用 AS 起英文/拼音别名
-- queries 之间应选择不同维度（如时间趋势、类别对比、结构占比），避免重复
-- chartType 从 bar/line/area/pie/donut 选择；xAxisKey 与 yAxisKeys 必须与 SQL 输出列严格一致
+${dialect.rules}- queries 之间应选择不同维度（如时间趋势、类别对比、结构占比），避免重复
+- chartType 从 bar/line/area/pie/donut/radar/treemap/heatmap 选择（时间趋势用 line/area，类别对比用 bar，占比结构用 pie/donut，层级占比用 treemap，多指标横向对照用 heatmap）；xAxisKey 与 yAxisKeys 必须与 SQL 输出列严格一致
 - purpose: 一句话说明该图回答的业务问题
 - 结果行数控制在 50 行以内（通过聚合或 LIMIT）
 
@@ -63,9 +68,10 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
     plans.push({
       title: typeof q.title === 'string' && q.title.trim() ? q.title : '数据图表',
       sql: q.sql,
-      chartType: ['bar', 'line', 'area', 'pie', 'donut'].includes(q.chartType) ? q.chartType : 'bar',
+      chartType: ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'treemap', 'heatmap'].includes(q.chartType) ? q.chartType : 'bar',
       xAxisKey: typeof q.xAxisKey === 'string' ? q.xAxisKey : '',
       yAxisKeys: Array.isArray(q.yAxisKeys) ? q.yAxisKeys.filter((k: any) => typeof k === 'string') : [],
+      columnNames: q.columnNames && typeof q.columnNames === 'object' ? q.columnNames : undefined,
       purpose: typeof q.purpose === 'string' ? q.purpose : '',
     });
     if (plans.length >= MAX_REPORT_QUERIES) break;
@@ -92,7 +98,7 @@ function buildReportStage2System(): string {
 }
 
 export async function runLiveReport(input: LiveReportInput): Promise<LiveReportOutcome> {
-  const { templateType, customPrompt, schema, guidance, dataSourceId, sensitiveRemoved } = input;
+  const { templateType, customPrompt, schema, guidance, dataSourceId, dsType, sensitiveRemoved } = input;
   const executedSqls: string[] = [];
 
   // 阶段一：生成查询计划
@@ -105,7 +111,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
         : `报表主题：${templateType}\n额外要求：${customPrompt}\n\n（上次输出未通过校验：${lastError}，请修正后按同一 JSON 契约重新输出。）`;
     let text: string;
     try {
-      text = await callLLMJson(buildReportStage1System(schema, guidance), userPrompt);
+      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType), userPrompt);
     } catch (err: any) {
       return { ok: false, error: `LLM 调用失败：${String(err?.message || err).slice(0, 200)}`, executedSqls };
     }
@@ -137,9 +143,23 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     const yAxisKeys = plan.yAxisKeys.filter((k) => cols.includes(k));
     const finalYKeys = yAxisKeys.length > 0 ? yAxisKeys : numericCols.slice(0, 2);
 
+    // 图表轴名中文化（图例/tooltip 不再出现英文列名）
+    const columnNames = buildColumnNames(rows, schema, plan.columnNames);
+    const yAxisNames: Record<string, string> = {};
+    for (const k of finalYKeys) {
+      if (columnNames[k]) yAxisNames[k] = columnNames[k];
+    }
+
     charts.push({
       title: plan.title,
-      chartConfig: { type: plan.chartType, title: plan.title, xAxisKey, yAxisKeys: finalYKeys },
+      chartConfig: {
+        type: plan.chartType,
+        title: plan.title,
+        xAxisKey,
+        yAxisKeys: finalYKeys,
+        ...(Object.keys(yAxisNames).length > 0 ? { yAxisNames } : {}),
+        ...(columnNames[xAxisKey] ? { xAxisName: columnNames[xAxisKey] } : {}),
+      },
       data: rows,
       commentary: '',
     });
@@ -192,7 +212,16 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
       `本报表基于 ${charts.length} 组真实查询、共 ${totalRows} 行数据生成。`,
     createdAt: new Date().toISOString().slice(0, 10),
     insights: Array.isArray(analysis.insights) ? analysis.insights : [],
-    kpiList: Array.isArray(analysis.kpiList) ? analysis.kpiList : [],
+    // KPI 字段矫正：LLM 常返回 change 为 null/number/缺省，label/value 缺失的项直接丢弃，
+    // 保证下发字段符合 SavedReport 契约（前端异常扫描依赖 change 为字符串）
+    kpiList: (Array.isArray(analysis.kpiList) ? analysis.kpiList : [])
+      .filter((k: any) => k && typeof k === 'object' && typeof k.label === 'string' && k.label.trim())
+      .map((k: any) => ({
+        label: String(k.label).trim(),
+        value: k.value != null ? String(k.value) : '',
+        change: k.change != null ? String(k.change) : '',
+        status: ['good', 'bad', 'neutral'].includes(k.status) ? k.status : 'neutral',
+      })),
     charts,
   };
 

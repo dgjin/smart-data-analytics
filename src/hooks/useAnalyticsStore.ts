@@ -144,6 +144,7 @@ interface AnalyticsState {
   addChatMessage: (msg: ChatMessage) => void;
   setActiveQueryResult: (res: QueryResultData | null) => void;
   updateMessageChartConfig: (msgId: string, config: ChartConfig) => void;
+  setMessageFeedback: (msgId: string, verdict: 'UP' | 'DOWN') => void;
   clearChat: () => void;
 
   // Custom Dashboard Widgets
@@ -276,6 +277,11 @@ export const useAnalyticsStore = create<AnalyticsState>()(
           ? { ...m, queryResult: { ...m.queryResult, chartConfig: config } }
           : m
       ),
+    })),
+
+  setMessageFeedback: (msgId, verdict) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map((m) => (m.id === msgId ? { ...m, feedback: verdict } : m)),
     })),
 
   clearChat: () =>

@@ -21,8 +21,15 @@ import {
   MicOff,
   Volume2,
   ShieldCheck,
+  Copy,
+  Pencil,
+  ThumbsUp,
+  ThumbsDown,
+  HelpCircle,
+  Library,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { useAuthStore } from '../../hooks/useAuthStore';
 import { apiFetch } from '../../api/client';
 import { applyDataScope } from '../../utils/dataScope';
 import { buildQueryPlaceholder, generateSchemaSuggestions } from '../../utils/querySuggestions';
@@ -31,6 +38,7 @@ import { KPIStats } from '../charts/KPIStats';
 import { DataTable } from '../charts/DataTable';
 import { ChartCustomizer } from '../charts/ChartCustomizer';
 import { SQLPreviewModal } from './SQLPreviewModal';
+import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChartConfig, ChatMessage, QueryResultData } from '../../types/analytics';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
@@ -46,10 +54,13 @@ export const QueryChat: React.FC = () => {
     setQueryLoading,
     dataSources,
     activeDataSourceId,
+    loadDataSources,
     pinChartToDashboard,
     updateMessageChartConfig,
+    setMessageFeedback,
     clearChat,
   } = useAnalyticsStore();
+  const currentUser = useAuthStore((s) => s.user);
 
   const [inspectModalResult, setInspectModalResult] = useState<QueryResultData | null>(null);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
@@ -57,6 +68,24 @@ export const QueryChat: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // P2-A Skills：可复用分析技能（点击填充提问模板，占位符由用户替换后提交）
+  const [skills, setSkills] = useState<{ id: string; name: string; description: string; promptTemplate: string }[]>([]);
+  const [skillLibraryOpen, setSkillLibraryOpen] = useState(false);
+  // 已点选确认的澄清消息 id（确认后禁用选项，防止重复提交）
+  const [resolvedClarifications, setResolvedClarifications] = useState<Set<string>>(new Set());
+  // P2-7 SSE 流式进度：服务端阶段事件推送的实时状态文案
+  const [streamProgress, setStreamProgress] = useState<string | null>(null);
+  const loadSkills = React.useCallback(() => {
+    apiFetch('/api/skills')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data?.skills)) setSkills(data.skills);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadSkills();
+  }, [loadSkills]);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -66,6 +95,50 @@ export const QueryChat: React.FC = () => {
     setToast(message);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 2500);
+  };
+
+  // 复制用户提问到剪贴板（非安全上下文降级 execCommand）
+  const handleCopyQuestion = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = content;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    showToast('问题已复制到剪贴板');
+  };
+
+  // 再次编辑：把历史提问回填输入框并聚焦，用户修改后重新发送
+  const handleEditQuestion = (content: string) => {
+    setCurrentQuery(content);
+    inputRef.current?.focus();
+  };
+
+  // P1 反馈闭环：点赞/点踩落库（点赞样例将成为 few-shot 提升后续准确率），成功后置灰
+  const handleFeedback = async (msg: ChatMessage, verdict: 'UP' | 'DOWN') => {
+    if (msg.feedback) return;
+    try {
+      const resp = await apiFetch('/api/query/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataSourceId: activeDataSourceId,
+          question: msg.question || '',
+          sql: msg.queryResult?.generatedSQL || '',
+          verdict,
+          provenance: msg.dataProvenance || '',
+        }),
+      });
+      if (!resp.ok) throw new Error('feedback failed');
+      setMessageFeedback(msg.id, verdict);
+      showToast(verdict === 'UP' ? '感谢反馈，该问答已加入样例库' : '感谢反馈，我们会持续优化回答质量');
+    } catch {
+      showToast('反馈提交失败，请稍后重试');
+    }
   };
 
   useEffect(() => {
@@ -136,6 +209,34 @@ export const QueryChat: React.FC = () => {
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
   // L7 AI 开关：数据源被停用（disconnected）时禁用问数入口（服务端同样强制拒绝）
   const aiSwitchOff = activeDS?.status === 'disconnected';
+
+  // 问数上下文摘要：与实际问数链路同源的服务端单一事实源（scope 白名单 + 敏感列过滤后），
+  // 状态条展示的表范围以此为准，避免前端 store 缓存的 tables/scope 过期导致显示与实际不一致
+  const [queryContext, setQueryContext] = useState<{
+    status: string | null;
+    dsType: string | null;
+    tableCount: number;
+    tables: { name: string; displayName: string }[];
+    sensitiveFiltered: number;
+    maxTablesInPrompt: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!activeDataSourceId) return;
+    // 进入问数页/切换数据源时顺带刷新 store 数据源（tables/scope 可能已被管理员变更）
+    loadDataSources();
+    let alive = true;
+    apiFetch(`/api/query/context?dataSourceId=${encodeURIComponent(activeDataSourceId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (alive && data?.ok) setQueryContext(data);
+      })
+      .catch(() => {
+        /* 摘要获取失败不影响问数，状态条回退为仅显示数据源名 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeDataSourceId, loadDataSources]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -234,22 +335,43 @@ export const QueryChat: React.FC = () => {
     const controller = new AbortController();
     const timeoutTimer = setTimeout(() => controller.abort(), 200_000);
 
-    try {
-      const response = await apiFetch('/api/query/natural-language', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          query: textToSubmit,
-          dataSourceId: activeDataSourceId,
-          schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
-          history,
-        }),
-      });
+    // SSE 阶段事件 → 进度文案（P2-7）
+    const stageLabel = (stage: string): string => {
+      switch (stage) {
+        case 'understanding':
+          return '正在理解问题语义并匹配数据字段…';
+        case 'introspecting':
+          return '数据自省中：正在确认真实取值…';
+        case 'executed':
+          return 'SQL 已执行，正在生成分析解读…';
+        case 'analyzing':
+          return '正在基于真实数据生成洞察…';
+        default:
+          return '处理中…';
+      }
+    };
 
-      const resData = await response.json();
-
-      if (resData.success && resData.result) {
+    // 统一消费响应体（JSON 与 SSE 终端事件同构）
+    const consumeResponse = (resData: any) => {
+      if (resData.success && resData.needClarification && resData.clarification) {
+        // 歧义澄清：服务端对问题语义有异议，展示候选理解供用户点选确认后重新提交
+        const c = resData.clarification;
+        addChatMessage({
+          id: `msg-ai-${Date.now()}`,
+          role: 'assistant',
+          content: typeof c.question === 'string' && c.question.trim() ? c.question : '该问题存在多种理解，请选择您想要的分析口径：',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          clarification: {
+            question: typeof c.question === 'string' ? c.question : '',
+            options: Array.isArray(c.options)
+              ? c.options
+                  .filter((o: any) => o && typeof o.label === 'string' && typeof o.query === 'string')
+                  .slice(0, 4)
+              : [],
+          },
+          question: textToSubmit,
+        });
+      } else if (resData.success && resData.result) {
         const provenance = resData.dataProvenance === 'live' ? 'live' : 'simulated';
         const queryRes: QueryResultData = {
           ...resData.result,
@@ -267,11 +389,73 @@ export const QueryChat: React.FC = () => {
           isFallback: Boolean(resData.isFallback),
           dataProvenance: provenance,
           sensitiveFiltered: Number(resData.defense?.sensitiveFiltered) || 0,
+          question: textToSubmit,
         };
 
         addChatMessage(aiMsg);
       } else {
         throw new Error(resData.error || '查询失败');
+      }
+    };
+
+    // SSE 流解析：按 event/data 分段回调（错误事件抛异常走统一异常分支）
+    const readSseStream = async (response: Response): Promise<void> => {
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          let eventName = 'message';
+          let dataStr = '';
+          for (const line of part.split('\n')) {
+            if (line.startsWith('event:')) eventName = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+          }
+          if (!dataStr) continue;
+          let data: any;
+          try {
+            data = JSON.parse(dataStr);
+          } catch {
+            continue;
+          }
+          if (eventName === 'stage') {
+            setStreamProgress(stageLabel(String(data?.stage || '')));
+          } else if (eventName === 'done' || eventName === 'clarify') {
+            consumeResponse(data);
+          } else if (eventName === 'error') {
+            throw new Error(String(data?.error || '查询失败'));
+          }
+        }
+      }
+    };
+
+    try {
+      const response = await apiFetch('/api/query/natural-language', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          query: textToSubmit,
+          dataSourceId: activeDataSourceId,
+          schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
+          history,
+          stream: true,
+        }),
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream') && response.body) {
+        // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑
+        await readSseStream(response);
+      } else {
+        // 非流式（演示模式或早期校验错误）：保持原 JSON 链路
+        const resData = await response.json();
+        consumeResponse(resData);
       }
     } catch (err: any) {
       const isTimeout = err?.name === 'AbortError';
@@ -287,6 +471,7 @@ export const QueryChat: React.FC = () => {
     } finally {
       clearTimeout(timeoutTimer);
       setQueryLoading(false);
+      setStreamProgress(null);
     }
   };
 
@@ -335,9 +520,36 @@ export const QueryChat: React.FC = () => {
               问数已停用
             </span>
           )}
-          <span className="text-slate-500 font-mono">
-            ({activeDS?.tables.map((t) => t.displayName || t.name).join(', ')})
-          </span>
+          {/* 问数表范围：以服务端上下文摘要（scope 白名单 + 敏感列过滤后）为单一事实源，
+              与实际参与问数的范围保持一致；未落库数据源（演示模式）无服务端范围 */}
+          {queryContext && queryContext.status !== null && (
+            queryContext.tableCount > 0 ? (
+              <span
+                className="px-1.5 py-0.5 rounded bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 text-[10px] font-semibold"
+                title={
+                  currentUser?.role === 'ADMIN' && queryContext.tables.length > 0
+                    ? `实际参与问数的数据表（已按问数范围与敏感策略过滤）:\n${queryContext.tables.map((t) => `- ${t.displayName} (${t.name})`).join('\n')}`
+                    : '实际参与问数的数据表数量（已按问数范围与敏感策略过滤）'
+                }
+              >
+                问数范围 {queryContext.tableCount} 张表
+                {queryContext.tableCount > queryContext.maxTablesInPrompt && '（提问时自动圈选最相关表）'}
+              </span>
+            ) : (
+              <span
+                className="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 text-[10px] font-semibold"
+                title="请管理员在「数据源管理 → 问数范围配置」中勾选允许问数的数据表"
+              >
+                问数范围为空
+              </span>
+            )
+          )}
+          {/* 管理员可悬停查看实际参与问数的表名清单（来自服务端上下文摘要） */}
+          {currentUser?.role === 'ADMIN' && queryContext && queryContext.tables.length > 0 && (
+            <span className="text-slate-500 font-mono truncate max-w-[420px]" title={queryContext.tables.map((t) => t.name).join(', ')}>
+              ({queryContext.tables.map((t) => t.displayName || t.name).join(', ')})
+            </span>
+          )}
         </div>
 
         <button
@@ -383,8 +595,18 @@ export const QueryChat: React.FC = () => {
               >
                 {/* Header info */}
                 <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 text-[11px] text-slate-400">
-                  <span className="font-semibold text-slate-300">
-                    {isUser ? '你' : '智能数据分析助手 NL2SQL'}
+                  <span className="flex items-center space-x-2">
+                    <span className="font-semibold text-slate-300">
+                      {isUser ? '你' : '智能数据分析助手 NL2SQL'}
+                    </span>
+                    {!isUser && msg.queryResult?.expertPersona && (
+                      <span
+                        className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium"
+                        title="根据你的问题内容自动匹配的专家分析视角"
+                      >
+                        {msg.queryResult.expertPersona}视角
+                      </span>
+                    )}
                   </span>
                   <div className="flex items-center space-x-3">
                     {msg.queryResult && !isUser && (
@@ -395,6 +617,34 @@ export const QueryChat: React.FC = () => {
                         <Code2 className="w-3 h-3" />
                         <span>查看生成的 SQL</span>
                       </button>
+                    )}
+                    {msg.queryResult && !isUser && msg.question && (
+                      <span className="flex items-center space-x-1" title="对本次回答进行评价">
+                        <button
+                          onClick={() => handleFeedback(msg, 'UP')}
+                          disabled={Boolean(msg.feedback)}
+                          className={`p-1 rounded-md border transition-colors ${
+                            msg.feedback === 'UP'
+                              ? 'text-emerald-400 border-emerald-500/50 bg-emerald-950/40'
+                              : 'text-slate-400 border-slate-700 hover:text-emerald-400 hover:border-emerald-500/50 disabled:opacity-50'
+                          }`}
+                          aria-label="回答有帮助"
+                        >
+                          <ThumbsUp className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleFeedback(msg, 'DOWN')}
+                          disabled={Boolean(msg.feedback)}
+                          className={`p-1 rounded-md border transition-colors ${
+                            msg.feedback === 'DOWN'
+                              ? 'text-rose-400 border-rose-500/50 bg-rose-950/40'
+                              : 'text-slate-400 border-slate-700 hover:text-rose-400 hover:border-rose-500/50 disabled:opacity-50'
+                          }`}
+                          aria-label="回答不准确"
+                        >
+                          <ThumbsDown className="w-3 h-3" />
+                        </button>
+                      </span>
                     )}
                     <span>{msg.timestamp}</span>
                   </div>
@@ -434,6 +684,64 @@ export const QueryChat: React.FC = () => {
                 <div className="whitespace-pre-wrap leading-relaxed text-sm">
                   {msg.id === 'welcome-1' ? welcomeContent : msg.content}
                 </div>
+
+                {/* 歧义澄清卡片：语义理解存在异议时展示候选口径，用户点选后按该理解重新提交 */}
+                {!isUser && msg.clarification && msg.clarification.options.length > 0 && (
+                  <div className="p-3 bg-sky-950/40 border border-sky-500/30 rounded-2xl space-y-2">
+                    <div className="flex items-center space-x-1.5 font-bold text-sky-300 text-xs">
+                      <HelpCircle className="w-4 h-4" />
+                      <span>请选择您想要的分析口径（确认后将按该理解执行）:</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {msg.clarification.options.map((opt, idx) => {
+                        const resolved = resolvedClarifications.has(msg.id);
+                        return (
+                          <button
+                            key={idx}
+                            disabled={resolved || isQueryLoading}
+                            onClick={() => {
+                              setResolvedClarifications((prev) => new Set(prev).add(msg.id));
+                              handleSendQuery(opt.query);
+                            }}
+                            title={opt.query}
+                            className="w-full text-left px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 hover:border-sky-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <div className="text-xs font-semibold text-sky-200">{opt.label}</div>
+                            <div className="text-[11px] text-slate-400 mt-0.5 truncate">{opt.query}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {resolvedClarifications.has(msg.id) && (
+                      <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+                        <CheckCircle className="w-3 h-3 text-emerald-400" />
+                        <span>已确认口径，正在按该理解执行分析…</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 用户提问操作条：复制问题 / 再次编辑 */}
+                {isUser && (
+                  <div className="flex items-center justify-end space-x-2 pt-1.5 mt-0.5 border-t border-white/15">
+                    <button
+                      onClick={() => handleCopyQuestion(msg.content)}
+                      title="复制问题到剪贴板"
+                      className="flex items-center space-x-1 px-2 py-1 rounded-md text-indigo-100/80 hover:text-white hover:bg-white/10 text-[11px] font-medium transition-colors"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>复制</span>
+                    </button>
+                    <button
+                      onClick={() => handleEditQuestion(msg.content)}
+                      title="回填到输入框，修改后重新发送"
+                      className="flex items-center space-x-1 px-2 py-1 rounded-md text-indigo-100/80 hover:text-white hover:bg-white/10 text-[11px] font-medium transition-colors"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>再次编辑</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Query Result Analysis Dashboard Block */}
                 {msg.queryResult && (
@@ -487,6 +795,7 @@ export const QueryChat: React.FC = () => {
                               title: msg.queryResult!.chartConfig!.title,
                               chartConfig: msg.queryResult!.chartConfig!,
                               data: msg.queryResult!.rows,
+                              dataSourceId: activeDataSourceId || undefined,
                             });
                             showToast('已成功固定该图表至决策数据看板');
                           }}
@@ -502,7 +811,11 @@ export const QueryChat: React.FC = () => {
 
                     {/* Data Table */}
                     {msg.queryResult.rows && (
-                      <DataTable data={msg.queryResult.rows} title="明细数据集" />
+                      <DataTable
+                        data={msg.queryResult.rows}
+                        columnNames={msg.queryResult.columnNames}
+                        title="明细数据集"
+                      />
                     )}
                   </div>
                 )}
@@ -540,7 +853,7 @@ export const QueryChat: React.FC = () => {
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-slate-300 flex items-center space-x-3">
               <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              <span>AI 正在解析 Schema 并生成智能可视化数据...</span>
+              <span>{streamProgress || 'AI 正在解析 Schema 并生成智能可视化数据...'}</span>
             </div>
           </div>
         )}
@@ -651,6 +964,37 @@ export const QueryChat: React.FC = () => {
             </div>
           )}
 
+          {/* P2-A Skills：可复用分析技能，点击将提问模板填入输入框；末尾提供技能库管理入口 */}
+          {!aiSwitchOff && (
+            <div className="mb-2 flex items-center space-x-1.5 overflow-x-auto pb-0.5">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span className="text-[10px] text-slate-500 shrink-0">技能:</span>
+              {skills.map((sk) => (
+                <button
+                  key={sk.id}
+                  type="button"
+                  title={sk.description}
+                  onClick={() => {
+                    setCurrentQuery(sk.promptTemplate);
+                    inputRef.current?.focus();
+                  }}
+                  className="shrink-0 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:border-cyan-500 hover:text-cyan-300 text-[11px] transition-colors"
+                >
+                  {sk.name}
+                </button>
+              ))}
+              <button
+                type="button"
+                title="管理我的技能库与系统技能库"
+                onClick={() => setSkillLibraryOpen(true)}
+                className="shrink-0 px-2.5 py-1 rounded-lg bg-indigo-950/60 border border-indigo-700/60 text-indigo-300 hover:border-indigo-400 hover:text-indigo-200 text-[11px] transition-colors flex items-center space-x-1"
+              >
+                <Library className="w-3 h-3" />
+                <span>技能库管理</span>
+              </button>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -732,6 +1076,15 @@ export const QueryChat: React.FC = () => {
       )}
 
       {/* Inspection Modal */}
+      {/* 技能库管理弹窗：个人技能 CRUD + 分享申请 + 管理员维护系统库与审批 */}
+      <SkillLibraryModal
+        isOpen={skillLibraryOpen}
+        onClose={() => {
+          setSkillLibraryOpen(false);
+          loadSkills();
+        }}
+      />
+
       {inspectModalResult && (
         <SQLPreviewModal
           isOpen={!!inspectModalResult}
@@ -760,9 +1113,22 @@ export const QueryChat: React.FC = () => {
               const yAxisKeys = numericCols.length > 0
                 ? numericCols.slice(0, 2)
                 : columns.filter((c) => c !== xAxisKey).slice(0, 1);
+              // 中文表头：schema 列业务含义兜底，原结果的 LLM 映射覆盖（重跑同 SQL 别名一般不变）
+              const columnNames: Record<string, string> = {};
+              const activeDs = dataSources.find((d) => d.id === activeDataSourceId);
+              (activeDs?.tables || []).forEach((t) =>
+                (t.columns || []).forEach((c) => {
+                  if (c.description && columns.includes(c.name)) columnNames[c.name] = c.description;
+                })
+              );
+              columns.forEach((c) => {
+                const prev = inspectModalResult?.columnNames?.[c];
+                if (prev) columnNames[c] = prev;
+              });
               const queryResult: QueryResultData = {
                 columns,
                 rows,
+                columnNames,
                 totalCount: Number(data.rowCount) || rows.length,
                 executionTimeMs: Number(data.executionTimeMs) || 0,
                 generatedSQL: data.finalSql || sql,
@@ -771,7 +1137,18 @@ export const QueryChat: React.FC = () => {
                 keyInsights: [],
                 suggestedQuestions: [],
                 ...(xAxisKey && yAxisKeys.length > 0
-                  ? { chartConfig: { type: 'bar' as const, title: 'SQL 重跑结果', xAxisKey, yAxisKeys } }
+                  ? {
+                      chartConfig: {
+                        type: 'bar' as const,
+                        title: 'SQL 重跑结果',
+                        xAxisKey,
+                        yAxisKeys,
+                        yAxisNames: Object.fromEntries(
+                          yAxisKeys.filter((k) => columnNames[k]).map((k) => [k, columnNames[k]])
+                        ),
+                        ...(columnNames[xAxisKey] ? { xAxisName: columnNames[xAxisKey] } : {}),
+                      },
+                    }
                   : {}),
               };
               addChatMessage({

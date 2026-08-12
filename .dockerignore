@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.local
+.git
+.gitignore
+assets/.aistudio
+*.log
+.DS_Store
+coverage

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { useEngineInfo } from '../../hooks/useEngineInfo';
 import { apiFetch } from '../../api/client';
 import { ExecutiveReportCard } from './ExecutiveReportCard';
 import { SavedReport } from '../../types/analytics';
@@ -30,6 +31,8 @@ export const ReportGenerator: React.FC = () => {
     dataSources,
   } = useAnalyticsStore();
   const user = useAuthStore((s) => s.user);
+  const engine = useEngineInfo();
+  const engineName = engine?.model || 'AI';
   // VIEWER 只读角色无报表生成权限（服务端同样强制 403）
   const canGenerate = user?.role === 'ADMIN' || user?.role === 'ANALYST';
 
@@ -140,7 +143,7 @@ export const ReportGenerator: React.FC = () => {
           智能报表构建器 (Visual Report Studio)
         </h1>
         <p className="text-xs md:text-sm text-slate-300 max-w-3xl leading-relaxed">
-          依托 Gemini AI 自然语言与全量数仓 Schema，选择报告模版并定制关切指标，系统将自动聚合并生成包含高管摘要、KPI指标卡、归因洞察及可视化图表的印刷级决策简报。
+          依托 {engine?.label || 'AI 大模型'} 自然语言能力与全量数仓 Schema，选择报告模版并定制关切指标，系统将自动聚合并生成包含高管摘要、KPI指标卡、归因洞察及可视化图表的印刷级决策简报。
         </p>
 
         {/* Template Selector Grid */}
@@ -267,7 +270,7 @@ export const ReportGenerator: React.FC = () => {
           </div>
           <h3 className="font-bold text-slate-200 text-sm">暂无已生成的报表</h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
-            请在上方选择一个模版并点击“立即生成决策报表”，Gemini 将为你自动分析并构建包含图表与策略建议的完整简报。
+            请在上方选择一个模版并点击“立即生成决策报表”，{engineName} 将为你自动分析并构建包含图表与策略建议的完整简报。
           </p>
         </div>
       )}

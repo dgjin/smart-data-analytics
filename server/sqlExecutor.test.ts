@@ -3,7 +3,7 @@
  * 仅覆盖纯校验逻辑（validateSelectSql / extractTableRefs），不触碰真实数据库。
  */
 import { describe, it, expect } from 'vitest';
-import { validateSelectSql, extractTableRefs, stripCommentsAndStrings } from './sqlExecutor';
+import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, stripCommentsAndStrings } from './sqlExecutor';
 
 const ALLOWED = [
   { name: 'tbl_orders', columns: [{ name: 'id' }, { name: 'amount' }, { name: 'channel' }] },
@@ -171,5 +171,75 @@ describe('extractTableRefs: 表引用提取', () => {
   it('子查询内部表被提取', () => {
     const refs = extractTableRefs(stripCommentsAndStrings('SELECT * FROM (SELECT x FROM inner_tbl) t JOIN outer_tbl o ON t.x=o.x'));
     expect(refs.sort()).toEqual(['inner_tbl', 'outer_tbl']);
+  });
+});
+
+describe('checkAstSafety: P1 AST 二道防线', () => {
+  const allowed = new Set(['tbl_orders', 'tbl_clients']);
+
+  it('合法 SELECT（含 JOIN 与子查询）通过', () => {
+    expect(checkAstSafety('SELECT o.id FROM tbl_orders o JOIN tbl_clients c ON o.id=c.id', allowed).ok).toBe(true);
+    expect(checkAstSafety('SELECT * FROM (SELECT id FROM tbl_orders) t', allowed).ok).toBe(true);
+  });
+
+  it('AST 层拦截白名单外的表', () => {
+    const r = checkAstSafety('SELECT * FROM secret_table', allowed);
+    expect(r.ok).toBe(false);
+  });
+
+  it('AST 层拦截非 select 语句类型', () => {
+    const r = checkAstSafety('DELETE FROM tbl_orders', allowed);
+    expect(r.ok).toBe(false);
+  });
+
+  it('解析失败时放行（第一道正则防线兜底）', () => {
+    expect(checkAstSafety('SELECT ???invalid syntax!!!', allowed).ok).toBe(true);
+  });
+
+  it('validateSelectSql 集成：合法查询在双层防线下仍通过', () => {
+    const r = validateSelectSql(
+      "SELECT channel, SUM(amount) AS total FROM tbl_orders WHERE channel = '线上' GROUP BY channel ORDER BY total DESC",
+      [{ name: 'tbl_orders', columns: [{ name: 'id' }, { name: 'amount' }, { name: 'channel' }] }]
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('PG 方言（postgresql/greenplum）支持', () => {
+  it('dialectOfDsType 类型映射', () => {
+    expect(dialectOfDsType('mysql')).toBe('mysql');
+    expect(dialectOfDsType('postgresql')).toBe('pg');
+    expect(dialectOfDsType('greenplum')).toBe('pg');
+    expect(dialectOfDsType('csv')).toBeNull();
+    expect(dialectOfDsType('demo')).toBeNull();
+  });
+
+  it('PG 方言下 MySQL 逗号 LIMIT 改写为 OFFSET 形式', () => {
+    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 10, 100', ALLOWED, [], 'pg');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 100 OFFSET 10$/);
+  });
+
+  it('PG 方言下原生 OFFSET 写法保留且 clamp 到 500', () => {
+    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 999 OFFSET 5', ALLOWED, [], 'pg');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 500 OFFSET 5$/);
+  });
+
+  it('PG 方言无 LIMIT 时追加 LIMIT 500', () => {
+    const r = validateSelectSql('SELECT id FROM tbl_orders', ALLOWED, [], 'pg');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 500$/);
+  });
+
+  it('PG 方言 AST 解析双引号标识符表白名单', () => {
+    const allowed = new Set(['tbl_orders']);
+    expect(checkAstSafety('SELECT "id" FROM "tbl_orders"', allowed, 'pg').ok).toBe(true);
+    expect(checkAstSafety('SELECT * FROM secret_table', allowed, 'pg').ok).toBe(false);
+  });
+
+  it('PG 方言 AST 拦截非 select 语句类型', () => {
+    const allowed = new Set(['tbl_orders']);
+    expect(checkAstSafety('DELETE FROM tbl_orders', allowed, 'pg').ok).toBe(false);
   });
 });
