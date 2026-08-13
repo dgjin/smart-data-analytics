@@ -34,7 +34,7 @@ export const Login: React.FC = () => {
           </div>
           <div className="text-center">
             <h1 className="text-xl font-extrabold tracking-tight text-slate-100">
-              智能问数据分析系统
+              智能问数分析系统
             </h1>
             <p className="text-xs text-slate-400 mt-1">
               多源数据集成 • 自然语言交互 • 自动可视化

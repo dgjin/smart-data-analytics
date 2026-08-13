@@ -63,10 +63,10 @@ export const Header: React.FC = () => {
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="font-bold text-lg text-slate-100 tracking-tight">
-              智能问数据分析系统
+              智能问数分析系统
             </h1>
             <span className="px-2 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full">
-              NL2SQL Pro v2.5
+              NL2SQL Pro v0.1
             </span>
           </div>
           <p className="text-xs text-slate-400 hidden sm:block">

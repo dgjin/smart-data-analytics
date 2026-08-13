@@ -14,8 +14,10 @@ export function normalizeQuestion(q: string): string {
     .slice(0, 200);
 }
 
-export function cacheKey(dataSourceId: string, question: string): string {
-  return `${dataSourceId}::${normalizeQuestion(question)}`;
+/** variant 用于区分不同模型/引擎下的结果（用户自选模型时传 "engine:model"），避免跨模型串用缓存 */
+export function cacheKey(dataSourceId: string, question: string, variant = ''): string {
+  const base = `${dataSourceId}::${normalizeQuestion(question)}`;
+  return variant ? `${base}::${variant}` : base;
 }
 
 interface CacheEntry {

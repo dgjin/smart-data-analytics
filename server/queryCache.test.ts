@@ -12,6 +12,15 @@ describe('queryCache: 问数结果缓存', () => {
     expect(cacheKey('ds1', '问题')).not.toBe(cacheKey('ds2', '问题'));
   });
 
+  it('cacheKey 支持模型变体（用户自选模型隔离）', () => {
+    expect(cacheKey('ds1', '问题', 'ollama:deepseek-r1:32b')).toBe(
+      `ds1::${normalizeQuestion('问题')}::ollama:deepseek-r1:32b`
+    );
+    // 空变体与不传等价（向后兼容）
+    expect(cacheKey('ds1', '问题', '')).toBe(cacheKey('ds1', '问题'));
+    expect(cacheKey('ds1', '问题', 'a')).not.toBe(cacheKey('ds1', '问题', 'b'));
+  });
+
   it('命中与写入：同键可读取缓存 payload', () => {
     const key = cacheKey('ds-cache', '本月销售额');
     setCachedQuery(key, { success: true, result: { x: 1 } });

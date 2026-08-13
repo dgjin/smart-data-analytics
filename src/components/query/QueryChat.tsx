@@ -27,9 +27,11 @@ import {
   ThumbsDown,
   HelpCircle,
   Library,
+  Cpu,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { apiFetch } from '../../api/client';
 import { applyDataScope } from '../../utils/dataScope';
 import { buildQueryPlaceholder, generateSchemaSuggestions } from '../../utils/querySuggestions';
@@ -43,6 +45,8 @@ import { ChartConfig, ChatMessage, QueryResultData } from '../../types/analytics
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
 const MAX_QUERY_INPUT_LENGTH = 500;
+// 模型自选持久化键（值为 "engine::model"，空串表示跟随服务端默认）
+const SELECTED_MODEL_KEY = 'app-selected-model';
 
 export const QueryChat: React.FC = () => {
   const {
@@ -75,6 +79,29 @@ export const QueryChat: React.FC = () => {
   const [resolvedClarifications, setResolvedClarifications] = useState<Set<string>>(new Set());
   // P2-7 SSE 流式进度：服务端阶段事件推送的实时状态文案
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
+  // 模型自选：目录来自 /api/system/models，选择持久化到 localStorage
+  const { models: modelCatalog } = useModelCatalog();
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    try {
+      return localStorage.getItem(SELECTED_MODEL_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const handleSelectModel = (value: string) => {
+    setSelectedModel(value);
+    try {
+      if (value) localStorage.setItem(SELECTED_MODEL_KEY, value);
+      else localStorage.removeItem(SELECTED_MODEL_KEY);
+    } catch {
+      // 存储不可用时仅本次会话生效
+    }
+  };
+  const selectedModelPayload = useMemo(() => {
+    const [engine, ...rest] = selectedModel.split('::');
+    const model = rest.join('::');
+    return engine && model ? { engine, model } : undefined;
+  }, [selectedModel]);
   const loadSkills = React.useCallback(() => {
     apiFetch('/api/skills')
       .then((res) => res.json())
@@ -445,6 +472,7 @@ export const QueryChat: React.FC = () => {
           schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
           history,
           stream: true,
+          ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
         }),
       });
 
@@ -992,6 +1020,29 @@ export const QueryChat: React.FC = () => {
                 <Library className="w-3 h-3" />
                 <span>技能库管理</span>
               </button>
+
+              {/* 模型自选：目录由服务端按实际部署给出，选择随提问生效并持久化 */}
+              {modelCatalog.length > 0 && (
+                <span className="shrink-0 flex items-center space-x-1 ml-auto pl-2 border-l border-slate-800">
+                  <Cpu className="w-3 h-3 text-violet-400" />
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => handleSelectModel(e.target.value)}
+                    disabled={isQueryLoading}
+                    title="选择本次问数使用的 AI 模型"
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-violet-500 cursor-pointer disabled:opacity-50 max-w-[180px]"
+                  >
+                    <option value="">
+                      默认模型{modelCatalog.find((m) => m.isDefault) ? `（${modelCatalog.find((m) => m.isDefault)!.label}）` : ''}
+                    </option>
+                    {modelCatalog.map((m) => (
+                      <option key={`${m.engine}::${m.model}`} value={`${m.engine}::${m.model}`}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              )}
             </div>
           )}
 

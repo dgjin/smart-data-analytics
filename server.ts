@@ -20,7 +20,7 @@ import { sanitizeQuestion, sanitizeHistory, containsInjection } from './server/q
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from './server/userQueryLimit';
 import { writeAudit } from './server/auditLog';
 import { loadSchemaContext } from './server/schemaContext';
-import { callLLMJson, callLLMText, llmEngineLabel, llmEngineInfo, ChatMessage } from './server/llmClient';
+import { callLLMJson, callLLMText, llmEngineLabel, llmEngineInfo, listAvailableModels, setLlmOverride, validateModelSelection, ChatMessage } from './server/llmClient';
 import { runLiveQuery, buildColumnNames } from './server/liveQuery';
 import { runLiveReport } from './server/liveReport';
 import { executeSafeSql } from './server/sqlExecutor';
@@ -91,6 +91,17 @@ async function startServer() {
     res.json(llmEngineInfo());
   });
 
+  // 1c. API Endpoint: 可选模型目录（供用户自选；Ollama 实时列已安装模型，qwen/gemini 按密钥配置列入）
+  app.get('/api/system/models', authMiddleware, async (_req, res) => {
+    try {
+      const models = await listAvailableModels();
+      res.json({ models });
+    } catch (err) {
+      console.error('[Models] list failed:', err);
+      res.status(500).json({ error: '模型目录获取失败' });
+    }
+  });
+
   // 2. Auth / RBAC / Data source management routes
   app.use('/api/auth', authRoutes);
   app.use('/api/admin', adminRoutes);
@@ -128,6 +139,16 @@ async function startServer() {
       return res.status(400).json({ error: clean.reason });
     }
     const query = clean.question;
+
+    // 模型自选：请求指定引擎/模型时校验并在本请求上下文内切换（AsyncLocalStorage 传递，非法值直接拒绝）
+    const bodyModel = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
+    const modelSel = validateModelSelection(bodyModel.engine, bodyModel.model);
+    if (modelSel && 'error' in modelSel) {
+      writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: modelSel.error, durationMs: Date.now() - startedAt });
+      return res.status(400).json({ error: modelSel.error });
+    }
+    if (modelSel && 'engine' in modelSel) setLlmOverride({ engine: modelSel.engine, model: modelSel.model });
+    const modelVariant = modelSel && 'engine' in modelSel ? `${modelSel.engine}:${modelSel.model}` : '';
 
     // L5 频率层：每用户 20 次/小时滑动窗口
     const limit = checkUserQueryLimit(user.id);
@@ -177,7 +198,7 @@ async function startServer() {
       dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
       question: query,
       startedAt,
-      meta: { stream: streamMode },
+      meta: { stream: streamMode, ...(modelVariant ? { model: modelVariant } : {}) },
     };
     emitBeforeQuery(hookCtx);
 
@@ -198,8 +219,8 @@ async function startServer() {
       // P0 双阶段真实执行：对落库的数据库型数据源启用（mysql/postgresql/greenplum，LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
       const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
       if (canRunLive) {
-        // P1-6 结果缓存：同数据源相同问题（归一化后）短期内复用成功结果
-        const ck = cacheKey(dataSourceId, query);
+        // P1-6 结果缓存：同数据源相同问题（归一化后）短期内复用成功结果；缓存键含模型变体，避免跨模型串用
+        const ck = cacheKey(dataSourceId, query, modelVariant);
         const cached = getCachedQuery(ck);
         if (cached) {
           writeAudit({ ...auditBase, question: query, status: 'CACHE', executedSql: String(cached.executedSql || ''), rowCount: typeof cached.rowCount === 'number' ? cached.rowCount : -1, durationMs: Date.now() - startedAt });

@@ -1,4 +1,4 @@
-# 智能问数据分析系统（NL2SQL Pro）
+# 智能问数分析系统（NL2SQL Pro）
 
 企业级自然语言数据分析平台：用中文提问，系统自动理解语义、匹配数据表结构、生成并执行 SQL，将真实查询结果转化为图表、KPI 与洞察解读，并可一键产出高管决策简报。
 
@@ -15,6 +15,7 @@
 - **few-shot 样例注入**：从 SQL 样例库挑选最相似的「问题-SQL」消息对注入上下文
 - **embedding 圈表**：关键词粗排 + embedding 精排自动圈选相关表（不可用时降级纯关键词）
 - **自学习闭环**：点赞反馈自动沉淀为训练样例（auto_train）
+- **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，百炼/Gemini 按配置列入），选择随提问生效并持久化
 - **降级兜底**：LLM/数据库不可用时返回带明确标识的示例数据
 
 ### 数据治理
@@ -42,7 +43,7 @@
 | 前端 | React 19 + Vite + TypeScript + Tailwind CSS 4 + Zustand + Recharts + motion |
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg） |
-| AI | Ollama（本地，默认 deepseek-r1:32b）/ Gemini API，node-sql-parser |
+| AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
 | 测试 | Vitest（22 文件 / 226 用例） |
 
 ## 快速开始
@@ -96,6 +97,11 @@ NODE_ENV=production JWT_SECRET=<强密钥> npm start
 | `OLLAMA_URL` | Ollama 服务地址 | http://localhost:11434 |
 | `OLLAMA_TIMEOUT_MS` | LLM 推理超时（毫秒） | 180000 |
 | `EMBED_MODEL` | embedding 模型 | nomic-embed-text |
+| `AI_ENGINE` | 引擎显式选择：ollama / gemini / qwen | 按密钥存在性自动 |
+| `QWEN_API_KEY` | 通义千问百炼 API Key | — |
+| `QWEN_URL` | 百炼端点（Coding Plan 需专属端点） | https://dashscope.aliyuncs.com/compatible-mode/v1 |
+| `QWEN_MODEL` | 通义千问模型 | qwen3.8-max |
+| `QWEN_EMBED_MODEL` | 通义千问 embedding 模型 | text-embedding-v4 |
 | `GEMINI_API_KEY` | Gemini API 密钥（备用引擎） | — |
 | `JWT_SECRET` | JWT 签名密钥（生产必填） | dev 默认 |
 | `JWT_EXPIRES_IN` | token 有效期 | — |
