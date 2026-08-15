@@ -15,41 +15,67 @@ export interface SkillDef {
   placeholders: string[];
 }
 
+/**
+ * 内置系统技能：面向不良资产经营分析场景设计，模板措辞内嵌权威口径提示
+ * （核算版 BB=1、月末快照、长龄 60 个月等），与语义指标层/知识库口径一致；
+ * 多数技能零占位符，点击即可一键提问。
+ */
 export const BUILTIN_SKILLS: SkillDef[] = [
   {
-    id: 'customer-segment',
-    name: '客户分层分析',
-    description: '按客户维度分层统计数量与核心指标，识别重点客群',
-    promptTemplate: '请按{{客户维度}}统计客户数量与{{核心指标}}，按{{核心指标}}降序排列，识别重点客群',
-    placeholders: ['客户维度', '核心指标'],
+    id: 'org-biz-profile',
+    name: '机构业务画像',
+    description: '按机构盘点业务笔数、本年投放、长龄与逾期，定位头部机构',
+    promptTemplate: '请按机构名称统计业务笔数、本年投放金额、长龄业务笔数和逾期金额（统计口径均为核算版），按本年投放金额降序排列，指出规模前三的机构',
+    placeholders: [],
   },
   {
-    id: 'npl-analysis',
-    name: '不良资产分析',
-    description: '分析不良贷款余额、不良率及其在不同维度上的分布',
-    promptTemplate: '请统计{{分析维度}}的不良贷款余额与不良率，并按不良率降序排列，指出风险最集中的{{分析维度}}',
-    placeholders: ['分析维度'],
+    id: 'aged-asset',
+    name: '长龄资产分析',
+    description: '长龄业务（最早授信距宽表月份≥60个月）的机构分布与集中度',
+    promptTemplate: '请按机构名称统计长龄业务笔数（核算版且 SFCL 为是），并计算长龄业务占全部业务笔数的比例，指出长龄化程度最高的机构',
+    placeholders: [],
   },
   {
-    id: 'time-trend',
-    name: '时间趋势对比',
-    description: '按时间粒度观察指标走势，识别拐点与趋势',
-    promptTemplate: '请按{{时间粒度}}统计{{指标}}的变化趋势，并指出明显的上升或下降拐点',
-    placeholders: ['时间粒度', '指标'],
+    id: 'risk-project',
+    name: '风险项目监控',
+    description: '风险项目台账口径的机构分布与集中度预警',
+    promptTemplate: '请统计风险项目总数，并按机构名称统计风险项目个数（核算版），指出风险项目最集中的机构',
+    placeholders: [],
   },
   {
-    id: 'structure-ratio',
-    name: '结构占比分析',
-    description: '计算各分类在总量中的占比，观察结构分布',
-    promptTemplate: '请计算各{{分类维度}}的{{指标}}占比，用饼图展示结构分布，并指出占比最高的前几项',
-    placeholders: ['分类维度', '指标'],
+    id: 'overdue-asset',
+    name: '逾期资产分析',
+    description: '逾期金额与逾期笔数按业务分类分布，定位清收重点',
+    promptTemplate: '请按业务分类统计逾期金额和逾期业务笔数（核算版且 SFYQ 为是），按逾期金额降序排列，指出逾期最集中的业务分类',
+    placeholders: [],
   },
   {
-    id: 'top-n',
-    name: 'TOP N 排名',
-    description: '按指标对维度排名，快速定位头部与尾部',
-    promptTemplate: '请统计{{维度}}的{{指标}}，取排名前 {{N}} 名，并给出每名的具体数值',
-    placeholders: ['维度', '指标', 'N'],
+    id: 'return-analysis',
+    name: '投资收益分析',
+    description: '按科目一级分类看当年/累计投资收益（财务宽表最新月末快照）',
+    promptTemplate: '请按科目一级分类统计当年投资收益和累计投资收益（财务宽表、核算版、取最新月末快照），按当年投资收益降序排列',
+    placeholders: [],
+  },
+  {
+    id: 'scale-trend',
+    name: '月末规模趋势',
+    description: '按月末快照观察累计投放走势（不跨月末累加）',
+    promptTemplate: '请按月末快照日期逐月展示累计投放金额的变化趋势（核算版），并指出趋势拐点；注意每个月末是当月全量快照，不要跨月末累加',
+    placeholders: [],
+  },
+  {
+    id: 'biz-structure',
+    name: '业务结构分析',
+    description: '五大业务分类（收购处置/重组/债项/权益/其他）投放结构',
+    promptTemplate: '请计算各业务分类在本年投放金额中的占比（核算版），用饼图展示结构分布，并指出主导业务类型',
+    placeholders: [],
+  },
+  {
+    id: 'stock-vs-new',
+    name: '存量与新增对比',
+    description: '存量项目与当年新增项目的机构对比，识别经营模式差异',
+    promptTemplate: '请按机构名称对比存量项目数与当年新增项目数（核算版），指出以存量经营为主的机构和新增投放能力强的机构',
+    placeholders: [],
   },
 ];
 
