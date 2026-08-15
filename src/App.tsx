@@ -6,6 +6,7 @@ import { ReportGenerator } from './components/reports/ReportGenerator';
 import { DataSourceManager } from './components/datasource/DataSourceManager';
 import { CustomDashboard } from './components/dashboard/CustomDashboard';
 import { Login } from './components/auth/Login';
+import { ForceChangePassword } from './components/auth/ForceChangePassword';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { useAnalyticsStore } from './hooks/useAnalyticsStore';
 import { useAuthStore } from './hooks/useAuthStore';
@@ -33,6 +34,11 @@ export default function App() {
 
   if (!token || !user) {
     return <Login />;
+  }
+
+  // P0-1 首登/被重置密码：强制改密前不渲染任何业务界面
+  if (user.mustChangePassword) {
+    return <ForceChangePassword />;
   }
 
   const renderTabContent = () => {

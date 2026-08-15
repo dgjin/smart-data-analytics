@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { authMiddleware, signToken } from '../auth';
 import { getPool } from '../db';
-import { hashPassword, verifyPassword } from '../passwords';
+import { hashPassword, verifyPassword, validatePasswordStrength } from '../passwords';
 import { rateLimiter } from '../rateLimiter';
 
 const router = Router();
@@ -19,7 +19,7 @@ router.post('/login', rateLimiter, async (req, res) => {
 
   try {
     const [rows] = await getPool().query(
-      'SELECT id, username, password_hash, display_name, role, status FROM users WHERE username = ? LIMIT 1',
+      'SELECT id, username, password_hash, display_name, role, status, must_change_password FROM users WHERE username = ? LIMIT 1',
       [username.trim()]
     );
     const user = (rows as any[])[0];
@@ -38,6 +38,7 @@ router.post('/login', rateLimiter, async (req, res) => {
       username: user.username,
       displayName: user.display_name,
       role: user.role,
+      mustChangePassword: !!user.must_change_password,
     };
     return res.json({ success: true, token: signToken(authUser), user: authUser });
   } catch (err) {
@@ -57,8 +58,10 @@ router.post('/change-password', authMiddleware, async (req, res) => {
   if (typeof oldPassword !== 'string' || typeof newPassword !== 'string') {
     return res.status(400).json({ error: '参数格式不正确' });
   }
-  if (newPassword.length < 6 || newPassword.length > 64) {
-    return res.status(400).json({ error: '新密码长度需为 6-64 位' });
+  // P0-1 统一密码强度校验（8-64位 + 字母数字 + 非弱口令 + 不含用户名）
+  const strength = validatePasswordStrength(newPassword, req.user?.username);
+  if (!strength.ok) {
+    return res.status(400).json({ error: strength.error });
   }
 
   try {
@@ -67,10 +70,13 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     if (!user || !verifyPassword(oldPassword, user.password_hash)) {
       return res.status(400).json({ error: '原密码不正确' });
     }
-    await getPool().query('UPDATE users SET password_hash = ? WHERE id = ?', [
-      hashPassword(newPassword),
-      req.user!.id,
-    ]);
+    if (verifyPassword(newPassword, user.password_hash)) {
+      return res.status(400).json({ error: '新密码不能与原密码相同' });
+    }
+    await getPool().query(
+      'UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?',
+      [hashPassword(newPassword), req.user!.id]
+    );
     return res.json({ success: true });
   } catch (err) {
     console.error('[Auth] change-password failed:', err);

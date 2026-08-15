@@ -19,6 +19,7 @@ interface AdminUser {
   displayName: string;
   role: UserRole;
   status: 'ACTIVE' | 'DISABLED';
+  mustChangePassword?: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -130,7 +131,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   const handleResetPassword = async (u: AdminUser) => {
-    const pwd = window.prompt(`为用户 ${u.username} 设置新密码（6-64 位）:`);
+    const pwd = window.prompt(`为用户 ${u.username} 设置新密码（8-64 位，需包含字母和数字，重置后该用户下次登录需改密）:`);
     if (!pwd) return;
     try {
       const res = await apiFetch(`/api/admin/users/${u.id}/reset-password`, {
@@ -328,6 +329,11 @@ export const AdminPanel: React.FC = () => {
                       {isSelf && (
                         <span className="ml-2 text-[10px] text-indigo-300 bg-indigo-500/15 px-1.5 py-0.5 rounded">
                           当前账号
+                        </span>
+                      )}
+                      {u.mustChangePassword && (
+                        <span className="ml-2 text-[10px] text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded">
+                          待改密
                         </span>
                       )}
                     </td>

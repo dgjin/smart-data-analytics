@@ -93,8 +93,8 @@ export const Login: React.FC = () => {
           </button>
 
           <p className="text-[11px] text-slate-500 text-center leading-relaxed">
-            初始管理员账号：admin / admin123<br />
-            登录后请尽快在系统管理中修改默认密码
+            初始账号：admin / admin123<br />
+            首次登录将强制修改初始密码
           </p>
         </form>
       </div>

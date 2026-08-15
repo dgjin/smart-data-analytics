@@ -20,5 +20,14 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     throw new Error('登录已失效，请重新登录');
   }
 
+  // P0-1 首登/被重置密码强制改密：服务端 403 拦截后切到强制改密页（会话保留）
+  if (response.status === 403) {
+    const body = await response.clone().json().catch(() => null);
+    if (body?.code === 'PASSWORD_CHANGE_REQUIRED') {
+      useAuthStore.getState().markMustChangePassword();
+      throw new Error(body.error || '请先修改密码');
+    }
+  }
+
   return response;
 }

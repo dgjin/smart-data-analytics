@@ -8,6 +8,10 @@ interface AuthState {
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   hasRole: (...roles: UserRole[]) => boolean;
+  /** 改密成功后清除标记，退出强制改密页 */
+  clearMustChangePassword: () => void;
+  /** 收到服务端 PASSWORD_CHANGE_REQUIRED 拦截时置位（如管理员重置了密码） */
+  markMustChangePassword: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -40,6 +44,20 @@ export const useAuthStore = create<AuthState>()(
       hasRole: (...roles) => {
         const user = get().user;
         return !!user && roles.includes(user.role);
+      },
+
+      clearMustChangePassword: () => {
+        const user = get().user;
+        if (user?.mustChangePassword) {
+          set({ user: { ...user, mustChangePassword: false } });
+        }
+      },
+
+      markMustChangePassword: () => {
+        const user = get().user;
+        if (user && !user.mustChangePassword) {
+          set({ user: { ...user, mustChangePassword: true } });
+        }
       },
     }),
     {

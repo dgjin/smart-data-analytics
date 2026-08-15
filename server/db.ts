@@ -59,11 +59,21 @@ export async function initSchema(): Promise<void> {
       display_name VARCHAR(50) NOT NULL DEFAULT '',
       role ENUM('ADMIN','ANALYST','VIEWER') NOT NULL DEFAULT 'VIEWER',
       status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+      must_change_password TINYINT(1) NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       last_login_at TIMESTAMP NULL DEFAULT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // 存量库迁移：P0-1 首登强制改密标记（种子账号/被重置密码后置 1，改密成功清零）
+  try {
+    await pool.query(
+      'ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0 AFTER status'
+    );
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS data_sources (
@@ -297,23 +307,24 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 4. Seed default admin when users table is empty
+  // 4. Seed default admin when users table is empty（首登强制改密）
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');
   if (Number(userRows[0]?.cnt) === 0) {
     await pool.query(
-      'INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)',
+      'INSERT INTO users (username, password_hash, display_name, role, must_change_password) VALUES (?, ?, ?, ?, 1)',
       [defaultAdminUsername(), hashPassword(defaultAdminPassword()), '系统管理员', 'ADMIN']
     );
-    console.log(`[DB] Seeded default admin account: ${defaultAdminUsername()} (please change password after first login)`);
+    console.log(`[DB] Seeded default admin account: ${defaultAdminUsername()} (首次登录将强制修改初始密码)`);
   }
 
-  // P0 安全告警：管理员仍在使用默认密码时每次启动强提示
+  // P0 安全告警：管理员仍在使用默认密码时每次启动强提示，并置强制改密标记（服务端拦截业务接口）
   const [adminRows] = await pool.query<mysql.RowDataPacket[]>(
-    'SELECT password_hash FROM users WHERE username = ? LIMIT 1',
+    'SELECT id, password_hash FROM users WHERE username = ? LIMIT 1',
     [defaultAdminUsername()]
   );
   if (adminRows[0] && verifyPassword(defaultAdminPassword(), String(adminRows[0].password_hash))) {
-    console.warn('[Security] ⚠️ 管理员账号仍在使用默认密码，请立即登录后台修改！');
+    await pool.query('UPDATE users SET must_change_password = 1 WHERE id = ?', [adminRows[0].id]);
+    console.warn('[Security] ⚠️ 管理员账号仍在使用默认密码，已强制下次登录修改密码！');
   }
 
   // 5. Seed demo data sources when table is empty

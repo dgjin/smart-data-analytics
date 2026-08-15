@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import { authMiddleware, requireRole } from '../auth';
 import { getPool } from '../db';
-import { hashPassword } from '../passwords';
+import { hashPassword, validatePasswordStrength } from '../passwords';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -25,7 +25,7 @@ async function countActiveAdmins(excludeId?: number): Promise<number> {
 router.get('/users', async (_req, res) => {
   try {
     const [rows] = await getPool().query(
-      `SELECT id, username, display_name AS displayName, role, status,
+      `SELECT id, username, display_name AS displayName, role, status, must_change_password AS mustChangePassword,
               created_at AS createdAt, last_login_at AS lastLoginAt
        FROM users ORDER BY id ASC`
     );
@@ -48,10 +48,15 @@ router.post('/users', async (req, res) => {
   if (!VALID_ROLES.includes(role)) {
     return res.status(400).json({ error: '角色无效，可选：ADMIN / ANALYST / VIEWER' });
   }
+  // P0-1 统一密码强度校验；初始密码强制用户首次登录修改
+  const strength = validatePasswordStrength(password, username);
+  if (!strength.ok) {
+    return res.status(400).json({ error: strength.error });
+  }
 
   try {
     const [result] = await getPool().query(
-      'INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)',
+      'INSERT INTO users (username, password_hash, display_name, role, must_change_password) VALUES (?, ?, ?, ?, 1)',
       [username, hashPassword(password), String(displayName || username).slice(0, 50), role]
     );
     const insertId = (result as any).insertId;
@@ -143,15 +148,17 @@ router.post('/users/:id/reset-password', async (req, res) => {
   if (!Number.isInteger(targetId)) {
     return res.status(400).json({ error: '用户 ID 无效' });
   }
-  if (typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 64) {
-    return res.status(400).json({ error: '新密码长度需为 6-64 位' });
+  // P0-1 统一密码强度校验；重置后强制目标用户下次登录改密
+  const strength = validatePasswordStrength(newPassword);
+  if (!strength.ok) {
+    return res.status(400).json({ error: strength.error });
   }
 
   try {
-    const [result] = await getPool().query('UPDATE users SET password_hash = ? WHERE id = ?', [
-      hashPassword(newPassword),
-      targetId,
-    ]);
+    const [result] = await getPool().query(
+      'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
+      [hashPassword(newPassword), targetId]
+    );
     if ((result as any).affectedRows === 0) {
       return res.status(404).json({ error: '用户不存在' });
     }

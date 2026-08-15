@@ -13,6 +13,8 @@ export interface AuthUser {
   username: string;
   displayName: string;
   role: UserRole;
+  /** 首登/被重置密码后置位：改密前禁止访问一切业务接口（/api/auth 放行） */
+  mustChangePassword?: boolean;
 }
 
 declare global {
@@ -55,7 +57,7 @@ export async function authMiddleware(
 
   try {
     const [rows] = await getPool().query(
-      'SELECT id, username, display_name, role, status FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, username, display_name, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
       [payload.sub]
     );
     const user = (rows as any[])[0];
@@ -67,7 +69,12 @@ export async function authMiddleware(
       username: user.username,
       displayName: user.display_name,
       role: user.role,
+      mustChangePassword: !!user.must_change_password,
     };
+    // P0-1 服务端强制改密：首登/被重置密码的用户，改密前只放行 /api/auth/*（登录/改密/当前用户）
+    if (user.must_change_password && !req.originalUrl.startsWith('/api/auth/')) {
+      return res.status(403).json({ code: 'PASSWORD_CHANGE_REQUIRED', error: '首次登录或密码已被重置，请先修改密码' });
+    }
     next();
   } catch (err) {
     console.error('[Auth] user lookup failed:', err);

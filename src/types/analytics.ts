@@ -8,6 +8,8 @@ export interface AuthUser {
   username: string;
   displayName: string;
   role: UserRole;
+  /** 首登/被重置密码后置位：改密前只能进入强制改密页 */
+  mustChangePassword?: boolean;
 }
 
 export type AppTab = 'query' | 'reports' | 'datasources' | 'dashboard' | 'admin';
