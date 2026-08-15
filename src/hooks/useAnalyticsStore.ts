@@ -14,6 +14,7 @@ import {
 } from '../types/analytics';
 import { apiFetch } from '../api/client';
 import { scanReportForAnomalies } from '../utils/anomalyDetector';
+import { trimChatMessages } from '../utils/chatRetention';
 
 // 默认固化监控图表（widget-1..5）源自「数据资源」库的不良资产宽表（fct_jc_*）；
 // 旧持久化数据缺失 dataSourceId 时，按最新数据资源库推演上游：
@@ -334,11 +335,12 @@ export const useAnalyticsStore = create<AnalyticsState>()(
 
   addChatMessage: (msg) =>
     set((state) => ({
-      // 消息未显式指定归属源时，盖上当前活跃数据源戳，保证历史按源隔离
-      chatMessages: [
+      // 消息未显式指定归属源时，盖上当前活跃数据源戳，保证历史按源隔离；
+      // P2-2 滚动上限：追加后按源裁剪，防 localStorage 无限膨胀
+      chatMessages: trimChatMessages([
         ...state.chatMessages,
         { ...msg, dataSourceId: msg.dataSourceId ?? state.activeDataSourceId },
-      ],
+      ]),
     })),
 
   setActiveQueryResult: (res) => set({ activeQueryResult: res }),

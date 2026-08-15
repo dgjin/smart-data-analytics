@@ -92,6 +92,8 @@ export const QueryChat: React.FC = () => {
   const [resolvedClarifications, setResolvedClarifications] = useState<Set<string>>(new Set());
   // P2-7 SSE 流式进度：服务端阶段事件推送的实时状态文案
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
+  // P2-1 SQL 先行回显：sql_ready/executed 阶段携带的 SQL，长等待期提前展示
+  const [streamPreviewSql, setStreamPreviewSql] = useState<string | null>(null);
   // M1 推导留痕：SSE trace 事件实时追加的步骤链（查询中展示步骤器）
   const [liveTraceSteps, setLiveTraceSteps] = useState<TraceStepInfo[]>([]);
   // M2 计划模式：「先制定计划」开关（localStorage 持久化）；已批准/取消的计划卡片 id 置灰
@@ -521,7 +523,10 @@ export const QueryChat: React.FC = () => {
       if (contentType.includes('text/event-stream') && response.body) {
         // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑（P1-6 拆分至 utils/sseStream）
         await readSseStream(response, {
-          onStage: (label) => setStreamProgress(label),
+          onStage: (label, _stage, info) => {
+            setStreamProgress(label);
+            if (typeof info?.sql === 'string' && info.sql.trim()) setStreamPreviewSql(info.sql);
+          },
           // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
           onTrace: (step) => setLiveTraceSteps((prev) => [...prev.slice(-7), step as TraceStepInfo]),
           onTerminal: (_event, data) => consumeResponse(data),
@@ -547,6 +552,7 @@ export const QueryChat: React.FC = () => {
       clearTimeout(timeoutTimer);
       setQueryLoading(false);
       setStreamProgress(null);
+      setStreamPreviewSql(null);
     }
   };
 
@@ -1056,6 +1062,13 @@ export const QueryChat: React.FC = () => {
                 <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
                 <span>{streamProgress || 'AI 正在解析 Schema 并生成智能可视化数据...'}</span>
               </div>
+              {/* P2-1 SQL 先行回显：阶段一完成即展示生成的 SQL，缩短长执行的感知等待 */}
+              {streamPreviewSql && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3">
+                  <div className="text-[10px] font-bold text-emerald-400/80 mb-1.5">已生成 SQL（先行预览，最终以执行结果为准）</div>
+                  <pre className="text-[10px] leading-relaxed text-slate-400 font-mono whitespace-pre-wrap break-all max-h-32 overflow-y-auto select-all">{streamPreviewSql}</pre>
+                </div>
+              )}
               {/* M1 分析过程显性呈现：实时步骤器展示已完成的推导环节 */}
               {liveTraceSteps.length > 0 && <TraceStepper steps={liveTraceSteps} />}
             </div>

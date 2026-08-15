@@ -10,6 +10,8 @@ export function stageLabel(stage: string): string {
       return '正在理解问题语义并匹配数据字段…';
     case 'introspecting':
       return '数据自省中：正在确认真实取值…';
+    case 'sql_ready':
+      return 'SQL 已生成，正在安全校验并执行…';
     case 'executed':
       return 'SQL 已执行，正在生成分析解读…';
     case 'analyzing':
@@ -20,8 +22,8 @@ export function stageLabel(stage: string): string {
 }
 
 export interface SseStreamHandlers {
-  /** 阶段进度事件（stage 文案直接可渲染） */
-  onStage?: (label: string, stage: string) => void;
+  /** 阶段进度事件（stage 文案直接可渲染；info 携带事件附加字段，如 sql_ready/executed 的 sql） */
+  onStage?: (label: string, stage: string, info?: Record<string, any>) => void;
   /** M1 推导留痕步骤事件（追加步骤器） */
   onTrace?: (step: any) => void;
   /** 终端事件（done / clarify），payload 与非流式 JSON 响应同构 */
@@ -54,7 +56,9 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
         continue;
       }
       if (eventName === 'stage') {
-        handlers.onStage?.(stageLabel(String(data?.stage || '')), String(data?.stage || ''));
+        const stage = String(data?.stage || '');
+        const { stage: _stage, ...info } = data || {};
+        handlers.onStage?.(stageLabel(stage), stage, info);
       } else if (eventName === 'trace') {
         if (data && typeof data.title === 'string') handlers.onTrace?.(data);
       } else if (eventName === 'done' || eventName === 'clarify') {

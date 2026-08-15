@@ -494,24 +494,37 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     // 首次 1 个候选；重试时按 candidateCount 生成多候选（Self-consistency 择优）
     const n = attempt === 0 ? 1 : candidateCount;
     const plans: Stage1Plan[] = [];
-    for (let i = 0; i < n; i++) {
-      let text: string;
+
+    // P2-6 重试阶段多候选并行生成（互不依赖，Promise.allSettled 后统一择优）；
+    // 首个候选保持串行：需先走歧义澄清 / 数据自省判定
+    const texts: string[] = [];
+    if (attempt === 0) {
       try {
-        text = await callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() });
+        texts.push(await callLLMJson(stage1System, candidatePrompt(basePrompt, 0, 1), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() }));
       } catch (err: any) {
-        if (plans.length === 0) {
-          return { ok: false, error: `LLM 调用失败：${String(err?.message || err).slice(0, 200)}` };
-        }
-        break;
+        return { ok: false, error: `LLM 调用失败：${String(err?.message || err).slice(0, 200)}` };
       }
+    } else {
+      const settled = await Promise.allSettled(
+        Array.from({ length: n }, (_, i) =>
+          callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() })
+        )
+      );
+      for (const r of settled) {
+        if (r.status === 'fulfilled') texts.push(r.value);
+      }
+    }
+
+    let candidateIndex = 0;
+    for (const text of texts) {
       // 歧义澄清：仅首次尝试的第一个候选在接受（重试阶段视为用户已确认，按 SQL 契约执行）；
       // 计划模式下用户已批准计划，视为已确认理解，不再触发澄清
-      if (attempt === 0 && i === 0 && !input.approvedPlan) {
+      if (attempt === 0 && candidateIndex === 0 && !input.approvedPlan) {
         const clarification = parseClarification(text);
         if (clarification) return { ok: 'clarify', clarification };
       }
       // 数据自省（Vanna intermediate_sql）：真实执行轻量自省 SQL，把实际取值回喂后再生成最终 SQL
-      if (attempt === 0 && i === 0 && input.allowIntrospection && !introspected) {
+      if (attempt === 0 && candidateIndex === 0 && input.allowIntrospection && !introspected) {
         const intro = parseIntrospection(text);
         if (intro) {
           introspected = true;
@@ -539,12 +552,14 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
             } catch {
               // 自省后的最终生成失败，走常规重试链路
             }
+            candidateIndex++;
             continue;
           }
         }
       }
       const p = parseStage1(text);
       if (p) plans.push(p);
+      candidateIndex++;
     }
     if (plans.length === 0) {
       lastError = 'LLM 输出未通过 SQL 契约校验';
@@ -560,6 +575,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       sqlText: plans[0].sql,
       durationMs: Date.now() - t0,
     });
+    // P2-1 SQL 先行回显：候选确定即推送（执行前），长执行等待期用户可先看到生成的 SQL
+    input.onStage?.('sql_ready', { sql: plans[0].sql });
     // 逐候选执行，取第一个成功（SELECT-only 只读，安全）；
     // M3：仅引用已注册 ait_* 中间表的 SQL 改在应用库执行（不得与源表混用）
     let succeeded = false;
