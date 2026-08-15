@@ -8,7 +8,6 @@ import {
   Brain,
   Lightbulb,
   Pin,
-  RefreshCw,
   Trash2,
   BarChart3,
   CheckCircle,
@@ -45,7 +44,11 @@ import { DataTable } from '../charts/DataTable';
 import { ChartCustomizer } from '../charts/ChartCustomizer';
 import { SQLPreviewModal } from './SQLPreviewModal';
 import { SkillLibraryModal } from './SkillLibraryModal';
+import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { TraceStepper, TraceReplay, TraceStepInfo } from './AnalysisTracePanel';
+import { useConversationHistory } from '../../hooks/useConversationHistory';
+import { useSpeechInput } from '../../hooks/useSpeechInput';
+import { readSseStream } from '../../utils/sseStream';
 import { ChartConfig, ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
@@ -78,8 +81,6 @@ export const QueryChat: React.FC = () => {
   const [inspectModalResult, setInspectModalResult] = useState<QueryResultData | null>(null);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
-  const [isListening, setIsListening] = useState(false);
-  const [speechError, setSpeechError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   // P2-A Skills：可复用分析技能（点击填充提问模板，占位符由用户替换后提交）
   const [skills, setSkills] = useState<{ id: string; name: string; description: string; promptTemplate: string }[]>([]);
@@ -178,9 +179,12 @@ export const QueryChat: React.FC = () => {
     return () => document.removeEventListener('mousedown', onDocDown);
   }, [skillMenuOpen]);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // P1-6 拆分：语音输入 hook（识别文本回填输入框，L1 限 500 字）
+  const { isListening, speechError, toggleSpeechRecognition, clearSpeechError } = useSpeechInput((text) =>
+    setCurrentQuery(text.slice(0, MAX_QUERY_INPUT_LENGTH))
+  );
 
   const showToast = (message: string) => {
     setToast(message);
@@ -209,108 +213,10 @@ export const QueryChat: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  // ---------- 对话历史管理（服务端落库）：搜索 / 重问 / 删除 / 导出 ----------
-  interface ConversationItem {
-    id: number;
-    question: string;
-    sql: string;
-    answerSummary: string;
-    status: 'SUCCESS' | 'FALLBACK';
-    provenance: string;
-    createdAt: string;
-  }
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyItems, setHistoryItems] = useState<ConversationItem[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyKeyword, setHistoryKeyword] = useState('');
-
-  const loadHistory = React.useCallback(
-    async (keyword: string) => {
-      if (!activeDataSourceId) return;
-      setHistoryLoading(true);
-      try {
-        const params = new URLSearchParams({ dataSourceId: activeDataSourceId });
-        if (keyword.trim()) params.set('q', keyword.trim());
-        const resp = await apiFetch(`/api/conversations?${params.toString()}`);
-        const data = await resp.json();
-        setHistoryItems(resp.ok && Array.isArray(data?.conversations) ? data.conversations : []);
-      } catch {
-        setHistoryItems([]);
-        showToast('对话历史加载失败');
-      } finally {
-        setHistoryLoading(false);
-      }
-    },
-    [activeDataSourceId]
-  );
-
-  const toggleHistoryPanel = () => {
-    const next = !historyOpen;
-    setHistoryOpen(next);
-    if (next) {
-      setHistoryKeyword('');
-      void loadHistory('');
-    }
-  };
-
-  // 面板打开期间切换数据源：自动重新拉取对应源的历史
-  useEffect(() => {
-    if (historyOpen) {
-      if (activeDataSourceId) void loadHistory(historyKeyword);
-      else setHistoryItems([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDataSourceId]);
-
-  const handleDeleteConversation = async (id: number) => {
-    try {
-      const resp = await apiFetch(`/api/conversations/${id}`, { method: 'DELETE' });
-      if (resp.ok) {
-        setHistoryItems((prev) => prev.filter((it) => it.id !== id));
-        showToast('已删除该条对话记录');
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        showToast(data?.error || '删除失败');
-      }
-    } catch {
-      showToast('删除失败');
-    }
-  };
+  // ---------- 对话历史管理（服务端落库）：P1-6 拆分到 useConversationHistory ----------
 
   // 导出当前数据源的对话为 Markdown（问题 + 回答 + SQL）
-  const handleExportConversation = () => {
-    if (visibleMessages.length === 0) {
-      showToast('当前数据源暂无可导出的对话');
-      return;
-    }
-    const dsName = dataSources.find((ds) => ds.id === activeDataSourceId)?.name || '未知数据源';
-    const lines: string[] = [
-      '# 智能问数对话导出',
-      '',
-      `- 数据源：${dsName}`,
-      `- 导出时间：${new Date().toLocaleString('zh-CN')}`,
-      `- 消息条数：${visibleMessages.length}`,
-      '',
-    ];
-    visibleMessages.forEach((msg, idx) => {
-      lines.push(`## ${idx + 1}. ${msg.role === 'user' ? '用户提问' : '系统回答'}`);
-      lines.push('');
-      lines.push(String(msg.content || '').trim() || '（无内容）');
-      const sql = (msg as any).result?.generatedSQL;
-      if (msg.role === 'assistant' && typeof sql === 'string' && sql.trim()) {
-        lines.push('', '```sql', sql.trim(), '```');
-      }
-      lines.push('');
-    });
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `问数对话_${dsName}_${new Date().toISOString().slice(0, 10)}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('已开始导出对话 Markdown');
-  };
+  // —— 已随 useConversationHistory 迁出，见下方 hook 调用
 
   // P1 反馈闭环：点赞/点踩落库（点赞样例将成为 few-shot 提升后续准确率），成功后置灰
   const handleFeedback = async (msg: ChatMessage, verdict: 'UP' | 'DOWN') => {
@@ -340,65 +246,6 @@ export const QueryChat: React.FC = () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
-
-  // Web Speech API Voice-to-Text Handler
-  const toggleSpeechRecognition = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      setSpeechError('当前浏览器环境不支持 Web Speech 语音识别 API，请在 Chrome 或 Edge 浏览器中使用。');
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'zh-CN';
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setSpeechError(null);
-      };
-
-      recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript) {
-          setCurrentQuery(transcript.slice(0, MAX_QUERY_INPUT_LENGTH));
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'not-allowed') {
-          setSpeechError('麦克风权限已被拒绝，请在浏览器地址栏侧点击允许麦克风权限。');
-        } else if (event.error !== 'no-speech') {
-          setSpeechError(`语音输入提示: ${event.error}`);
-        }
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (err: any) {
-      console.error('Failed to start speech recognition:', err);
-      setIsListening(false);
-    }
-  };
 
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
   // L7 AI 开关：数据源被停用（disconnected）时禁用问数入口（服务端同样强制拒绝）
@@ -437,6 +284,19 @@ export const QueryChat: React.FC = () => {
     () => chatMessages.filter((m) => (m.dataSourceId ?? '') === (activeDataSourceId || '')),
     [chatMessages, activeDataSourceId]
   );
+
+  // P1-6 拆分：对话历史管理（服务端落库）——搜索 / 重问 / 删除 / 导出，随当前可见对话与数据源联动
+  const {
+    historyOpen,
+    historyItems,
+    historyLoading,
+    historyKeyword,
+    setHistoryKeyword,
+    toggleHistoryPanel,
+    loadHistory,
+    handleDeleteConversation,
+    handleExportConversation,
+  } = useConversationHistory({ activeDataSourceId, visibleMessages, dataSources, showToast });
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -590,22 +450,6 @@ export const QueryChat: React.FC = () => {
     const controller = new AbortController();
     const timeoutTimer = setTimeout(() => controller.abort(), 200_000);
 
-    // SSE 阶段事件 → 进度文案（P2-7）
-    const stageLabel = (stage: string): string => {
-      switch (stage) {
-        case 'understanding':
-          return '正在理解问题语义并匹配数据字段…';
-        case 'introspecting':
-          return '数据自省中：正在确认真实取值…';
-        case 'executed':
-          return 'SQL 已执行，正在生成分析解读…';
-        case 'analyzing':
-          return '正在基于真实数据生成洞察…';
-        default:
-          return '处理中…';
-      }
-    };
-
     // 统一消费响应体（JSON 与 SSE 终端事件同构）
     const consumeResponse = (resData: any) => {
       if (resData.success && resData.needClarification && resData.clarification) {
@@ -656,47 +500,6 @@ export const QueryChat: React.FC = () => {
       }
     };
 
-    // SSE 流解析：按 event/data 分段回调（错误事件抛异常走统一异常分支）
-    const readSseStream = async (response: Response): Promise<void> => {
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-        for (const part of parts) {
-          let eventName = 'message';
-          let dataStr = '';
-          for (const line of part.split('\n')) {
-            if (line.startsWith('event:')) eventName = line.slice(6).trim();
-            else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
-          }
-          if (!dataStr) continue;
-          let data: any;
-          try {
-            data = JSON.parse(dataStr);
-          } catch {
-            continue;
-          }
-          if (eventName === 'stage') {
-            setStreamProgress(stageLabel(String(data?.stage || '')));
-          } else if (eventName === 'trace') {
-            // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
-            if (data && typeof data.title === 'string') {
-              setLiveTraceSteps((prev) => [...prev.slice(-7), data as TraceStepInfo]);
-            }
-          } else if (eventName === 'done' || eventName === 'clarify') {
-            consumeResponse(data);
-          } else if (eventName === 'error') {
-            throw new Error(String(data?.error || '查询失败'));
-          }
-        }
-      }
-    };
-
     try {
       const response = await apiFetch('/api/query/natural-language', {
         method: 'POST',
@@ -716,8 +519,13 @@ export const QueryChat: React.FC = () => {
 
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('text/event-stream') && response.body) {
-        // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑
-        await readSseStream(response);
+        // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑（P1-6 拆分至 utils/sseStream）
+        await readSseStream(response, {
+          onStage: (label) => setStreamProgress(label),
+          // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
+          onTrace: (step) => setLiveTraceSteps((prev) => [...prev.slice(-7), step as TraceStepInfo]),
+          onTerminal: (_event, data) => consumeResponse(data),
+        });
       } else {
         // 非流式（演示模式或早期校验错误）：保持原 JSON 链路
         const resData = await response.json();
@@ -847,93 +655,21 @@ export const QueryChat: React.FC = () => {
         </div>
       </div>
 
-      {/* 对话历史面板（服务端落库）：关键词搜索 / 一键重问 / 单条删除 */}
+      {/* 对话历史面板（服务端落库）：P1-6 拆分至 ChatHistoryPanel 纯展示组件 */}
       {historyOpen && (
-        <div className="mx-4 md:mx-6 mt-3 rounded-2xl border border-indigo-500/30 bg-slate-900/80 shadow-lg overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800">
-            <span className="text-xs font-bold text-indigo-300 flex items-center space-x-1.5">
-              <History className="w-3.5 h-3.5" />
-              <span>历史对话（服务端落库，跨设备共享，成功问答自动沉淀为个人经验）</span>
-            </span>
-            <div className="flex items-center space-x-2">
-              <div className="relative">
-                <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input
-                  value={historyKeyword}
-                  onChange={(e) => setHistoryKeyword(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void loadHistory(historyKeyword);
-                  }}
-                  placeholder="搜索问题 / 结论，回车检索"
-                  className="pl-6 pr-2 py-1 text-[11px] rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-indigo-500 w-48"
-                />
-              </div>
-              <button onClick={() => setHistoryOpen(false)} className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
-                关闭
-              </button>
-            </div>
-          </div>
-          <div className="max-h-64 overflow-y-auto divide-y divide-slate-800/60">
-            {historyLoading ? (
-              <div className="px-4 py-6 text-center text-xs text-slate-500">加载中…</div>
-            ) : historyItems.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-slate-500">该数据源暂无对话历史（问数完成后自动落库）</div>
-            ) : (
-              historyItems.map((item) => (
-                <div key={item.id} className="px-4 py-2.5 hover:bg-slate-800/40 transition-colors group">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center space-x-2">
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 ${
-                            item.status === 'SUCCESS'
-                              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                              : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
-                          }`}
-                        >
-                          {item.status === 'SUCCESS' ? '成功' : '降级'}
-                        </span>
-                        {item.provenance === 'simulated' && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border bg-slate-800 border-slate-700 text-slate-400 shrink-0">演示</span>
-                        )}
-                        <span className="text-[10px] text-slate-500 shrink-0">
-                          {item.createdAt ? new Date(item.createdAt).toLocaleString('zh-CN') : ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-200 mt-1 truncate" title={item.question}>
-                        {item.question}
-                      </p>
-                      {item.answerSummary && (
-                        <p className="text-[11px] text-slate-500 mt-0.5 truncate" title={item.answerSummary}>
-                          {item.answerSummary}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => {
-                          handleEditQuestion(item.question);
-                          setHistoryOpen(false);
-                        }}
-                        title="回填输入框重新提问"
-                        className="p-1.5 rounded-lg text-indigo-400 hover:bg-indigo-950/60 transition-colors"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => void handleDeleteConversation(item.id)}
-                        title="删除该条对话记录"
-                        className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-950/60 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        <ChatHistoryPanel
+          items={historyItems}
+          loading={historyLoading}
+          keyword={historyKeyword}
+          onKeywordChange={setHistoryKeyword}
+          onSearch={(kw) => void loadHistory(kw)}
+          onClose={toggleHistoryPanel}
+          onReuse={(q) => {
+            handleEditQuestion(q);
+            toggleHistoryPanel();
+          }}
+          onDelete={(id) => void handleDeleteConversation(id)}
+        />
       )}
 
       {/* Conversation Feed */}
@@ -1424,7 +1160,7 @@ export const QueryChat: React.FC = () => {
             <div className="mb-2 p-2 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between">
               <span>{speechError}</span>
               <button
-                onClick={() => setSpeechError(null)}
+                onClick={clearSpeechError}
                 className="text-amber-400 text-[10px] underline ml-2"
               >
                 关闭

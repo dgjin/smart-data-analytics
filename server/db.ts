@@ -3,7 +3,7 @@
  * 用户账号与数据源配置均落地 MySQL，服务启动时自动完成初始化。
  */
 import mysql from 'mysql2/promise';
-import { INITIAL_DATA_SOURCES } from '../src/data/sampleDatasets';
+import { INITIAL_DATA_SOURCES } from './seedData';
 import { hashPassword, verifyPassword } from './passwords';
 import { encryptSecret, isEncrypted } from './secretsCrypto';
 import { BUILTIN_SKILLS } from './skills';

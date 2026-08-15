@@ -7,7 +7,7 @@
 import {
   MOCK_MARKETING_DATA,
   MOCK_INVENTORY_DATA,
-} from './src/data/sampleDatasets';
+} from './server/seedData';
 import { pickFallbackAxes, extractEnumValues } from './server/schemaGuidance';
 
 /** 基于真实 Schema 动态生成降级结果：维度/指标取自当前数据源的表结构 */

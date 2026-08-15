@@ -10,6 +10,7 @@
  */
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
+import { ERROR_CODES } from '../errorCodes';
 import { authMiddleware, requireRole } from '../auth';
 import { rateLimiter } from '../rateLimiter';
 import { sanitizeQuestion, sanitizeHistory } from '../queryGuard';
@@ -47,14 +48,14 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   // L2 权限层：Service 侧复核（与路由 requireRole 构成 Controller+Service 双层校验）
   if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
     writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无问数权限`, durationMs: Date.now() - startedAt });
-    return res.status(403).json({ error: '当前角色没有智能问数权限' });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有智能问数权限' });
   }
 
   // L1 输入层：控制字符过滤 + 注入特征拒绝 + 500 字截断
   const clean = sanitizeQuestion(req.body.query);
   if (clean.ok !== true) {
     writeAudit({ ...auditBase, question: typeof req.body.query === 'string' ? req.body.query : '', status: 'DENIED_INPUT', detail: clean.reason, durationMs: Date.now() - startedAt });
-    return res.status(400).json({ error: clean.reason });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: clean.reason });
   }
   const query = clean.question;
 
@@ -63,7 +64,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   const modelSel = validateModelSelection(bodyModel.engine, bodyModel.model);
   if (modelSel && 'error' in modelSel) {
     writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: modelSel.error, durationMs: Date.now() - startedAt });
-    return res.status(400).json({ error: modelSel.error });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: modelSel.error });
   }
   if (modelSel && 'engine' in modelSel) setLlmOverride({ engine: modelSel.engine, model: modelSel.model });
   const modelVariant = modelSel && 'engine' in modelSel ? `${modelSel.engine}:${modelSel.model}` : '';
@@ -72,14 +73,14 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   const limit = await checkUserQueryLimit(user.id);
   if (!limit.ok) {
     writeAudit({ ...auditBase, question: query, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
-    return res.status(429).json({ error: limit.reason });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
   }
 
   // L5 频率层：同用户并发限 1（昂贵的 LLM 调用串行化）；slotToken 绑定本次请求，释放时比对防误删
   const slotToken = randomUUID();
   if (!(await acquireQuerySlot(user.id, slotToken))) {
     writeAudit({ ...auditBase, question: query, status: 'DENIED_RATE', detail: '存在进行中的查询', durationMs: Date.now() - startedAt });
-    return res.status(429).json({ error: '上一个查询仍在进行中，请等待完成后再试' });
+    return res.status(429).json({ code: ERROR_CODES.QUERY_IN_FLIGHT, error: '上一个查询仍在进行中，请等待完成后再试' });
   }
 
   // L3 上下文层：落库 schema + scope 白名单 + 敏感列过滤 + 5min 缓存（不信任前端提交的 schema）
@@ -125,7 +126,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
     // 数据源级 AI 开关：数据源被停用（disconnected）后拒绝问数
     if (ctx.status === 'disconnected') {
       writeAudit({ ...auditBase, question: query, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
-      return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+      return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
     }
 
     const effectiveSchema = ctx.schema;
@@ -148,11 +149,11 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         const consumed = await consumePlan(reqPlanId, user.id, dataSourceId);
         if (consumed.ok !== true) {
           writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: consumed.reason, durationMs: Date.now() - startedAt });
-          return res.status(409).json({ error: consumed.reason });
+          return res.status(409).json({ code: ERROR_CODES.PLAN_INVALID, error: consumed.reason });
         }
         if (consumed.plan.question !== query) {
           writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: '提交问题与计划不匹配', durationMs: Date.now() - startedAt });
-          return res.status(409).json({ error: '提交的问题与分析计划不匹配，请重新制定计划' });
+          return res.status(409).json({ code: ERROR_CODES.PLAN_MISMATCH, error: '提交的问题与分析计划不匹配，请重新制定计划' });
         }
         approvedPlan = consumed.plan;
       }
@@ -275,18 +276,18 @@ router.get('/trace/:traceId', authMiddleware, async (req, res) => {
   const user = req.user as { id: number; role: string };
   const traceId = String(req.params.traceId || '');
   if (!/^tr_[A-Za-z0-9_]{6,40}$/.test(traceId)) {
-    return res.status(400).json({ error: 'traceId 不合法' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'traceId 不合法' });
   }
   try {
     const { steps, ownerUserId } = await getTraceSteps(traceId);
-    if (steps.length === 0) return res.status(404).json({ error: '未找到该推导记录' });
+    if (steps.length === 0) return res.status(404).json({ code: ERROR_CODES.NOT_FOUND, error: '未找到该推导记录' });
     if (ownerUserId !== user.id && user.role !== 'ADMIN') {
-      return res.status(403).json({ error: '无权查看他人的推导过程' });
+      return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '无权查看他人的推导过程' });
     }
     return res.json({ traceId, steps });
   } catch (err) {
     console.error('[Trace] fetch failed:', err);
-    return res.status(500).json({ error: '推导记录获取失败' });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '推导记录获取失败' });
   }
 });
 
@@ -301,30 +302,30 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
   const clean = sanitizeQuestion(req.body.query);
   if (clean.ok !== true) {
     writeAudit({ ...auditBase, question: typeof req.body.query === 'string' ? req.body.query : '', status: 'DENIED_INPUT', detail: clean.reason, durationMs: Date.now() - startedAt });
-    return res.status(400).json({ error: clean.reason });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: clean.reason });
   }
 
   // 模型自选：与问数路由同构（可选，非法值直接拒绝）
   const bodyModel = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
   const modelSel = validateModelSelection(bodyModel.engine, bodyModel.model);
   if (modelSel && 'error' in modelSel) {
-    return res.status(400).json({ error: modelSel.error });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: modelSel.error });
   }
   if (modelSel && 'engine' in modelSel) setLlmOverride({ engine: modelSel.engine, model: modelSel.model });
 
   const planSlotToken = randomUUID();
   if (!(await acquireQuerySlot(user.id, planSlotToken))) {
-    return res.status(429).json({ error: '上一个查询仍在进行中，请等待完成后再试' });
+    return res.status(429).json({ code: ERROR_CODES.QUERY_IN_FLIGHT, error: '上一个查询仍在进行中，请等待完成后再试' });
   }
   try {
     // 计划模式仅支持真实可执行的数据库型数据源（演示模式无执行意义）
     const ctx = await loadSchemaContext(dataSourceId, schema);
     if (ctx.status === 'disconnected') {
-      return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+      return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
     }
     const canPlan = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && dsIdStr.length > 0;
     if (!canPlan) {
-      return res.status(400).json({ error: '计划模式仅支持真实连接的数据库型数据源' });
+      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '计划模式仅支持真实连接的数据库型数据源' });
     }
     const plan = await generateQueryPlan(clean.question, ctx.schema);
     await storePlan(plan, user.id, dsIdStr);
@@ -333,7 +334,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
   } catch (err: any) {
     console.error('[Plan] generate failed:', err?.message || err);
     writeAudit({ ...auditBase, question: clean.question, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
-    return res.status(500).json({ error: '分析计划生成失败，请稍后重试' });
+    return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: '分析计划生成失败，请稍后重试' });
   } finally {
     await releaseQuerySlot(user.id, planSlotToken);
   }
@@ -344,10 +345,10 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
 router.post('/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const { dataSourceId, question, sql, verdict, provenance } = req.body || {};
   if (verdict !== 'UP' && verdict !== 'DOWN') {
-    return res.status(400).json({ error: '反馈类型无效' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '反馈类型无效' });
   }
   if (typeof question !== 'string' || !question.trim()) {
-    return res.status(400).json({ error: '缺少问题内容' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '缺少问题内容' });
   }
   try {
     await saveFeedback({
@@ -362,7 +363,7 @@ router.post('/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
     return res.json({ success: true });
   } catch (err) {
     console.error('[Feedback] save failed:', err);
-    return res.status(500).json({ error: '反馈保存失败' });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '反馈保存失败' });
   }
 });
 
@@ -380,21 +381,21 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
   };
 
   if (typeof dataSourceId !== 'string' || !dataSourceId || typeof sql !== 'string' || !sql.trim()) {
-    return res.status(400).json({ error: 'dataSourceId 与 sql 必填' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'dataSourceId 与 sql 必填' });
   }
   if (sql.length > 4000) {
-    return res.status(400).json({ error: 'SQL 长度超出限制' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
 
   const limit = await checkUserQueryLimit(user.id);
   if (!limit.ok) {
     writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
-    return res.status(429).json({ error: limit.reason });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
   }
 
   const ctx = await loadSchemaContext(dataSourceId, undefined);
   if (ctx.status === 'disconnected') {
-    return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+    return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
 
   const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved, 500, ctx.rowFilters);
@@ -421,13 +422,13 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
 router.post('/sql-assist', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const { action, sql } = req.body || {};
   if (action !== 'explain' && action !== 'optimize') {
-    return res.status(400).json({ error: 'action 仅支持 explain / optimize' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'action 仅支持 explain / optimize' });
   }
   if (typeof sql !== 'string' || !sql.trim()) {
-    return res.status(400).json({ error: '缺少 SQL 内容' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '缺少 SQL 内容' });
   }
   if (sql.length > 4000) {
-    return res.status(400).json({ error: 'SQL 长度超出限制' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
 
   const system =
@@ -439,7 +440,7 @@ router.post('/sql-assist', rateLimiter, authMiddleware, requireRole('ADMIN', 'AN
     return res.json({ success: true, text: text || '（AI 未返回内容）' });
   } catch (err: any) {
     console.error('[SqlAssist] failed:', err?.message || err);
-    return res.status(502).json({ error: 'AI 服务暂时不可用，请稍后重试' });
+    return res.status(502).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: 'AI 服务暂时不可用，请稍后重试' });
   }
 });
 
@@ -455,15 +456,15 @@ router.post('/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
     typeof dimensionKey !== 'string' || !dimensionKey.trim() ||
     (typeof dimensionValue !== 'string' && typeof dimensionValue !== 'number')
   ) {
-    return res.status(400).json({ error: 'dataSourceId、originalSql、dimensionKey、dimensionValue 必填' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'dataSourceId、originalSql、dimensionKey、dimensionValue 必填' });
   }
   if (originalSql.length > 4000) {
-    return res.status(400).json({ error: 'SQL 长度超出限制' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
 
   const ctx = await loadSchemaContext(dataSourceId, undefined);
   if (ctx.status === 'disconnected') {
-    return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+    return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
 
   const outcome = await runDrill({
@@ -477,7 +478,7 @@ router.post('/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
   });
 
   if (outcome.ok !== true) {
-    return res.status(422).json({ error: outcome.error });
+    return res.status(422).json({ code: ERROR_CODES.SQL_REJECTED, error: outcome.error });
   }
   // 明细表头中文化：schema 列业务含义映射（下钻为 SELECT *，列名即原始字段名）
   const columnNames = buildColumnNames(outcome.rows, ctx.schema);

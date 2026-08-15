@@ -6,6 +6,7 @@
  */
 import express, { Router } from 'express';
 import { randomUUID } from 'node:crypto';
+import { ERROR_CODES } from '../errorCodes';
 import { authMiddleware, requireRole } from '../auth';
 import { rateLimiter } from '../rateLimiter';
 import { containsInjection } from '../queryGuard';
@@ -35,7 +36,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
   // L2 权限层：Service 侧复核
   if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
     writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告生成权限`, durationMs: Date.now() - startedAt });
-    return res.status(403).json({ error: '当前角色没有报告生成权限' });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告生成权限' });
   }
 
   const safeTemplate = String(templateType || '综合经营分析').slice(0, 200);
@@ -45,19 +46,19 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
   // L1 输入层：报告主题与自定义要求过注入特征检测
   if (containsInjection(safeTemplate) || containsInjection(safeCustom)) {
     writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: '报告参数包含注入特征', durationMs: Date.now() - startedAt });
-    return res.status(400).json({ error: '报告参数包含不允许的指令内容' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告参数包含不允许的指令内容' });
   }
 
   // L5 频率层：与智能问数共享用户配额与并发互斥
   const limit = await checkUserQueryLimit(user.id);
   if (!limit.ok) {
     writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
-    return res.status(429).json({ error: limit.reason });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
   }
   const reportSlotToken = randomUUID();
   if (!(await acquireQuerySlot(user.id, reportSlotToken))) {
     writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: '存在进行中的查询', durationMs: Date.now() - startedAt });
-    return res.status(429).json({ error: '上一个查询仍在进行中，请等待完成后再试' });
+    return res.status(429).json({ code: ERROR_CODES.QUERY_IN_FLIGHT, error: '上一个查询仍在进行中，请等待完成后再试' });
   }
 
   // L3 上下文层：报告同样以落库的 schema + scope + 敏感过滤为准
@@ -66,7 +67,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
   try {
     if (ctx.status === 'disconnected') {
       writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
-      return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+      return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
     }
     const effectiveSchema = ctx.schema;
     const schemaGuidance = ctx.guidance;
@@ -78,7 +79,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
       const consumed = await consumeReportPlan(reportPlanId, user.id, dataSourceId, safeTemplate);
       if (consumed.ok !== true) {
         writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: consumed.reason, durationMs: Date.now() - startedAt });
-        return res.status(409).json({ error: consumed.reason });
+        return res.status(409).json({ code: ERROR_CODES.PLAN_INVALID, error: consumed.reason });
       }
       approvedPlans = consumed.plan;
     }
@@ -157,24 +158,24 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
 
   if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
     writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告计划权限`, durationMs: Date.now() - startedAt });
-    return res.status(403).json({ error: '当前角色没有报告生成权限' });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告生成权限' });
   }
 
   const safeTemplate = String(templateType || '综合经营分析').slice(0, 200);
   const safeCustom = String(customPrompt || '生成包含核心KPI、多维趋势图表与战略建议的决策简报').slice(0, 1000);
   if (containsInjection(safeTemplate) || containsInjection(safeCustom)) {
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'DENIED_INPUT', detail: '报告参数包含注入特征', durationMs: Date.now() - startedAt });
-    return res.status(400).json({ error: '报告参数包含不允许的指令内容' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告参数包含不允许的指令内容' });
   }
 
   const ctx = await loadSchemaContext(dataSourceId, schema);
   if (ctx.status === 'disconnected') {
     writeAudit({ ...auditBase, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
-    return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+    return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
   const canPlan = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
   if (!canPlan) {
-    return res.status(400).json({ error: '仅数据库型数据源支持报表计划模式' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '仅数据库型数据源支持报表计划模式' });
   }
 
   try {
@@ -189,7 +190,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     });
     if (out.ok !== true) {
       writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: out.error, durationMs: Date.now() - startedAt });
-      return res.status(500).json({ error: out.error });
+      return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: out.error });
     }
     const reportPlanId = await storeReportPlan(out.plan, { templateType: safeTemplate, userId: user.id, dataSourceId });
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
@@ -197,7 +198,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
   } catch (err: any) {
     console.error('Report Plan Error:', err);
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
-    return res.status(500).json({ error: '报表查询计划生成失败，请稍后重试' });
+    return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: '报表查询计划生成失败，请稍后重试' });
   }
 });
 
@@ -210,13 +211,13 @@ router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddlew
   // L2 权限层：Service 侧复核
   if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
     writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告导出权限`, durationMs: Date.now() - startedAt });
-    return res.status(403).json({ error: '当前角色没有报告导出权限' });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告导出权限' });
   }
 
   const data = normalizeExportData(req.body?.report ?? req.body);
   if (!data) {
     writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
-    return res.status(400).json({ error: '报告导出参数无效' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告导出参数无效' });
   }
 
   try {
@@ -228,7 +229,7 @@ router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddlew
   } catch (err: any) {
     console.error('Report Export Error:', err);
     writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
-    return res.status(500).json({ error: 'PPT 生成失败，请稍后重试' });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'PPT 生成失败，请稍后重试' });
   }
 });
 

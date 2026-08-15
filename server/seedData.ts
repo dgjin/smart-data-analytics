@@ -1,4 +1,10 @@
-import { DataSource, TableSchema } from '../types/analytics';
+/**
+ * P1-7 mock 数据出库：演示数据源种子与降级模板数据从前端 src/data/ 迁至服务端，
+ * 前端不再携带 mock 数据（MOCK_SALES_DATA 为零引用死数据，未迁移）。
+ * - INITIAL_DATA_SOURCES：db.ts 首次启动种子（data_sources 表为空时写入）
+ * - MOCK_MARKETING/INVENTORY_DATA：serverFallbacks 无 Schema 时的确定性降级演示数据
+ */
+import { DataSource, TableSchema } from '../src/types/analytics';
 
 export const DEMO_TABLE_SALES: TableSchema = {
   id: 'sales_performance',
@@ -93,33 +99,12 @@ export const INITIAL_DATA_SOURCES: DataSource[] = [
   },
 ];
 
-// Seed raw mock data generator for interactive query results
-export const MOCK_SALES_DATA = [
-  { date: '2026-01', region: '华东', channel: '线上电商', category: '智能硬件', revenue: 1420000, orders: 3200, profit: 420000, discount_rate: 8.8 },
-  { date: '2026-01', region: '华南', channel: '线下门店', category: '云服务', revenue: 980000, orders: 1800, profit: 310000, discount_rate: 9.5 },
-  { date: '2026-01', region: '华北', channel: '企业直供', category: '企业软件', revenue: 2100000, orders: 450, profit: 890000, discount_rate: 9.0 },
-  { date: '2026-02', region: '华东', channel: '线上电商', category: '智能硬件', revenue: 1680000, orders: 3800, profit: 510000, discount_rate: 8.5 },
-  { date: '2026-02', region: '华南', channel: '线下门店', category: '云服务', revenue: 1120000, orders: 2100, profit: 360000, discount_rate: 9.2 },
-  { date: '2026-02', region: '华北', channel: '企业直供', category: '企业软件', revenue: 2350000, orders: 510, profit: 980000, discount_rate: 8.9 },
-  { date: '2026-03', region: '华东', channel: '线上电商', category: '智能硬件', revenue: 1950000, orders: 4200, profit: 620000, discount_rate: 8.2 },
-  { date: '2026-03', region: '华南', channel: '线下门店', category: '云服务', revenue: 1350000, orders: 2400, profit: 450000, discount_rate: 9.0 },
-  { date: '2026-03', region: '华北', channel: '企业直供', category: '企业软件', revenue: 2780000, orders: 620, profit: 1150000, discount_rate: 8.7 },
-  { date: '2026-04', region: '华东', channel: '线上电商', category: '智能硬件', revenue: 2150000, orders: 4600, profit: 710000, discount_rate: 8.0 },
-  { date: '2026-04', region: '华南', channel: '线下门店', category: '云服务', revenue: 1480000, orders: 2600, profit: 490000, discount_rate: 8.8 },
-  { date: '2026-04', region: '华北', channel: '企业直供', category: '企业软件', revenue: 3100000, orders: 680, profit: 1320000, discount_rate: 8.5 },
-  { date: '2026-05', region: '华东', channel: '线上电商', category: '智能硬件', revenue: 2420000, orders: 5100, profit: 820000, discount_rate: 7.9 },
-  { date: '2026-05', region: '华南', channel: '线下门店', category: '云服务', revenue: 1620000, orders: 2850, profit: 540000, discount_rate: 8.7 },
-  { date: '2026-05', region: '华北', channel: '企业直供', category: '企业软件', revenue: 3450000, orders: 740, profit: 1480000, discount_rate: 8.3 },
-  { date: '2026-06', region: '华东', channel: '线上电商', category: '智能硬件', revenue: 2890000, orders: 5900, profit: 980000, discount_rate: 7.8 },
-  { date: '2026-06', region: '华南', channel: '线下门店', category: '云服务', revenue: 1850000, orders: 3100, profit: 610000, discount_rate: 8.5 },
-  { date: '2026-06', region: '华北', channel: '企业直供', category: '企业软件', revenue: 3880000, orders: 810, profit: 1650000, discount_rate: 8.1 },
-];
-
+// 无 Schema 时的确定性降级演示数据（serverFallbacks 专用）
 export const MOCK_MARKETING_DATA = [
   { campaign: '春季AI智能硬件首发', channel: '信息流广告', cost: 350000, impressions: 12000000, clicks: 380000, leads: 14500, roi: 3.85 },
   { campaign: '云服务企业试用月', channel: '搜索引擎竞价', cost: 220000, impressions: 4500000, clicks: 210000, leads: 9200, roi: 4.12 },
   { campaign: '618年中智造狂欢节', channel: '社媒精准种草', cost: 480000, impressions: 18500000, clicks: 620000, leads: 22800, roi: 3.42 },
-  { campaign: 'B2B软件峰会定向引流', channel: '行业垂直媒体', cost: 150000, impressions: 1200000, clicks: 85000, leads: 4800, roi: 5.20 },
+  { campaign: 'B2B软件峰会定向引流', channel: '行业垂直媒体', cost: 150000, impressions: 1200000, clicks: 85000, leads: 4800, roi: 5.2 },
   { campaign: '品牌高管深度访谈品牌PR', channel: '视频内容投流', cost: 180000, impressions: 6800000, clicks: 140000, leads: 3100, roi: 2.15 },
 ];
 
