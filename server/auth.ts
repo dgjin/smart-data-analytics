@@ -3,6 +3,7 @@
  * 中间件在验证 token 后回查 users 表，确保禁用/角色变更立即生效。
  */
 import type express from 'express';
+import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { getPool } from './db';
 
@@ -26,8 +27,18 @@ declare global {
   }
 }
 
-// ESM import 提升会使模块级 process.env 读取早于 dotenv.config()，须惰性读取
-const jwtSecret = () => process.env.JWT_SECRET || 'dev-only-insecure-secret';
+// ESM import 提升会使模块级 process.env 读取早于 dotenv.config()， 须惰性读取
+// dev 兜底密钥：进程级随机生成（重启后登录态失效），杜绝固定串被复制到测试/预发环境伪造 token。
+// 注：secretsCrypto 的数据源凭据密钥不可随机化（落库密文需跨重启解密），生产由 server.ts fail-fast 拦截。
+let devJwtSecret: string | null = null;
+const jwtSecret = (): string => {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (!devJwtSecret) {
+    devJwtSecret = randomBytes(32).toString('hex');
+    console.warn('[Security] ⚠️ JWT_SECRET 未配置，已生成进程级临时密钥（重启后所有登录态失效）；生产环境必须配置固定强密钥');
+  }
+  return devJwtSecret;
+};
 const jwtExpiresIn = () => process.env.JWT_EXPIRES_IN || '12h';
 
 export function signToken(user: AuthUser): string {
