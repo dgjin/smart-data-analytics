@@ -337,7 +337,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
       'UPDATE data_sources SET schema_json = ?, config_json = ?, scope_json = ?, status = ? WHERE id = ?',
       [JSON.stringify(tables), JSON.stringify(encryptConfigPassword(config)), cleanedScope ? JSON.stringify(cleanedScope) : null, 'connected', id]
     );
-    invalidateSchemaCache(id);
+    void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
@@ -407,7 +407,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
     if ((result as any).affectedRows === 0) {
       return res.status(404).json({ error: '数据源不存在' });
     }
-    invalidateSchemaCache(id);
+    void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
     return res.json({ success: true });
   } catch (err) {
@@ -424,7 +424,7 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
     if ((result as any).affectedRows === 0) {
       return res.status(404).json({ error: '数据源不存在' });
     }
-    invalidateSchemaCache(id);
+    void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
     return res.json({ success: true });
   } catch (err) {
@@ -488,7 +488,7 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     }
 
     await getPool().query('UPDATE data_sources SET schema_json = ? WHERE id = ?', [JSON.stringify(tables), id]);
-    invalidateSchemaCache(id);
+    void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, touched, dataSource: rowToDataSource((updated as any[])[0]) });
@@ -519,7 +519,7 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
       scope ? JSON.stringify(scope) : null,
       id,
     ]);
-    invalidateSchemaCache(id);
+    void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });

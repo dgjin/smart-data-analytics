@@ -1,15 +1,18 @@
 /**
  * L3 上下文层：加载进入 LLM 上下文的数据源 Schema。
- * 防御链：落库 schema → scope 白名单过滤 → 敏感列过滤 → 摘要生成，结果缓存 5 分钟
- * （对应架构图 Caffeine 缓存；数据源写操作后由路由侧调用 invalidateSchemaCache 失效）。
+ * 防御链：落库 schema → scope 白名单过滤 → 敏感列过滤 → 摘要生成，结果缓存 5 分钟。
+ * P2-7 缓存接 StateStore：REDIS_URL 配置时多实例共享同一份缓存，
+ * 数据源写操作后 invalidateSchemaCache 跨实例同步失效（内存模式行为与原实现一致）。
  * 同时返回数据源 status，作为数据源级"AI 问数开关"（disconnected 拒绝问数）。
  */
 import { getPool } from './db';
+import { getStateStore } from './stateStore';
 import { applyDataScope, rowFiltersByTableName } from './scope';
 import { summarizeSchema } from './schemaGuidance';
 import { filterSensitiveColumns } from './queryGuard';
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const SCHEMA_CACHE_PREFIX = 'sctx:';
+const CACHE_TTL_SEC = 5 * 60;
 
 interface CacheEntry {
   schema: any[];
@@ -22,15 +25,13 @@ interface CacheEntry {
   allowIntrospection: boolean;
   /** P1-3 行级权限：实际表名 → 行过滤谓词（执行层 AST 强制注入） */
   rowFilters: Record<string, string>;
-  at: number;
 }
 
-const cache = new Map<string, CacheEntry>();
-
-/** 数据源配置/结构变更后调用，使缓存失效 */
-export function invalidateSchemaCache(dataSourceId?: string): void {
-  if (dataSourceId) cache.delete(dataSourceId);
-  else cache.clear();
+/** 数据源配置/结构变更后调用，使缓存失效（跨实例：Redis 模式下 deleteByPrefix 广播清理） */
+export async function invalidateSchemaCache(dataSourceId?: string): Promise<void> {
+  const store = getStateStore();
+  if (dataSourceId) await store.deleteByPrefix(`${SCHEMA_CACHE_PREFIX}${dataSourceId}`);
+  else await store.deleteByPrefix(SCHEMA_CACHE_PREFIX);
 }
 
 export interface SchemaContext {
@@ -75,17 +76,23 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
     return fromClientSchema(clientSchema);
   }
 
-  const cached = cache.get(dataSourceId);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
-    return {
-      schema: cached.schema,
-      guidance: cached.guidance,
-      status: cached.status,
-      dsType: cached.dsType,
-      sensitiveRemoved: cached.sensitiveRemoved,
-      allowIntrospection: cached.allowIntrospection,
-      rowFilters: cached.rowFilters,
-    };
+  const cacheKey = `${SCHEMA_CACHE_PREFIX}${dataSourceId}`;
+  const raw = await getStateStore().get(cacheKey);
+  if (raw) {
+    try {
+      const cached = JSON.parse(raw) as CacheEntry;
+      return {
+        schema: cached.schema,
+        guidance: cached.guidance,
+        status: cached.status,
+        dsType: cached.dsType,
+        sensitiveRemoved: cached.sensitiveRemoved,
+        allowIntrospection: cached.allowIntrospection,
+        rowFilters: cached.rowFilters,
+      };
+    } catch {
+      // 缓存体损坏视为未命中，走查库重建
+    }
   }
 
   try {
@@ -106,9 +113,8 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       sensitiveRemoved: filtered.removed,
       allowIntrospection: Number(ds.allow_introspection) === 1,
       rowFilters: rowFiltersByTableName(scoped, parseJson(ds.scope_json, null)),
-      at: Date.now(),
     };
-    cache.set(dataSourceId, entry);
+    await getStateStore().setEx(cacheKey, JSON.stringify(entry), CACHE_TTL_SEC);
     return {
       schema: entry.schema,
       guidance: entry.guidance,

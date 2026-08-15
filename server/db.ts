@@ -314,6 +314,25 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // P2-4 LLM 用量埋点：按引擎/模型/通道记录 token 与耗时，支撑多引擎成本对比；
+  // fire-and-forget 写入，失败不阻断主链路
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS llm_usage (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      engine VARCHAR(16) NOT NULL,
+      model VARCHAR(128) NOT NULL,
+      channel VARCHAR(12) NOT NULL,
+      prompt_tokens INT NOT NULL DEFAULT 0,
+      completion_tokens INT NOT NULL DEFAULT 0,
+      total_tokens INT NOT NULL DEFAULT 0,
+      duration_ms INT NOT NULL DEFAULT 0,
+      ok TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_llm_usage_created (created_at),
+      INDEX idx_llm_usage_engine_model (engine, model)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // 4. Seed default admin when users table is empty（首登强制改密）
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');
   if (Number(userRows[0]?.cnt) === 0) {

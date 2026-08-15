@@ -6,6 +6,7 @@
  * AI_ENGINE 显式指定（ollama/gemini/qwen）> 按密钥存在性自动（gemini/qwen）> ollama。
  */
 import { AsyncLocalStorage } from 'async_hooks';
+import { recordLlmUsage } from './llmUsage';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -178,8 +179,18 @@ export async function listAvailableModels(): Promise<ModelOption[]> {
   return opts;
 }
 
+/** 通道层返回：文本 + 可选 token 用量（P2-4 成本埋点，引擎不返回时缺省） */
+interface ChannelUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+interface ChannelOutcome {
+  text: string;
+  usage?: ChannelUsage;
+}
+
 /** 通义千问 OpenAI 兼容通道（百炼按量 / Coding Plan 均适用，端点由 QWEN_URL 决定） */
-async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<string> {
+async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<ChannelOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), qwenTimeoutMs());
 
@@ -205,7 +216,14 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
     }
 
     const json: any = await res.json();
-    return json.choices?.[0]?.message?.content || '';
+    // P2-4 成本埋点：OpenAI 兼容响应带 usage 字段
+    const u = json?.usage;
+    return {
+      text: json.choices?.[0]?.message?.content || '',
+      usage: u && (Number(u.prompt_tokens) > 0 || Number(u.completion_tokens) > 0)
+        ? { promptTokens: Number(u.prompt_tokens) || 0, completionTokens: Number(u.completion_tokens) || 0 }
+        : undefined,
+    };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error(`Qwen 推理超时（超过 ${Math.round(qwenTimeoutMs() / 1000)} 秒）`, { cause: err });
@@ -216,7 +234,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
   }
 }
 
-async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<string> {
+async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<ChannelOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ollamaTimeoutMs());
 
@@ -241,7 +259,13 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverr
     }
 
     const json: any = await res.json();
-    return json.message?.content || '';
+    // P2-4 成本埋点：Ollama 返回 prompt_eval_count / eval_count
+    const pt = Number(json?.prompt_eval_count) || 0;
+    const ct = Number(json?.eval_count) || 0;
+    return {
+      text: json.message?.content || '',
+      usage: pt > 0 || ct > 0 ? { promptTokens: pt, completionTokens: ct } : undefined,
+    };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error(`Ollama 推理超时（超过 ${Math.round(ollamaTimeoutMs() / 1000)} 秒）`, { cause: err });
@@ -267,27 +291,54 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
   // 阶段路由仅在用户未自选模型时生效（用户显式选择始终优先）
   const route = overrideStore.getStore()?.model ? undefined : opts?.route;
   const kind: EngineKind = route ? route.engine : engineKind();
-  if (kind === 'ollama') return ollamaChat(messages, true, route?.model);
-  if (kind === 'qwen') return qwenChat(messages, true, route?.model);
+  const usedModel = kind === 'ollama' ? route?.model || llmModel() : kind === 'qwen' ? route?.model || qwenModel() : route?.model || geminiModel();
 
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const contents = [
-    ...history.map((m) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })),
-    { role: 'user', parts: [{ text: user }] },
-  ];
-  const response = await ai.models.generateContent({
-    model: route?.model || geminiModel(),
-    contents,
-    config: {
-      systemInstruction: system,
-      responseMimeType: 'application/json',
-    },
-  });
-  return response.text || '{}';
+  // P2-4 成本埋点：统一计时，成功/失败均落库（fire-and-forget）
+  const t0 = Date.now();
+  try {
+    let outcome: ChannelOutcome;
+    if (kind === 'ollama') outcome = await ollamaChat(messages, true, route?.model);
+    else if (kind === 'qwen') outcome = await qwenChat(messages, true, route?.model);
+    else {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const contents = [
+        ...history.map((m) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        })),
+        { role: 'user', parts: [{ text: user }] },
+      ];
+      const response = await ai.models.generateContent({
+        model: route?.model || geminiModel(),
+        contents,
+        config: {
+          systemInstruction: system,
+          responseMimeType: 'application/json',
+        },
+      });
+      const um = (response as any)?.usageMetadata;
+      outcome = {
+        text: response.text || '{}',
+        usage: um && (Number(um.promptTokenCount) > 0 || Number(um.candidatesTokenCount) > 0)
+          ? { promptTokens: Number(um.promptTokenCount) || 0, completionTokens: Number(um.candidatesTokenCount) || 0 }
+          : undefined,
+      };
+    }
+    recordLlmUsage({
+      engine: kind,
+      model: usedModel,
+      channel: 'json',
+      promptTokens: outcome.usage?.promptTokens || 0,
+      completionTokens: outcome.usage?.completionTokens || 0,
+      durationMs: Date.now() - t0,
+      ok: true,
+    });
+    return outcome.text;
+  } catch (err) {
+    recordLlmUsage({ engine: kind, model: usedModel, channel: 'json', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
+    throw err;
+  }
 }
 
 /**
@@ -296,33 +347,56 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
  */
 export async function callLLMText(system: string, user: string): Promise<string> {
   const kind = engineKind();
-  if (kind === 'ollama') {
-    return ollamaChat(
-      [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      false
-    );
+  const usedModel = kind === 'ollama' ? llmModel() : kind === 'qwen' ? qwenModel() : geminiModel();
+  const t0 = Date.now();
+  try {
+    let outcome: ChannelOutcome;
+    if (kind === 'ollama') {
+      outcome = await ollamaChat(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        false
+      );
+    } else if (kind === 'qwen') {
+      outcome = await qwenChat(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        false
+      );
+    } else {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const response = await ai.models.generateContent({
+        model: geminiModel(),
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        config: { systemInstruction: system },
+      });
+      const um = (response as any)?.usageMetadata;
+      outcome = {
+        text: response.text || '',
+        usage: um && (Number(um.promptTokenCount) > 0 || Number(um.candidatesTokenCount) > 0)
+          ? { promptTokens: Number(um.promptTokenCount) || 0, completionTokens: Number(um.candidatesTokenCount) || 0 }
+          : undefined,
+      };
+    }
+    recordLlmUsage({
+      engine: kind,
+      model: usedModel,
+      channel: 'text',
+      promptTokens: outcome.usage?.promptTokens || 0,
+      completionTokens: outcome.usage?.completionTokens || 0,
+      durationMs: Date.now() - t0,
+      ok: true,
+    });
+    return outcome.text;
+  } catch (err) {
+    recordLlmUsage({ engine: kind, model: usedModel, channel: 'text', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
+    throw err;
   }
-  if (kind === 'qwen') {
-    return qwenChat(
-      [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      false
-    );
-  }
-
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const response = await ai.models.generateContent({
-    model: geminiModel(),
-    contents: [{ role: 'user', parts: [{ text: user }] }],
-    config: { systemInstruction: system },
-  });
-  return response.text || '';
 }
 
 // embedding 模型（Ollama 需已 pull，如 nomic-embed-text；未装时调用方降级为关键词检索）
@@ -378,6 +452,10 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
   const cached = embedCacheGet(cacheKey);
   if (cached) return cached;
 
+  // P2-4 成本埋点：只记实际发生的网络调用（缓存命中不重复计），token 数引擎不返回记 0
+  const embedT0 = Date.now();
+  const embedModelName = kind === 'qwen' ? qwenEmbedModel() : kind === 'ollama' ? embedModel() : 'gemini-embedding-001';
+
   if (kind === 'qwen') {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
@@ -399,6 +477,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
       const emb = json.data?.[0]?.embedding;
       if (!Array.isArray(emb) || emb.length === 0) throw new Error('Qwen 返回空向量');
       embedCacheSet(cacheKey, emb);
+      recordLlmUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: Number(json?.usage?.total_tokens) || 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
       return emb;
     } finally {
       clearTimeout(timer);
@@ -422,6 +501,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
         throw new Error('Ollama 返回空向量（请确认已安装 embedding 模型，如 ollama pull nomic-embed-text）');
       }
       embedCacheSet(cacheKey, emb);
+      recordLlmUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
       return emb;
     } finally {
       clearTimeout(timer);
@@ -437,5 +517,6 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
   const vals = r?.embeddings?.[0]?.values ?? r?.values;
   if (!Array.isArray(vals) || vals.length === 0) throw new Error('Gemini 返回空向量');
   embedCacheSet(cacheKey, vals);
+  recordLlmUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
   return vals;
 }

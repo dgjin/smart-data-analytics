@@ -12,8 +12,9 @@ dotenv.config({ path: path.join(__dirname, '.env.local') });
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 import { initSchema } from './server/db';
-import { authMiddleware } from './server/auth';
+import { authMiddleware, requireRole } from './server/auth';
 import { llmEngineLabel, llmEngineInfo, listAvailableModels } from './server/llmClient';
+import { summarizeLlmUsage } from './server/llmUsage';
 import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/analysisChain';
 import { requestLogger } from './server/requestLogger';
 import authRoutes from './server/routes/auth';
@@ -99,6 +100,18 @@ async function startServer() {
     } catch (err) {
       console.error('[Models] list failed:', err);
       res.status(500).json({ error: '模型目录获取失败' });
+    }
+  });
+
+  // 1d. API Endpoint: P2-4 LLM 用量统计（近 N 天按引擎/模型聚合，多引擎成本对比；仅管理员）
+  app.get('/api/system/llm-usage', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+    try {
+      const days = Number(req.query.days) || 7;
+      const usage = await summarizeLlmUsage(days);
+      res.json({ days, usage });
+    } catch (err) {
+      console.error('[LlmUsage] summarize failed:', err);
+      res.status(500).json({ error: '用量统计获取失败' });
     }
   });
 
