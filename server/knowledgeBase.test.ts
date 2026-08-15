@@ -66,6 +66,48 @@ describe('rankChunks: 检索排序', () => {
     const out = rankChunks('不良贷款', chunks, null, 2);
     expect(out).toHaveLength(2);
   });
+
+  it('同一文档最多入选 maxPerDoc 块，剩余槽位让给其他文档', () => {
+    const chunks = [
+      mk('大字典', '不良贷款余额口径一', [1, 0]),
+      mk('大字典', '不良贷款余额口径二', [0.98, 0.01]),
+      mk('大字典', '不良贷款余额口径三', [0.96, 0.02]),
+      mk('口径指南', '不良贷款余额判断标准', [0.9, 0.05]),
+    ];
+    const out = rankChunks('不良贷款余额', chunks, [1, 0], 4, 2);
+    expect(out).toHaveLength(3);
+    expect(out.filter((c) => c.title === '大字典')).toHaveLength(2);
+    expect(out.some((c) => c.title === '口径指南')).toBe(true);
+  });
+  it('口径/指南类文档保留槽位：字典相似度更高时仍能注入', () => {
+    const chunks = [
+      mk('字段字典A', '长龄业务字段说明', [1, 0]),
+      mk('字段字典B', '长龄业务配置明细', [0.99, 0.01]),
+      mk('字段字典C', '长龄业务分类关系', [0.98, 0.02]),
+      mk('高频指标口径速查', '长龄业务判断标准', [0.85, 0.1]),
+    ];
+    const out = rankChunks('长龄业务的判断标准是什么', chunks, [1, 0]);
+    expect(out.some((c) => c.title === '高频指标口径速查')).toBe(true);
+  });
+
+  it('reserveGuided=false 时不做保留，纯按分数取 topK', () => {
+    const chunks = [
+      mk('字段字典A', '长龄业务字段说明', [1, 0]),
+      mk('字段字典B', '长龄业务配置明细', [0.99, 0.01]),
+      mk('高频指标口径速查', '长龄业务判断标准', [0.85, 0.1]),
+    ];
+    const out = rankChunks('长龄业务', chunks, [1, 0], 2, 2, false);
+    expect(out.map((c) => c.title)).toEqual(['字段字典A', '字段字典B']);
+  });
+
+  it('保留槽位选块用混合打分：词法匹配更好的块优先于向量分略高的块', () => {
+    const chunks = [
+      mk('高频指标口径速查', '风险项目口径说明', [0.99, 0.01]),
+      mk('高频指标口径速查', '长龄业务判断标准', [0.95, 0.05]),
+    ];
+    const out = rankChunks('长龄业务的判断标准是什么', chunks, [1, 0], 1);
+    expect(out[0].text).toBe('长龄业务判断标准');
+  });
 });
 
 describe('formatKnowledgeSnippets: prompt 注入块', () => {

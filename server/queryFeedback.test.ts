@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bigramOverlap, normalizeSql, loadFewShotExamples } from './queryFeedback';
+import { bigramOverlap, normalizeSql, loadFewShotExamples, loadNegativeExamples } from './queryFeedback';
 import { getPool } from './db';
 
 vi.mock('./db', () => ({ getPool: vi.fn() }));
@@ -72,5 +72,36 @@ describe('loadFewShotExamples: DAIL-SQL 双维度打分（样例库统一读取�
     ]);
     const out = await loadFewShotExamples('ds1', '查询', ['t1', 't2', 't3', 't4']);
     expect(out.length).toBe(3);
+  });
+});
+
+describe('loadNegativeExamples: 自主学习之点踩反例沉淀', () => {
+  it('无相似点踩记录返回空数组', async () => {
+    mockFeedbackRows([{ question: '完全无关', executed_sql: 'SELECT x FROM y' }]);
+    const out = await loadNegativeExamples('ds1', '本月销售额趋势');
+    expect(out).toEqual([]);
+  });
+
+  it('相似点踩问答对被检索为反例，按相似度排序', async () => {
+    mockFeedbackRows([
+      { question: '各客户类型的订单金额', executed_sql: 'SELECT SUM(amount) FROM orders' },
+      { question: '各客户类型的数量', executed_sql: 'SELECT COUNT(*) FROM customers' },
+    ]);
+    const out = await loadNegativeExamples('ds1', '各客户类型的数量');
+    expect(out.length).toBe(2);
+    expect(out[0].sql).toContain('FROM customers');
+  });
+
+  it('相同归一化 SQL 只留一条，默认最多 2 条', async () => {
+    mockFeedbackRows([
+      { question: '问题甲', executed_sql: 'SELECT 1 FROM t' },
+      { question: '问题甲乙', executed_sql: 'SELECT  1  FROM  t' },
+      { question: '问题甲丙', executed_sql: 'SELECT 2 FROM t' },
+      { question: '问题甲丁', executed_sql: 'SELECT 3 FROM t' },
+    ]);
+    const out = await loadNegativeExamples('ds1', '问题甲乙丙丁');
+    expect(out.length).toBe(2);
+    const sqls = out.map((n) => n.sql);
+    expect(new Set(sqls).size).toBe(sqls.length);
   });
 });

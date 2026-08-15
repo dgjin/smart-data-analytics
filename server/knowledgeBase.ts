@@ -11,7 +11,15 @@ import { bigramOverlap } from './queryFeedback';
 
 export const CHUNK_SIZE = 400;
 export const CHUNK_OVERLAP = 80;
-export const TOP_K_CHUNKS = 3;
+export const TOP_K_CHUNKS = 4;
+/** 单文档最多入选块数：防止大字典文档占满槽位，保证口径/指南类文档有注入机会 */
+export const MAX_CHUNKS_PER_DOC = 2;
+/** 标题含这些关键词的属于高价值口径/指南类文档：有命中时至少保留一个注入槽位，
+ * 防止字段字典类文档在向量相似度上全面占优、挤掉口径规则 */
+export const GUIDED_DOC_KEYWORDS = ['口径', '指南', '速查', '规则', '枚举'];
+/** 保留槽位选块时的词法混合权重：向量分 + 权重×归一 bigram，
+ * 避免分块边界把正答块排在同文档其他块之后 */
+export const GUIDED_BIGRAM_WEIGHT = 0.15;
 
 /** 按段落优先、定长兜底切块，相邻块保留 overlap 以防语义被截断 */
 export function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
@@ -70,13 +78,18 @@ export interface KnowledgeChunk {
 
 /**
  * 排序检索：question 与 chunk 均可用向量时走余弦相似度，否则降级 bigram 关键词。
- * 返回得分最高的 topK 个片段（得分 ≤0 的被过滤）。
+ * 返回得分最高的 topK 个片段（得分 ≤0 的被过滤）；
+ * 同一文档（title）最多入选 maxPerDoc 块，避免单一长字典文档占满注入槽位；
+ * reserveGuided 为 true 时，为标题命中 GUIDED_DOC_KEYWORDS 的最高分块保留一个槽位，
+ * 保证口径/指南类知识（如「高频指标口径速查」）在字段字典相似度更高时仍能注入。
  */
 export function rankChunks(
   question: string,
   chunks: KnowledgeChunk[],
   questionEmbedding: number[] | null,
-  topK = TOP_K_CHUNKS
+  topK = TOP_K_CHUNKS,
+  maxPerDoc = MAX_CHUNKS_PER_DOC,
+  reserveGuided = true
 ): KnowledgeChunk[] {
   const scored = chunks
     .map((c) => {
@@ -91,7 +104,34 @@ export function rankChunks(
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK).map((s) => s.c);
+  const out: KnowledgeChunk[] = [];
+  const picked = new Set<KnowledgeChunk>();
+  const perDoc = new Map<string, number>();
+  const push = (c: KnowledgeChunk) => {
+    out.push(c);
+    picked.add(c);
+    perDoc.set(c.title, (perDoc.get(c.title) || 0) + 1);
+  };
+  // 口径/指南类文档保留一个槽位：取「向量分 + 词法分」混合最高的块先行入选，
+  // 防止同一文档内分块边界导致正答块被其他块压过
+  if (reserveGuided && topK > 0) {
+    const guidedList = scored.filter((s) => GUIDED_DOC_KEYWORDS.some((k) => s.c.title.includes(k)));
+    if (guidedList.length > 0) {
+      const qLen = Math.max(1, question.length - 1);
+      const hybrid = (s: { c: KnowledgeChunk; score: number }) =>
+        s.score + GUIDED_BIGRAM_WEIGHT * (bigramOverlap(question, `${s.c.title} ${s.c.text}`) / qLen);
+      const best = guidedList.reduce((a, b) => (hybrid(b) > hybrid(a) ? b : a));
+      push(best.c);
+    }
+  }
+  for (const s of scored) {
+    if (out.length >= topK) break;
+    if (picked.has(s.c)) continue;
+    const n = perDoc.get(s.c.title) || 0;
+    if (n >= maxPerDoc) continue;
+    push(s.c);
+  }
+  return out;
 }
 
 /** 将检索到的片段格式化为阶段一 prompt 注入块；无结果返回空串 */
@@ -120,7 +160,7 @@ export async function saveKnowledgeDoc(
   for (const chunk of chunks) {
     let embedding: number[] | null = null;
     try {
-      embedding = await callEmbedding(`${title}\n${chunk}`);
+      embedding = await callEmbedding(`${title}\n${chunk}`, 'document');
     } catch {
       embedding = null;
     }
@@ -156,7 +196,7 @@ export async function retrieveKnowledgeSnippets(
 
     let questionEmbedding: number[] | null = null;
     try {
-      questionEmbedding = await callEmbedding(question);
+      questionEmbedding = await callEmbedding(question, 'query');
     } catch {
       questionEmbedding = null;
     }

@@ -72,6 +72,46 @@ export interface FewShotExample {
   source: 'MANUAL' | 'FEEDBACK_UP' | 'IMPORT';
 }
 
+export interface NegativeExample {
+  question: string;
+  sql: string;
+}
+
+/**
+ * 自主学习之反例沉淀：同数据源点踩（DOWN）的问答对，按问题相似度取 top N，
+ * 以「反面教材」形式注入阶段一 prompt，避免重复犯同类错误（与点赞正例互补）。
+ * 相同归一化 SQL 只留一条；SQL 超长截断控制 token 占用。
+ */
+export async function loadNegativeExamples(
+  dataSourceId: string,
+  question: string,
+  maxCount = 2
+): Promise<NegativeExample[]> {
+  const [rows] = await getPool().query(
+    `SELECT question, executed_sql FROM query_feedback
+     WHERE data_source_id = ? AND verdict = 'DOWN' AND executed_sql <> ''
+     ORDER BY id DESC LIMIT 50`,
+    [dataSourceId]
+  );
+  const scored = (rows as any[])
+    .map((r) => ({
+      question: String(r.question),
+      sql: normalizeSql(String(r.executed_sql)).slice(0, 500),
+      score: bigramOverlap(question, String(r.question)),
+    }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const bySql = new Set<string>();
+  const picked: NegativeExample[] = [];
+  for (const s of scored) {
+    if (picked.length >= maxCount) break;
+    if (bySql.has(s.sql)) continue;
+    bySql.add(s.sql);
+    picked.push({ question: s.question, sql: s.sql });
+  }
+  return picked;
+}
+
 /**
  * 检索与当前问题最相似的样例（同数据源、近 100 条内），
  * 借鉴 DAIL-SQL 双维度打分：
