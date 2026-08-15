@@ -172,7 +172,7 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
 
       if (res.status === 429) {
         result.status = 'rate-limited';
-        result.reason = '触发配额/限流，跳过本用例';
+        result.reason = '触发配额/限流，跳过本用例（评测前可给服务端设 USER_QUERY_RATE_MAX 提额）';
       } else if (!res.ok) {
         result.status = 'error';
         result.reason = `HTTP ${res.status}`;

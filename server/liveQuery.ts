@@ -239,7 +239,7 @@ ${approvedPlan.steps.map((s, i) => `${i + 1}. [${s.type}] ${s.title}：${s.descr
 数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列）:
 ${JSON.stringify(schema)}
 
-${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessNotes(schema)}${metricPrompt}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}${negativeExamples.length > 0 ? `反面教材（以下问答对已被用户点踩确认为错误答案，严禁重复类似的表选择、统计口径或写法）:\n${negativeExamples.map((ex) => `错误案例：${ex.question}\n错误 SQL：${ex.sql}`).join('\n')}\n` : ''}
+${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessNotes(schema)}${metricPrompt}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}${negativeExamples.length > 0 ? `反面教材（以下问题曾被用户确认答案错误，严禁重复同样的错误表选择与统计口径；这里不提供错误 SQL，请自行推导正确口径）:\n${negativeExamples.map((ex) => `错误案例：${ex.question}${ex.wrongTables ? `（错误答案涉及表：${ex.wrongTables}）` : ''}`).join('\n')}\n` : ''}
 【强制约束】
 - 输出${introspectionEnabled ? '三种' : '两种'}之一：① 正常情况输出 JSON 对象 {"sql","title","chartType","xAxisKey","yAxisKeys","yAxisNames","columnNames","thoughtProcess"}；② 问题存在歧义时输出澄清请求（见下方"歧义澄清"规则）${introspectionEnabled ? '；③ 需要数据自省时输出自省请求（见下方"数据自省"规则）' : ''}
 - columnNames: SQL 输出每一列的中文表头映射 {"列名/别名": "中文表头"}，维度列与聚合别名都要覆盖（如 {"total_amount": "总金额"}）

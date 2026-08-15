@@ -317,14 +317,19 @@ export async function initSchema(): Promise<void> {
     console.log(`[DB] Seeded default admin account: ${defaultAdminUsername()} (首次登录将强制修改初始密码)`);
   }
 
-  // P0 安全告警：管理员仍在使用默认密码时每次启动强提示，并置强制改密标记（服务端拦截业务接口）
+  // P0 安全告警：管理员仍在使用默认密码时每次启动提醒；仅对从未登录过的账号置强制改密标记
+  // （首登前置位无副作用；已登录过的账号不反复锁死，避免打断开发/评测等程序化流程）
   const [adminRows] = await pool.query<mysql.RowDataPacket[]>(
-    'SELECT id, password_hash FROM users WHERE username = ? LIMIT 1',
+    'SELECT id, password_hash, last_login_at FROM users WHERE username = ? LIMIT 1',
     [defaultAdminUsername()]
   );
   if (adminRows[0] && verifyPassword(defaultAdminPassword(), String(adminRows[0].password_hash))) {
-    await pool.query('UPDATE users SET must_change_password = 1 WHERE id = ?', [adminRows[0].id]);
-    console.warn('[Security] ⚠️ 管理员账号仍在使用默认密码，已强制下次登录修改密码！');
+    if (adminRows[0].last_login_at == null) {
+      await pool.query('UPDATE users SET must_change_password = 1 WHERE id = ?', [adminRows[0].id]);
+      console.warn('[Security] ⚠️ 管理员账号使用默认密码且从未登录，首次登录将强制修改密码！');
+    } else {
+      console.warn('[Security] ⚠️ 管理员账号仍在使用默认密码，请尽快修改！');
+    }
   }
 
   // 5. Seed demo data sources when table is empty

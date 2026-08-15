@@ -74,13 +74,16 @@ export interface FewShotExample {
 
 export interface NegativeExample {
   question: string;
-  sql: string;
+  /** 错误答案涉及的表名特征（逗号分隔）。P0-3：不再向 prompt 提供完整错误 SQL，防止 LLM 照抄负例。 */
+  wrongTables: string;
 }
 
 /**
  * 自主学习之反例沉淀：同数据源点踩（DOWN）的问答对，按问题相似度取 top N，
  * 以「反面教材」形式注入阶段一 prompt，避免重复犯同类错误（与点赞正例互补）。
- * 相同归一化 SQL 只留一条；SQL 超长截断控制 token 占用。
+ * P0-3 双重防照抄：① 只返回问题与错误答案的表名特征，完整错误 SQL 不出库；
+ * ② 相似度阈值 bigram≥4（低重叠属噪声，注入反而误导）。
+ * 相同归一化 SQL 只留一条。
  */
 export async function loadNegativeExamples(
   dataSourceId: string,
@@ -96,18 +99,21 @@ export async function loadNegativeExamples(
   const scored = (rows as any[])
     .map((r) => ({
       question: String(r.question),
-      sql: normalizeSql(String(r.executed_sql)).slice(0, 500),
+      normSql: normalizeSql(String(r.executed_sql)).slice(0, 500),
       score: bigramOverlap(question, String(r.question)),
     }))
-    .filter((r) => r.score > 0)
+    .filter((r) => r.score >= 4)
     .sort((a, b) => b.score - a.score);
   const bySql = new Set<string>();
   const picked: NegativeExample[] = [];
   for (const s of scored) {
     if (picked.length >= maxCount) break;
-    if (bySql.has(s.sql)) continue;
-    bySql.add(s.sql);
-    picked.push({ question: s.question, sql: s.sql });
+    if (bySql.has(s.normSql)) continue;
+    bySql.add(s.normSql);
+    picked.push({
+      question: s.question,
+      wrongTables: extractTableRefs(stripCommentsAndStrings(s.normSql)).slice(0, 3).join(', '),
+    });
   }
   return picked;
 }

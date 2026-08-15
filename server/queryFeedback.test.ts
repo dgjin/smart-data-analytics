@@ -76,32 +76,36 @@ describe('loadFewShotExamples: DAIL-SQL 双维度打分（样例库统一读取�
 });
 
 describe('loadNegativeExamples: 自主学习之点踩反例沉淀', () => {
-  it('无相似点踩记录返回空数组', async () => {
-    mockFeedbackRows([{ question: '完全无关', executed_sql: 'SELECT x FROM y' }]);
-    const out = await loadNegativeExamples('ds1', '本月销售额趋势');
+  it('无相似或低相似（bigram<4）点踩记录返回空数组，避免噪声反例误导', async () => {
+    mockFeedbackRows([
+      { question: '完全无关', executed_sql: 'SELECT x FROM y' },
+      { question: '各客户类型的订单金额', executed_sql: 'SELECT SUM(amount) FROM orders' }, // 与查询 bigram 重合 3
+    ]);
+    const out = await loadNegativeExamples('ds1', '客户类型单');
     expect(out).toEqual([]);
   });
 
-  it('相似点踩问答对被检索为反例，按相似度排序', async () => {
+  it('相似点踩问答对被检索为反例，只携带表名特征不带完整错误 SQL', async () => {
     mockFeedbackRows([
       { question: '各客户类型的订单金额', executed_sql: 'SELECT SUM(amount) FROM orders' },
       { question: '各客户类型的数量', executed_sql: 'SELECT COUNT(*) FROM customers' },
     ]);
     const out = await loadNegativeExamples('ds1', '各客户类型的数量');
     expect(out.length).toBe(2);
-    expect(out[0].sql).toContain('FROM customers');
+    expect(out[0].wrongTables).toContain('customers');
+    expect(JSON.stringify(out)).not.toContain('COUNT'); // 完整 SQL 不出库，防 LLM 照抄负例
   });
 
   it('相同归一化 SQL 只留一条，默认最多 2 条', async () => {
     mockFeedbackRows([
-      { question: '问题甲', executed_sql: 'SELECT 1 FROM t' },
-      { question: '问题甲乙', executed_sql: 'SELECT  1  FROM  t' },
-      { question: '问题甲丙', executed_sql: 'SELECT 2 FROM t' },
-      { question: '问题甲丁', executed_sql: 'SELECT 3 FROM t' },
+      { question: '问题甲乙丙丁', executed_sql: 'SELECT 1 FROM t' },
+      { question: '问题甲乙丙丁戊', executed_sql: 'SELECT  1  FROM  t' },
+      { question: '问题甲乙丙丁己', executed_sql: 'SELECT 2 FROM t' },
+      { question: '问题甲乙丙丁庚', executed_sql: 'SELECT 3 FROM t' },
     ]);
-    const out = await loadNegativeExamples('ds1', '问题甲乙丙丁');
+    const out = await loadNegativeExamples('ds1', '问题甲乙丙丁戊己庚');
     expect(out.length).toBe(2);
-    const sqls = out.map((n) => n.sql);
-    expect(new Set(sqls).size).toBe(sqls.length);
+    const qs = out.map((n) => n.question);
+    expect(new Set(qs).size).toBe(qs.length); // 归一化同 SQL 去重后不出现重复问题
   });
 });
