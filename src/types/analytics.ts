@@ -61,6 +61,8 @@ export interface DataSource {
   /** 表数量（非管理员不下发 tables 详情时由服务端提供，供 UI 徽标展示） */
   tableCount?: number;
   scope?: DataScope | null;
+  /** 管理员登记的专业快速问题推荐（优先于通用 Schema 推导的推荐问题） */
+  quickQuestions?: string[] | null;
   lastSyncedAt: string;
 }
 
@@ -105,6 +107,15 @@ export interface QueryResultData {
   }[];
 }
 
+/** M2 计划模式：LLM 预生成的分析计划（不执行，用户批准后携带 planId 提交问数） */
+export interface QueryPlanData {
+  planId: string;
+  understanding: string;
+  steps: { type: string; title: string; description: string; sql?: string }[];
+  relatedTables: string[];
+  complexity: 'simple' | 'multi-step';
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -129,6 +140,12 @@ export interface ChatMessage {
     question: string;
     options: { label: string; query: string }[];
   };
+  /** M1 推导留痕：本次问数全链路步骤 trace ID（可按需回放查看每个环节） */
+  traceId?: string;
+  /** M2 计划模式：待批准的分析计划卡片（批准/取消后禁用操作） */
+  queryPlan?: QueryPlanData;
+  /** 对话归属数据源：历史按源隔离展示，避免不同数据源的对话串源 */
+  dataSourceId?: string;
 }
 
 export interface AnomalyItem {
@@ -199,6 +216,8 @@ export interface SavedReport {
     anomalies?: AnomalyItem[];
     comments?: ChartComment[];
   }[];
+  /** P2-2 下钻：各图表对应的原聚合 SQL（与 charts 顺序对齐） */
+  executedSqls?: string[];
   anomalies?: AnomalyItem[];
   anomalyScanTime?: string;
   comments?: ChartComment[];

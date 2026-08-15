@@ -1,16 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Sparkles,
   FileSpreadsheet,
   TrendingUp,
-  Boxes,
-  Users,
+  ShieldAlert,
+  Coins,
   Building2,
   Plus,
   Loader2,
   History,
   Trash2,
   AlertTriangle,
+  ClipboardList,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -42,7 +44,22 @@ export const ReportGenerator: React.FC = () => {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [activeReportIndex, setActiveReportIndex] = useState<number>(0);
 
+  // M4 报告计划模式：先生成查询计划供批准，再携带 reportPlanId 生成报表（localStorage 持久化）
+  const REPORT_PLAN_MODE_KEY = 'app-report-plan-mode';
+  const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem(REPORT_PLAN_MODE_KEY) === '1');
+  const [isPlanning, setIsPlanning] = useState<boolean>(false);
+  const [pendingPlan, setPendingPlan] = useState<{
+    reportPlanId: string;
+    plan: { reportTitle: string; plans: { title: string; sql: string; chartType: string; purpose: string }[] };
+  } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(REPORT_PLAN_MODE_KEY, planMode ? '1' : '0');
+  }, [planMode]);
+
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
+  // 仅数据库型且未停用的数据源支持报表计划模式（与服务端 canPlan 判定一致）
+  const canPlanMode = !!activeDS && ['mysql', 'postgresql', 'greenplum'].includes(activeDS.type) && activeDS.status !== 'disconnected';
   // L7 AI 开关：数据源被停用（disconnected）时禁用报表生成入口（服务端同样强制 403）
   const aiSwitchOff = activeDS?.status === 'disconnected';
   // 自定义侧重点占位示例：取自所选数据源的真实表结构（应用问数范围过滤）
@@ -52,34 +69,35 @@ export const ReportGenerator: React.FC = () => {
     return first.length > 30 ? `${first.slice(0, 30)}...` : first;
   }, [activeDS]);
 
+  // 报表模板：贴合不良资产经营分析场景，templateType 会作为报表主题传给 LLM 规划查询
   const templates = [
     {
       id: '综合经营分析',
-      label: '综合经营与营收增长简报',
+      label: '不良资产综合经营分析简报',
       icon: TrendingUp,
-      desc: '全面评估月度销售额、净利润、毛利率及多渠道营收贡献比。',
+      desc: '投放规模与逐月趋势、业务分类结构、机构分布及长龄/逾期资产质量的月末快照综合盘点。',
     },
     {
-      id: '营销ROI评估',
-      label: '营销渠道投放与ROI评估',
-      icon: Users,
-      desc: '诊断信息流、搜索竞价、社媒种草各渠道线索获取成本与回报率。',
+      id: '资产质量与风险监控',
+      label: '资产质量与风险监控简报',
+      icon: ShieldAlert,
+      desc: '聚焦长龄业务占比与机构分布、逾期金额按业务分类分布及风险项目机构分布。',
     },
     {
-      id: '供应链与库存分析',
-      label: '供应链效率与库存风险',
-      icon: Boxes,
-      desc: '识别低于安全水位的缺货SKU，评估周转天数与滞销品清理方案。',
+      id: '投资收益与财务分析',
+      label: '投资收益与财务效能简报',
+      icon: Coins,
+      desc: '基于财务宽表（核算版），按科目一级分类与月度分析投资收益、利息收入等财务效能指标。',
     },
     {
       id: '企业战略决策简报',
       label: '高管季度战略决策报告',
       icon: Building2,
-      desc: '面向CEO/CFO的高管摘要，包含归因诊断、风险预警与战略落地方案。',
+      desc: '面向CEO/CFO的高管摘要，包含不良资产业务归因诊断、风险预警与战略落地方案。',
     },
   ];
 
-  const handleGenerateReport = async () => {
+  const handleGenerateReport = async (reportPlanId?: string) => {
     setIsGenerating(true);
     setGenerateError(null);
 
@@ -91,6 +109,7 @@ export const ReportGenerator: React.FC = () => {
           templateType,
           customPrompt,
           dataSourceId: activeDataSourceId,
+          ...(reportPlanId ? { reportPlanId } : {}),
         }),
       });
 
@@ -107,20 +126,58 @@ export const ReportGenerator: React.FC = () => {
           insights: data.report.insights || [],
           kpiList: data.report.kpiList || [],
           charts: data.report.charts || [],
+          // P2-2 下钻：live 链路各图表对应的原聚合 SQL（与 charts 顺序对齐）
+          ...(Array.isArray(data.report.executedSqls) ? { executedSqls: data.report.executedSqls } : {}),
         };
 
         const scannedReport = scanReportForAnomalies(rawReport);
         addSavedReport(scannedReport);
         setActiveReportIndex(0);
+        setPendingPlan(null);
       } else {
-        // 透出服务端防御层拒绝原因（注入/频率超限/数据源停用等）
+        // 透出服务端防御层拒绝原因（注入/频率超限/数据源停用/计划失效 409 等）
         setGenerateError(data.error || '报表生成失败，请稍后重试');
+        if (response.status === 409) setPendingPlan(null);
       }
     } catch (err: any) {
       console.error('Report Generation Failed:', err);
       setGenerateError(err?.message || '网络异常，报表生成失败');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // M4：计划模式下先请求报表查询计划（不执行），展示卡片待批准
+  const handleRequestPlan = async () => {
+    setIsPlanning(true);
+    setGenerateError(null);
+    try {
+      const response = await apiFetch('/api/report/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateType, customPrompt, dataSourceId: activeDataSourceId }),
+      });
+      const data = await response.json();
+      if (data.success && data.reportPlanId && data.plan) {
+        setPendingPlan({ reportPlanId: data.reportPlanId, plan: data.plan });
+      } else {
+        setGenerateError(data.error || '报表查询计划生成失败，请稍后重试');
+      }
+    } catch (err: any) {
+      console.error('Report Plan Failed:', err);
+      setGenerateError(err?.message || '网络异常，计划生成失败');
+    } finally {
+      setIsPlanning(false);
+    }
+  };
+
+  // 生成入口：计划模式先制定计划，否则直接生成
+  const handleStartGenerate = () => {
+    if (pendingPlan) return;
+    if (planMode && canPlanMode) {
+      handleRequestPlan();
+    } else {
+      handleGenerateReport();
     }
   };
 
@@ -199,21 +256,39 @@ export const ReportGenerator: React.FC = () => {
             disabled={aiSwitchOff}
             className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
           />
+
+          {/* M4 报表计划模式开关（仅数据库型数据源可用，localStorage 持久化） */}
+          {canPlanMode && (
+            <button
+              onClick={() => setPlanMode((v) => !v)}
+              disabled={isGenerating || isPlanning}
+              title="开启后先生成查询计划供你批准，再执行生成报表"
+              className={`px-3.5 py-3 rounded-xl border text-xs font-bold flex items-center space-x-1.5 transition-all shrink-0 ${
+                planMode
+                  ? 'bg-violet-600/25 border-violet-500 text-violet-200 shadow-sm'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>{planMode ? '先制定计划：开' : '先制定计划：关'}</span>
+            </button>
+          )}
+
           <button
-            onClick={handleGenerateReport}
-            disabled={isGenerating || !canGenerate || aiSwitchOff}
+            onClick={handleStartGenerate}
+            disabled={isGenerating || isPlanning || !canGenerate || aiSwitchOff || !!pendingPlan}
             title={aiSwitchOff ? '该数据源的智能问数已被管理员停用' : canGenerate ? '' : '只读角色无报表生成权限'}
             className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30 transition-all shrink-0"
           >
-            {isGenerating ? (
+            {isGenerating || isPlanning ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>AI 正在计算生成报表...</span>
+                <span>{isPlanning ? 'AI 正在制定查询计划...' : 'AI 正在计算生成报表...'}</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>立即生成决策报表</span>
+                <span>{planMode && canPlanMode ? '制定报表计划' : '立即生成决策报表'}</span>
               </>
             )}
           </button>
@@ -224,6 +299,47 @@ export const ReportGenerator: React.FC = () => {
           <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs flex items-center space-x-2">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{generateError}</span>
+          </div>
+        )}
+
+        {/* M4 报表查询计划卡片：批准后携带 reportPlanId 生成，10 分钟内有效 */}
+        {pendingPlan && (
+          <div className="p-4 rounded-2xl bg-violet-950/40 border border-violet-500/40 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center space-x-2 text-violet-200 text-xs font-bold">
+                <ClipboardList className="w-4 h-4" />
+                <span>报表查询计划{pendingPlan.plan.reportTitle ? `：${pendingPlan.plan.reportTitle}` : ''}（批准后执行，10 分钟内有效）</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => handleGenerateReport(pendingPlan.reportPlanId)}
+                  disabled={isGenerating}
+                  className="px-3.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-bold flex items-center space-x-1.5"
+                >
+                  {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>{isGenerating ? '正在按计划生成...' : '批准并生成报表'}</span>
+                </button>
+                <button
+                  onClick={() => setPendingPlan(null)}
+                  disabled={isGenerating}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {pendingPlan.plan.plans.map((q, i) => (
+                <div key={i} className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 text-[11px] space-y-1">
+                  <div className="text-slate-200 font-bold">
+                    {i + 1}. {q.title}
+                    <span className="ml-2 px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 text-[10px]">{q.chartType}</span>
+                  </div>
+                  {q.purpose && <div className="text-slate-400">目的：{q.purpose}</div>}
+                  <pre className="text-cyan-300/90 bg-slate-900 rounded-lg p-1.5 overflow-x-auto whitespace-pre-wrap break-all">{q.sql}</pre>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

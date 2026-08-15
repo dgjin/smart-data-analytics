@@ -53,6 +53,10 @@ interface DynamicChartProps {
   autoOptimizeContrast?: boolean;
   comparisonMode?: ComparisonMode;
   showDiffBadges?: boolean;
+  /** P2-2 点击下钻：点击图表维度时回调（维度键、维度值） */
+  onDrill?: (dimensionKey: string, dimensionValue: string | number) => void;
+  /** 是否允许下钻（仅 Cartesian 图表有效） */
+  drillable?: boolean;
 }
 
 export const DynamicChart: React.FC<DynamicChartProps> = ({
@@ -63,6 +67,8 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
   autoOptimizeContrast = true,
   comparisonMode = 'none',
   showDiffBadges = true,
+  onDrill,
+  drillable = false,
 }) => {
   const [startIndex, setStartIndex] = useState<number>(0);
   const [endIndex, setEndIndex] = useState<number>(Math.max(0, (data?.length || 1) - 1));
@@ -338,11 +344,17 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   const isZoomed = isCartesian && (startIndex > 0 || endIndex < data.length - 1);
 
+  // P2-2 下钻点击：从图表点击事件提取维度值
+  const handleChartClick = (state: any) => {
+    if (!drillable || !onDrill || !state || !state.activeLabel) return;
+    onDrill(xAxisKey, state.activeLabel);
+  };
+
   const renderChart = () => {
     switch (type) {
       case 'line':
         return (
-          <LineChart data={chartData}>
+          <LineChart data={chartData} onClick={handleChartClick}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
             <XAxis dataKey={xAxisKey} stroke={textColor} fontSize={12} tickLine={false} />
             <YAxis stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
@@ -403,7 +415,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
       case 'area':
         return (
-          <AreaChart data={chartData}>
+          <AreaChart data={chartData} onClick={handleChartClick}>
             <defs>
               {yAxisKeys.map((key, i) => {
                 const color = effectiveColors[i % effectiveColors.length];
@@ -613,7 +625,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
       case 'bar':
       default:
         return (
-          <BarChart data={chartData}>
+          <BarChart data={chartData} onClick={handleChartClick}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
             <XAxis dataKey={xAxisKey} stroke={textColor} fontSize={12} tickLine={false} />
             <YAxis stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />

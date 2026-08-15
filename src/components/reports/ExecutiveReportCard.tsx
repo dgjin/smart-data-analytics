@@ -26,14 +26,17 @@ import {
   FileCheck2,
   GitCompare,
   Percent,
+  Presentation,
 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import { SavedReport, AnomalyItem, ChartComment, ChartCommentReply } from '../../types/analytics';
 import { DynamicChart, ComparisonMode } from '../charts/DynamicChart';
 import { scanReportForAnomalies } from '../../utils/anomalyDetector';
 import { ChartCommentSection } from './ChartCommentSection';
+import { DrillModal } from './DrillModal';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { CHART_THEMES } from '../../utils/chartThemes';
+import { apiFetch } from '../../api/client';
 
 interface ExecutiveReportCardProps {
   report: SavedReport;
@@ -59,6 +62,10 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [pdfTheme, setPdfTheme] = useState<'dark' | 'light'>('dark');
   const [includeComments, setIncludeComments] = useState<boolean>(true);
+
+  // M4 PPT Export States（服务端 pptxgenjs 组装，图表转 base64 PNG 提交）
+  const [isExportingPPT, setIsExportingPPT] = useState<boolean>(false);
+  const [pptError, setPptError] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -113,11 +120,102 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }, 600);
   };
 
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillTarget, setDrillTarget] = useState<{ idx: number; dimKey: string; dimValue: string | number } | null>(null);
+
   const handlePrint = () => {
     setGlobalThemeId('print');
     setTimeout(() => {
       window.print();
     }, 150);
+  };
+
+  // Recharts 渲染的是 SVG，转 PNG：序列化 svg → Image → 2x canvas → toDataURL
+  const svgToPng = (svg: SVGSVGElement, bgColor = '#ffffff'): Promise<string | null> => {
+    return new Promise((resolve) => {
+      try {
+        const rect = svg.getBoundingClientRect();
+        const w = Math.max(Math.round(rect.width), 400);
+        const h = Math.max(Math.round(rect.height), 260);
+        const cloned = svg.cloneNode(true) as SVGSVGElement;
+        cloned.setAttribute('width', String(w));
+        cloned.setAttribute('height', String(h));
+        cloned.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        const xml = new XMLSerializer().serializeToString(cloned);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = w * 2;
+          canvas.height = h * 2;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(null);
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = () => resolve(null);
+        img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(xml)))}`;
+      } catch {
+        resolve(null);
+      }
+    });
+  };
+
+  // M4：下载 PPT（服务端组装 PPTX，图表按顺序与 activeReport.charts 对齐）
+  const handleExportPPT = async () => {
+    if (!reportRef.current || isExportingPPT) return;
+    setIsExportingPPT(true);
+    setPptError(null);
+    try {
+      const svgs = Array.from(reportRef.current.querySelectorAll('svg.recharts-surface'));
+      const charts = await Promise.all(
+        activeReport.charts.map(async (chartBlock, idx) => {
+          const svg = svgs[idx];
+          const imageBase64 = svg ? await svgToPng(svg as SVGSVGElement) : null;
+          return {
+            title: chartBlock.title,
+            commentary: chartBlock.commentary || '',
+            ...(imageBase64 ? { imageBase64 } : {}),
+          };
+        })
+      );
+
+      const response = await apiFetch('/api/report/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: activeReport.title,
+          summary: activeReport.summary,
+          createdAt: activeReport.createdAt,
+          templateType: activeReport.templateType,
+          kpiList: activeReport.kpiList || [],
+          insights: activeReport.insights || [],
+          charts,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(err?.error || `导出失败（${response.status}）`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${activeReport.title.replace(/[\\/:*?"<>|\s]+/g, '_')}_分析简报_${activeReport.createdAt}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('PPT Export Error:', err);
+      setPptError(err?.message || 'PPT 导出失败，请稍后重试');
+      setTimeout(() => setPptError(null), 5000);
+    } finally {
+      setIsExportingPPT(false);
+    }
   };
 
   // High Quality PDF Export Function using html2pdf.js
@@ -231,6 +329,16 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
             <span>导出高清 PDF 文档</span>
           </button>
 
+          {/* M4 PPT Export Button（服务端 pptxgenjs 组装，图表自动转 PNG 嵌入） */}
+          <button
+            onClick={handleExportPPT}
+            disabled={isExportingPPT}
+            className="flex items-center space-x-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white border border-emerald-400/30 text-xs font-bold transition-all shadow-md shadow-emerald-600/20"
+          >
+            {isExportingPPT ? <Loader2 className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
+            <span>{isExportingPPT ? '正在生成 PPT...' : '下载 PPT 简报'}</span>
+          </button>
+
           <button
             onClick={handlePrint}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors"
@@ -241,6 +349,14 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* M4 PPT 导出失败提示 */}
+      {pptError && (
+        <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs flex items-center space-x-2 print:hidden">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{pptError}</span>
+        </div>
+      )}
 
       {/* Global Chart Theme & YoY/MoM Comparison Toolbar */}
       <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col xl:flex-row xl:items-center justify-between gap-3 text-xs print:hidden">
@@ -575,7 +691,17 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                     autoOptimizeContrast={globalAutoContrast}
                     comparisonMode={globalComparisonMode}
                     showDiffBadges={globalShowDiffBadges}
+                    drillable={['bar', 'line', 'area'].includes(chartBlock.chartConfig.type)}
+                    onDrill={(dimKey, dimValue) => {
+                      setDrillTarget({ idx, dimKey, dimValue });
+                      setDrillOpen(true);
+                    }}
                   />
+                  {['bar', 'line', 'area'].includes(chartBlock.chartConfig.type) && (
+                    <div className="text-[10px] text-slate-500 text-center -mt-1">
+                      点击图表维度可下钻查看明细
+                    </div>
+                  )}
 
                   {/* Anomaly Callout Badges below chart */}
                   {chartAnomalies.length > 0 && (
@@ -771,6 +897,22 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* P2-2 下钻弹层：点击图表维度后展示明细数据（仅 live 报表有原 SQL 可下钻） */}
+      {drillTarget && (
+        <DrillModal
+          open={drillOpen}
+          onClose={() => {
+            setDrillOpen(false);
+            setDrillTarget(null);
+          }}
+          dataSourceId={activeReport.dataSourceId}
+          originalSql={activeReport.executedSqls?.[drillTarget.idx] || ''}
+          dimensionKey={drillTarget.dimKey}
+          dimensionValue={drillTarget.dimValue}
+          dimensionLabel={activeReport.charts[drillTarget.idx]?.chartConfig.xAxisName}
+        />
       )}
     </div>
   );

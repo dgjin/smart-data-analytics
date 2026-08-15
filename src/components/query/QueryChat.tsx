@@ -27,7 +27,11 @@ import {
   ThumbsDown,
   HelpCircle,
   Library,
+  Plus,
   Cpu,
+  ListChecks,
+  History,
+  Download,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -41,12 +45,17 @@ import { DataTable } from '../charts/DataTable';
 import { ChartCustomizer } from '../charts/ChartCustomizer';
 import { SQLPreviewModal } from './SQLPreviewModal';
 import { SkillLibraryModal } from './SkillLibraryModal';
-import { ChartConfig, ChatMessage, QueryResultData } from '../../types/analytics';
+import { TraceStepper, TraceReplay, TraceStepInfo } from './AnalysisTracePanel';
+import { ChartConfig, ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
 const MAX_QUERY_INPUT_LENGTH = 500;
 // 模型自选持久化键（值为 "engine::model"，空串表示跟随服务端默认）
 const SELECTED_MODEL_KEY = 'app-selected-model';
+// M2 计划模式持久化键（'1' = 开启「先制定计划」）
+const PLAN_MODE_KEY = 'app-plan-mode';
+// M3 深度分析持久化键（'1' = 强制启用中间表清洗链）
+const DEEP_ANALYSIS_KEY = 'app-deep-analysis';
 
 export const QueryChat: React.FC = () => {
   const {
@@ -75,10 +84,56 @@ export const QueryChat: React.FC = () => {
   // P2-A Skills：可复用分析技能（点击填充提问模板，占位符由用户替换后提交）
   const [skills, setSkills] = useState<{ id: string; name: string; description: string; promptTemplate: string }[]>([]);
   const [skillLibraryOpen, setSkillLibraryOpen] = useState(false);
+  // 技能「+」弹出菜单（参照 Qoder IDE「+」交互：点击输入框旁 + 号向上弹出技能选择面板）
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const skillMenuRef = useRef<HTMLDivElement>(null);
   // 已点选确认的澄清消息 id（确认后禁用选项，防止重复提交）
   const [resolvedClarifications, setResolvedClarifications] = useState<Set<string>>(new Set());
   // P2-7 SSE 流式进度：服务端阶段事件推送的实时状态文案
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
+  // M1 推导留痕：SSE trace 事件实时追加的步骤链（查询中展示步骤器）
+  const [liveTraceSteps, setLiveTraceSteps] = useState<TraceStepInfo[]>([]);
+  // M2 计划模式：「先制定计划」开关（localStorage 持久化）；已批准/取消的计划卡片 id 置灰
+  const [planMode, setPlanMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(PLAN_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [resolvedPlans, setResolvedPlans] = useState<Set<string>>(new Set());
+  const togglePlanMode = () => {
+    setPlanMode((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem(PLAN_MODE_KEY, '1');
+        else localStorage.removeItem(PLAN_MODE_KEY);
+      } catch {
+        // 存储不可用时仅本次会话生效
+      }
+      return next;
+    });
+  };
+  // M3 深度分析：强制启用中间表清洗链（关闭时由服务端复杂度评估自动判定）
+  const [deepMode, setDeepMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(DEEP_ANALYSIS_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleDeepMode = () => {
+    setDeepMode((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem(DEEP_ANALYSIS_KEY, '1');
+        else localStorage.removeItem(DEEP_ANALYSIS_KEY);
+      } catch {
+        // 存储不可用时仅本次会话生效
+      }
+      return next;
+    });
+  };
   // 模型自选：目录来自 /api/system/models，选择持久化到 localStorage
   const { models: modelCatalog } = useModelCatalog();
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -113,6 +168,15 @@ export const QueryChat: React.FC = () => {
   useEffect(() => {
     loadSkills();
   }, [loadSkills]);
+  // 技能「+」菜单：点击面板外部自动关闭
+  useEffect(() => {
+    if (!skillMenuOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      if (skillMenuRef.current && !skillMenuRef.current.contains(e.target as Node)) setSkillMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [skillMenuOpen]);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionRef = useRef<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -143,6 +207,109 @@ export const QueryChat: React.FC = () => {
   const handleEditQuestion = (content: string) => {
     setCurrentQuery(content);
     inputRef.current?.focus();
+  };
+
+  // ---------- 对话历史管理（服务端落库）：搜索 / 重问 / 删除 / 导出 ----------
+  interface ConversationItem {
+    id: number;
+    question: string;
+    sql: string;
+    answerSummary: string;
+    status: 'SUCCESS' | 'FALLBACK';
+    provenance: string;
+    createdAt: string;
+  }
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<ConversationItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyKeyword, setHistoryKeyword] = useState('');
+
+  const loadHistory = React.useCallback(
+    async (keyword: string) => {
+      if (!activeDataSourceId) return;
+      setHistoryLoading(true);
+      try {
+        const params = new URLSearchParams({ dataSourceId: activeDataSourceId });
+        if (keyword.trim()) params.set('q', keyword.trim());
+        const resp = await apiFetch(`/api/conversations?${params.toString()}`);
+        const data = await resp.json();
+        setHistoryItems(resp.ok && Array.isArray(data?.conversations) ? data.conversations : []);
+      } catch {
+        setHistoryItems([]);
+        showToast('对话历史加载失败');
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [activeDataSourceId]
+  );
+
+  const toggleHistoryPanel = () => {
+    const next = !historyOpen;
+    setHistoryOpen(next);
+    if (next) {
+      setHistoryKeyword('');
+      void loadHistory('');
+    }
+  };
+
+  // 面板打开期间切换数据源：自动重新拉取对应源的历史
+  useEffect(() => {
+    if (historyOpen) {
+      if (activeDataSourceId) void loadHistory(historyKeyword);
+      else setHistoryItems([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDataSourceId]);
+
+  const handleDeleteConversation = async (id: number) => {
+    try {
+      const resp = await apiFetch(`/api/conversations/${id}`, { method: 'DELETE' });
+      if (resp.ok) {
+        setHistoryItems((prev) => prev.filter((it) => it.id !== id));
+        showToast('已删除该条对话记录');
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        showToast(data?.error || '删除失败');
+      }
+    } catch {
+      showToast('删除失败');
+    }
+  };
+
+  // 导出当前数据源的对话为 Markdown（问题 + 回答 + SQL）
+  const handleExportConversation = () => {
+    if (visibleMessages.length === 0) {
+      showToast('当前数据源暂无可导出的对话');
+      return;
+    }
+    const dsName = dataSources.find((ds) => ds.id === activeDataSourceId)?.name || '未知数据源';
+    const lines: string[] = [
+      '# 智能问数对话导出',
+      '',
+      `- 数据源：${dsName}`,
+      `- 导出时间：${new Date().toLocaleString('zh-CN')}`,
+      `- 消息条数：${visibleMessages.length}`,
+      '',
+    ];
+    visibleMessages.forEach((msg, idx) => {
+      lines.push(`## ${idx + 1}. ${msg.role === 'user' ? '用户提问' : '系统回答'}`);
+      lines.push('');
+      lines.push(String(msg.content || '').trim() || '（无内容）');
+      const sql = (msg as any).result?.generatedSQL;
+      if (msg.role === 'assistant' && typeof sql === 'string' && sql.trim()) {
+        lines.push('', '```sql', sql.trim(), '```');
+      }
+      lines.push('');
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `问数对话_${dsName}_${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('已开始导出对话 Markdown');
   };
 
   // P1 反馈闭环：点赞/点踩落库（点赞样例将成为 few-shot 提升后续准确率），成功后置灰
@@ -265,19 +432,28 @@ export const QueryChat: React.FC = () => {
     };
   }, [activeDataSourceId, loadDataSources]);
 
+  // 对话历史按数据源隔离：仅渲染归属当前源的对话，切换数据源不再混显其他源的问答
+  const visibleMessages = useMemo(
+    () => chatMessages.filter((m) => (m.dataSourceId ?? '') === (activeDataSourceId || '')),
+    [chatMessages, activeDataSourceId]
+  );
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [chatMessages, isQueryLoading]);
+  }, [visibleMessages, isQueryLoading]);
 
-  // 推荐问题完全来自所选数据源的真实表结构（应用问数范围 scope 过滤，无硬编码示例）
-  const schemaSuggestions = useMemo(
-    () => (activeDS ? generateSchemaSuggestions(activeDS.tables, activeDS.scope) : []),
-    [activeDS]
-  );
+  // 推荐问题：管理员登记的专业快速问题优先，其余由真实表结构推导（应用问数范围 scope 过滤，无硬编码示例）
+  const schemaSuggestions = useMemo(() => {
+    if (!activeDS) return [];
+    const curated = Array.isArray(activeDS.quickQuestions) ? activeDS.quickQuestions.filter((q) => typeof q === 'string' && q.trim()) : [];
+    const generated = generateSchemaSuggestions(activeDS.tables, activeDS.scope);
+    const seen = new Set(curated);
+    return [...curated, ...generated.filter((g) => !seen.has(g))];
+  }, [activeDS]);
 
   // Filtered autocomplete suggestions based on current query input prefix
   const filteredSuggestions = useMemo(() => {
@@ -318,8 +494,11 @@ export const QueryChat: React.FC = () => {
     }
   }, [currentQuery, filteredSuggestions.length]);
 
-  // Handle NL Query Submission
-  const handleSendQuery = async (queryText?: string) => {
+  // M2 计划模式：仅真实连接的数据库型数据源支持（与服务端 canPlan 判定一致）
+  const canPlanMode = queryContext !== null && ['mysql', 'postgresql', 'greenplum'].includes(queryContext.dsType || '');
+
+  // Handle NL Query Submission（approvedPlanId：M2 批准计划后携带，服务端校验后按计划执行）
+  const handleSendQuery = async (queryText?: string, approvedPlanId?: string) => {
     const textToSubmit = queryText || currentQuery;
     if (!textToSubmit.trim() || isQueryLoading || aiSwitchOff) return;
 
@@ -331,17 +510,66 @@ export const QueryChat: React.FC = () => {
       role: 'user',
       content: textToSubmit,
       timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+      // 提交时快照归属源：加载期间切换数据源也不会把回答记到新源名下
+      dataSourceId: activeDataSourceId,
     };
+    const submitDSId = activeDataSourceId;
+
+    // M2 计划模式：开启「先制定计划」且本次未携带已批准 planId 时，先生成分析计划等待批准（不执行）
+    if (planMode && !approvedPlanId && canPlanMode) {
+      addChatMessage(userMsg);
+      setCurrentQuery('');
+      setQueryLoading(true);
+      try {
+        const planResp = await apiFetch('/api/query/plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: textToSubmit,
+            dataSourceId: activeDataSourceId,
+            schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
+            ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
+          }),
+        });
+        const planData = await planResp.json().catch(() => null);
+        if (!planResp.ok || !planData?.success || !planData.plan) {
+          throw new Error(planData?.error || '分析计划生成失败');
+        }
+        addChatMessage({
+          id: `msg-plan-${Date.now()}`,
+          role: 'assistant',
+          content: planData.plan.understanding || '已制定分析计划，请确认后执行。',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          question: textToSubmit,
+          queryPlan: planData.plan as QueryPlanData,
+          dataSourceId: submitDSId,
+        });
+      } catch (err: any) {
+        addChatMessage({
+          id: `msg-err-plan-${Date.now()}`,
+          role: 'assistant',
+          content: `分析计划生成失败：${err?.message || '请稍后重试'}`,
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          error: err?.message,
+          dataSourceId: submitDSId,
+        });
+      } finally {
+        setQueryLoading(false);
+      }
+      return;
+    }
 
     addChatMessage(userMsg);
     setCurrentQuery('');
     setQueryLoading(true);
+    setLiveTraceSteps([]);
 
     // Pass recent conversation turns for multi-turn context
     // P2 多轮增强：assistant 消息附带上轮真实结果摘要（作为 user 角色合成消息，
     // 服务端 L4 仅放行 user 消息，assistant 原文本就不发送，避免回流污染）
     const history: { role: 'user' | 'assistant'; content: string }[] = [];
-    const recentTurns = chatMessages
+    // 多轮上下文仅取当前源对话，避免跨源语义污染
+    const recentTurns = visibleMessages
       .filter((m) => m.role === 'user' || (m.role === 'assistant' && !m.error))
       .slice(-6);
     for (const m of recentTurns) {
@@ -397,6 +625,7 @@ export const QueryChat: React.FC = () => {
               : [],
           },
           question: textToSubmit,
+          dataSourceId: submitDSId,
         });
       } else if (resData.success && resData.result) {
         const provenance = resData.dataProvenance === 'live' ? 'live' : 'simulated';
@@ -417,6 +646,8 @@ export const QueryChat: React.FC = () => {
           dataProvenance: provenance,
           sensitiveFiltered: Number(resData.defense?.sensitiveFiltered) || 0,
           question: textToSubmit,
+          traceId: typeof resData.traceId === 'string' ? resData.traceId : undefined,
+          dataSourceId: submitDSId,
         };
 
         addChatMessage(aiMsg);
@@ -452,6 +683,11 @@ export const QueryChat: React.FC = () => {
           }
           if (eventName === 'stage') {
             setStreamProgress(stageLabel(String(data?.stage || '')));
+          } else if (eventName === 'trace') {
+            // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
+            if (data && typeof data.title === 'string') {
+              setLiveTraceSteps((prev) => [...prev.slice(-7), data as TraceStepInfo]);
+            }
           } else if (eventName === 'done' || eventName === 'clarify') {
             consumeResponse(data);
           } else if (eventName === 'error') {
@@ -472,6 +708,8 @@ export const QueryChat: React.FC = () => {
           schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
           history,
           stream: true,
+          ...(approvedPlanId ? { planId: approvedPlanId } : {}),
+          ...(deepMode ? { deepAnalysis: true } : {}),
           ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
         }),
       });
@@ -495,6 +733,7 @@ export const QueryChat: React.FC = () => {
           : `查询过程出现异常: ${err.message || '请检查网络或配置'}`,
         timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
         error: err.message,
+        dataSourceId: submitDSId,
       });
     } finally {
       clearTimeout(timeoutTimer);
@@ -580,19 +819,140 @@ export const QueryChat: React.FC = () => {
           )}
         </div>
 
-        <button
-          onClick={clearChat}
-          className="flex items-center space-x-1 text-slate-400 hover:text-rose-400 transition-colors"
-          title="清空对话记录"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>重置对话</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={handleExportConversation}
+            className="flex items-center space-x-1 text-slate-400 hover:text-indigo-400 transition-colors"
+            title="将当前数据源的对话导出为 Markdown 文件"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>导出</span>
+          </button>
+          <button
+            onClick={toggleHistoryPanel}
+            className={`flex items-center space-x-1 transition-colors ${historyOpen ? 'text-indigo-400' : 'text-slate-400 hover:text-indigo-400'}`}
+            title="查看服务端落库的对话历史（搜索 / 重问 / 删除，跨设备共享）"
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>历史对话</span>
+          </button>
+          <button
+            onClick={clearChat}
+            className="flex items-center space-x-1 text-slate-400 hover:text-rose-400 transition-colors"
+            title="清空当前数据源的对话记录（不影响其他数据源）"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>重置对话</span>
+          </button>
+        </div>
       </div>
+
+      {/* 对话历史面板（服务端落库）：关键词搜索 / 一键重问 / 单条删除 */}
+      {historyOpen && (
+        <div className="mx-4 md:mx-6 mt-3 rounded-2xl border border-indigo-500/30 bg-slate-900/80 shadow-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800">
+            <span className="text-xs font-bold text-indigo-300 flex items-center space-x-1.5">
+              <History className="w-3.5 h-3.5" />
+              <span>历史对话（服务端落库，跨设备共享，成功问答自动沉淀为个人经验）</span>
+            </span>
+            <div className="flex items-center space-x-2">
+              <div className="relative">
+                <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
+                <input
+                  value={historyKeyword}
+                  onChange={(e) => setHistoryKeyword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void loadHistory(historyKeyword);
+                  }}
+                  placeholder="搜索问题 / 结论，回车检索"
+                  className="pl-6 pr-2 py-1 text-[11px] rounded-lg bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-indigo-500 w-48"
+                />
+              </div>
+              <button onClick={() => setHistoryOpen(false)} className="text-slate-500 hover:text-slate-300 text-xs transition-colors">
+                关闭
+              </button>
+            </div>
+          </div>
+          <div className="max-h-64 overflow-y-auto divide-y divide-slate-800/60">
+            {historyLoading ? (
+              <div className="px-4 py-6 text-center text-xs text-slate-500">加载中…</div>
+            ) : historyItems.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-slate-500">该数据源暂无对话历史（问数完成后自动落库）</div>
+            ) : (
+              historyItems.map((item) => (
+                <div key={item.id} className="px-4 py-2.5 hover:bg-slate-800/40 transition-colors group">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border shrink-0 ${
+                            item.status === 'SUCCESS'
+                              ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                              : 'bg-amber-950/60 border-amber-500/40 text-amber-300'
+                          }`}
+                        >
+                          {item.status === 'SUCCESS' ? '成功' : '降级'}
+                        </span>
+                        {item.provenance === 'simulated' && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold border bg-slate-800 border-slate-700 text-slate-400 shrink-0">演示</span>
+                        )}
+                        <span className="text-[10px] text-slate-500 shrink-0">
+                          {item.createdAt ? new Date(item.createdAt).toLocaleString('zh-CN') : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-200 mt-1 truncate" title={item.question}>
+                        {item.question}
+                      </p>
+                      {item.answerSummary && (
+                        <p className="text-[11px] text-slate-500 mt-0.5 truncate" title={item.answerSummary}>
+                          {item.answerSummary}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => {
+                          handleEditQuestion(item.question);
+                          setHistoryOpen(false);
+                        }}
+                        title="回填输入框重新提问"
+                        className="p-1.5 rounded-lg text-indigo-400 hover:bg-indigo-950/60 transition-colors"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => void handleDeleteConversation(item.id)}
+                        title="删除该条对话记录"
+                        className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-950/60 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Conversation Feed */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-        {chatMessages.map((msg) => {
+        {/* 当前数据源暂无对话历史：动态生成跟随该源表结构的欢迎语 */}
+        {visibleMessages.length === 0 && (
+          <div className="flex items-start space-x-3">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm bg-slate-800 text-indigo-400 border border-slate-700">
+              <Bot className="w-4 h-4" />
+            </div>
+            <div className="w-full max-w-4xl space-y-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-5 shadow-sm text-xs text-slate-200">
+              <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 text-[11px] text-slate-400">
+                <span className="font-semibold text-slate-300">智能数据分析助手 NL2SQL</span>
+              </div>
+              <div className="whitespace-pre-wrap leading-relaxed text-sm">{welcomeContent}</div>
+            </div>
+          </div>
+        )}
+        {visibleMessages.map((msg) => {
           const isUser = msg.role === 'user';
 
           return (
@@ -708,9 +1068,12 @@ export const QueryChat: React.FC = () => {
                   </div>
                 )}
 
+                {/* M1 推导回放：按需拉取本次问数的全链路步骤时间线 */}
+                {!isUser && msg.traceId && <TraceReplay traceId={msg.traceId} />}
+
                 {/* Content Text（欢迎语按当前数据源真实表结构动态生成） */}
                 <div className="whitespace-pre-wrap leading-relaxed text-sm">
-                  {msg.id === 'welcome-1' ? welcomeContent : msg.content}
+                  {msg.id.startsWith('welcome-') ? welcomeContent : msg.content}
                 </div>
 
                 {/* 歧义澄清卡片：语义理解存在异议时展示候选口径，用户点选后按该理解重新提交 */}
@@ -744,6 +1107,79 @@ export const QueryChat: React.FC = () => {
                       <div className="text-[11px] text-slate-500 flex items-center space-x-1">
                         <CheckCircle className="w-3 h-3 text-emerald-400" />
                         <span>已确认口径，正在按该理解执行分析…</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* M2 计划卡片：执行前展示编号步骤与涉及表，批准后携带 planId 提交 */}
+                {!isUser && msg.queryPlan && (
+                  <div className="p-3 bg-violet-950/30 border border-violet-500/30 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-1.5 font-bold text-violet-300 text-xs">
+                        <ListChecks className="w-4 h-4" />
+                        <span>分析计划（{msg.queryPlan.steps.length} 步 · {msg.queryPlan.complexity === 'multi-step' ? '多步复合' : '单步简单'}）</span>
+                      </div>
+                      {msg.queryPlan.relatedTables.length > 0 && (
+                        <div className="flex items-center space-x-1 flex-wrap justify-end">
+                          <span className="text-[10px] text-slate-500">涉及表:</span>
+                          {msg.queryPlan.relatedTables.map((t) => (
+                            <span key={t} className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">{t}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <ol className="space-y-1.5">
+                      {msg.queryPlan.steps.map((st, idx) => (
+                        <li key={idx} className="flex items-start space-x-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                          <span className="w-4 h-4 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">{idx + 1}</span>
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-200">
+                              {st.title}
+                              <span className="ml-1.5 text-[10px] text-slate-500 font-mono">{st.type}</span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{st.description}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                    {resolvedPlans.has(msg.id) ? (
+                      <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+                        <CheckCircle className="w-3 h-3 text-emerald-400" />
+                        <span>该计划已处理，如需重新执行请重新制定计划。</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-2">
+                        <button
+                          disabled={isQueryLoading}
+                          onClick={() => {
+                            setResolvedPlans((prev) => new Set(prev).add(msg.id));
+                            handleSendQuery(msg.question || msg.queryPlan!.understanding, msg.queryPlan!.planId);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          批准执行
+                        </button>
+                        <button
+                          disabled={isQueryLoading}
+                          onClick={() => {
+                            setResolvedPlans((prev) => new Set(prev).add(msg.id));
+                            if (msg.question) {
+                              setCurrentQuery(msg.question);
+                              inputRef.current?.focus();
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs transition-colors disabled:opacity-50"
+                        >
+                          修改提问
+                        </button>
+                        <button
+                          onClick={() => setResolvedPlans((prev) => new Set(prev).add(msg.id))}
+                          className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-rose-400 text-xs transition-colors"
+                        >
+                          取消
+                        </button>
+                        <span className="text-[10px] text-slate-500 ml-auto">计划 10 分钟内有效</span>
                       </div>
                     )}
                   </div>
@@ -849,7 +1285,7 @@ export const QueryChat: React.FC = () => {
                 )}
 
                 {/* Suggested Follow-up Questions（欢迎语的追问推荐已由真实 Schema pills 取代，跳过渲染） */}
-                {msg.id !== 'welcome-1' && msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
+                {!msg.id.startsWith('welcome-') && msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
                   <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
                     <div className="text-[11px] text-slate-400 flex items-center space-x-1">
                       <Sparkles className="w-3 h-3 text-cyan-400" />
@@ -875,13 +1311,17 @@ export const QueryChat: React.FC = () => {
 
         {/* Loading Spinner Indicator */}
         {isQueryLoading && (
-          <div className="flex items-center space-x-3">
+          <div className="flex items-start space-x-3">
             <div className="w-8 h-8 rounded-xl bg-slate-800 text-indigo-400 flex items-center justify-center border border-slate-700 animate-pulse">
               <Bot className="w-4 h-4" />
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-slate-300 flex items-center space-x-3">
-              <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              <span>{streamProgress || 'AI 正在解析 Schema 并生成智能可视化数据...'}</span>
+            <div className="flex-1 space-y-2">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-slate-300 flex items-center space-x-3">
+                <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <span>{streamProgress || 'AI 正在解析 Schema 并生成智能可视化数据...'}</span>
+              </div>
+              {/* M1 分析过程显性呈现：实时步骤器展示已完成的推导环节 */}
+              {liveTraceSteps.length > 0 && <TraceStepper steps={liveTraceSteps} />}
             </div>
           </div>
         )}
@@ -992,34 +1432,42 @@ export const QueryChat: React.FC = () => {
             </div>
           )}
 
-          {/* P2-A Skills：可复用分析技能，点击将提问模板填入输入框；末尾提供技能库管理入口 */}
+          {/* 模式选项行：计划模式/深度分析/模型自选（技能改由输入框旁「+」弹出菜单选择） */}
           {!aiSwitchOff && (
             <div className="mb-2 flex items-center space-x-1.5 overflow-x-auto pb-0.5">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <span className="text-[10px] text-slate-500 shrink-0">技能:</span>
-              {skills.map((sk) => (
+              {/* M2 计划模式：先制定分析计划，批准后执行（持久化，仅数据库型数据源展示） */}
+              {canPlanMode && (
                 <button
-                  key={sk.id}
                   type="button"
-                  title={sk.description}
-                  onClick={() => {
-                    setCurrentQuery(sk.promptTemplate);
-                    inputRef.current?.focus();
-                  }}
-                  className="shrink-0 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:border-cyan-500 hover:text-cyan-300 text-[11px] transition-colors"
+                  onClick={togglePlanMode}
+                  title={planMode ? '已开启：提问后先制定分析计划，确认后执行' : '已关闭：提问后直接执行查询'}
+                  className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
+                    planMode
+                      ? 'bg-violet-950/60 border-violet-500 text-violet-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-violet-500/60 hover:text-violet-300'
+                  }`}
                 >
-                  {sk.name}
+                  <ListChecks className="w-3 h-3" />
+                  <span>{planMode ? '先制定计划：开' : '先制定计划：关'}</span>
                 </button>
-              ))}
-              <button
-                type="button"
-                title="管理我的技能库与系统技能库"
-                onClick={() => setSkillLibraryOpen(true)}
-                className="shrink-0 px-2.5 py-1 rounded-lg bg-indigo-950/60 border border-indigo-700/60 text-indigo-300 hover:border-indigo-400 hover:text-indigo-200 text-[11px] transition-colors flex items-center space-x-1"
-              >
-                <Library className="w-3 h-3" />
-                <span>技能库管理</span>
-              </button>
+              )}
+
+              {/* M3 深度分析：强制启用中间表清洗链（关闭时服务端复杂度评估自动判定） */}
+              {canPlanMode && (
+                <button
+                  type="button"
+                  onClick={toggleDeepMode}
+                  title={deepMode ? '已开启：强制通过中间表清洗链完成复杂分析' : '已关闭：由系统自动判断是否需要中间表清洗'}
+                  className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
+                    deepMode
+                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300'
+                  }`}
+                >
+                  <Database className="w-3 h-3" />
+                  <span>{deepMode ? '深度分析：开' : '深度分析：关'}</span>
+                </button>
+              )}
 
               {/* 模型自选：目录由服务端按实际部署给出，选择随提问生效并持久化 */}
               {modelCatalog.length > 0 && (
@@ -1053,6 +1501,69 @@ export const QueryChat: React.FC = () => {
             }}
             className="flex items-center space-x-2"
           >
+            {/* P2-A 技能「+」入口（参照 Qoder IDE「+」交互）：点击向上弹出技能选择面板，选中后填充提问模板 */}
+            {!aiSwitchOff && skills.length > 0 && (
+              <div className="relative shrink-0" ref={skillMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setSkillMenuOpen(!skillMenuOpen)}
+                  title="添加分析技能（选择后将提问模板填入输入框）"
+                  className={`px-3.5 py-3 rounded-xl border text-sm transition-colors ${
+                    skillMenuOpen
+                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-300'
+                      : 'bg-slate-950 border-slate-700/80 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                {skillMenuOpen && (
+                  <div className="absolute left-0 bottom-full mb-2 w-80 max-w-[86vw] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 z-50 overflow-hidden">
+                    <div className="px-3 py-2 border-b border-slate-800 flex items-center space-x-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      <span className="text-[11px] font-semibold text-cyan-300">分析技能 ({skills.length})</span>
+                      <span className="text-[10px] text-slate-500">· 点击填充提问模板</span>
+                    </div>
+                    <ul className="max-h-56 overflow-y-auto divide-y divide-slate-800/60">
+                      {skills.map((sk) => (
+                        <li key={sk.id}>
+                          <button
+                            type="button"
+                            title={`点击将「${sk.name}」的提问模板填入输入框`}
+                            onClick={() => {
+                              setCurrentQuery(sk.promptTemplate);
+                              setSkillMenuOpen(false);
+                              inputRef.current?.focus();
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-slate-800/60 transition-colors group"
+                          >
+                            <div className="flex items-center space-x-2 min-w-0">
+                              <span className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 shrink-0">{sk.name}</span>
+                              <span className="text-[10px] text-slate-500 truncate flex-1">{sk.description}</span>
+                              <ArrowUpRight className="w-3 h-3 text-slate-600 group-hover:text-cyan-400 shrink-0" />
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="border-t border-slate-800">
+                      <button
+                        type="button"
+                        title="管理我的技能库与系统技能库"
+                        onClick={() => {
+                          setSkillMenuOpen(false);
+                          setSkillLibraryOpen(true);
+                        }}
+                        className="w-full text-left px-3 py-2 text-[11px] text-indigo-300 hover:bg-slate-800/60 transition-colors flex items-center space-x-1.5"
+                      >
+                        <Library className="w-3 h-3" />
+                        <span>技能库管理</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="relative flex-1 flex items-center">
               <input
                 ref={inputRef}

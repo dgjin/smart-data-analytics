@@ -18,7 +18,7 @@ import {
   Layers,
   ChevronRight,
 } from 'lucide-react';
-import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { useAnalyticsStore, DEFAULT_NPA_WIDGET_IDS, resolveNpaDataSource } from '../../hooks/useAnalyticsStore';
 import { useEngineInfo } from '../../hooks/useEngineInfo';
 import { SavedReport, DataSource, DashboardWidget } from '../../types/analytics';
 
@@ -62,9 +62,18 @@ export const DataLineageView: React.FC = () => {
     return dataSources.find((ds) => ds.id === report.dataSourceId) || dataSources[0] || null;
   };
 
-  // 固化图表的上游数据源：优先取固化时记录的 dataSourceId，旧数据缺失才回退首个数据源
+  // 固化图表的上游数据源：优先取固化时记录的 dataSourceId；
+  // 默认固化图表（不良资产宽表 5 图）旧数据缺失该字段时，按最新数据资源库推演上游；
+  // 其余无归属信息的图表才回退首个数据源。
   const getWidgetUpstreamDS = (w: DashboardWidget): DataSource | null => {
-    return (w.dataSourceId && dataSources.find((ds) => ds.id === w.dataSourceId)) || dataSources[0] || null;
+    if (w.dataSourceId) {
+      const bound = dataSources.find((ds) => ds.id === w.dataSourceId);
+      if (bound) return bound;
+    }
+    if (DEFAULT_NPA_WIDGET_IDS.includes(w.id)) {
+      return resolveNpaDataSource(dataSources) || dataSources[0] || null;
+    }
+    return dataSources[0] || null;
   };
 
   // Determine dependency matching for highlighting
@@ -164,7 +173,10 @@ export const DataLineageView: React.FC = () => {
 
       {/* Interactive Upstream Lineage Pathway Banner when Hovered/Selected
           常驻占位 + 绝对定位叠层：占位层恒定撑起布局高度，链路横幅以 overlay 叠上，
-          不参与文档流，悬停任何节点都不会推挤下方内容（窄屏多行换行也不影响布局） */}
+          不参与文档流，悬停任何节点都不会推挤下方内容。
+          叠层须 z-20 提升绘制层级（否则后续 relative 网格容器会遮住超出占位高度的内容），
+          并 pointer-events-none 让鼠标穿透，避免遮挡下方卡片引发悬停闪烁；
+          链路条随宽度自动换行、高度随内容动态调整，完整展示不裁切 */}
       <div className="relative">
         {/* 占位层：撑起固定高度，永远参与布局 */}
         <div className="rounded-2xl border border-dashed border-slate-800 flex items-center justify-center px-4 py-6 text-center">
@@ -175,7 +187,7 @@ export const DataLineageView: React.FC = () => {
         </div>
 
         {(hoveredReport || hoveredWidget) && (
-        <div className="absolute inset-x-0 top-0 bg-gradient-to-r from-emerald-950/90 via-slate-900 to-indigo-950/90 border border-emerald-500/50 rounded-2xl p-4 shadow-2xl space-y-3 animate-fadeIn ring-1 ring-emerald-500/30">
+        <div className="absolute inset-x-0 top-0 z-20 pointer-events-none bg-gradient-to-r from-emerald-950/90 via-slate-900 to-indigo-950/90 border border-emerald-500/50 rounded-2xl p-4 shadow-2xl space-y-3 animate-fadeIn ring-1 ring-emerald-500/30">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center space-x-2">
               <span className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -197,8 +209,8 @@ export const DataLineageView: React.FC = () => {
             </span>
           </div>
 
-          {/* Dynamic Flow Trail（横向滚动不换行，保证横幅高度恒定不撑变） */}
-          <div className="flex items-center gap-2 text-xs font-mono pt-1 overflow-x-auto pb-1">
+          {/* Dynamic Flow Trail（随宽度自动换行，横幅高度随内容动态调整，完整展示全链路） */}
+          <div className="flex flex-wrap items-center gap-2 text-xs font-mono pt-1 pb-1">
             {/* Upstream Source */}
             <div className="flex items-center space-x-2 bg-indigo-950/80 px-3 py-1.5 rounded-xl border border-indigo-500/60 text-indigo-200 font-bold shadow-md shadow-indigo-500/10 shrink-0 whitespace-nowrap">
               <Database className="w-3.5 h-3.5 text-indigo-400" />
@@ -547,7 +559,7 @@ export const DataLineageView: React.FC = () => {
         </div>
 
         {activeNodeId && (
-        <div className="absolute inset-x-0 top-0 bg-slate-950 border border-indigo-500/30 rounded-2xl p-5 space-y-3 animate-fadeIn">
+        <div className="absolute inset-x-0 top-0 z-20 pointer-events-none bg-slate-950 border border-indigo-500/30 rounded-2xl p-5 space-y-3 animate-fadeIn">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-bold uppercase tracking-wider">
             <Info className="w-4 h-4" />
             <span>数据血缘与全路径归因分析 (Lineage Audit Detail)</span>
