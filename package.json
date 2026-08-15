@@ -9,6 +9,7 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "lint:server": "tsc --noEmit -p tsconfig.server.json",
     "lint:js": "eslint .",
     "test": "vitest run",
     "eval": "tsx server/eval/runEval.ts"

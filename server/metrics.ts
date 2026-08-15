@@ -46,7 +46,7 @@ export function sanitizeMetricInput(input: any): { ok: true; metric: Omit<Metric
   if (/;\s*\S/.test(expr) || /;\s*\S/.test(filters)) return { ok: false, error: '表达式/过滤条件不允许多语句' };
   if (!/^[A-Za-z_][\w]*$/.test(tableName)) return { ok: false, error: '归属表名必须是合法标识符' };
   if (filters.length > 300) return { ok: false, error: '固定过滤条件不超过 300 字' };
-  if (aliases.some((a) => a === name)) return { ok: false, error: '同义词不能与指标名相同' };
+  if (aliases.some((a: string) => a === name)) return { ok: false, error: '同义词不能与指标名相同' };
 
   return {
     ok: true,

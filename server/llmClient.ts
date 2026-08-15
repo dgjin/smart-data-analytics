@@ -35,11 +35,11 @@ export interface LlmStageRoute {
 /**
  * 阶段级模型路由通用解析：环境变量指定引擎+模型均合法时启用（结构化任务用快速小模型更快更稳）。
  */
-function stageRouteFromEnv(engineVar: string, modelVar: string): LlmStageRoute | null {
+function stageRouteFromEnv(engineVar: string, modelVar: string): LlmStageRoute | undefined {
   const engine = String(process.env[engineVar] || '').toLowerCase();
   const model = String(process.env[modelVar] || '').trim();
-  if (engine !== 'ollama' && engine !== 'gemini' && engine !== 'qwen') return null;
-  if (!model || model.length > 100 || !/^[\w.:\-]+$/.test(model)) return null;
+  if (engine !== 'ollama' && engine !== 'gemini' && engine !== 'qwen') return undefined;
+  if (!model || model.length > 100 || !/^[\w.:\-]+$/.test(model)) return undefined;
   return { engine: engine as EngineKind, model };
 }
 
@@ -47,7 +47,7 @@ function stageRouteFromEnv(engineVar: string, modelVar: string): LlmStageRoute |
  * SQL 生成阶段的快速模型路由（P1-2）：LLM_SQL_ENGINE + LLM_SQL_MODEL 均配置且合法时启用。
  * 作用于阶段一与复杂度评估（结构化输出任务小模型更快更稳）；阶段二解读默认仍用主模型。
  */
-export function sqlStageRoute(): LlmStageRoute | null {
+export function sqlStageRoute(): LlmStageRoute | undefined {
   return stageRouteFromEnv('LLM_SQL_ENGINE', 'LLM_SQL_MODEL');
 }
 
@@ -55,7 +55,7 @@ export function sqlStageRoute(): LlmStageRoute | null {
  * 阶段二数据解读的快速模型路由：LLM_ANALYSIS_ENGINE + LLM_ANALYSIS_MODEL 均配置时启用。
  * 解读是问数链路最大耗时项，配置快速模型可大幅提速（质量取舍由部署方决定）。
  */
-export function analysisStageRoute(): LlmStageRoute | null {
+export function analysisStageRoute(): LlmStageRoute | undefined {
   return stageRouteFromEnv('LLM_ANALYSIS_ENGINE', 'LLM_ANALYSIS_MODEL');
 }
 

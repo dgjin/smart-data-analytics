@@ -81,7 +81,7 @@ export function normalizeQueryResult(raw: any): NormalizedQueryResult | null {
   // 数据行：兼容 data / rows 两种字段名
   const rawRows = Array.isArray(raw.rows) ? raw.rows : Array.isArray(raw.data) ? raw.data : null;
   if (!rawRows) return null;
-  const rows = rawRows.filter((r) => r && typeof r === 'object');
+  const rows = rawRows.filter((r: any) => r && typeof r === 'object');
 
   // 图表配置校验与矫正
   let chartConfig: NormalizedQueryResult['chartConfig'] = null;

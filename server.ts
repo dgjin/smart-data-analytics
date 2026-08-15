@@ -400,7 +400,7 @@ ${schemaGuidance}
         // L6 审计层：成功落账
         writeAudit({ ...auditBase, question: query, status: 'SUCCESS', durationMs: Date.now() - startedAt });
         // 对话历史落库：演示模式问答同样留痕（provenance=simulated，不参与个人 few-shot 检索）
-        recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(parsed.generatedSQL || ''), answerSummary: String(parsed.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+        recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(parsed?.generatedSQL || ''), answerSummary: String(parsed?.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
         return res.json({
           success: true,
           executionTimeMs: Date.now() - startedAt,

@@ -317,7 +317,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     }
     for (const t of tables) {
       const note = oldTableNotes.get(String(t.name));
-      if (note) t.businessNote = note; // 表级业务口径说明同步时保留
+      if (note) (t as any).businessNote = note; // 表级业务口径说明同步时保留
       t.columns = (t.columns || []).map((c: any) => {
         const old = oldMeta.get(`${t.name}.${c.name}`);
         if (!old) return c;
