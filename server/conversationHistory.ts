@@ -56,6 +56,30 @@ export async function recordConversation(input: RecordConversationInput): Promis
       Number.isFinite(input.durationMs) ? Number(input.durationMs) : 0,
     ]
   );
+  // P1-2 表治理：抽样 10% 触发窗口清理，避免每写一删的写放大；CONVERSATION_RETENTION=0 可关闭
+  if (Math.random() < 0.1) {
+    await pruneConversationHistory(input.userId, input.dataSourceId).catch(() => {});
+  }
+}
+
+/**
+ * P1-2 历史表保留窗口：每用户每数据源仅保留最近 CONVERSATION_RETENTION 条（默认 500，0=不限制）。
+ * 个人 few-shot 检索只读近 100 条，窗口 500 足以覆盖检索源；旧记录在窗口外自动清理。
+ */
+export async function pruneConversationHistory(userId: number, dataSourceId: string): Promise<number> {
+  const keep = Number(process.env.CONVERSATION_RETENTION) || 500;
+  if (keep <= 0) return 0;
+  const [cntRows] = await getPool().query(
+    'SELECT COUNT(*) AS cnt FROM conversation_history WHERE user_id = ? AND data_source_id = ?',
+    [userId, dataSourceId]
+  );
+  const excess = Number((cntRows as any[])[0]?.cnt || 0) - keep;
+  if (excess <= 0) return 0;
+  const result: any = await getPool().query(
+    'DELETE FROM conversation_history WHERE user_id = ? AND data_source_id = ? ORDER BY id ASC LIMIT ?',
+    [userId, dataSourceId, excess]
+  );
+  return Number(result[0]?.affectedRows || 0);
 }
 
 function toRecord(r: any): ConversationRecord {

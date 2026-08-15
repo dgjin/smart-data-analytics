@@ -6,8 +6,33 @@
  */
 import { getPool } from './db';
 import { extractTableRefs, stripCommentsAndStrings } from './sqlExecutor';
-import { callLLMJson } from './llmClient';
+import { callLLMJson, callEmbedding } from './llmClient';
 import { approxTokens, FEWSHOT_TOKEN_BUDGET } from './promptBudget';
+
+/** 余弦相似度（与 knowledgeBase 同实现；内联避免相互 import 形成循环依赖） */
+function cosine(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+/** 样例问题向量落库（JSON 数组文本）；embedding 引擎不可用时返回 null，检索自动降级 bigram */
+async function embedExampleQuestion(question: string): Promise<string | null> {
+  try {
+    const vec = await callEmbedding(question.slice(0, 500), 'document');
+    return JSON.stringify(vec);
+  } catch {
+    return null;
+  }
+}
 
 export type FeedbackVerdict = 'UP' | 'DOWN';
 
@@ -22,6 +47,15 @@ export interface FeedbackInput {
 }
 
 export async function saveFeedback(input: FeedbackInput): Promise<void> {
+  // P1-1 反馈幂等：同用户同源同问答同结论 24h 内重复提交（连点/重放）直接跳过
+  const [dup] = await getPool().query(
+    `SELECT COUNT(*) AS cnt FROM query_feedback
+     WHERE user_id = ? AND data_source_id = ? AND question = ? AND executed_sql = ? AND verdict = ?
+       AND created_at > NOW() - INTERVAL 24 HOUR`,
+    [input.userId, input.dataSourceId.slice(0, 64), input.question.slice(0, 500), input.executedSql.slice(0, 2000), input.verdict]
+  );
+  if (Number((dup as any[])[0]?.cnt) > 0) return;
+
   await getPool().query(
     'INSERT INTO query_feedback (user_id, username, data_source_id, question, executed_sql, verdict, provenance) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [
@@ -42,9 +76,11 @@ export async function saveFeedback(input: FeedbackInput): Promise<void> {
       [input.dataSourceId.slice(0, 64), input.question.slice(0, 500), normalizeSql(input.executedSql)]
     );
     if (Number((dup as any[])[0]?.cnt) === 0) {
+      // P1-3：问题向量同步落库，检索时免逐条 embed（本地 nomic 毫秒级；引擎不可用存 NULL 降级词法）
+      const embeddingJson = await embedExampleQuestion(input.question);
       await pool.query(
-        "INSERT INTO sql_examples (data_source_id, question, sql_text, source, created_by) VALUES (?, ?, ?, 'FEEDBACK_UP', ?)",
-        [input.dataSourceId.slice(0, 64), input.question.slice(0, 500), normalizeSql(input.executedSql), input.username.slice(0, 50)]
+        "INSERT INTO sql_examples (data_source_id, question, sql_text, source, created_by, embedding) VALUES (?, ?, ?, 'FEEDBACK_UP', ?, ?)",
+        [input.dataSourceId.slice(0, 64), input.question.slice(0, 500), normalizeSql(input.executedSql), input.username.slice(0, 50), embeddingJson]
       );
     }
   }
@@ -120,8 +156,10 @@ export async function loadNegativeExamples(
 
 /**
  * 检索与当前问题最相似的样例（同数据源、近 100 条内），
- * 借鉴 DAIL-SQL 双维度打分：
- * - 问题相似度：bigram 重合（语义层）
+ * 借鉴 DAIL-SQL 多维度打分：
+ * - 问题语义相似度（P1-3）：样例向量落库 + 问题侧单次 embed，余弦 × 8（同义不同词也能召回）；
+ *   embedding 不可用/向量缺失时自动降级纯词法，行为与旧版一致
+ * - 问题词法相似度：bigram 重合
  * - SQL 结构相似度：样例 SQL 引用的表与当前问题 schema-linking 圈定表的重合数 × 3
  * 相同归一化 SQL 只保留得分最高的一条；按 token 预算贪心取 top，返回结构化问答对，
  * 由调用方以 user/assistant 消息对注入（Vanna few-shot 注入方式）。
@@ -132,17 +170,34 @@ export async function loadFewShotExamples(
   relevantTables: string[] = []
 ): Promise<FewShotExample[]> {
   const [rows] = await getPool().query(
-    `SELECT question, sql_text, source FROM sql_examples
+    `SELECT question, sql_text, source, embedding FROM sql_examples
      WHERE data_source_id = ? AND sql_text <> ''
      ORDER BY id DESC LIMIT 100`,
     [dataSourceId]
   );
   const relevantSet = new Set(relevantTables.map((t) => String(t).toLowerCase()));
 
+  // P1-3：问题侧仅 embed 一次；失败降级 null（纯词法打分）
+  let qVec: number[] | null = null;
+  try {
+    qVec = await callEmbedding(question.slice(0, 500), 'query');
+  } catch {
+    qVec = null;
+  }
+
   const scored = (rows as any[])
     .map((r) => {
       const rawSql = String(r.sql_text);
-      const qScore = bigramOverlap(question, String(r.question));
+      let semantic = 0;
+      if (qVec && typeof r.embedding === 'string' && r.embedding) {
+        try {
+          const vec = JSON.parse(r.embedding);
+          if (Array.isArray(vec)) semantic = cosine(qVec, vec as number[]) * 8;
+        } catch {
+          // 向量损坏时不加分，降级词法
+        }
+      }
+      const qScore = bigramOverlap(question, String(r.question)) + Math.max(0, semantic);
       const sqlTables = extractTableRefs(stripCommentsAndStrings(rawSql));
       const tableOverlap = relevantSet.size > 0 ? sqlTables.filter((t) => relevantSet.has(t)).length : 0;
       return {
@@ -224,9 +279,10 @@ export async function createSqlExample(
   createdBy: string,
   source: 'MANUAL' | 'IMPORT' = 'MANUAL'
 ): Promise<SqlExampleRecord> {
+  const embeddingJson = await embedExampleQuestion(input.question);
   const result: any = await getPool().query(
-    'INSERT INTO sql_examples (data_source_id, question, sql_text, source, created_by) VALUES (?, ?, ?, ?, ?)',
-    [input.dataSourceId.slice(0, 64), input.question.trim().slice(0, 500), normalizeSql(input.sql).slice(0, 2000), source, createdBy.slice(0, 50)]
+    'INSERT INTO sql_examples (data_source_id, question, sql_text, source, created_by, embedding) VALUES (?, ?, ?, ?, ?, ?)',
+    [input.dataSourceId.slice(0, 64), input.question.trim().slice(0, 500), normalizeSql(input.sql).slice(0, 2000), source, createdBy.slice(0, 50), embeddingJson]
   );
   const insertId = Number(result[0]?.insertId);
   const [rows] = await getPool().query('SELECT * FROM sql_examples WHERE id = ?', [insertId]);
@@ -237,9 +293,11 @@ export async function updateSqlExample(
   id: number,
   input: { question: string; sql: string }
 ): Promise<boolean> {
+  // P1-3：问题变更时向量同步重算，避免旧向量与新问题语义脱节
+  const embeddingJson = await embedExampleQuestion(input.question);
   const result: any = await getPool().query(
-    'UPDATE sql_examples SET question = ?, sql_text = ? WHERE id = ?',
-    [input.question.trim().slice(0, 500), normalizeSql(input.sql).slice(0, 2000), id]
+    'UPDATE sql_examples SET question = ?, sql_text = ?, embedding = ? WHERE id = ?',
+    [input.question.trim().slice(0, 500), normalizeSql(input.sql).slice(0, 2000), embeddingJson, id]
   );
   return Number(result[0]?.affectedRows) > 0;
 }

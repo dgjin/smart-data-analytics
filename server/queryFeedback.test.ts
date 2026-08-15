@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bigramOverlap, normalizeSql, loadFewShotExamples, loadNegativeExamples } from './queryFeedback';
+import { bigramOverlap, normalizeSql, loadFewShotExamples, loadNegativeExamples, saveFeedback } from './queryFeedback';
 import { getPool } from './db';
+import { callEmbedding } from './llmClient';
 
 vi.mock('./db', () => ({ getPool: vi.fn() }));
+vi.mock('./llmClient', () => ({
+  callLLMJson: vi.fn(),
+  callEmbedding: vi.fn().mockRejectedValue(new Error('embedding 不可用')),
+}));
 
 function mockFeedbackRows(rows: any[]) {
   (getPool as any).mockReturnValue({ query: vi.fn().mockResolvedValue([rows]) });
@@ -72,6 +77,63 @@ describe('loadFewShotExamples: DAIL-SQL 双维度打分（样例库统一读取�
     ]);
     const out = await loadFewShotExamples('ds1', '查询', ['t1', 't2', 't3', 't4']);
     expect(out.length).toBe(3);
+  });
+});
+
+describe('loadFewShotExamples: P1-3 语义检索（embedding 混合打分）', () => {
+  it('embedding 引擎不可用时降级 bigram 词法（行为与旧版一致）', async () => {
+    (callEmbedding as any).mockRejectedValueOnce(new Error('down'));
+    mockFeedbackRows([
+      { question: '各客户类型的数量', sql_text: 'SELECT type, COUNT(*) FROM customers GROUP BY type', source: 'MANUAL', embedding: '[1,0]' },
+    ]);
+    const out = await loadFewShotExamples('ds1', '各客户类型的数量', ['customers']);
+    expect(out.length).toBe(1);
+    expect(out[0].sql).toContain('customers');
+  });
+
+  it('同义不同词的问题也能靠向量召回（bigram 为 0 时仍命中）', async () => {
+    (callEmbedding as any).mockResolvedValueOnce([1, 0]);
+    mockFeedbackRows([
+      { question: '客户流失率统计', sql_text: 'SELECT ratio FROM churn', source: 'MANUAL', embedding: '[0.99,0.01]' },
+    ]);
+    const out = await loadFewShotExamples('ds1', '流失客户占比', []); // 与样例 bigram 重合为 0
+    expect(out.length).toBe(1);
+    expect(out[0].question).toBe('客户流失率统计');
+  });
+
+  it('向量损坏（非法 JSON）不加分不抛错，降级词法', async () => {
+    (callEmbedding as any).mockResolvedValueOnce([1, 0]);
+    mockFeedbackRows([
+      { question: '各客户类型的数量', sql_text: 'SELECT type, COUNT(*) FROM customers GROUP BY type', source: 'MANUAL', embedding: '{bad json' },
+    ]);
+    const out = await loadFewShotExamples('ds1', '各客户类型的数量', ['customers']);
+    expect(out.length).toBe(1);
+  });
+});
+
+describe('saveFeedback: P1-1 反馈幂等', () => {
+  it('24h 内同用户同问答同结论重复提交直接跳过', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([[{ cnt: 1 }]])   // 幂等查询命中
+      .mockResolvedValue([{}]);
+    (getPool as any).mockReturnValue({ query });
+    await saveFeedback({ userId: 1, username: 'alice', dataSourceId: 'ds1', question: 'q1', executedSql: 'SELECT 1', verdict: 'UP', provenance: 'live' });
+    expect(query).toHaveBeenCalledTimes(1); // 未走到 INSERT
+  });
+
+  it('非重复反馈正常插入，点赞 live 沉淀样例并落向量', async () => {
+    (callEmbedding as any).mockResolvedValueOnce([0.1, 0.9]);
+    const query = vi.fn()
+      .mockResolvedValueOnce([[{ cnt: 0 }]])   // 幂等查询未命中
+      .mockResolvedValueOnce([{}])            // INSERT query_feedback
+      .mockResolvedValueOnce([[{ cnt: 0 }]])   // sql_examples 去重查
+      .mockResolvedValueOnce([{}]);            // INSERT sql_examples
+    (getPool as any).mockReturnValue({ query });
+    await saveFeedback({ userId: 1, username: 'alice', dataSourceId: 'ds1', question: 'q1', executedSql: 'SELECT 1', verdict: 'UP', provenance: 'live' });
+    expect(query).toHaveBeenCalledTimes(4);
+    const insertCall = query.mock.calls[3][0];
+    expect(insertCall).toContain('FEEDBACK_UP');
+    expect(query.mock.calls[3][1][4]).toBe('[0.1,0.9]'); // embedding 落库
   });
 });
 

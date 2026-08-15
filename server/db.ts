@@ -275,6 +275,13 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 存量迁移：P1-3 few-shot 语义检索——样例问题向量（JSON 文本；NULL 时检索降级 bigram 词法）
+  try {
+    await pool.query('ALTER TABLE sql_examples ADD COLUMN embedding TEXT NULL AFTER created_by');
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // 存量迁移：历史点赞样例（query_feedback UP/live）一次性灌入样例库（幂等跳过）
   const [sqlxRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM sql_examples');
   if (Number(sqlxRows[0]?.cnt) === 0) {

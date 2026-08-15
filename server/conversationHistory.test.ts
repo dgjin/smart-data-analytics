@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { recordConversation, searchConversations, deleteConversation, loadConversationFewShot } from './conversationHistory';
+import { recordConversation, searchConversations, deleteConversation, loadConversationFewShot, pruneConversationHistory } from './conversationHistory';
 import { getPool } from './db';
 
 vi.mock('./db', () => ({ getPool: vi.fn() }));
@@ -121,5 +121,29 @@ describe('loadConversationFewShot: 个人对话沉淀自学习', () => {
     expect(out.length).toBeLessThanOrEqual(2);
     const sqls = out.map((p) => p.sql);
     expect(new Set(sqls).size).toBe(sqls.length);
+  });
+});
+
+describe('pruneConversationHistory: P1-2 保留窗口治理', () => {
+  it('超出保留窗口时按最旧优先清理', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([[{ cnt: 520 }]])   // COUNT 超出默认 500
+      .mockResolvedValueOnce([{ affectedRows: 20 }]); // DELETE
+    mockPool(query);
+    const removed = await pruneConversationHistory(1, 'ds1');
+    expect(removed).toBe(20);
+    expect(query.mock.calls[1][0]).toContain('ORDER BY id ASC LIMIT ?');
+    expect(query.mock.calls[1][1]).toEqual([1, 'ds1', 20]);
+  });
+
+  it('窗口内不触发删除；CONVERSATION_RETENTION=0 关闭治理', async () => {
+    mockPool(vi.fn().mockResolvedValue([[{ cnt: 100 }]]));
+    expect(await pruneConversationHistory(1, 'ds1')).toBe(0);
+    process.env.CONVERSATION_RETENTION = '0';
+    try {
+      expect(await pruneConversationHistory(1, 'ds1')).toBe(0);
+    } finally {
+      delete process.env.CONVERSATION_RETENTION;
+    }
   });
 });
