@@ -1,0 +1,29 @@
+{
+  "total": 2,
+  "pass": 0,
+  "fail": 0,
+  "error": 2,
+  "rateLimited": 0,
+  "accuracy": 0,
+  "avgDurationMs": 28178,
+  "results": [
+    {
+      "caseId": "c01",
+      "question": "一共有多少个客户？",
+      "status": "error",
+      "durationMs": 4,
+      "generatedSql": "SELECT COUNT(*) AS total_clients FROM clients LIMIT 500",
+      "reason": "Database pool not initialized. Call initSchema() first."
+    },
+    {
+      "caseId": "c05",
+      "question": "一共有多少条客户拜访记录？",
+      "status": "error",
+      "durationMs": 56352,
+      "generatedSql": "",
+      "reason": "Database pool not initialized. Call initSchema() first."
+    }
+  ],
+  "dataSourceId": "ds_1786406744499",
+  "generatedAt": "2026-08-13T07:44:30.592Z"
+}

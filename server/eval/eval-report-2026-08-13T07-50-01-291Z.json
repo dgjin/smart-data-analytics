@@ -1,0 +1,27 @@
+{
+  "total": 2,
+  "pass": 2,
+  "fail": 0,
+  "error": 0,
+  "rateLimited": 0,
+  "accuracy": 1,
+  "avgDurationMs": 30,
+  "results": [
+    {
+      "caseId": "c01",
+      "question": "一共有多少个客户？",
+      "status": "pass",
+      "durationMs": 52,
+      "generatedSql": "SELECT COUNT(*) AS total_clients FROM clients LIMIT 500"
+    },
+    {
+      "caseId": "c05",
+      "question": "一共有多少条客户拜访记录？",
+      "status": "pass",
+      "durationMs": 7,
+      "generatedSql": "SELECT COUNT(*) AS total_visits FROM visits LIMIT 500"
+    }
+  ],
+  "dataSourceId": "ds_1786406744499",
+  "generatedAt": "2026-08-13T07:50:01.291Z"
+}

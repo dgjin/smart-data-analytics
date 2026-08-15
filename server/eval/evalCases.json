@@ -1,0 +1,88 @@
+{
+  "dataSourceId": "ds_1786406744499",
+  "description": "NL2SQL 执行准确率评测集（P0-1）：每条用例以「问题 → golden SQL」标注，执行准确率 = 生成 SQL 与 golden SQL 的结果集一致（无序多重集比较；ordered=true 时按行序比较）。golden SQL 仅用基础表名（clients/visits/...），与 Schema name 字段一致。",
+  "cases": [
+    {
+      "id": "c01",
+      "question": "一共有多少个客户？",
+      "goldenSql": "SELECT COUNT(*) AS total FROM clients"
+    },
+    {
+      "id": "c02",
+      "question": "各行业分别有多少个客户？",
+      "goldenSql": "SELECT industry, COUNT(*) AS cnt FROM clients GROUP BY industry"
+    },
+    {
+      "id": "c03",
+      "question": "各客户状态的客户数量分别是多少？",
+      "goldenSql": "SELECT status, COUNT(*) AS cnt FROM clients GROUP BY status"
+    },
+    {
+      "id": "c04",
+      "question": "各客户类型的数量是多少？",
+      "goldenSql": "SELECT clientType, COUNT(*) AS cnt FROM clients GROUP BY clientType"
+    },
+    {
+      "id": "c05",
+      "question": "一共有多少条客户拜访记录？",
+      "goldenSql": "SELECT COUNT(*) AS total FROM visits"
+    },
+    {
+      "id": "c06",
+      "question": "各拜访类型的拜访次数分别是多少？",
+      "goldenSql": "SELECT type, COUNT(*) AS cnt FROM visits GROUP BY type"
+    },
+    {
+      "id": "c07",
+      "question": "哪位拜访人的拜访次数最多？",
+      "goldenSql": "SELECT ownerName, COUNT(*) AS cnt FROM visits GROUP BY ownerName ORDER BY cnt DESC LIMIT 1",
+      "ordered": true
+    },
+    {
+      "id": "c08",
+      "question": "重点客户有多少个？",
+      "goldenSql": "SELECT COUNT(*) AS total FROM clients WHERE isKeyAccount = 1"
+    },
+    {
+      "id": "c09",
+      "question": "各区域的客户数量分布是怎样的？",
+      "goldenSql": "SELECT region, COUNT(*) AS cnt FROM clients GROUP BY region"
+    },
+    {
+      "id": "c10",
+      "question": "一共有多少个部门？",
+      "goldenSql": "SELECT COUNT(*) AS total FROM departments"
+    },
+    {
+      "id": "c11",
+      "question": "启用状态的用户有多少个？",
+      "goldenSql": "SELECT COUNT(*) AS total FROM users WHERE status = 'active'"
+    },
+    {
+      "id": "c12",
+      "question": "各情感倾向的拜访记录分别有多少条？",
+      "goldenSql": "SELECT sentiment, COUNT(*) AS cnt FROM visits GROUP BY sentiment"
+    },
+    {
+      "id": "c13",
+      "question": "客户数量最多的三个行业是哪些？",
+      "goldenSql": "SELECT industry, COUNT(*) AS cnt FROM clients GROUP BY industry ORDER BY cnt DESC LIMIT 3",
+      "ordered": true
+    },
+    {
+      "id": "c14",
+      "question": "各团队分别有多少个客户？",
+      "goldenSql": "SELECT team, COUNT(*) AS cnt FROM clients GROUP BY team"
+    },
+    {
+      "id": "c15",
+      "question": "线下拜访一共有多少次？",
+      "goldenSql": "SELECT COUNT(*) AS total FROM visits WHERE type = '线下拜访'"
+    },
+    {
+      "id": "c16",
+      "question": "各拜访地点的拜访次数分别是多少？",
+      "goldenSql": "SELECT location, COUNT(*) AS cnt FROM visits GROUP BY location"
+    }
+  ]
+}

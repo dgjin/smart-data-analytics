@@ -5,14 +5,27 @@
  * 阶段二：真实 rows（采样 + 列统计）回喂 LLM 生成分析解读与 KPI。
  * 任一步骤失败由调用方降级到演示模式，保证可用性。
  */
-import { callLLMJson, ChatMessage } from './llmClient';
+import { callLLMJson, sqlStageRoute, analysisStageRoute, ChatMessage } from './llmClient';
 import { executeSafeSql } from './sqlExecutor';
 import { resolveExpertPersona } from './expertPersona';
 import { selectRelevantTablesAsync } from './schemaLinking';
-import { loadFewShotExamples, FewShotExample } from './queryFeedback';
+import { loadFewShotExamples, FewShotExample, loadNegativeExamples, NegativeExample } from './queryFeedback';
+import { loadConversationFewShot } from './conversationHistory';
 import { retrieveKnowledgeSnippets } from './knowledgeBase';
+import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
 import { budgetText, budgetHistory, KNOWLEDGE_TOKEN_BUDGET } from './promptBudget';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
+import type { TraceStep } from './queryTrace';
+import type { QueryPlan } from './queryPlan';
+import {
+  assessComplexity,
+  runAnalysisChain,
+  extractAitRefs,
+  getRegisteredAitNames,
+  executeOnAppDb,
+  describeIntermediateTables,
+  IntermediateTableInfo,
+} from './analysisChain';
 
 const SAMPLE_ROWS_FOR_LLM = 15;
 export const VALID_STAGE1_CHARTS = ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'scatter', 'treemap', 'heatmap'] as const;
@@ -26,10 +39,22 @@ export interface LiveQueryInput {
   /** 数据源类型（mysql/postgresql/greenplum），用于阶段一 SQL 方言提示 */
   dsType?: string;
   sensitiveRemoved: string[];
+  /** P1-3 行级权限（实际表名 → 谓词）：执行层 AST 强制注入，LLM 无法绕过 */
+  rowFilters?: Record<string, string>;
   /** 数据源级数据自省开关（Vanna intermediate_sql 借鉴，默认关） */
   allowIntrospection?: boolean;
   /** SSE 阶段进度回调（P2-7）：understanding/executed/introspecting/analyzing */
   onStage?: (stage: string, info?: Record<string, any>) => void;
+  /** M1 推导留痕回调：每步记录（旁路，实现方自行异步落库） */
+  onTrace?: (step: TraceStep) => void;
+  /** M2 计划模式：用户已批准的分析计划（按步骤引导 SQL 生成，跳过澄清） */
+  approvedPlan?: QueryPlan;
+  /** M3 深度分析：强制启用中间表清洗链（缺省由复杂度评估自动判定） */
+  deepAnalysis?: boolean;
+  /** M3 问数用户 ID：中间表归属与配额管理 */
+  userId: number;
+  /** M3 本次问数 trace ID：中间表注册关联 */
+  traceId: string;
 }
 
 export interface LiveQuerySuccess {
@@ -198,18 +223,27 @@ export function dialectPromptOf(dsType?: string): { label: string; rules: string
   return { label: 'MySQL', rules: '' };
 }
 
-function buildStage1System(schema: any[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false): string {
+function buildStage1System(schema: any[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = []): string {
   const dialect = dialectPromptOf(dsType);
+  const planSection = approvedPlan
+    ? `【用户已批准的分析计划】（生成 SQL 时必须按此计划执行）
+理解：${approvedPlan.understanding}
+步骤：
+${approvedPlan.steps.map((s, i) => `${i + 1}. [${s.type}] ${s.title}：${s.description}${s.sql ? `（草稿 SQL：${s.sql}）` : ''}`).join('\n')}
+涉及表：${approvedPlan.relatedTables.join(', ') || '（未指定）'}
+
+`
+    : '';
   return `你是一个企业级 NL2SQL 引擎。根据数据库 Schema 与用户问题，生成一条 ${dialect.label} SELECT 查询与图表配置。你不生成任何数据，只生成 SQL。
 
 数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列）:
 ${JSON.stringify(schema)}
 
-${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}
+${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessNotes(schema)}${metricPrompt}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}${negativeExamples.length > 0 ? `反面教材（以下问答对已被用户点踩确认为错误答案，严禁重复类似的表选择、统计口径或写法）:\n${negativeExamples.map((ex) => `错误案例：${ex.question}\n错误 SQL：${ex.sql}`).join('\n')}\n` : ''}
 【强制约束】
 - 输出${introspectionEnabled ? '三种' : '两种'}之一：① 正常情况输出 JSON 对象 {"sql","title","chartType","xAxisKey","yAxisKeys","yAxisNames","columnNames","thoughtProcess"}；② 问题存在歧义时输出澄清请求（见下方"歧义澄清"规则）${introspectionEnabled ? '；③ 需要数据自省时输出自省请求（见下方"数据自省"规则）' : ''}
 - columnNames: SQL 输出每一列的中文表头映射 {"列名/别名": "中文表头"}，维度列与聚合别名都要覆盖（如 {"total_amount": "总金额"}）
-- sql: 单条 SELECT 语句；表名与列名必须来自上述 Schema；指标使用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），并用 AS 起简洁的英文或拼音别名（禁止中文别名，禁止空格）
+- sql: 单条 SELECT 语句；表名与列名必须逐字来自上述 Schema 的 name 字段，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标使用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），并用 AS 起简洁的英文或拼音别名（禁止中文别名，禁止空格）
 ${dialect.rules}- xAxisKey 必须是 SELECT 输出的维度列名/别名；yAxisKeys 必须是 SELECT 输出的指标别名数组，二者与 SQL 输出列严格一致
 - chartType 从 bar/line/area/pie/donut/radar/scatter/treemap/heatmap 选择：时间趋势用 line 或 area，类别对比用 bar，占比结构用 pie 或 donut；多指标多维对比用 radar，两个数值指标的相关性用 scatter（xAxisKey 为其中一个指标别名），层级/分区占比用 treemap，同一维度下多个指标横向对照用 heatmap
 - 结果行数控制在 100 行以内（通过聚合或 LIMIT）
@@ -329,24 +363,113 @@ function buildStage2System(rolePrompt: string): string {
 
 export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutcome> {
   const { query, history, schema, guidance, dataSourceId, dsType, sensitiveRemoved } = input;
+  const trace = (step: TraceStep) => {
+    try {
+      input.onTrace?.(step);
+    } catch {
+      // 留痕失败不阻断主链路
+    }
+  };
+  const t0 = Date.now();
   input.onStage?.('understanding');
+  // M2 计划模式：已批准计划先留痕，阶段一按其步骤引导生成（并跳过歧义澄清）
+  if (input.approvedPlan) {
+    trace({
+      stepType: 'plan',
+      title: '按已批准计划执行',
+      inputSummary: input.approvedPlan.understanding,
+      outputSummary: `${input.approvedPlan.steps.length} 个步骤：${input.approvedPlan.steps.map((s) => s.title).join(' → ')}`,
+      durationMs: Date.now() - t0,
+    });
+  }
   // Schema Linking（借鉴 Chat2DB AI 数据集）：大 schema 时只把相关表注入 prompt（P2-9 关键词粗排 + embedding 精排）；
   // 安全白名单（executeSafeSql）仍用全量 schema，召回遗漏不会误杀合法 SQL
   const promptSchema = await selectRelevantTablesAsync(schema, query);
-  // P0 Few-shot（DAIL-SQL 双维度）：用圈定表名引导样例贴近当前可查表（失败不阻断）
-  const fewShotPairs: FewShotExample[] = await loadFewShotExamples(
-    dataSourceId,
-    query,
-    promptSchema.map((t: any) => String(t?.name || ''))
-  ).catch(() => []);
-  // Vanna 借鉴：few-shot 以 user/assistant 消息对注入对话历史（比平铺文本更贴合 LLM 多轮格式）
-  const fewShotHistory: ChatMessage[] = fewShotPairs.flatMap((ex) => [
+  trace({
+    stepType: 'linking',
+    title: 'Schema 圈表：选定相关表',
+    inputSummary: query,
+    outputSummary: `命中 ${promptSchema.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchema.map((t: any) => String(t?.name || '')).join(', ')}`,
+    durationMs: Date.now() - t0,
+  });
+  // 上下文构建并行化：few-shot / 知识库 RAG / 语义指标 / 点踩反例 / 个人对话沉淀五者互不依赖，并发执行（各自失败不阻断）
+  const [fewShotPairs, knowledgeRaw, metricHits, negativePairs, convPairs] = await Promise.all([
+    // P0 Few-shot（DAIL-SQL 双维度）：用圈定表名引导样例贴近当前可查表
+    loadFewShotExamples(
+      dataSourceId,
+      query,
+      promptSchema.map((t: any) => String(t?.name || ''))
+    ).catch(() => [] as FewShotExample[]),
+    // P1-A 知识库 RAG：检索业务知识片段注入 prompt，按 token 预算截断
+    retrieveKnowledgeSnippets(dataSourceId, query).catch(() => ''),
+    // P1-1 语义指标层：问题命中指标名/同义词时模板化注入权威口径
+    loadActiveMetrics(dataSourceId)
+      .then((ms) => matchMetrics(query, ms))
+      .catch(() => []),
+    // 自主学习·反例：同数据源点踩问答对作为反面教材注入阶段一 prompt
+    loadNegativeExamples(dataSourceId, query).catch(() => [] as NegativeExample[]),
+    // 自主学习·个人沉淀：本人同数据源历史成功问答对作为个人 few-shot
+    loadConversationFewShot(
+      input.userId,
+      dataSourceId,
+      query,
+      promptSchema.map((t: any) => String(t?.name || ''))
+    ).catch(() => []),
+  ]);
+  // Vanna 借鉴：few-shot 以 user/assistant 消息对注入对话历史（比平铺文本更贴合 LLM 多轮格式）；
+  // 团队样例库在前，个人对话沉淀在后，均为「先问题后 SQL」格式
+  const fewShotHistory: ChatMessage[] = [
+    ...fewShotPairs.map((ex) => ({ question: ex.question, sql: ex.sql })),
+    ...convPairs,
+  ].flatMap((ex) => [
     { role: 'user' as const, content: ex.question },
     { role: 'assistant' as const, content: ex.sql },
   ]);
-  // P1-A 知识库 RAG：检索业务知识片段注入 prompt（失败不阻断），按 token 预算截断
-  const knowledge = budgetText(await retrieveKnowledgeSnippets(dataSourceId, query).catch(() => ''), KNOWLEDGE_TOKEN_BUDGET);
-  const stage1System = buildStage1System(promptSchema, guidance, knowledge, fewShotPairs.length, dsType, Boolean(input.allowIntrospection));
+  const knowledge = budgetText(knowledgeRaw, KNOWLEDGE_TOKEN_BUDGET);
+  trace({
+    stepType: 'knowledge',
+    title: '知识库检索与 Few-shot 样例',
+    inputSummary: query,
+    outputSummary: `知识片段 ${knowledge ? knowledge.length : 0} 字；few-shot 样例 ${fewShotPairs.length} 组（个人沉淀 ${convPairs.length} 组）；点踩反例 ${negativePairs.length} 组`,
+    durationMs: Date.now() - t0,
+  });
+  const metricPrompt = buildMetricPrompt(metricHits);
+  if (metricHits.length > 0) {
+    trace({
+      stepType: 'metrics',
+      title: '语义指标层命中',
+      inputSummary: query,
+      outputSummary: `命中 ${metricHits.length} 个指标定义：${metricHits.map((m) => m.name).join('、')}`,
+      durationMs: Date.now() - t0,
+    });
+  }
+  // M3 中间表清洗链：复杂度评估自动触发（multi-step）或「深度分析」开关强制；
+  // 清洗结果落库应用库中间表，阶段一可引用（仅引用 ait_* 时改在应用库执行）
+  let chainTables: IntermediateTableInfo[] = [];
+  const assessAt = Date.now();
+  // 深度分析开关强制时需 LLM 产出清洗计划（force）；否则启发式预门控无信号直接判 simple
+  const assessment = await assessComplexity(query, promptSchema, { force: Boolean(input.deepAnalysis) });
+  trace({
+    stepType: 'plan',
+    title: '复杂度评估',
+    inputSummary: query,
+    outputSummary: assessment.complexity === 'multi-step' ? `多步复杂分析，清洗计划 ${assessment.steps.length} 步` : '简单问题，直接生成 SQL',
+    durationMs: Date.now() - assessAt,
+  });
+  if (input.deepAnalysis || assessment.complexity === 'multi-step') {
+    const chain = await runAnalysisChain({
+      question: query,
+      dataSourceId,
+      schema,
+      sensitiveRemoved,
+      assessment,
+      userId: input.userId,
+      traceId: input.traceId,
+      onTrace: input.onTrace,
+    }).catch(() => null);
+    if (chain) chainTables = chain.tables;
+  }
+  const stage1System = buildStage1System(promptSchema, guidance, knowledge, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs);
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
   // 专家角色路由：财务/客户/风险/不良关键词命中对应专家，否则默认金融数据分析师
@@ -374,15 +497,16 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     for (let i = 0; i < n; i++) {
       let text: string;
       try {
-        text = await callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory]);
+        text = await callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() });
       } catch (err: any) {
         if (plans.length === 0) {
           return { ok: false, error: `LLM 调用失败：${String(err?.message || err).slice(0, 200)}` };
         }
         break;
       }
-      // 歧义澄清：仅首次尝试的第一个候选接受（重试阶段视为用户已确认，按 SQL 契约执行）
-      if (attempt === 0 && i === 0) {
+      // 歧义澄清：仅首次尝试的第一个候选在接受（重试阶段视为用户已确认，按 SQL 契约执行）；
+      // 计划模式下用户已批准计划，视为已确认理解，不再触发澄清
+      if (attempt === 0 && i === 0 && !input.approvedPlan) {
         const clarification = parseClarification(text);
         if (clarification) return { ok: 'clarify', clarification };
       }
@@ -392,13 +516,23 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
         if (intro) {
           introspected = true;
           input.onStage?.('introspecting', { note: intro.note });
-          const introExec = await executeSafeSql(dataSourceId, intro.sql, schema, sensitiveRemoved);
+          const introAt = Date.now();
+          const introExec = await executeSafeSql(dataSourceId, intro.sql, schema, sensitiveRemoved, 500, input.rowFilters || {});
           if (introExec.ok === true) {
+            trace({
+              stepType: 'introspection',
+              title: '数据自省：确认实际取值',
+              inputSummary: intro.note || '确认过滤条件的真实取值',
+              sqlText: intro.sql,
+              rowCount: introExec.result.rows.length,
+              durationMs: Date.now() - introAt,
+            });
             try {
               const finalText = await callLLMJson(
                 stage1System,
                 `${query}\n\n【数据自省结果】${formatIntrospectionRows(introExec.result.rows)}\n请基于上述真实取值确定过滤条件，直接输出最终 SQL 的 JSON 契约（禁止再输出 needClarification 或 needIntrospection）`,
-                [...fewShotHistory, ...budgetedHistory]
+                [...fewShotHistory, ...budgetedHistory],
+                { route: sqlStageRoute() }
               );
               const fp = parseStage1(finalText);
               if (fp) plans.push(fp);
@@ -415,16 +549,41 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     if (plans.length === 0) {
       lastError = 'LLM 输出未通过 SQL 契约校验';
       retries++;
+      trace({ stepType: 'sql_gen', title: `SQL 生成（第 ${attempt + 1} 次）`, inputSummary: query, outputSummary: lastError, status: 'fail', durationMs: Date.now() - t0 });
       continue;
     }
-    // 逐候选执行，取第一个成功（SELECT-only 只读，安全）
+    trace({
+      stepType: 'sql_gen',
+      title: `SQL 生成（第 ${attempt + 1} 次${plans.length > 1 ? `，${plans.length} 个候选择优` : ''}）`,
+      inputSummary: query,
+      outputSummary: plans.map((p) => p.title).join('；'),
+      sqlText: plans[0].sql,
+      durationMs: Date.now() - t0,
+    });
+    // 逐候选执行，取第一个成功（SELECT-only 只读，安全）；
+    // M3：仅引用已注册 ait_* 中间表的 SQL 改在应用库执行（不得与源表混用）
     let succeeded = false;
+    const registeredAit = chainTables.length > 0 ? await getRegisteredAitNames() : new Set<string>();
     for (const p of plans) {
-      exec = await executeSafeSql(dataSourceId, p.sql, schema, sensitiveRemoved);
+      const execAt = Date.now();
+      const aitRefs = extractAitRefs(p.sql);
+      if (aitRefs.length > 0) {
+        exec = await executeOnAppDb(p.sql, registeredAit);
+      } else {
+        exec = await executeSafeSql(dataSourceId, p.sql, schema, sensitiveRemoved, 500, input.rowFilters || {});
+      }
       if (exec.ok === true) {
         plan = p;
         succeeded = true;
         input.onStage?.('executed', { sql: exec.result.finalSql, rowCount: exec.result.rows.length });
+        trace({
+          stepType: 'execution',
+          title: aitRefs.length > 0 ? '安全执行 SQL（分析库中间表）' : '安全执行 SQL',
+          inputSummary: aitRefs.length > 0 ? `引用中间表：${aitRefs.join(', ')}` : 'SELECT-only 白名单校验通过',
+          sqlText: exec.result.finalSql,
+          rowCount: exec.result.rows.length,
+          durationMs: Date.now() - execAt,
+        });
         break;
       }
       lastError = exec.reason;
@@ -483,6 +642,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
 
   // 阶段二：真实 rows 摘要回喂 LLM 生成解读
   input.onStage?.('analyzing');
+  const analyzeAt = Date.now();
   const stats = buildColumnStats(rows);
   const sample = rows.slice(0, SAMPLE_ROWS_FOR_LLM);
   const stage2User = [
@@ -498,11 +658,19 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
 
   let analysis: Record<string, any>;
   try {
-    const text2 = await callLLMJson(buildStage2System(persona.rolePrompt), stage2User);
+    // 阶段二解读支持快速模型路由（LLM_ANALYSIS_ENGINE/LLM_ANALYSIS_MODEL）；未配置时用主模型保证质量
+    const text2 = await callLLMJson(buildStage2System(persona.rolePrompt), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
   } catch {
     analysis = {};
   }
+  trace({
+    stepType: 'analysis',
+    title: `数据解读（${persona.label}）`,
+    inputSummary: `真实结果 ${exec.result.rowCount} 行 + 列统计回喂`,
+    outputSummary: typeof analysis.aiExplanation === 'string' ? analysis.aiExplanation : '解读生成失败，使用兜底文案',
+    durationMs: Date.now() - analyzeAt,
+  });
 
   return {
     ok: true,

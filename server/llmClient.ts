@@ -2,6 +2,7 @@
  * 统一 LLM 调用通道（Ollama 本地 / Gemini API / 通义千问百炼）。
  * 供查询、报表等端点共享；双阶段（SQL 生成 / 数据分析）均通过 callLLMJson 调用。
  * 引擎选择优先级：请求级覆盖（setLlmOverride，用户自选模型）>
+ * 阶段级路由（callLLMJson opts.route，如 SQL 生成快速模型 P1-2）>
  * AI_ENGINE 显式指定（ollama/gemini/qwen）> 按密钥存在性自动（gemini/qwen）> ollama。
  */
 import { AsyncLocalStorage } from 'async_hooks';
@@ -24,6 +25,39 @@ const GEMINI_MODEL = 'gemini-3.6-flash';
 const geminiModel = () => overrideModel('gemini') || GEMINI_MODEL;
 
 type EngineKind = 'ollama' | 'gemini' | 'qwen';
+
+/** 阶段级模型路由（P1-2）：调用方可为单次调用指定引擎/模型（如 SQL 生成用快速小模型） */
+export interface LlmStageRoute {
+  engine: EngineKind;
+  model: string;
+}
+
+/**
+ * 阶段级模型路由通用解析：环境变量指定引擎+模型均合法时启用（结构化任务用快速小模型更快更稳）。
+ */
+function stageRouteFromEnv(engineVar: string, modelVar: string): LlmStageRoute | null {
+  const engine = String(process.env[engineVar] || '').toLowerCase();
+  const model = String(process.env[modelVar] || '').trim();
+  if (engine !== 'ollama' && engine !== 'gemini' && engine !== 'qwen') return null;
+  if (!model || model.length > 100 || !/^[\w.:\-]+$/.test(model)) return null;
+  return { engine: engine as EngineKind, model };
+}
+
+/**
+ * SQL 生成阶段的快速模型路由（P1-2）：LLM_SQL_ENGINE + LLM_SQL_MODEL 均配置且合法时启用。
+ * 作用于阶段一与复杂度评估（结构化输出任务小模型更快更稳）；阶段二解读默认仍用主模型。
+ */
+export function sqlStageRoute(): LlmStageRoute | null {
+  return stageRouteFromEnv('LLM_SQL_ENGINE', 'LLM_SQL_MODEL');
+}
+
+/**
+ * 阶段二数据解读的快速模型路由：LLM_ANALYSIS_ENGINE + LLM_ANALYSIS_MODEL 均配置时启用。
+ * 解读是问数链路最大耗时项，配置快速模型可大幅提速（质量取舍由部署方决定）。
+ */
+export function analysisStageRoute(): LlmStageRoute | null {
+  return stageRouteFromEnv('LLM_ANALYSIS_ENGINE', 'LLM_ANALYSIS_MODEL');
+}
 
 /** 请求级引擎/模型覆盖（用户自选模型）：随异步上下文传递，避免逐层透传参数 */
 export interface LlmOverride {
@@ -145,7 +179,7 @@ export async function listAvailableModels(): Promise<ModelOption[]> {
 }
 
 /** 通义千问 OpenAI 兼容通道（百炼按量 / Coding Plan 均适用，端点由 QWEN_URL 决定） */
-async function qwenChat(messages: ChatMessage[], formatJson = true): Promise<string> {
+async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), qwenTimeoutMs());
 
@@ -158,7 +192,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true): Promise<str
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: qwenModel(),
+        model: modelOverride || qwenModel(),
         messages,
         stream: false,
         ...(formatJson ? { response_format: { type: 'json_object' } } : {}),
@@ -182,7 +216,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true): Promise<str
   }
 }
 
-async function ollamaChat(messages: ChatMessage[], formatJson = true): Promise<string> {
+async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ollamaTimeoutMs());
 
@@ -192,9 +226,11 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true): Promise<s
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: llmModel(),
+        model: modelOverride || llmModel(),
         messages,
         stream: false,
+        // 模型常驻 30 分钟，避免连续问答间卸载/重载开销
+        keep_alive: '30m',
         ...(formatJson ? { format: 'json' } : {}),
       }),
     });
@@ -219,17 +255,20 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true): Promise<s
 /**
  * 以 JSON 输出模式调用 LLM，返回原始文本（调用方负责 safeParseJson + 结构校验）。
  * history 为已净化的多轮上下文（仅 user 消息，见 L4 历史层）。
+ * opts.route：阶段级模型路由（P1-2）；用户请求级自选模型（setLlmOverride）优先于阶段路由。
  */
-export async function callLLMJson(system: string, user: string, history: ChatMessage[] = []): Promise<string> {
+export async function callLLMJson(system: string, user: string, history: ChatMessage[] = [], opts?: { route?: LlmStageRoute }): Promise<string> {
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
     ...history,
     { role: 'user', content: user },
   ];
 
-  const kind = engineKind();
-  if (kind === 'ollama') return ollamaChat(messages, true);
-  if (kind === 'qwen') return qwenChat(messages, true);
+  // 阶段路由仅在用户未自选模型时生效（用户显式选择始终优先）
+  const route = overrideStore.getStore()?.model ? undefined : opts?.route;
+  const kind: EngineKind = route ? route.engine : engineKind();
+  if (kind === 'ollama') return ollamaChat(messages, true, route?.model);
+  if (kind === 'qwen') return qwenChat(messages, true, route?.model);
 
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
@@ -241,7 +280,7 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
     { role: 'user', parts: [{ text: user }] },
   ];
   const response = await ai.models.generateContent({
-    model: geminiModel(),
+    model: route?.model || geminiModel(),
     contents,
     config: {
       systemInstruction: system,
@@ -291,15 +330,53 @@ const embedModel = () => process.env.EMBED_MODEL || 'nomic-embed-text';
 // 千问 embedding 模型（Coding Plan 端点可能不支持，失败时调用方自动降级关键词粗排）
 const qwenEmbedModel = () => process.env.QWEN_EMBED_MODEL || 'text-embedding-v4';
 
+// embedding 短 TTL 缓存：同一问题的 query 向量在圈表精排与知识库检索间复用，重试/重复提问不再重复调用
+const EMBED_CACHE_TTL_MS = 10 * 60 * 1000;
+const EMBED_CACHE_MAX = 256;
+const embedCache = new Map<string, { v: number[]; exp: number }>();
+
+function embedCacheGet(key: string): number[] | null {
+  const hit = embedCache.get(key);
+  if (!hit) return null;
+  if (hit.exp <= Date.now()) {
+    embedCache.delete(key);
+    return null;
+  }
+  return hit.v;
+}
+
+function embedCacheSet(key: string, v: number[]): void {
+  if (embedCache.size >= EMBED_CACHE_MAX) {
+    const oldest = embedCache.keys().next().value;
+    if (oldest !== undefined) embedCache.delete(oldest);
+  }
+  embedCache.set(key, { v, exp: Date.now() + EMBED_CACHE_TTL_MS });
+}
+
+/** 供测试清空 embedding 缓存 */
+export function clearEmbeddingCacheForTest(): void {
+  embedCache.clear();
+}
+
 /**
  * 文本 → 向量。Ollama 走 /api/embeddings，Qwen 走 /embeddings，Gemini 走 embedContent。
+ * role 区分查询/文档：nomic-embed-text 需加 search_query:/search_document: 指令前缀，
+ * 否则短问题与长文档相似度被压平、区分度下降。
  * 失败（未装 embedding 模型 / 网络异常）时抛错，由调用方降级处理。
  */
-export async function callEmbedding(text: string): Promise<number[]> {
-  const input = String(text || '').slice(0, 2000);
+export async function callEmbedding(text: string, role?: 'query' | 'document'): Promise<number[]> {
+  let input = String(text || '').slice(0, 2000);
   if (!input.trim()) throw new Error('embedding 输入为空');
+  if (role && embedModel().startsWith('nomic')) {
+    input = `${role === 'query' ? 'search_query' : 'search_document'}: ${input}`;
+  }
 
   const kind = engineKind();
+
+  // 同文本+角色+引擎的向量短 TTL 复用（命中时省去一次模型/网络调用）
+  const cacheKey = `${kind}|${role || ''}|${input}`;
+  const cached = embedCacheGet(cacheKey);
+  if (cached) return cached;
 
   if (kind === 'qwen') {
     const controller = new AbortController();
@@ -321,6 +398,7 @@ export async function callEmbedding(text: string): Promise<number[]> {
       const json: any = await res.json();
       const emb = json.data?.[0]?.embedding;
       if (!Array.isArray(emb) || emb.length === 0) throw new Error('Qwen 返回空向量');
+      embedCacheSet(cacheKey, emb);
       return emb;
     } finally {
       clearTimeout(timer);
@@ -335,7 +413,7 @@ export async function callEmbedding(text: string): Promise<number[]> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({ model: embedModel(), prompt: input }),
+        body: JSON.stringify({ model: embedModel(), prompt: input, keep_alive: '30m' }),
       });
       if (!res.ok) throw new Error(`Ollama embedding error: ${res.status}`);
       const json: any = await res.json();
@@ -343,6 +421,7 @@ export async function callEmbedding(text: string): Promise<number[]> {
       if (!Array.isArray(emb) || emb.length === 0) {
         throw new Error('Ollama 返回空向量（请确认已安装 embedding 模型，如 ollama pull nomic-embed-text）');
       }
+      embedCacheSet(cacheKey, emb);
       return emb;
     } finally {
       clearTimeout(timer);
@@ -357,5 +436,6 @@ export async function callEmbedding(text: string): Promise<number[]> {
   });
   const vals = r?.embeddings?.[0]?.values ?? r?.values;
   if (!Array.isArray(vals) || vals.length === 0) throw new Error('Gemini 返回空向量');
+  embedCacheSet(cacheKey, vals);
   return vals;
 }
