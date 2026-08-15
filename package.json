@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "lint:js": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "tsx server/eval/runEval.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -18,12 +19,14 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "html2pdf.js": "^0.14.0",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "mysql2": "^3.23.2",
     "node-sql-parser": "^5.4.0",
     "pg": "^8.23.0",
+    "pptxgenjs": "^4.0.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",

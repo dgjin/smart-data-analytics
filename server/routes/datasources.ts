@@ -35,6 +35,8 @@ function rowToDataSource(row: any) {
     config: safeConfig,
     tables: safeJson(row.schema_json, []),
     scope: safeJson(row.scope_json, null),
+    // 管理员登记的专业快速问题推荐（优先于前端通用 Schema 推导）
+    quickQuestions: safeJson(row.quick_questions_json, null),
     allowIntrospection: Number(row.allow_introspection) === 1,
     lastSyncedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
   };
@@ -348,7 +350,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
 // PUT /api/datasources/:id（ADMIN）
 router.put('/:id', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
-  const { name, type, config, tables, status, allowIntrospection } = req.body || {};
+  const { name, type, config, tables, status, allowIntrospection, quickQuestions } = req.body || {};
 
   const updates: string[] = [];
   const params: any[] = [];
@@ -381,6 +383,16 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
   if (allowIntrospection !== undefined) {
     updates.push('allow_introspection = ?');
     params.push(allowIntrospection ? 1 : 0);
+  }
+  if (quickQuestions !== undefined) {
+    if (quickQuestions !== null && !Array.isArray(quickQuestions)) {
+      return res.status(400).json({ error: 'quickQuestions 必须为字符串数组或 null' });
+    }
+    const list = Array.isArray(quickQuestions)
+      ? quickQuestions.filter((q: any) => typeof q === 'string' && q.trim()).map((q: any) => String(q).trim().slice(0, 200)).slice(0, 12)
+      : null;
+    updates.push('quick_questions_json = ?');
+    params.push(list ? JSON.stringify(list) : null);
   }
   if (updates.length === 0) {
     return res.status(400).json({ error: '没有需要更新的字段' });

@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 884" width="960" height="884">
+  <style>text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "SimHei", sans-serif; }</style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+  </defs>
+  <rect width="960" height="884" fill="#ffffff"/>
+  <text x="40" y="44" font-size="18" font-weight="600" fill="#111827">智能问数据分析系统 · 整体功能流程图</text>
+  <text x="40" y="66" font-size="12" fill="#6b7280">v0.3.7 · React + Vite 前端 · Express 服务端 · 多引擎 AI（Qwen / Ollama / Gemini）</text>
+  <circle cx="480" cy="84" r="9" fill="#ffffff" stroke="#111827" stroke-width="1.5"/>
+  <path d="M 466,108 Q 480,94 494,108" fill="none" stroke="#111827" stroke-width="1.5"/>
+  <text x="502" y="94" font-size="13" fill="#111827">用户（管理员 / 分析师 / 访客）</text>
+  <line x1="480" y1="112" x2="480" y2="132" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <rect x="40" y="136" width="864" height="112" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="156" font-size="13" font-weight="600" fill="#374151">前端交互层（React + Vite + Zustand）</text>
+  <rect x="48" y="168" width="152" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="124" y="193" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">对话问数 QueryChat</text>
+  <text x="124" y="212" font-size="11" fill="#6b7280" text-anchor="middle">技能+ / 流式进度 / 推导回放</text>
+  <rect x="216" y="168" width="152" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="292" y="193" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">决策报表</text>
+  <text x="292" y="212" font-size="11" fill="#6b7280" text-anchor="middle">模板生成 / PPT 下载</text>
+  <rect x="384" y="168" width="152" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="460" y="193" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">数据看板</text>
+  <text x="460" y="212" font-size="11" fill="#6b7280" text-anchor="middle">组件拖拽 / 图表固定</text>
+  <rect x="552" y="168" width="152" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="628" y="193" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">数据源管理</text>
+  <text x="628" y="212" font-size="11" fill="#6b7280" text-anchor="middle">连接 / 圈表白名单</text>
+  <rect x="720" y="168" width="152" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="796" y="193" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">知识·技能·指标</text>
+  <text x="796" y="212" font-size="11" fill="#6b7280" text-anchor="middle">RAG 文档 / 口径定义</text>
+  <rect x="40" y="288" width="864" height="38" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="472" y="312" font-size="12.5" fill="#111827" text-anchor="middle">API 安全网关 · L1 输入过滤防注入 · L2 RBAC 鉴权 · L3 数据范围白名单 / 敏感列 / 行级权限 · L5 限流（20次/时 · 并发1）</text>
+  <line x1="220" y1="248" x2="220" y2="282" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="472" y1="248" x2="472" y2="282" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="724" y1="248" x2="724" y2="282" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="220" y1="326" x2="220" y2="354" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="472" y1="326" x2="472" y2="354" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <line x1="724" y1="326" x2="724" y2="354" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <rect x="40" y="358" width="864" height="186" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="378" font-size="13" font-weight="600" fill="#374151">智能分析引擎（Express / Node 服务端）</text>
+  <rect x="56" y="386" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="154" y="409" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">问数编排 liveQuery</text>
+  <text x="154" y="428" font-size="11" fill="#6b7280" text-anchor="middle">双阶段流水线 · 计划模式</text>
+  <rect x="268" y="386" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="366" y="409" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表</text>
+  <text x="366" y="428" font-size="11" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排</text>
+  <rect x="480" y="386" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="578" y="409" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">上下文构建（并行）</text>
+  <text x="578" y="428" font-size="11" fill="#6b7280" text-anchor="middle">few-shot · 知识 RAG · 语义指标</text>
+  <rect x="692" y="386" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="790" y="409" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">复杂度预门控</text>
+  <text x="790" y="428" font-size="11" fill="#6b7280" text-anchor="middle">清洗信号启发式 · 深度分析</text>
+  <rect x="56" y="472" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="154" y="495" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">阶段一 SQL 生成</text>
+  <text x="154" y="514" font-size="11" fill="#6b7280" text-anchor="middle">专家角色 · 歧义澄清 · 自纠错重试</text>
+  <rect x="268" y="472" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="366" y="495" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">安全执行层</text>
+  <text x="366" y="514" font-size="11" fill="#6b7280" text-anchor="middle">SELECT-only · ait_* 应用库</text>
+  <rect x="480" y="472" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="578" y="495" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">阶段二数据解读</text>
+  <text x="578" y="514" font-size="11" fill="#6b7280" text-anchor="middle">列统计回喂 · flash 快速路由</text>
+  <rect x="692" y="472" width="196" height="58" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="790" y="495" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">结果缓存 / 中间表链</text>
+  <text x="790" y="514" font-size="11" fill="#6b7280" text-anchor="middle">5min 命中秒回 · ait_* TTL 清理</text>
+  <rect x="40" y="576" width="864" height="112" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="596" font-size="13" font-weight="600" fill="#374151">AI 引擎层（llmClient 统一通道 · 阶段级模型路由 · 用户自选模型优先）</text>
+  <rect x="56" y="606" width="230" height="62" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="171" y="631" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">通义千问 Qwen</text>
+  <text x="171" y="650" font-size="11" fill="#6b7280" text-anchor="middle">百炼兼容端点 · qwen3.8-max</text>
+  <rect x="306" y="606" width="250" height="62" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+  <text x="431" y="631" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Ollama 本地</text>
+  <text x="431" y="650" font-size="11" fill="#6b7280" text-anchor="middle">deepseek-r1:32b · keep_alive 30m</text>
+  <rect x="576" y="606" width="160" height="62" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="656" y="631" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Gemini</text>
+  <text x="656" y="650" font-size="11" fill="#6b7280" text-anchor="middle">备用引擎</text>
+  <rect x="756" y="606" width="140" height="62" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="826" y="631" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Embedding</text>
+  <text x="826" y="650" font-size="11" fill="#6b7280" text-anchor="middle">nomic-embed-text · 10min 缓存</text>
+  <line x1="300" y1="548" x2="300" y2="602" stroke="#9333ea" stroke-width="1.5" marker-start="url(#arrow-purple)" marker-end="url(#arrow-purple)"/>
+  <line x1="600" y1="548" x2="600" y2="602" stroke="#9333ea" stroke-width="1.5" marker-start="url(#arrow-purple)" marker-end="url(#arrow-purple)"/>
+  <text x="312" y="572" font-size="11" fill="#9333ea">LLM 调用 / 向量</text>
+  <rect x="40" y="728" width="864" height="100" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="748" font-size="13" font-weight="600" fill="#374151">存储层</text>
+  <path d="M 60,762 A 105,9 0 0 1 270,762 L 270,806 A 105,9 0 0 1 60,806 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="165" cy="762" rx="105" ry="9" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="165" y="788" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">应用库 MySQL smart_analytics</text>
+  <text x="165" y="804" font-size="10.5" fill="#6b7280" text-anchor="middle">用户 / 数据源 / 知识 / 技能 / 指标 / 留痕</text>
+  <path d="M 340,762 A 90,9 0 0 1 520,762 L 520,806 A 90,9 0 0 1 340,806 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="430" cy="762" rx="90" ry="9" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="430" y="788" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">用户源数据库</text>
+  <text x="430" y="804" font-size="10.5" fill="#6b7280" text-anchor="middle">analytics_test 不良资产宽表</text>
+  <path d="M 650,762 A 90,9 0 0 1 830,762 L 830,806 A 90,9 0 0 1 650,806 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="740" cy="762" rx="90" ry="9" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="740" y="788" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Redis / StateStore</text>
+  <text x="740" y="804" font-size="10.5" fill="#6b7280" text-anchor="middle">会话状态（可选外置）</text>
+  <path d="M 200,668 L 200,748" stroke="#16a34a" stroke-width="1.5" fill="none" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <text x="208" y="712" font-size="11" fill="#16a34a">元数据 / 留痕读写</text>
+  <path d="M 476,668 L 476,748" stroke="#16a34a" stroke-width="1.5" fill="none" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <text x="486" y="712" font-size="11" fill="#16a34a">真实 SQL 读写</text>
+  <path d="M 700,668 L 700,748" stroke="#16a34a" stroke-width="1.5" fill="none" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <text x="710" y="712" font-size="11" fill="#16a34a">状态读写</text>
+  <path d="M 56,530 L 28,530 L 28,786 L 58,786" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" fill="none" marker-end="url(#arrow-gray)"/>
+  <text x="22" y="660" font-size="11" fill="#6b7280" transform="rotate(-90 22 660)" text-anchor="middle">trace / 审计旁路落库</text>
+  <path d="M 904,501 L 928,501 L 928,199 L 910,199" stroke="#9333ea" stroke-width="1.5" fill="none" marker-end="url(#arrow-purple)"/>
+  <text x="932" y="392" font-size="11" fill="#9333ea" transform="rotate(-90 932 392)" text-anchor="middle">图表 / KPI / 洞察 / 追问</text>
+  <path d="M 904,778 L 946,778 L 946,222 L 910,222" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" fill="none" marker-end="url(#arrow-gray)"/>
+  <text x="950" y="520" font-size="11" fill="#6b7280" transform="rotate(-90 950 520)" text-anchor="middle">推导留痕回放（query_trace）</text>
+  <line x1="40" y1="858" x2="70" y2="858" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="78" y="862" font-size="11.5" fill="#6b7280">主流程 / 请求</text>
+  <line x1="208" y1="858" x2="238" y2="858" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="246" y="862" font-size="11.5" fill="#6b7280">数据读写</text>
+  <line x1="328" y1="858" x2="358" y2="858" stroke="#9333ea" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <text x="366" y="862" font-size="11.5" fill="#6b7280">LLM 调用 / 结果返回</text>
+  <line x1="556" y1="858" x2="586" y2="858" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-gray)"/>
+  <text x="594" y="862" font-size="11.5" fill="#6b7280">留痕 / 回放</text>
+</svg>

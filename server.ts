@@ -19,20 +19,28 @@ import { rateLimiter } from './server/rateLimiter';
 import { sanitizeQuestion, sanitizeHistory, containsInjection } from './server/queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from './server/userQueryLimit';
 import { writeAudit } from './server/auditLog';
+import { normalizeExportData, buildReportPptx, buildExportFilename } from './server/reportExport';
 import { loadSchemaContext } from './server/schemaContext';
 import { callLLMJson, callLLMText, llmEngineLabel, llmEngineInfo, listAvailableModels, setLlmOverride, validateModelSelection, ChatMessage } from './server/llmClient';
 import { runLiveQuery, buildColumnNames } from './server/liveQuery';
-import { runLiveReport } from './server/liveReport';
+import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from './server/liveReport';
+import { runDrill } from './server/drill';
 import { executeSafeSql } from './server/sqlExecutor';
 import { saveFeedback } from './server/queryFeedback';
+import { recordConversation, searchConversations, deleteConversation } from './server/conversationHistory';
 import { getCachedQuery, setCachedQuery, cacheKey } from './server/queryCache';
+import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from './server/queryTrace';
+import { generateQueryPlan, storePlan, consumePlan, QueryPlan } from './server/queryPlan';
+import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/analysisChain';
 import { emitBeforeQuery, emitAfterQuery } from './server/queryHooks';
+import { randomUUID } from 'node:crypto';
 import { requestLogger } from './server/requestLogger';
 import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
 import datasourceRoutes from './server/routes/datasources';
 import knowledgeRoutes from './server/routes/knowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
+import metricRoutes from './server/routes/metrics';
 import skillRoutes from './server/routes/skills';
 import queryContextRoutes from './server/routes/queryContext';
 import helpRoutes from './server/routes/help';
@@ -59,7 +67,13 @@ async function startServer() {
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
 
-  app.use(express.json({ limit: '2mb' }));
+  // M3 中间表清洗链：启动时先清理一次过期中间表，之后每小时定时清理
+  startChainCleanupScheduler();
+  cleanupExpiredIntermediateTables().catch((err) => console.warn('[Chain] 启动清理失败:', err?.message || err));
+
+  const jsonParser2mb = express.json({ limit: '2mb' });
+  // M4 报告导出 body 含图表 base64 PNG，单独放宽（该路由自带 20mb 解析器），其余接口维持 2mb
+  app.use((req, res, next) => (req.path === '/api/report/export' ? next() : jsonParser2mb(req, res, next)));
 
   // P0 安全响应头（等价 helmet 核心项，零依赖）；CSP 仅生产启用（Vite dev/HMR 依赖内联脚本）
   app.use((_req, res, next) => {
@@ -109,6 +123,7 @@ async function startServer() {
   // Legacy alias: /api/datasource/test-connection -> /api/datasources/test-connection
   app.use('/api/datasource', datasourceRoutes);
   app.use('/api/knowledge', knowledgeRoutes);
+  app.use('/api/metrics', metricRoutes);
   app.use('/api/sql-examples', sqlExampleRoutes);
   app.use('/api/skills', skillRoutes);
   app.use('/api/query', queryContextRoutes);
@@ -151,14 +166,15 @@ async function startServer() {
     const modelVariant = modelSel && 'engine' in modelSel ? `${modelSel.engine}:${modelSel.model}` : '';
 
     // L5 频率层：每用户 20 次/小时滑动窗口
-    const limit = checkUserQueryLimit(user.id);
+    const limit = await checkUserQueryLimit(user.id);
     if (!limit.ok) {
       writeAudit({ ...auditBase, question: query, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
       return res.status(429).json({ error: limit.reason });
     }
 
-    // L5 频率层：同用户并发限 1（昂贵的 LLM 调用串行化）
-    if (!acquireQuerySlot(user.id)) {
+    // L5 频率层：同用户并发限 1（昂贵的 LLM 调用串行化）；slotToken 绑定本次请求，释放时比对防误删
+    const slotToken = randomUUID();
+    if (!(await acquireQuerySlot(user.id, slotToken))) {
       writeAudit({ ...auditBase, question: query, status: 'DENIED_RATE', detail: '存在进行中的查询', durationMs: Date.now() - startedAt });
       return res.status(429).json({ error: '上一个查询仍在进行中，请等待完成后再试' });
     }
@@ -218,10 +234,29 @@ async function startServer() {
 
       // P0 双阶段真实执行：对落库的数据库型数据源启用（mysql/postgresql/greenplum，LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
       const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+      // M1 推导留痕：每次问数生成唯一 traceId，全链路步骤旁路落库，响应携带供前端回放
+      const traceId = newTraceId();
+      const traceMeta: TraceMeta = { userId: user.id, username: user.username, dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '', question: query };
       if (canRunLive) {
+        // M2 计划模式：携带已批准 planId 时校验有效性（过期/越权/问题不匹配 → 409 提示重新制定）
+        let approvedPlan: QueryPlan | undefined;
+        const reqPlanId = typeof req.body.planId === 'string' ? req.body.planId : '';
+        if (reqPlanId) {
+          const consumed = await consumePlan(reqPlanId, user.id, dataSourceId);
+          if (consumed.ok !== true) {
+            writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: consumed.reason, durationMs: Date.now() - startedAt });
+            return res.status(409).json({ error: consumed.reason });
+          }
+          if (consumed.plan.question !== query) {
+            writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: '提交问题与计划不匹配', durationMs: Date.now() - startedAt });
+            return res.status(409).json({ error: '提交的问题与分析计划不匹配，请重新制定计划' });
+          }
+          approvedPlan = consumed.plan;
+        }
+
         // P1-6 结果缓存：同数据源相同问题（归一化后）短期内复用成功结果；缓存键含模型变体，避免跨模型串用
         const ck = cacheKey(dataSourceId, query, modelVariant);
-        const cached = getCachedQuery(ck);
+        const cached = await getCachedQuery(ck);
         if (cached) {
           writeAudit({ ...auditBase, question: query, status: 'CACHE', executedSql: String(cached.executedSql || ''), rowCount: typeof cached.rowCount === 'number' ? cached.rowCount : -1, durationMs: Date.now() - startedAt });
           emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
@@ -236,8 +271,18 @@ async function startServer() {
           dataSourceId,
           dsType: ctx.dsType || undefined,
           sensitiveRemoved: ctx.sensitiveRemoved,
+          rowFilters: ctx.rowFilters,
           allowIntrospection: ctx.allowIntrospection,
+          approvedPlan,
+          deepAnalysis: req.body.deepAnalysis === true,
+          userId: user.id,
+          traceId,
           onStage: streamMode ? (stage, info) => sseSend('stage', { stage, ...(info || {}) }) : undefined,
+          // M1 推导留痕：旁路落库 + 流式模式下实时推送步骤详情（前端步骤器展示）
+          onTrace: (step) => {
+            void recordTraceStep(traceId, traceMeta, step);
+            if (streamMode) sseSend('trace', { traceId, ...step });
+          },
         });
         if (live.ok === 'clarify') {
           // 歧义澄清：不执行 SQL，先把澄清问题与候选理解返回前端，由用户确认后重新提交
@@ -250,6 +295,7 @@ async function startServer() {
             clarification: live.clarification,
             defense,
             dataProvenance: 'live',
+            traceId,
           }, 'clarify');
         }
         if (live.ok === true) {
@@ -258,8 +304,10 @@ async function startServer() {
             writeAudit({ ...auditBase, question: query, status: 'SUCCESS', executedSql: live.executedSql, rowCount: live.rowCount, durationMs: Date.now() - startedAt });
             emitAfterQuery(hookCtx, { status: 'SUCCESS', executedSql: live.executedSql, rowCount: live.rowCount, durationMs: Date.now() - startedAt });
             const basePayload = { success: true, result: normalized, defense, dataProvenance: 'live' };
-            setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount });
-            return respond({ ...basePayload, executionTimeMs: Date.now() - startedAt });
+            await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount });
+            // 对话历史服务端落库：成功问答 fire-and-forget 落库（历史面板 + 个人 few-shot 自学习），失败不阻断主链路
+            recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String((normalized as any).aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+            return respond({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt });
           }
         }
         // 真实执行链路失败：审计留痕后降级演示模式（可用性优先）
@@ -272,6 +320,8 @@ async function startServer() {
           durationMs: Date.now() - startedAt,
         });
         emitAfterQuery(hookCtx, { status: 'FALLBACK', durationMs: Date.now() - startedAt });
+        // 对话历史落库：降级路径同样留痕（状态 FALLBACK，不参与个人 few-shot 检索）
+        recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(live.ok === true ? 'LLM 分析结果结构校验失败' : live.error).slice(0, 200), status: 'FALLBACK', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
         const fallbackRaw = generateFallbackQueryResult(query, effectiveSchema);
         return respond({
           success: true,
@@ -280,6 +330,7 @@ async function startServer() {
           result: normalizeQueryResult(fallbackRaw)!,
           defense,
           dataProvenance: 'simulated',
+          traceId,
         });
       }
 
@@ -348,6 +399,8 @@ ${schemaGuidance}
 
         // L6 审计层：成功落账
         writeAudit({ ...auditBase, question: query, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+        // 对话历史落库：演示模式问答同样留痕（provenance=simulated，不参与个人 few-shot 检索）
+        recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(parsed.generatedSQL || ''), answerSummary: String(parsed.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
         return res.json({
           success: true,
           executionTimeMs: Date.now() - startedAt,
@@ -362,6 +415,7 @@ ${schemaGuidance}
         const fallback = normalizeQueryResult(fallbackRaw)!;
         // L6 审计层：降级落账（记录触发降级的错误）
         writeAudit({ ...auditBase, question: query, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+        recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: String(err?.message || err).slice(0, 200), status: 'FALLBACK', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
         return res.json({
           success: true,
           executionTimeMs: Date.now() - startedAt,
@@ -373,7 +427,76 @@ ${schemaGuidance}
       }
     // 注意：finally 必须挂在外层 try 上，确保 DENIED_SWITCH 等早退路径也释放并发槽
     } finally {
-      releaseQuerySlot(user.id);
+      await releaseQuerySlot(user.id, slotToken);
+    }
+  });
+
+  // 3a-1. M1 推导过程回放：按 traceId 返回一次问数的全链路步骤（仅本人或管理员可查）
+  app.get('/api/query/trace/:traceId', authMiddleware, async (req, res) => {
+    const user = req.user as { id: number; role: string };
+    const traceId = String(req.params.traceId || '');
+    if (!/^tr_[A-Za-z0-9_]{6,40}$/.test(traceId)) {
+      return res.status(400).json({ error: 'traceId 不合法' });
+    }
+    try {
+      const { steps, ownerUserId } = await getTraceSteps(traceId);
+      if (steps.length === 0) return res.status(404).json({ error: '未找到该推导记录' });
+      if (ownerUserId !== user.id && user.role !== 'ADMIN') {
+        return res.status(403).json({ error: '无权查看他人的推导过程' });
+      }
+      return res.json({ traceId, steps });
+    } catch (err) {
+      console.error('[Trace] fetch failed:', err);
+      return res.status(500).json({ error: '推导记录获取失败' });
+    }
+  });
+
+  // 3a-2. M2 计划模式：先由 LLM 生成分析计划（不执行），用户批准后携带 planId 提交问数
+  app.post('/api/query/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const startedAt = Date.now();
+    const user = req.user!;
+    const { schema, dataSourceId } = req.body || {};
+    const dsIdStr = typeof dataSourceId === 'string' ? dataSourceId : '';
+    const auditBase = { userId: user.id, username: user.username, endpoint: 'query' as const, dataSourceId: dsIdStr };
+
+    const clean = sanitizeQuestion(req.body.query);
+    if (clean.ok !== true) {
+      writeAudit({ ...auditBase, question: typeof req.body.query === 'string' ? req.body.query : '', status: 'DENIED_INPUT', detail: clean.reason, durationMs: Date.now() - startedAt });
+      return res.status(400).json({ error: clean.reason });
+    }
+
+    // 模型自选：与问数路由同构（可选，非法值直接拒绝）
+    const bodyModel = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
+    const modelSel = validateModelSelection(bodyModel.engine, bodyModel.model);
+    if (modelSel && 'error' in modelSel) {
+      return res.status(400).json({ error: modelSel.error });
+    }
+    if (modelSel && 'engine' in modelSel) setLlmOverride({ engine: modelSel.engine, model: modelSel.model });
+
+    const planSlotToken = randomUUID();
+    if (!(await acquireQuerySlot(user.id, planSlotToken))) {
+      return res.status(429).json({ error: '上一个查询仍在进行中，请等待完成后再试' });
+    }
+    try {
+      // 计划模式仅支持真实可执行的数据库型数据源（演示模式无执行意义）
+      const ctx = await loadSchemaContext(dataSourceId, schema);
+      if (ctx.status === 'disconnected') {
+        return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+      }
+      const canPlan = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && dsIdStr.length > 0;
+      if (!canPlan) {
+        return res.status(400).json({ error: '计划模式仅支持真实连接的数据库型数据源' });
+      }
+      const plan = await generateQueryPlan(clean.question, ctx.schema);
+      await storePlan(plan, user.id, dsIdStr);
+      writeAudit({ ...auditBase, question: clean.question, status: 'SUCCESS', detail: `分析计划 ${plan.steps.length} 步（${plan.complexity}）`, durationMs: Date.now() - startedAt });
+      return res.json({ success: true, plan, expiresInSec: 600 });
+    } catch (err: any) {
+      console.error('[Plan] generate failed:', err?.message || err);
+      writeAudit({ ...auditBase, question: clean.question, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+      return res.status(500).json({ error: '分析计划生成失败，请稍后重试' });
+    } finally {
+      await releaseQuerySlot(user.id, planSlotToken);
     }
   });
 
@@ -404,6 +527,34 @@ ${schemaGuidance}
     }
   });
 
+  // 3b-1. 对话历史管理：检索本人在当前数据源的问数对话（关键词匹配问题/结论摘要）
+  app.get('/api/conversations', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const dataSourceId = typeof req.query.dataSourceId === 'string' ? req.query.dataSourceId : '';
+    if (!dataSourceId) return res.status(400).json({ error: '缺少数据源' });
+    const keyword = typeof req.query.q === 'string' ? req.query.q : '';
+    try {
+      const conversations = await searchConversations(req.user!.id, dataSourceId, keyword);
+      return res.json({ success: true, conversations });
+    } catch (err) {
+      console.error('[Conversations] search failed:', err);
+      return res.status(500).json({ error: '对话历史查询失败' });
+    }
+  });
+
+  // 3b-2. 对话历史管理：删除单条对话（仅限本人记录，越权删除返回 404）
+  app.delete('/api/conversations/:id', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: '对话记录 ID 无效' });
+    try {
+      const ok = await deleteConversation(id, req.user!.id);
+      if (!ok) return res.status(404).json({ error: '对话记录不存在或无权删除' });
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('[Conversations] delete failed:', err);
+      return res.status(500).json({ error: '对话记录删除失败' });
+    }
+  });
+
   // 3c. API Endpoint: SQL 重跑（P0：SQL 预览弹窗的真实执行入口）
   // 复用 SELECT-only 安全执行层；仅落库 mysql 数据源可执行
   app.post('/api/query/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
@@ -424,7 +575,7 @@ ${schemaGuidance}
       return res.status(400).json({ error: 'SQL 长度超出限制' });
     }
 
-    const limit = checkUserQueryLimit(user.id);
+    const limit = await checkUserQueryLimit(user.id);
     if (!limit.ok) {
       writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
       return res.status(429).json({ error: limit.reason });
@@ -435,7 +586,7 @@ ${schemaGuidance}
       return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
     }
 
-    const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved);
+    const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved, 500, ctx.rowFilters);
     if (outcome.ok !== true) {
       const status = outcome.reason === 'UNSUPPORTED_DS_TYPE' ? 400 : 422;
       writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_INPUT', detail: outcome.reason.slice(0, 200), durationMs: Date.now() - startedAt });
@@ -481,6 +632,54 @@ ${schemaGuidance}
     }
   });
 
+  // 3e. P2-2 报表图表点击下钻：根据原聚合 SQL + 维度值生成明细查询
+  app.post('/api/query/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const startedAt = Date.now();
+    const user = req.user!;
+    const { dataSourceId, originalSql, dimensionKey, dimensionValue } = req.body || {};
+
+    if (
+      typeof dataSourceId !== 'string' || !dataSourceId ||
+      typeof originalSql !== 'string' || !originalSql.trim() ||
+      typeof dimensionKey !== 'string' || !dimensionKey.trim() ||
+      (typeof dimensionValue !== 'string' && typeof dimensionValue !== 'number')
+    ) {
+      return res.status(400).json({ error: 'dataSourceId、originalSql、dimensionKey、dimensionValue 必填' });
+    }
+    if (originalSql.length > 4000) {
+      return res.status(400).json({ error: 'SQL 长度超出限制' });
+    }
+
+    const ctx = await loadSchemaContext(dataSourceId, undefined);
+    if (ctx.status === 'disconnected') {
+      return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+    }
+
+    const outcome = await runDrill({
+      dataSourceId,
+      originalSql,
+      dimensionKey,
+      dimensionValue,
+      schema: ctx.schema,
+      sensitiveRemoved: ctx.sensitiveRemoved,
+      rowFilters: ctx.rowFilters,
+    });
+
+    if (outcome.ok !== true) {
+      return res.status(422).json({ error: outcome.error });
+    }
+    // 明细表头中文化：schema 列业务含义映射（下钻为 SELECT *，列名即原始字段名）
+    const columnNames = buildColumnNames(outcome.rows, ctx.schema);
+    return res.json({
+      success: true,
+      executionTimeMs: Date.now() - startedAt,
+      rows: outcome.rows,
+      rowCount: outcome.rowCount,
+      finalSql: outcome.finalSql,
+      columnNames,
+    });
+  });
+
   // 4. API Endpoint: Automatic Visual Analytics Executive Report Generation
   app.post('/api/report/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
     const startedAt = Date.now();
@@ -510,12 +709,13 @@ ${schemaGuidance}
     }
 
     // L5 频率层：与智能问数共享用户配额与并发互斥
-    const limit = checkUserQueryLimit(user.id);
+    const limit = await checkUserQueryLimit(user.id);
     if (!limit.ok) {
       writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
       return res.status(429).json({ error: limit.reason });
     }
-    if (!acquireQuerySlot(user.id)) {
+    const reportSlotToken = randomUUID();
+    if (!(await acquireQuerySlot(user.id, reportSlotToken))) {
       writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: '存在进行中的查询', durationMs: Date.now() - startedAt });
       return res.status(429).json({ error: '上一个查询仍在进行中，请等待完成后再试' });
     }
@@ -531,6 +731,18 @@ ${schemaGuidance}
       const effectiveSchema = ctx.schema;
       const schemaGuidance = ctx.guidance;
 
+      // M4 报告计划批准：携带 reportPlanId 时校验有效性（过期/越权/不匹配 → 409）
+      let approvedPlans: Parameters<typeof runLiveReport>[0]['approvedPlans'];
+      const reportPlanId = typeof req.body.reportPlanId === 'string' ? req.body.reportPlanId : '';
+      if (reportPlanId) {
+        const consumed = await consumeReportPlan(reportPlanId, user.id, dataSourceId, safeTemplate);
+        if (consumed.ok !== true) {
+          writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: consumed.reason, durationMs: Date.now() - startedAt });
+          return res.status(409).json({ error: consumed.reason });
+        }
+        approvedPlans = consumed.plan;
+      }
+
       // P1 报表真实化：数据库型数据源走双阶段（查询计划 → 真实执行 → 真实数据摘要撰写）
       const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
       if (canRunLive) {
@@ -542,12 +754,14 @@ ${schemaGuidance}
           dataSourceId,
           dsType: ctx.dsType || undefined,
           sensitiveRemoved: ctx.sensitiveRemoved,
+          rowFilters: ctx.rowFilters,
+          ...(approvedPlans ? { approvedPlans } : {}),
         });
         if (live.ok === true) {
           const report = normalizeReport(live.report);
           if (report) {
             writeAudit({ ...auditBase, question: auditQuestion, status: 'SUCCESS', executedSql: live.executedSqls.join(' ; '), rowCount: live.totalRows, durationMs: Date.now() - startedAt });
-            return res.json({ success: true, executionTimeMs: Date.now() - startedAt, report, dataProvenance: 'live' });
+            return res.json({ success: true, executionTimeMs: Date.now() - startedAt, report: { ...report, executedSqls: live.executedSqls }, dataProvenance: 'live' });
           }
         }
         writeAudit({
@@ -622,7 +836,96 @@ ${JSON.stringify(effectiveSchema, null, 2)}
       }
     // finally 挂在外层 try，确保 DENIED_SWITCH 早退路径同样释放并发槽
     } finally {
-      releaseQuerySlot(user.id);
+      await releaseQuerySlot(user.id, reportSlotToken);
+    }
+  });
+
+  // 4-pre. M4 报告计划模式：先由 LLM 生成报表查询计划（不执行），用户批准后携带 reportPlanId 提交生成
+  app.post('/api/report/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const startedAt = Date.now();
+    const user = req.user!;
+    const { templateType, customPrompt, dataSourceId, schema } = req.body || {};
+    const auditBase = {
+      userId: user.id,
+      username: user.username,
+      endpoint: 'report' as const,
+      dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+    };
+
+    if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+      writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告计划权限`, durationMs: Date.now() - startedAt });
+      return res.status(403).json({ error: '当前角色没有报告生成权限' });
+    }
+
+    const safeTemplate = String(templateType || '综合经营分析').slice(0, 200);
+    const safeCustom = String(customPrompt || '生成包含核心KPI、多维趋势图表与战略建议的决策简报').slice(0, 1000);
+    if (containsInjection(safeTemplate) || containsInjection(safeCustom)) {
+      writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'DENIED_INPUT', detail: '报告参数包含注入特征', durationMs: Date.now() - startedAt });
+      return res.status(400).json({ error: '报告参数包含不允许的指令内容' });
+    }
+
+    const ctx = await loadSchemaContext(dataSourceId, schema);
+    if (ctx.status === 'disconnected') {
+      writeAudit({ ...auditBase, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
+      return res.status(403).json({ error: '该数据源的智能问数功能已被管理员停用' });
+    }
+    const canPlan = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+    if (!canPlan) {
+      return res.status(400).json({ error: '仅数据库型数据源支持报表计划模式' });
+    }
+
+    try {
+      const out = await generateReportPlans({
+        templateType: safeTemplate,
+        customPrompt: safeCustom,
+        schema: ctx.schema,
+        guidance: ctx.guidance,
+        dataSourceId,
+        dsType: ctx.dsType || undefined,
+        sensitiveRemoved: ctx.sensitiveRemoved,
+      });
+      if (out.ok !== true) {
+        writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: out.error, durationMs: Date.now() - startedAt });
+        return res.status(500).json({ error: out.error });
+      }
+      const reportPlanId = await storeReportPlan(out.plan, { templateType: safeTemplate, userId: user.id, dataSourceId });
+      writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+      return res.json({ success: true, reportPlanId, plan: out.plan, expiresInSec: 600 });
+    } catch (err: any) {
+      console.error('Report Plan Error:', err);
+      writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+      return res.status(500).json({ error: '报表查询计划生成失败，请稍后重试' });
+    }
+  });
+
+  // 4a. M4 报告导出：服务端用 pptxgenjs 组装 PPTX（封面/摘要/KPI/每图一页/结论），图表由前端转 base64 PNG 提交
+  app.post('/api/report/export', express.json({ limit: '20mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+    const startedAt = Date.now();
+    const user = req.user!;
+    const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
+
+    // L2 权限层：Service 侧复核
+    if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+      writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告导出权限`, durationMs: Date.now() - startedAt });
+      return res.status(403).json({ error: '当前角色没有报告导出权限' });
+    }
+
+    const data = normalizeExportData(req.body?.report ?? req.body);
+    if (!data) {
+      writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
+      return res.status(400).json({ error: '报告导出参数无效' });
+    }
+
+    try {
+      const buffer = await buildReportPptx(data);
+      writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt))}`);
+      return res.send(buffer);
+    } catch (err: any) {
+      console.error('Report Export Error:', err);
+      writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+      return res.status(500).json({ error: 'PPT 生成失败，请稍后重试' });
     }
   });
 

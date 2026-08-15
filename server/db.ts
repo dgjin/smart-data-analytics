@@ -126,6 +126,48 @@ export async function initSchema(): Promise<void> {
     if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // M1 推导过程留痕：问数全链路每步记录（环节类型/输入输出摘要/SQL/行数/耗时），支持事后回放
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS query_trace (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      trace_id VARCHAR(40) NOT NULL,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL DEFAULT '',
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      question VARCHAR(500) NOT NULL DEFAULT '',
+      step_type VARCHAR(20) NOT NULL,
+      title VARCHAR(100) NOT NULL DEFAULT '',
+      input_summary VARCHAR(1000) NOT NULL DEFAULT '',
+      output_summary VARCHAR(2000) NOT NULL DEFAULT '',
+      sql_text VARCHAR(2000) NOT NULL DEFAULT '',
+      row_count INT NOT NULL DEFAULT -1,
+      duration_ms INT NOT NULL DEFAULT 0,
+      status VARCHAR(10) NOT NULL DEFAULT 'ok',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_trace_id (trace_id),
+      INDEX idx_trace_user (user_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // M3 中间表清洗链注册表：记录落库应用库的物理中间表（ait_*）归属与 TTL，
+  // 启动时 + 每小时定时清理过期注册与物理表
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS analysis_intermediate_tables (
+      id VARCHAR(32) PRIMARY KEY,
+      table_name VARCHAR(64) NOT NULL,
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      user_id INT NOT NULL,
+      trace_id VARCHAR(40) NOT NULL DEFAULT '',
+      purpose VARCHAR(300) NOT NULL DEFAULT '',
+      columns_json TEXT,
+      row_count INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMP NOT NULL,
+      INDEX idx_ait_user (user_id, created_at),
+      INDEX idx_ait_expires (expires_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // P1 反馈闭环：问数结果点赞/点踩；点赞样例作为 few-shot 注入后续 NL2SQL prompt
   await pool.query(`
     CREATE TABLE IF NOT EXISTS query_feedback (
@@ -139,6 +181,26 @@ export async function initSchema(): Promise<void> {
       provenance VARCHAR(20) NOT NULL DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_feedback_ds_verdict (data_source_id, verdict, id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 对话历史服务端落库：问数问答/状态落库，支撑历史面板（搜索/重问/删除/导出）
+  // 与个人对话沉淀 few-shot 自学习（仅真实执行成功的 live 记录参与检索）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversation_history (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL DEFAULT '',
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      question VARCHAR(500) NOT NULL DEFAULT '',
+      executed_sql VARCHAR(2000) NOT NULL DEFAULT '',
+      answer_summary VARCHAR(800) NOT NULL DEFAULT '',
+      status ENUM('SUCCESS','FALLBACK') NOT NULL DEFAULT 'SUCCESS',
+      provenance VARCHAR(20) NOT NULL DEFAULT '',
+      row_count INT NOT NULL DEFAULT 0,
+      duration_ms INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_conv_user_ds (user_id, data_source_id, id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
@@ -213,6 +275,27 @@ export async function initSchema(): Promise<void> {
       ORDER BY id ASC
     `);
   }
+
+  // P1-1 语义指标层：管理员登记的业务指标权威口径（名称/同义词/聚合表达式/归属表/固定过滤），
+  // 问数命中后模板化注入阶段一 prompt，保证同指标全系统口径一致
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS metric_definitions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      name VARCHAR(50) NOT NULL,
+      aliases_json VARCHAR(600) NOT NULL DEFAULT '[]',
+      description VARCHAR(300) NOT NULL DEFAULT '',
+      expr VARCHAR(200) NOT NULL,
+      table_name VARCHAR(64) NOT NULL,
+      filters VARCHAR(300) NOT NULL DEFAULT '',
+      status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_metric_ds_name (data_source_id, name),
+      INDEX idx_metric_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   // 4. Seed default admin when users table is empty
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');

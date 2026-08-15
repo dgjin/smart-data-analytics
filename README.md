@@ -16,18 +16,23 @@
 - **embedding 圈表**：关键词粗排 + embedding 精排自动圈选相关表（不可用时降级纯关键词）
 - **自学习闭环**：点赞反馈自动沉淀为训练样例（auto_train）
 - **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，百炼/Gemini 按配置列入），选择随提问生效并持久化
+- **推导过程回放**：全程步骤埋点（query_trace），完成后可展开时间线查看每环节 SQL/行数/耗时
+- **计划模式**（开关）：先由 LLM 生成分析计划供批准，再携带 planId 执行
+- **深度分析（中间表清洗链）**：复杂问题多步清洗并物化应用库中间表 `ait_*`（TTL 24h，失败不阻断）
 - **降级兜底**：LLM/数据库不可用时返回带明确标识的示例数据
 
 ### 数据治理
 - **多源接入**：MySQL / PostgreSQL / Greenplum / CSV / API / JSON
 - **Scope 白名单 + 敏感列过滤**：问数仅访问授权表，敏感字段自动剔除
+- **行级权限**：scope 登记表级行过滤谓词，所有真实执行链路由 AST 强制注入为过滤派生表（fail-closed）
+- **语义指标层**：管理员登记指标口径（同义词/聚合表达式/固定过滤），问数命中即模板化注入，口径全系统一致
 - **知识库**：业务术语、指标口径、字段含义检索注入（带 token 预算）
 - **SQL 样例库**：训练语料 CRUD，支持批量粘贴 SQL 由 LLM 反推问题冷启动导入
 - **技能库**：个人/系统提示模板，支持分享-审核流
 - **数据血缘**：数据流向与依赖可视化
 
 ### 分析与呈现
-- **可视化决策报表**：一键生成高管分析简报，支持 PDF 导出与图表批注
+- **可视化决策报表**：一键生成高管分析简报，支持报告计划模式（批准后生成）、PPT 下载（服务端 pptxgenjs）、PDF 导出、图表批注与图表点击下钻明细（LIMIT 50）
 - **决策数据看板**：固化指标图表，适合日常巡检与大屏投放
 - **深浅色主题**：一键切换，偏好持久化
 
@@ -42,9 +47,9 @@
 |----|------|
 | 前端 | React 19 + Vite + TypeScript + Tailwind CSS 4 + Zustand + Recharts + motion |
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
-| 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg） |
+| 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
-| 测试 | Vitest（22 文件 / 226 用例） |
+| 测试 | Vitest（33 文件 / 349 用例）+ NL2SQL 评测集（server/eval，16 用例） |
 
 ## 快速开始
 
