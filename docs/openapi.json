@@ -1,0 +1,465 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "智能问数据分析系统 API",
+    "version": "0.1.0",
+    "description": "自然语言问数 / 分析报告 / 数据源与知识管理后端接口。除标注「公开」的端点外均需 Bearer JWT；写操作与管理员端点在描述中注明角色要求（RBAC：ADMIN / ANALYST / VIEWER）。错误响应统一为 { error: string, code?: string }，code 取值见 server/errorCodes.ts。"
+  },
+  "servers": [{ "url": "/", "description": "同源部署（开发默认 http://127.0.0.1:3000）" }],
+  "security": [{ "bearerAuth": [] }],
+  "tags": [
+    { "name": "System", "description": "健康检查与系统信息" },
+    { "name": "Auth", "description": "登录与自助改密" },
+    { "name": "Admin", "description": "用户管理（仅 ADMIN）" },
+    { "name": "DataSources", "description": "数据源与表结构管理" },
+    { "name": "Query", "description": "自然语言问数主链路" },
+    { "name": "Conversations", "description": "对话历史（服务端落库）" },
+    { "name": "Reports", "description": "分析报告生成与导出" },
+    { "name": "Knowledge", "description": "业务知识文档" },
+    { "name": "Metrics", "description": "指标口径定义" },
+    { "name": "SqlExamples", "description": "SQL 示例库（问数反例增强）" },
+    { "name": "Skills", "description": "技能库与共享审批" },
+    { "name": "Help", "description": "使用帮助" }
+  ],
+  "x-legacy-aliases": [{ "from": "/api/datasource/*", "to": "/api/datasources/*" }],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": ["System"], "operationId": "health", "summary": "健康检查",
+        "security": [], "responses": { "200": { "description": "服务状态" } }
+      }
+    },
+    "/api/system/engine": {
+      "get": {
+        "tags": ["System"], "operationId": "getEngineInfo", "summary": "当前 AI 引擎信息（按实际模型展示，不暴露内网地址）",
+        "responses": { "200": { "description": "引擎/模型信息" } }
+      }
+    },
+    "/api/system/models": {
+      "get": {
+        "tags": ["System"], "operationId": "listModels", "summary": "可选模型目录（Ollama 实时列已装模型，qwen/gemini 按密钥列入）",
+        "responses": { "200": { "description": "模型列表", "content": { "application/json": { "schema": { "type": "object", "properties": { "models": { "type": "array", "items": { "type": "object" } } } } } } }, "500": { "$ref": "#/components/responses/Internal" } }
+      }
+    },
+    "/api/system/llm-usage": {
+      "get": {
+        "tags": ["System"], "operationId": "getLlmUsage", "summary": "LLM 用量统计（近 N 天按引擎/模型聚合；仅 ADMIN）",
+        "parameters": [{ "name": "days", "in": "query", "schema": { "type": "integer", "default": 7, "minimum": 1, "maximum": 90 }, "description": "统计天数" }],
+        "responses": { "200": { "description": "用量聚合" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"], "operationId": "login", "summary": "登录获取 JWT（公开；限流；密码错误 5 次锁定 15 分钟）",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["username", "password"], "properties": { "username": { "type": "string" }, "password": { "type": "string", "format": "password" } } } } } },
+        "responses": {
+          "200": { "description": "登录成功（首登被管理员重置密码时返回 mustChangePassword=true，前端强制改密）" },
+          "401": { "description": "用户名或密码错误" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"], "operationId": "me", "summary": "当前登录用户信息（含角色与 mustChangePassword 标记）",
+        "responses": { "200": { "description": "用户信息" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "tags": ["Auth"], "operationId": "changePassword", "summary": "自助修改密码（强度校验：长度≥8 且含字母与数字）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["oldPassword", "newPassword"], "properties": { "oldPassword": { "type": "string" }, "newPassword": { "type": "string", "format": "password" } } } } } },
+        "responses": { "200": { "description": "修改成功（旧密码失效）" }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+
+    "/api/admin/users": {
+      "get": {
+        "tags": ["Admin"], "operationId": "listUsers", "summary": "用户列表（仅 ADMIN）",
+        "responses": { "200": { "description": "用户列表" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      },
+      "post": {
+        "tags": ["Admin"], "operationId": "createUser", "summary": "创建用户（仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["username", "password", "role"], "properties": { "username": { "type": "string" }, "password": { "type": "string" }, "role": { "type": "string", "enum": ["ADMIN", "ANALYST", "VIEWER"] }, "displayName": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "创建成功（新用户首次登录须改密）" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/admin/users/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+      "put": {
+        "tags": ["Admin"], "operationId": "updateUser", "summary": "更新用户（角色/显示名/启停；仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "role": { "type": "string", "enum": ["ADMIN", "ANALYST", "VIEWER"] }, "displayName": { "type": "string" }, "active": { "type": "boolean" } } } } } },
+        "responses": { "200": { "description": "更新成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Admin"], "operationId": "deleteUser", "summary": "删除用户（仅 ADMIN；不可删除自己与内置 admin）",
+        "responses": { "200": { "description": "删除成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/admin/users/{id}/reset-password": {
+      "parameters": [{ "$ref": "#/components/parameters/UserId" }],
+      "post": {
+        "tags": ["Admin"], "operationId": "resetPassword", "summary": "重置用户密码（仅 ADMIN；重置后该用户须强制改密）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["newPassword"], "properties": { "newPassword": { "type": "string", "format": "password" } } } } } },
+        "responses": { "200": { "description": "重置成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+
+    "/api/datasources": {
+      "get": {
+        "tags": ["DataSources"], "operationId": "listDatasources", "summary": "数据源列表（ADMIN 全量；ANALYST/VIEWER 仅授权范围）",
+        "responses": { "200": { "description": "数据源列表" } }
+      },
+      "post": {
+        "tags": ["DataSources"], "operationId": "createDatasource", "summary": "新建数据源（仅 ADMIN；凭据加密存储）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DatasourceInput" } } } },
+        "responses": { "200": { "description": "创建成功（含连通性校验结果）" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/datasources/test-connection": {
+      "post": {
+        "tags": ["DataSources"], "operationId": "testDatasourceConnection", "summary": "连通性测试（仅 ADMIN；不落库）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DatasourceInput" } } } },
+        "responses": { "200": { "description": "连通性结果与表统计" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/datasources/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/DatasourceId" }],
+      "put": {
+        "tags": ["DataSources"], "operationId": "updateDatasource", "summary": "更新数据源连接信息（仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DatasourceInput" } } } },
+        "responses": { "200": { "description": "更新成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["DataSources"], "operationId": "deleteDatasource", "summary": "删除数据源（仅 ADMIN；级联清理缓存与授权）",
+        "responses": { "200": { "description": "删除成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/datasources/{id}/sync-schema": {
+      "parameters": [{ "$ref": "#/components/parameters/DatasourceId" }],
+      "post": {
+        "tags": ["DataSources"], "operationId": "syncSchema", "summary": "同步表结构（仅 ADMIN；刷新 schema 缓存与血缘）",
+        "responses": { "200": { "description": "同步结果（表/字段统计）" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/datasources/{id}/schema-meta": {
+      "parameters": [{ "$ref": "#/components/parameters/DatasourceId" }],
+      "put": {
+        "tags": ["DataSources"], "operationId": "updateSchemaMeta", "summary": "维护表/字段业务语义备注（仅 ADMIN；供问数语义匹配）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "保存成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/datasources/{id}/scope": {
+      "parameters": [{ "$ref": "#/components/parameters/DatasourceId" }],
+      "put": {
+        "tags": ["DataSources"], "operationId": "updateScope", "summary": "设置问数范围白名单（仅 ADMIN；越权访问返回 404）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "保存成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+
+    "/api/query/context": {
+      "get": {
+        "tags": ["Query"], "operationId": "getQueryContext", "summary": "问数上下文（schema + SQL 示例 + 知识摘要；ADMIN/ANALYST；缓存 5 分钟）",
+        "parameters": [{ "name": "dataSourceId", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "上下文内容" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/query/natural-language": {
+      "post": {
+        "tags": ["Query"], "operationId": "askNaturalLanguage", "summary": "自然语言问数（SSE 流式；限流；同源同题进行中去重）",
+        "description": "Accept: text/event-stream。事件流：stage（阶段进度，sql_ready/executed 附带 sql 先行回显）/trace（推导留痕步骤）/clarify（歧义澄清）/done（终态：答案+数据+SQL+图表建议）/error。非流式 Accept 亦可返回同构 JSON。",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["question"], "properties": { "question": { "type": "string", "maxLength": 500 }, "dataSourceId": { "type": "string" }, "model": { "type": "string" }, "sessionId": { "type": "string" } } } } } },
+        "responses": {
+          "200": { "description": "SSE 事件流或 JSON 结果" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "description": "同源同题查询进行中（QUERY_IN_FLIGHT）" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "502": { "description": "AI 引擎不可用（LLM_UNAVAILABLE）" }
+        }
+      }
+    },
+    "/api/query/trace/{traceId}": {
+      "parameters": [{ "name": "traceId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "tags": ["Query"], "operationId": "getTrace", "summary": "查询推导留痕详情（阶段/耗时/SQL 候选）",
+        "responses": { "200": { "description": "留痕详情" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/query/plan": {
+      "post": {
+        "tags": ["Query"], "operationId": "generatePlan", "summary": "两阶段问数：先生成分析计划（含候选 SQL 与口径说明）待确认",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["question"], "properties": { "question": { "type": "string" }, "dataSourceId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "分析计划" }, "409": { "description": "计划校验失败（PLAN_INVALID/PLAN_MISMATCH）" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/api/query/feedback": {
+      "post": {
+        "tags": ["Query"], "operationId": "submitFeedback", "summary": "对问答结果点赞/点踩（同题幂等，重复提交不重复计数）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["traceId", "rating"], "properties": { "traceId": { "type": "string" }, "rating": { "type": "string", "enum": ["up", "down"] }, "comment": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "已记录（幂等）" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/query/execute-sql": {
+      "post": {
+        "tags": ["Query"], "operationId": "executeSql", "summary": "执行只读 SQL（AST 校验：仅 SELECT，拒绝多语句/写操作/黑名单函数；行数与超时受限）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sql", "dataSourceId"], "properties": { "sql": { "type": "string" }, "dataSourceId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "查询结果（columns/rows）" }, "422": { "description": "SQL 被安全策略拒绝（SQL_REJECTED）" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/api/query/sql-assist": {
+      "post": {
+        "tags": ["Query"], "operationId": "sqlAssist", "summary": "SQL 智能辅助（解释 / 改写优化 / 错误修复建议）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sql"], "properties": { "sql": { "type": "string" }, "action": { "type": "string", "enum": ["explain", "optimize", "fix"] }, "dataSourceId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "辅助结果" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/api/query/drill": {
+      "post": {
+        "tags": ["Query"], "operationId": "drill", "summary": "图表下钻（按维度/过滤条件生成子查询）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sql"], "properties": { "sql": { "type": "string" }, "dimension": { "type": "string" }, "filters": { "type": "object" }, "dataSourceId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "下钻结果" }, "422": { "description": "SQL 被安全策略拒绝（SQL_REJECTED）" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+
+    "/api/conversations": {
+      "get": {
+        "tags": ["Conversations"], "operationId": "listConversations", "summary": "当前用户对话历史（按数据源隔离，支持关键词检索；ADMIN/ANALYST）",
+        "parameters": [
+          { "name": "dataSourceId", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "问题/结论关键词" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50 } }
+        ],
+        "responses": { "200": { "description": "conversations 列表" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/conversations/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "delete": {
+        "tags": ["Conversations"], "operationId": "deleteConversation", "summary": "删除单条对话记录（仅本人；限流）",
+        "responses": { "200": { "description": "删除成功" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+
+    "/api/report/generate": {
+      "post": {
+        "tags": ["Reports"], "operationId": "generateReport", "summary": "生成分析报告（SSE 流式：阶段进度 + 报告卡片；限流）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["dataSourceId"], "properties": { "dataSourceId": { "type": "string" }, "topic": { "type": "string" }, "dateRange": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "SSE 事件流" }, "403": { "$ref": "#/components/responses/Forbidden" }, "429": { "$ref": "#/components/responses/RateLimited" }, "502": { "description": "AI 引擎不可用（LLM_UNAVAILABLE）" } }
+      }
+    },
+    "/api/report/plan": {
+      "post": {
+        "tags": ["Reports"], "operationId": "planReport", "summary": "生成报告大纲计划（章节/图表建议，待确认后再生成）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "dataSourceId": { "type": "string" }, "topic": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "报告计划" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/api/report/export": {
+      "post": {
+        "tags": ["Reports"], "operationId": "exportReport", "summary": "导出报告（PDF/PPTX/Markdown；body 上限 20MB 含图表 base64）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["format"], "properties": { "format": { "type": "string", "enum": ["pdf", "pptx", "markdown"] }, "title": { "type": "string" }, "sections": { "type": "array", "items": { "type": "object" } } } } } } },
+        "responses": { "200": { "description": "文件流" }, "400": { "$ref": "#/components/responses/BadRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+
+    "/api/knowledge": {
+      "get": {
+        "tags": ["Knowledge"], "operationId": "listKnowledge", "summary": "知识文档列表（支持关键词检索）",
+        "parameters": [{ "name": "q", "in": "query", "schema": { "type": "string" } }, { "name": "dataSourceId", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "文档列表" } }
+      },
+      "post": {
+        "tags": ["Knowledge"], "operationId": "createKnowledge", "summary": "新建知识文档（仅 ADMIN；供问数语义增强）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["title", "content"], "properties": { "title": { "type": "string" }, "content": { "type": "string" }, "dataSourceId": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "创建成功" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/knowledge/{docId}": {
+      "parameters": [{ "name": "docId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "tags": ["Knowledge"], "operationId": "getKnowledge", "summary": "知识文档详情",
+        "responses": { "200": { "description": "文档内容" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "put": {
+        "tags": ["Knowledge"], "operationId": "updateKnowledge", "summary": "更新知识文档（仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "更新成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Knowledge"], "operationId": "deleteKnowledge", "summary": "删除知识文档（仅 ADMIN）",
+        "responses": { "200": { "description": "删除成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+
+    "/api/metrics": {
+      "get": {
+        "tags": ["Metrics"], "operationId": "listMetrics", "summary": "指标口径列表（支持按数据源过滤）",
+        "parameters": [{ "name": "dataSourceId", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "指标列表" } }
+      },
+      "post": {
+        "tags": ["Metrics"], "operationId": "createMetric", "summary": "新建指标口径（仅 ADMIN；名称/公式/口径说明）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "创建成功" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/metrics/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "put": {
+        "tags": ["Metrics"], "operationId": "updateMetric", "summary": "更新指标口径（仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "更新成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Metrics"], "operationId": "deleteMetric", "summary": "删除指标口径（仅 ADMIN）",
+        "responses": { "200": { "description": "删除成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+
+    "/api/sql-examples": {
+      "get": {
+        "tags": ["SqlExamples"], "operationId": "listSqlExamples", "summary": "SQL 示例列表（问数 few-shot 语料；支持 dataSourceId/q 过滤）",
+        "parameters": [{ "name": "dataSourceId", "in": "query", "schema": { "type": "string" } }, { "name": "q", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "示例列表" } }
+      },
+      "post": {
+        "tags": ["SqlExamples"], "operationId": "createSqlExample", "summary": "新建 SQL 示例（仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["question", "sql"], "properties": { "question": { "type": "string" }, "sql": { "type": "string" }, "dataSourceId": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "创建成功" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/sql-examples/generate-questions": {
+      "post": {
+        "tags": ["SqlExamples"], "operationId": "generateQuestions", "summary": "由 SQL 自动生成候选问法（仅 ADMIN；人审后入库）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sql"], "properties": { "sql": { "type": "string" }, "count": { "type": "integer", "default": 3 } } } } } },
+        "responses": { "200": { "description": "候选问法列表" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/sql-examples/bulk": {
+      "post": {
+        "tags": ["SqlExamples"], "operationId": "bulkImportSqlExamples", "summary": "批量导入 SQL 示例（仅 ADMIN；JSON 数组）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "type": "object" } } } } } } },
+        "responses": { "200": { "description": "导入结果（成功/跳过计数）" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
+    "/api/sql-examples/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "put": {
+        "tags": ["SqlExamples"], "operationId": "updateSqlExample", "summary": "更新 SQL 示例（仅 ADMIN）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "更新成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["SqlExamples"], "operationId": "deleteSqlExample", "summary": "删除 SQL 示例（仅 ADMIN）",
+        "responses": { "200": { "description": "删除成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+
+    "/api/skills": {
+      "get": {
+        "tags": ["Skills"], "operationId": "listSkills", "summary": "技能库列表（含公共技能与我创建的技能）",
+        "responses": { "200": { "description": "技能列表" } }
+      },
+      "post": {
+        "tags": ["Skills"], "operationId": "createSkill", "summary": "新建技能（提示词模板 + 参数）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "创建成功" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/skills/manage": {
+      "get": {
+        "tags": ["Skills"], "operationId": "manageSkills", "summary": "技能管理视图（我创建 / 共享给我 / 待审批）",
+        "responses": { "200": { "description": "管理列表" } }
+      }
+    },
+    "/api/skills/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "get": {
+        "tags": ["Skills"], "operationId": "getSkill", "summary": "技能详情",
+        "responses": { "200": { "description": "技能内容" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "put": {
+        "tags": ["Skills"], "operationId": "updateSkill", "summary": "更新技能（仅创建者）",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "更新成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "tags": ["Skills"], "operationId": "deleteSkill", "summary": "删除技能（仅创建者）",
+        "responses": { "200": { "description": "删除成功" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/skills/{id}/share": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "post": {
+        "tags": ["Skills"], "operationId": "shareSkill", "summary": "发起共享申请（创建者提交，待 ADMIN 审批）",
+        "responses": { "200": { "description": "已提交申请" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/skills/{id}/share/cancel": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "post": {
+        "tags": ["Skills"], "operationId": "cancelShareSkill", "summary": "撤回共享申请或取消共享",
+        "responses": { "200": { "description": "已撤回" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/skills/{id}/share/approve": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "post": {
+        "tags": ["Skills"], "operationId": "approveShareSkill", "summary": "审批通过共享（仅 ADMIN）",
+        "responses": { "200": { "description": "已通过" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/skills/{id}/share/reject": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "post": {
+        "tags": ["Skills"], "operationId": "rejectShareSkill", "summary": "审批拒绝共享（仅 ADMIN）",
+        "responses": { "200": { "description": "已拒绝" }, "403": { "$ref": "#/components/responses/Forbidden" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+
+    "/api/help/manual": {
+      "get": {
+        "tags": ["Help"], "operationId": "getManual", "summary": "使用手册（公开）",
+        "security": [], "responses": { "200": { "description": "手册内容" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "parameters": {
+      "UserId": { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "用户 ID" },
+      "DatasourceId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "数据源 ID（ds_ 前缀）" }
+    },
+    "responses": {
+      "BadRequest": { "description": "参数错误（INVALID_INPUT）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "未登录或凭证失效（UNAUTHORIZED）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "角色不足或被强制改密拦截（FORBIDDEN / PASSWORD_CHANGE_REQUIRED）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "资源不存在或无权访问（NOT_FOUND，越权访问同样返回 404 防枚举）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RateLimited": { "description": "触发限流（RATE_LIMITED）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Internal": { "description": "服务端错误（INTERNAL_ERROR）", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string", "description": "用户可读错误信息" }, "code": { "type": "string", "description": "机器可读错误码（server/errorCodes.ts）" } }
+      },
+      "DatasourceInput": {
+        "type": "object",
+        "required": ["name", "type", "config"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["mysql", "postgres", "csv"] },
+          "config": { "type": "object", "description": "连接配置（host/port/database/username/password 或 CSV 上传参数）" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  }
+}

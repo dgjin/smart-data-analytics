@@ -85,6 +85,21 @@ npm run build        # 打包前端 + 服务端（dist/server.cjs）
 NODE_ENV=production JWT_SECRET=<强密钥> npm start
 ```
 
+### Docker 部署（P2-3）
+
+多阶段构建：运行镜像仅含生产依赖与 `dist/` 产物，非 root 用户运行，内置 `node fetch` 探活（`HEALTHCHECK` 拉 `/api/health`）。
+
+```bash
+docker build -t smart-data-analytics .
+docker run -d -p 3000:3000 \
+  -e JWT_SECRET=<生产密钥> \
+  -e MYSQL_HOST=<数据库地址> -e MYSQL_USER=<账号> -e MYSQL_PASSWORD=<密码> \
+  -e MYSQL_DATABASE=smart_analytics \
+  smart-data-analytics
+```
+
+容器内已固定 `HOST=0.0.0.0`；`JWT_SECRET` 缺失会 fail-fast 拒绝启动；多实例可加 `-e REDIS_URL=...` 做状态同步，密码哈希加固可加 `-e SCRYPT_PEPPER=...`。
+
 ### 默认账号
 
 | 用户名 | 密码 | 角色 |

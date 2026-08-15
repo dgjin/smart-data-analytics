@@ -1,10 +1,20 @@
+# 构建上下文瘦身与敏感信息隔离
 node_modules
 dist
-.env
-.env.local
+server.js
 .git
 .gitignore
-assets/.aistudio
+.env
+.env.local
+.env.example
 *.log
+/tmp
+canvases
+transcripts
+docs
+scripts
 .DS_Store
+README.md
 coverage
+.vscode
+.idea

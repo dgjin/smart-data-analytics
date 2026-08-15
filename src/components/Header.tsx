@@ -83,6 +83,7 @@ export const Header: React.FC = () => {
           <Database className="w-3.5 h-3.5 text-indigo-400 ml-2 mr-1.5" />
           <span className="text-slate-400 mr-2 font-medium">当前数据源:</span>
           <select
+            data-testid="datasource-select"
             value={activeDataSourceId}
             onChange={(e) => setActiveDataSource(e.target.value)}
             className="bg-slate-900 text-slate-200 border border-slate-700 rounded px-2.5 py-1 focus:outline-none focus:border-indigo-500 font-medium cursor-pointer"
