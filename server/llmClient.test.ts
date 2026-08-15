@@ -50,19 +50,19 @@ describe('sqlStageRoute: SQL 生成阶段快速模型配置', () => {
     delete process.env.LLM_SQL_MODEL;
   });
 
-  it('未配置时返回 null（保持主模型行为不变）', () => {
-    expect(sqlStageRoute()).toBeNull();
+  it('未配置时返回 undefined（保持主模型行为不变）', () => {
+    expect(sqlStageRoute()).toBeUndefined();
     process.env.LLM_SQL_ENGINE = 'ollama';
-    expect(sqlStageRoute()).toBeNull(); // 缺 model
+    expect(sqlStageRoute()).toBeUndefined(); // 缺 model
   });
 
   it('非法引擎或模型名拒绝', () => {
     process.env.LLM_SQL_ENGINE = 'foo';
     process.env.LLM_SQL_MODEL = 'm';
-    expect(sqlStageRoute()).toBeNull();
+    expect(sqlStageRoute()).toBeUndefined();
     process.env.LLM_SQL_ENGINE = 'ollama';
     process.env.LLM_SQL_MODEL = 'bad name!';
-    expect(sqlStageRoute()).toBeNull();
+    expect(sqlStageRoute()).toBeUndefined();
   });
 
   it('合法配置返回引擎与模型', () => {
