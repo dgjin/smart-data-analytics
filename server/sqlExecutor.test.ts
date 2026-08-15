@@ -3,7 +3,7 @@
  * 仅覆盖纯校验逻辑（validateSelectSql / extractTableRefs），不触碰真实数据库。
  */
 import { describe, it, expect } from 'vitest';
-import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, stripCommentsAndStrings } from './sqlExecutor';
+import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, stripCommentsAndStrings, injectRowFilters, repairTablePrefixes } from './sqlExecutor';
 
 const ALLOWED = [
   { name: 'tbl_orders', columns: [{ name: 'id' }, { name: 'amount' }, { name: 'channel' }] },
@@ -52,6 +52,21 @@ describe('validateSelectSql: SELECT-only 防线', () => {
   it('字符串字面量中的关键字不触发误杀', () => {
     const r = validateSelectSql("SELECT channel FROM tbl_orders WHERE channel = 'delete 渠道'", ALLOWED);
     expect(r.ok).toBe(true);
+  });
+
+  it('回归：返回 SQL 必须保留字符串字面量值（不得被安全副本的空字面量污染）', () => {
+    const r = validateSelectSql("SELECT * FROM tbl_orders WHERE region = '合肥市' LIMIT 50", ALLOWED, [], 'mysql', 50);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toBe("SELECT * FROM tbl_orders WHERE region = '合肥市' LIMIT 50");
+  });
+
+  it('行尾注释剥除后追加的 LIMIT 不被吞掉，字面量仍保留', () => {
+    const r = validateSelectSql("SELECT * FROM tbl_orders WHERE channel = '电话' -- trailing", ALLOWED);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.sql).toContain("channel = '电话'");
+      expect(r.sql).toMatch(/LIMIT 500$/);
+    }
   });
 
   it('合法 SELECT 语法词不误杀（ORDER BY DESC / REPLACE 函数）', () => {
@@ -118,6 +133,33 @@ describe('validateSelectSql: 表名白名单', () => {
     expect(ok.ok).toBe(true);
     const bad = validateSelectSql('SELECT * FROM tbl_orders, tbl_users', ALLOWED);
     expect(bad.ok).toBe(false);
+  });
+});
+
+describe('repairTablePrefixes: LLM 臆加表前缀纠偏', () => {
+  const WIDE = [{ name: 'fct_jc_main_biz_stat', columns: [{ name: 'JGMC' }] }];
+
+  it('tbl_/t_ 前缀去后与白名单逐字一致时纠偏通过（最终 SQL 用真实表名）', () => {
+    const r = validateSelectSql('SELECT JGMC FROM tbl_fct_jc_main_biz_stat', WIDE);
+    expect(r.ok).toBe(true);
+    if (r.ok === true) expect(r.sql).toContain('FROM fct_jc_main_biz_stat');
+    const r2 = validateSelectSql('SELECT JGMC FROM t_fct_jc_main_biz_stat', WIDE);
+    expect(r2.ok).toBe(true);
+  });
+
+  it('反引号写法同样纠偏且保留反引号', () => {
+    expect(repairTablePrefixes('SELECT * FROM `tbl_fct_jc_main_biz_stat`', WIDE))
+      .toBe('SELECT * FROM `fct_jc_main_biz_stat`');
+  });
+
+  it('去前缀后不在白名单的表不被纠偏（仍拒绝，不扩大可执行范围）', () => {
+    const r = validateSelectSql('SELECT * FROM tbl_users', ALLOWED);
+    expect(r.ok).toBe(false);
+  });
+
+  it('已正确的表名不受影响', () => {
+    expect(repairTablePrefixes('SELECT * FROM fct_jc_main_biz_stat', WIDE))
+      .toBe('SELECT * FROM fct_jc_main_biz_stat');
   });
 });
 
@@ -202,6 +244,73 @@ describe('checkAstSafety: P1 AST 二道防线', () => {
       [{ name: 'tbl_orders', columns: [{ name: 'id' }, { name: 'amount' }, { name: 'channel' }] }]
     );
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('injectRowFilters: P1-3 行级权限 AST 强制注入', () => {
+  it('JOIN 中受控表被包裹为过滤派生表，别名与外层列引用不变', () => {
+    const r = injectRowFilters(
+      'SELECT c.name, COUNT(*) FROM clients c JOIN visits v ON v.client_id = c.id GROUP BY c.name',
+      { clients: "region = '华东'" }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.sql).toContain("(SELECT * FROM `clients` WHERE `region` = '华东') AS `c`");
+      expect(r.sql).toContain('GROUP BY');
+    }
+  });
+
+  it('SQL 未引用受控表时原样返回', () => {
+    const r = injectRowFilters('SELECT * FROM visits', { clients: 'status = 1' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toBe('SELECT * FROM visits');
+  });
+
+  it('空过滤表不做任何改写', () => {
+    const r = injectRowFilters('SELECT COUNT(*) FROM clients', {});
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toBe('SELECT COUNT(*) FROM clients');
+  });
+
+  it('UNION 两侧均被注入', () => {
+    const r = injectRowFilters('SELECT * FROM clients UNION SELECT * FROM clients', { clients: 'status = 1' });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const matches = r.sql.match(/WHERE `status` = 1/g) || [];
+      expect(matches.length).toBe(2);
+    }
+  });
+
+  it('WHERE 内 IN 子查询中的受控表同样被注入', () => {
+    const r = injectRowFilters(
+      'SELECT * FROM clients WHERE id IN (SELECT client_id FROM visits)',
+      { visits: "type = '电话'" }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toContain("FROM (SELECT * FROM `visits` WHERE `type` = '电话') AS `visits`");
+  });
+
+  it('嵌套派生表内的受控表递归注入', () => {
+    const r = injectRowFilters('SELECT * FROM (SELECT * FROM clients) t', { clients: 'id < 10' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toContain('WHERE `id` < 10');
+  });
+
+  it('非法谓词 fail-closed 拒绝（不降级放行）', () => {
+    const r = injectRowFilters('SELECT * FROM clients', { clients: 'this is not sql @@@' });
+    expect(r.ok).toBe(false);
+  });
+
+  it('表名键大小写不敏感', () => {
+    const r = injectRowFilters('SELECT * FROM Clients', { CLIENTS: 'id > 0' });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toContain('WHERE `id` > 0');
+  });
+
+  it('PG 方言同样生效', () => {
+    const r = injectRowFilters('SELECT * FROM clients', { clients: "region = '华东'" }, 'pg');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toMatch(/WHERE.*region.*华东/);
   });
 });
 

@@ -21,27 +21,27 @@ describe('queryCache: 问数结果缓存', () => {
     expect(cacheKey('ds1', '问题', 'a')).not.toBe(cacheKey('ds1', '问题', 'b'));
   });
 
-  it('命中与写入：同键可读取缓存 payload', () => {
+  it('命中与写入：同键可读取缓存 payload', async () => {
     const key = cacheKey('ds-cache', '本月销售额');
-    setCachedQuery(key, { success: true, result: { x: 1 } });
-    const hit = getCachedQuery(key);
+    await setCachedQuery(key, { success: true, result: { x: 1 } });
+    const hit = await getCachedQuery(key);
     expect(hit).toBeTruthy();
     expect(hit.result.x).toBe(1);
   });
 
-  it('未写入的键返回 null', () => {
-    expect(getCachedQuery(cacheKey('ds-cache', '不存在的提问'))).toBeNull();
+  it('未写入的键返回 null', async () => {
+    expect(await getCachedQuery(cacheKey('ds-cache', '不存在的提问'))).toBeNull();
   });
 
-  it('invalidateQueryCache 按数据源清理', () => {
+  it('invalidateQueryCache 按数据源清理', async () => {
     const k1 = cacheKey('ds-a', '问题一');
     const k2 = cacheKey('ds-b', '问题二');
-    setCachedQuery(k1, { success: true });
-    setCachedQuery(k2, { success: true });
-    invalidateQueryCache('ds-a');
-    expect(getCachedQuery(k1)).toBeNull();
-    expect(getCachedQuery(k2)).toBeTruthy();
-    invalidateQueryCache();
-    expect(getCachedQuery(k2)).toBeNull();
+    await setCachedQuery(k1, { success: true });
+    await setCachedQuery(k2, { success: true });
+    await invalidateQueryCache('ds-a');
+    expect(await getCachedQuery(k1)).toBeNull();
+    expect(await getCachedQuery(k2)).toBeTruthy();
+    await invalidateQueryCache();
+    expect(await getCachedQuery(k2)).toBeNull();
   });
 });

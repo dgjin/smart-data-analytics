@@ -5,7 +5,7 @@
  * 同时返回数据源 status，作为数据源级"AI 问数开关"（disconnected 拒绝问数）。
  */
 import { getPool } from './db';
-import { applyDataScope } from './scope';
+import { applyDataScope, rowFiltersByTableName } from './scope';
 import { summarizeSchema } from './schemaGuidance';
 import { filterSensitiveColumns } from './queryGuard';
 
@@ -20,6 +20,8 @@ interface CacheEntry {
   sensitiveRemoved: string[];
   /** 数据源级数据自省开关（Vanna intermediate_sql 借鉴） */
   allowIntrospection: boolean;
+  /** P1-3 行级权限：实际表名 → 行过滤谓词（执行层 AST 强制注入） */
+  rowFilters: Record<string, string>;
   at: number;
 }
 
@@ -41,6 +43,8 @@ export interface SchemaContext {
   sensitiveRemoved: string[];
   /** 数据自省开关；演示模式恒关 */
   allowIntrospection: boolean;
+  /** P1-3 行级权限（实际表名 → 谓词）；演示模式恒空 */
+  rowFilters: Record<string, string>;
 }
 
 function parseJson(v: any, fallback: any) {
@@ -62,6 +66,7 @@ function fromClientSchema(clientSchema: unknown): SchemaContext {
     dsType: null,
     sensitiveRemoved: filtered.removed,
     allowIntrospection: false,
+    rowFilters: {},
   };
 }
 
@@ -79,6 +84,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       dsType: cached.dsType,
       sensitiveRemoved: cached.sensitiveRemoved,
       allowIntrospection: cached.allowIntrospection,
+      rowFilters: cached.rowFilters,
     };
   }
 
@@ -99,6 +105,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       dsType: String(ds.type || ''),
       sensitiveRemoved: filtered.removed,
       allowIntrospection: Number(ds.allow_introspection) === 1,
+      rowFilters: rowFiltersByTableName(scoped, parseJson(ds.scope_json, null)),
       at: Date.now(),
     };
     cache.set(dataSourceId, entry);
@@ -109,6 +116,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       dsType: entry.dsType,
       sensitiveRemoved: entry.sensitiveRemoved,
       allowIntrospection: entry.allowIntrospection,
+      rowFilters: entry.rowFilters,
     };
   } catch (err) {
     console.warn('[Schema] load datasource schema failed, fallback to client schema:', err);

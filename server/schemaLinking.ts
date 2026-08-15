@@ -101,7 +101,7 @@ async function embedTable(table: any): Promise<number[] | null> {
   const hit = tableEmbeddingCache.get(key);
   if (hit) return hit;
   try {
-    const vec = await callEmbedding(digest);
+    const vec = await callEmbedding(digest, 'document');
     if (Array.isArray(vec) && vec.length > 0) {
       if (tableEmbeddingCache.size >= TABLE_EMBEDDING_CACHE_MAX) {
         const oldest = tableEmbeddingCache.keys().next().value;
@@ -137,7 +137,7 @@ export async function selectRelevantTablesAsync(
 
   let qVec: number[] | null = null;
   try {
-    qVec = await callEmbedding(q);
+    qVec = await callEmbedding(q, 'query');
     if (!Array.isArray(qVec) || qVec.length === 0) qVec = null;
   } catch {
     qVec = null;

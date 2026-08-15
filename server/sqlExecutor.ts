@@ -35,6 +35,9 @@ const CONNECT_TIMEOUT_MS = 5_000;
 const FORBIDDEN_PATTERN =
   /\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|rename|lock|unlock|exec|execute|outfile|infile|dumpfile|procedure|explain|handler|install|uninstall|kill|shutdown|analyze|optimize|repair|checksum|flush|reset|purge|binlog|prepare|deallocate|release|savepoint|rollback|commit|begin|xa)\b/i;
 
+/** M3 应用库中间表查询校验复用同一危险关键字词表 */
+export const FORBIDDEN_KEYWORD_RE = FORBIDDEN_PATTERN;
+
 // 注意：项目 tsconfig 未开启 strictNullChecks，真值窄化（if (!x.ok)）对判别联合不生效，
 // 所有使用处必须用 x.ok !== true / x.ok === false 的显式比较（同 queryGuard 的先例）。
 export type SqlSafetyResult = { ok: true; sql: string } | { ok: false; reason: string };
@@ -112,21 +115,50 @@ export function checkAstSafety(
 }
 
 /**
+ * 表名纠偏：LLM 常给白名单表名臆加 tbl_/t_ 前缀（导致白名单校验失败降级演示数据），
+ * 仅当去前缀后与白名单表名逐字一致时才整词替换回真实表名（不扩大也不缩小可执行范围）。
+ */
+export function repairTablePrefixes(sql: string, allowedTables: { name: string }[]): string {
+  let out = sql;
+  for (const t of allowedTables || []) {
+    const name = String(t?.name || '').trim();
+    if (!name) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`\\b(?:tbl_|t_)(\`${escaped}\`|${escaped})\\b`, 'gi'), (_m, g1: string) =>
+      g1.startsWith('`') ? `\`${name}\`` : name
+    );
+  }
+  return out;
+}
+
+/**
  * 校验 LLM 生成的 SQL 是否允许对真实数据源执行。
  * allowedTables：已通过 scope 白名单与敏感列过滤的 Schema（含列名清单）。
  * sensitiveColumns：被剔除的敏感列名（裸列名），SQL 引用即拒绝。
  * 通过时返回可能被追加/clamp LIMIT 的 SQL。
  */
 export function validateSelectSql(
-  rawSql: unknown,
+  rawSqlInput: unknown,
   allowedTables: { name: string; columns?: { name: string }[] }[],
   sensitiveColumns: string[] = [],
-  dialect: SqlDialect = 'mysql'
+  dialect: SqlDialect = 'mysql',
+  maxRows: number = MAX_ROWS
 ): SqlSafetyResult {
-  if (typeof rawSql !== 'string' || !rawSql.trim()) {
+  if (typeof rawSqlInput !== 'string' || !rawSqlInput.trim()) {
     return { ok: false, reason: 'SQL 为空或格式无效' };
   }
+  const rawSql = repairTablePrefixes(rawSqlInput, allowedTables);
   const stripped = stripCommentsAndStrings(rawSql).trim().replace(/\s+/g, ' ');
+  // 结构安全校验基于 stripped（字符串已置空，防字面量内关键字干扰）；
+  // 但最终 SQL 必须保留字符串字面量值（如 WHERE region = '合肥市'），
+  // 只剥注释（否则空白归一后行尾注释会吞掉追加的 LIMIT）
+  const original = rawSql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/#[^\n]*/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/;+\s*$/, '');
   // 语句过长直接拒绝（防御畸形输出）
   if (stripped.length > 4000) {
     return { ok: false, reason: 'SQL 长度超出限制' };
@@ -171,15 +203,16 @@ export function validateSelectSql(
   }
   // 强制 LIMIT：无 LIMIT 追加；有 LIMIT 则将返回行数 clamp 到 MAX_ROWS
   // 方言差异：MySQL 支持 LIMIT offset,count；PG/Greenplum 仅支持 LIMIT n OFFSET m
-  let finalSql = withoutTrailing;
+  // 注意：基于原文操作，保证字符串字面量（如 WHERE region = '合肥市'）不被篡改
+  let finalSql = original;
   const limitRe = /\blimit\s+(\d+)(?:\s*,\s*(\d+)|\s+offset\s+(\d+))?\s*$/i;
   const lm = finalSql.match(limitRe);
   if (!lm) {
-    finalSql = `${finalSql} LIMIT ${MAX_ROWS}`;
+    finalSql = `${finalSql} LIMIT ${maxRows}`;
   } else {
     const count = lm[2] ? Number(lm[2]) : Number(lm[1]);
     const offset = lm[2] ? Number(lm[1]) : lm[3] ? Number(lm[3]) : 0;
-    const clamped = Math.min(count, MAX_ROWS);
+    const clamped = Math.min(count, maxRows);
     const replacement =
       dialect === 'pg'
         ? offset > 0
@@ -191,6 +224,101 @@ export function validateSelectSql(
     finalSql = finalSql.replace(limitRe, replacement);
   }
   return { ok: true, sql: finalSql };
+}
+
+/**
+ * P1-3 行级权限：把带行过滤的表在 AST 中包裹为过滤子查询
+ * （FROM clients → FROM (SELECT * FROM clients WHERE <谓词>) AS clients），
+ * 递归覆盖子查询/UNION 内的引用。谓词解析失败或 AST 回写失败均 fail-closed 拒绝，
+ * 安全优先于可用性（此时问数降级演示模式，不泄露受限行）。
+ * rowFilters 键为小写实际表名；SQL 未引用受控表时原样返回。
+ */
+export function injectRowFilters(
+  sql: string,
+  rowFilters: Record<string, string>,
+  dialect: SqlDialect = 'mysql'
+): SqlSafetyResult {
+  const lower: Record<string, string> = {};
+  for (const [name, pred] of Object.entries(rowFilters)) {
+    if (name && pred) lower[name.toLowerCase()] = pred;
+  }
+  if (Object.keys(lower).length === 0) return { ok: true, sql };
+
+  const stripped = stripCommentsAndStrings(sql);
+  const refs = extractTableRefs(stripped.replace(/;+\s*$/, ''));
+  if (!refs.some((r) => lower[r])) return { ok: true, sql };
+
+  const opt = { database: dialect === 'pg' ? 'PostgreSQL' : 'MySQL' };
+  try {
+    const parsed: any = astParser.astify(sql, opt);
+
+    // 谓词 → 派生表 expr：解析 `SELECT * FROM (SELECT * FROM t WHERE pred) AS t`
+    // 直接复用解析产物（而非手工拼 AST），保证 sqlify 回写时派生表带括号；
+    // 谓词非法自然抛错，fail-closed。
+    const wrappedOf = (table: string, pred: string): any => {
+      const helper: any = astParser.astify(`SELECT * FROM (SELECT * FROM ${table} WHERE ${pred}) AS ${table}`, opt);
+      const h = Array.isArray(helper) ? helper[0] : helper;
+      const item = h && Array.isArray(h.from) ? h.from[0] : null;
+      if (!item || !item.expr) throw new Error('谓词解析失败');
+      return item.expr;
+    };
+
+    const wrapFrom = (from: any): void => {
+      if (!Array.isArray(from)) return;
+      for (const item of from) {
+        if (!item) continue;
+        // 派生表（FROM (SELECT ...)）递归下钻：5.x 为 { ast, parentheses } 包裹层，旧版直接是 select 节点
+        if (item.expr && typeof item.expr === 'object') {
+          const inner = item.expr.ast && typeof item.expr.ast === 'object' ? item.expr.ast : item.expr;
+          walkNode(inner);
+        }
+        const tableName = typeof item.table === 'string' ? item.table : '';
+        const pred = tableName ? lower[tableName.toLowerCase()] : undefined;
+        if (!pred) continue;
+        // 未显式起别名时补上原表名，保证外层列引用不变
+        if (!item.as) item.as = tableName;
+        item.expr = wrappedOf(tableName, pred);
+        item.table = null;
+        item.db = null;
+      }
+    };
+    const walkNode = (node: any): void => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        node.forEach(walkNode);
+        return;
+      }
+      if (node.type === 'select') {
+        wrapFrom(node.from);
+        // WHERE/HAVING 等表达式中的子查询（IN (SELECT ...)、EXISTS 等）
+        walkExprSubqueries(node.where);
+        walkExprSubqueries(node.having);
+        // UNION/UNION ALL 链（node-sql-parser 5.x 用 _next 链 + set_op）
+        if (node._next) walkNode(node._next);
+      }
+    };
+    const walkExprSubqueries = (expr: any): void => {
+      if (!expr || typeof expr !== 'object') return;
+      if (Array.isArray(expr)) {
+        expr.forEach(walkExprSubqueries);
+        return;
+      }
+      if (expr.ast && typeof expr.ast === 'object') walkNode(expr.ast);
+      walkExprSubqueries(expr.left);
+      walkExprSubqueries(expr.right);
+      if (expr.value !== undefined) walkExprSubqueries(expr.value);
+      if (Array.isArray(expr.args)) walkExprSubqueries(expr.args);
+    };
+
+    walkNode(Array.isArray(parsed) ? parsed[0] : parsed);
+    const rewritten = astParser.sqlify(parsed, opt);
+    if (typeof rewritten !== 'string' || !rewritten.trim()) {
+      return { ok: false, reason: '行级权限注入失败，已拒绝该查询' };
+    }
+    return { ok: true, sql: rewritten };
+  } catch {
+    return { ok: false, reason: '行级权限注入失败，已拒绝该查询' };
+  }
 }
 
 // ---- 数据源连接池（按数据源 ID 缓存；mysql 走 mysql2，PG 系走 pg 驱动） ----
@@ -280,12 +408,15 @@ function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any): DsPo
 /**
  * 校验并执行 SQL。dataSourceId 必须是支持真实执行的数据源类型
  * （mysql / postgresql / greenplum），否则返回 UNSUPPORTED_DS_TYPE（调用方走演示模式）。
+ * rowFilters：P1-3 行级权限（实际表名 → 谓词），白名单校验通过后 AST 强制注入。
  */
 export async function executeSafeSql(
   dataSourceId: string,
   rawSql: unknown,
   allowedTables: { name: string; columns?: { name: string }[] }[],
-  sensitiveColumns: string[] = []
+  sensitiveColumns: string[] = [],
+  maxRows: number = MAX_ROWS,
+  rowFilters: Record<string, string> = {}
 ): Promise<ExecOutcome> {
   const ds = await loadDataSourceConfig(dataSourceId);
   if (!ds) return { ok: false, reason: '数据源不存在' };
@@ -294,27 +425,32 @@ export async function executeSafeSql(
     return { ok: false, reason: 'UNSUPPORTED_DS_TYPE' };
   }
 
-  const check = validateSelectSql(rawSql, allowedTables, sensitiveColumns, dialect);
+  const check = validateSelectSql(rawSql, allowedTables, sensitiveColumns, dialect, maxRows);
   if (check.ok !== true) return { ok: false, reason: check.reason };
+
+  // P1-3 行级权限：校验通过后、执行前强制注入（注入失败 fail-closed）
+  const injected = injectRowFilters(check.sql, rowFilters, dialect);
+  if (injected.ok !== true) return { ok: false, reason: injected.reason };
+  const finalSql = injected.sql;
 
   try {
     const entry = getDsPool(dataSourceId, dialect, ds.config);
     let list: Record<string, any>[];
     if (entry.dialect === 'pg') {
       // pg 驱动：超时由建池时的 statement_timeout 承担，结果在 result.rows
-      const result = await entry.pool.query(check.sql);
+      const result = await entry.pool.query(finalSql);
       list = Array.isArray(result.rows) ? result.rows : [];
     } else {
-      const [rows] = await entry.pool.query({ sql: check.sql, timeout: QUERY_TIMEOUT_MS });
+      const [rows] = await entry.pool.query({ sql: finalSql, timeout: QUERY_TIMEOUT_MS });
       list = (Array.isArray(rows) ? rows : []) as Record<string, any>[];
     }
     return {
       ok: true,
       result: {
-        rows: list.slice(0, MAX_ROWS),
+        rows: list.slice(0, maxRows),
         rowCount: list.length,
-        truncated: list.length > MAX_ROWS || /LIMIT 500\s*$/i.test(check.sql),
-        finalSql: check.sql,
+        truncated: list.length > maxRows,
+        finalSql,
       },
     };
   } catch (err: any) {
