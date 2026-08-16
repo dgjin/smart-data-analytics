@@ -18,6 +18,8 @@ export function budgetText(text: string, maxTokens: number): string {
 
 /** 知识库片段注入预算 */
 export const KNOWLEDGE_TOKEN_BUDGET = 1800;
+/** 外部知识库片段注入预算（与本地知识库分开控制，避免外部源挤占本地口径注入） */
+export const EXTERNAL_KB_TOKEN_BUDGET = 1200;
 /** few-shot 样例注入预算 */
 export const FEWSHOT_TOKEN_BUDGET = 1800;
 /** 多轮历史对话预算（保留最近若干轮，从新到旧贪心） */

@@ -333,6 +333,26 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 外部知识库接入：管理员配置企业级外部 RAG/知识服务检索接口，
+  // 问数时与本地知识库一并检索注入（智能问数自主学习的又一来源）；
+  // api_key 用 AES-256-GCM 加密落库（复用数据源凭据加密链路）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS external_kb_sources (
+      id VARCHAR(64) PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      endpoint VARCHAR(500) NOT NULL,
+      auth_type VARCHAR(20) NOT NULL DEFAULT 'none',
+      api_key TEXT NULL,
+      enabled TINYINT(1) NOT NULL DEFAULT 1,
+      timeout_ms INT NOT NULL DEFAULT 5000,
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '*',
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ekb_ds (data_source_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // 4. Seed default admin when users table is empty（首登强制改密）
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');
   if (Number(userRows[0]?.cnt) === 0) {

@@ -9,6 +9,7 @@ import { BookOpen, Plus, Trash2, RefreshCw, X, Lightbulb, Eye, Pencil } from 'lu
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { DataSource } from '../../types/analytics';
+import { ExternalKnowledgeCard } from './ExternalKnowledgeCard';
 
 interface KnowledgeDoc {
   docId: string;
@@ -368,6 +369,9 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
           </div>
         )}
       </div>
+
+      {/* 外部知识库接入：企业级外部 RAG 检索接口，仅管理员可配置；问数时与本地知识一并注入 */}
+      {isAdmin && <ExternalKnowledgeCard dataSources={dataSources} />}
     </div>
   );
 };

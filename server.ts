@@ -21,6 +21,7 @@ import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
 import datasourceRoutes from './server/routes/datasources';
 import knowledgeRoutes from './server/routes/knowledge';
+import externalKnowledgeRoutes from './server/routes/externalKnowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
 import skillRoutes from './server/routes/skills';
@@ -36,6 +37,16 @@ import reportRoutes from './server/routes/report';
 // Rate limiter lives in ./server/rateLimiter (shared with route modules)
 // 问数上下文加载（scope 白名单 + 敏感过滤 + 5min 缓存）在 ./server/schemaContext
 // 问数/报告双链路实现：./server/liveQuery + simulatedQuery、./server/liveReport + simulatedReport
+
+// 进程级异常兜底：Express 4 不会自动接管 async 路由的 Promise rejection（请求会挂起并触发
+// unhandledRejection，Node 15+ 默认直接崩溃退出）。这里记录日志而非崩溃，
+// 保证单次链路异常不拖垮整个服务；具体路由已在各自 try/catch 中补齐响应。
+process.on('unhandledRejection', (reason) => {
+  console.error('[Fatal] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Fatal] uncaughtException:', err);
+});
 
 async function startServer() {
   const app = express();
@@ -122,6 +133,8 @@ async function startServer() {
   // Legacy alias: /api/datasource/test-connection -> /api/datasources/test-connection
   app.use('/api/datasource', datasourceRoutes);
   app.use('/api/knowledge', knowledgeRoutes);
+  // 外部知识库接入（接口配置仅 ADMIN；问数链路自动检索注入）
+  app.use('/api/knowledge-external', externalKnowledgeRoutes);
   app.use('/api/metrics', metricRoutes);
   app.use('/api/sql-examples', sqlExampleRoutes);
   app.use('/api/skills', skillRoutes);

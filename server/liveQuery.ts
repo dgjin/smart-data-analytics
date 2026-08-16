@@ -12,6 +12,7 @@ import { selectRelevantTablesAsync } from './schemaLinking';
 import { loadFewShotExamples, FewShotExample, loadNegativeExamples, NegativeExample } from './queryFeedback';
 import { loadConversationFewShot } from './conversationHistory';
 import { retrieveKnowledgeSnippets } from './knowledgeBase';
+import { searchExternalKnowledge } from './externalKnowledge';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
 import { budgetText, budgetHistory, KNOWLEDGE_TOKEN_BUDGET } from './promptBudget';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
@@ -392,8 +393,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     outputSummary: `命中 ${promptSchema.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchema.map((t: any) => String(t?.name || '')).join(', ')}`,
     durationMs: Date.now() - t0,
   });
-  // 上下文构建并行化：few-shot / 知识库 RAG / 语义指标 / 点踩反例 / 个人对话沉淀五者互不依赖，并发执行（各自失败不阻断）
-  const [fewShotPairs, knowledgeRaw, metricHits, negativePairs, convPairs] = await Promise.all([
+  // 上下文构建并行化：few-shot / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀六者互不依赖，并发执行（各自失败不阻断）
+  const [fewShotPairs, knowledgeRaw, externalKb, metricHits, negativePairs, convPairs] = await Promise.all([
     // P0 Few-shot（DAIL-SQL 双维度）：用圈定表名引导样例贴近当前可查表
     loadFewShotExamples(
       dataSourceId,
@@ -402,6 +403,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     ).catch(() => [] as FewShotExample[]),
     // P1-A 知识库 RAG：检索业务知识片段注入 prompt，按 token 预算截断
     retrieveKnowledgeSnippets(dataSourceId, query).catch(() => ''),
+    // 外部知识库接入：管理员配置的企业级外部 RAG 检索，与本地知识一并作为自主学习来源（单源失败降级空）
+    searchExternalKnowledge(dataSourceId, query).catch(() => null),
     // P1-1 语义指标层：问题命中指标名/同义词时模板化注入权威口径
     loadActiveMetrics(dataSourceId)
       .then((ms) => matchMetrics(query, ms))
@@ -426,11 +429,13 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     { role: 'assistant' as const, content: ex.sql },
   ]);
   const knowledge = budgetText(knowledgeRaw, KNOWLEDGE_TOKEN_BUDGET);
+  // 外部知识库片段独立预算控制，追加在本地知识之后（互不挤占注入槽位）
+  const externalSnippet = externalKb?.snippet || '';
   trace({
     stepType: 'knowledge',
     title: '知识库检索与 Few-shot 样例',
     inputSummary: query,
-    outputSummary: `知识片段 ${knowledge ? knowledge.length : 0} 字；few-shot 样例 ${fewShotPairs.length} 组（个人沉淀 ${convPairs.length} 组）；点踩反例 ${negativePairs.length} 组`,
+    outputSummary: `知识片段 ${knowledge ? knowledge.length : 0} 字${externalSnippet ? `；外部知识库 ${externalSnippet.length} 字（成功 ${externalKb?.okSources ?? 0} 源${externalKb?.failSources ? `，失败 ${externalKb.failSources} 源` : ''}）` : ''}；few-shot 样例 ${fewShotPairs.length} 组（个人沉淀 ${convPairs.length} 组）；点踩反例 ${negativePairs.length} 组`,
     durationMs: Date.now() - t0,
   });
   const metricPrompt = buildMetricPrompt(metricHits);
@@ -469,7 +474,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     }).catch(() => null);
     if (chain) chainTables = chain.tables;
   }
-  const stage1System = buildStage1System(promptSchema, guidance, knowledge, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs);
+  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs);
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
   // 专家角色路由：财务/客户/风险/不良关键词命中对应专家，否则默认金融数据分析师
