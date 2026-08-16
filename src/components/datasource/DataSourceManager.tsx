@@ -34,6 +34,26 @@ import { DataScope, DataSource, DataSourceType, TableSchema } from '../../types/
 // 支持真实连接的数据库类型（服务端提取完整 Schema，其余类型用占位表）
 const DB_TYPES: DataSourceType[] = ['mysql', 'postgresql', 'greenplum'];
 
+/**
+ * 图标操作按钮 + 悬停功能提示气泡：替代原生 title（原生提示延迟约 1 秒且样式类系统默认，
+ * 深色主题下不明显）。纯 CSS group-hover 实现，悬停立即显示；气泡绝对定位不影响布局，
+ * 右对齐防溢出卡片。固定宽度 + 自动换行，避免长文案单行向左伸出被左侧导航栏遮挡。
+ * 无障碍语义由内部按钮的 aria-label 承担。
+ */
+function TipAction({ tip, children }: { tip: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group/tip">
+      {children}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute right-0 top-full z-30 mt-1.5 w-64 whitespace-normal text-left rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] leading-relaxed text-slate-200 opacity-0 shadow-xl transition-opacity duration-150 group-hover/tip:opacity-100"
+      >
+        {tip}
+      </span>
+    </div>
+  );
+}
+
 export const DataSourceManager: React.FC = () => {
   const {
     dataSources,
@@ -668,65 +688,81 @@ export const DataSourceManager: React.FC = () => {
                       <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-indigo-300">
                         {ds.type}
                       </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openScopeEditor(ds);
-                        }}
-                        title="配置问数范围（允许 AI 问数的表与字段）"
-                        className="p-1 rounded-lg text-slate-500 hover:text-amber-300 hover:bg-amber-950/40 border border-transparent hover:border-amber-800/50 transition-colors"
-                      >
-                        <SlidersHorizontal className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMetaDs(ds);
-                        }}
-                        title="维护指标与维度（调整自动推导结果）"
-                        className="p-1 rounded-lg text-slate-500 hover:text-cyan-300 hover:bg-cyan-950/40 border border-transparent hover:border-cyan-800/50 transition-colors"
-                      >
-                        <ListChecks className="w-3.5 h-3.5" />
-                      </button>
-                      {DB_TYPES.includes(ds.type) && (
+                      <TipAction tip="配置问数范围：勾选允许 AI 问数的表与字段，未勾选的表不进入提问上下文">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleToggleIntrospection(ds);
+                            openScopeEditor(ds);
                           }}
-                          title={ds.allowIntrospection ? '数据自省：已开启（问数前可先执行轻量 SQL 确认真实取值）' : '数据自省：已关闭（点击开启）'}
-                          className={`p-1 rounded-lg border transition-colors ${
+                          aria-label="配置问数范围"
+                          className="p-1 rounded-lg text-slate-500 hover:text-amber-300 hover:bg-amber-950/40 border border-transparent hover:border-amber-800/50 transition-colors"
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                        </button>
+                      </TipAction>
+                      <TipAction tip="维护指标与维度：登记业务指标的标准口径与同义词，命中后保证全系统算法一致">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMetaDs(ds);
+                          }}
+                          aria-label="维护指标与维度"
+                          className="p-1 rounded-lg text-slate-500 hover:text-cyan-300 hover:bg-cyan-950/40 border border-transparent hover:border-cyan-800/50 transition-colors"
+                        >
+                          <ListChecks className="w-3.5 h-3.5" />
+                        </button>
+                      </TipAction>
+                      {DB_TYPES.includes(ds.type) && (
+                        <TipAction
+                          tip={
                             ds.allowIntrospection
-                              ? 'text-violet-300 bg-violet-950/40 border-violet-800/50'
-                              : 'text-slate-500 hover:text-violet-300 hover:bg-violet-950/40 hover:border-violet-800/50 border-transparent'
-                          }`}
+                              ? '数据自省已开启：问数前可先执行轻量 SQL 确认字段真实取值，解决取值不确定型歧义（点击关闭）'
+                              : '数据自省已关闭：开启后问数前可先执行轻量 SQL 确认字段真实取值（点击开启）'
+                          }
                         >
-                          <ScanSearch className="w-3.5 h-3.5" />
-                        </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleIntrospection(ds);
+                            }}
+                            aria-label="切换数据自省开关"
+                            className={`p-1 rounded-lg border transition-colors ${
+                              ds.allowIntrospection
+                                ? 'text-violet-300 bg-violet-950/40 border-violet-800/50'
+                                : 'text-slate-500 hover:text-violet-300 hover:bg-violet-950/40 hover:border-violet-800/50 border-transparent'
+                            }`}
+                          >
+                            <ScanSearch className="w-3.5 h-3.5" />
+                          </button>
+                        </TipAction>
                       )}
                       {DB_TYPES.includes(ds.type) && (
+                        <TipAction tip="同步表结构：重新连接数据库拉取最新表结构（新增表/字段后使用）">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSyncSchema(ds);
+                            }}
+                            disabled={syncingId !== null}
+                            aria-label="重新连接数据库同步最新表结构"
+                            className="p-1 rounded-lg text-slate-500 hover:text-cyan-300 hover:bg-cyan-950/40 border border-transparent hover:border-cyan-800/50 transition-colors disabled:opacity-40"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${syncingId === ds.id ? 'animate-spin' : ''}`} />
+                          </button>
+                        </TipAction>
+                      )}
+                      <TipAction tip="删除数据源：解除连接并清除本地缓存（数据库本身不受影响）">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleSyncSchema(ds);
+                            handleDeleteDataSource(ds);
                           }}
-                          disabled={syncingId !== null}
-                          title="重新连接数据库同步最新表结构"
-                          className="p-1 rounded-lg text-slate-500 hover:text-cyan-300 hover:bg-cyan-950/40 border border-transparent hover:border-cyan-800/50 transition-colors disabled:opacity-40"
+                          aria-label="删除数据源"
+                          className="p-1 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-rose-950/40 border border-transparent hover:border-rose-800/50 transition-colors"
                         >
-                          <RefreshCw className={`w-3.5 h-3.5 ${syncingId === ds.id ? 'animate-spin' : ''}`} />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteDataSource(ds);
-                        }}
-                        title="删除数据源"
-                        className="p-1 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-rose-950/40 border border-transparent hover:border-rose-800/50 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      </TipAction>
                     </div>
                   </div>
 

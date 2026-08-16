@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { recordConversation, searchConversations, deleteConversation, loadConversationFewShot, pruneConversationHistory } from './conversationHistory';
 import { getPool } from './db';
 
@@ -9,6 +9,14 @@ function mockPool(queryMock: any) {
 }
 
 describe('recordConversation: 对话历史落库', () => {
+  beforeEach(() => {
+    // 抽样清理压制：recordConversation 内 10% 概率触发窗口清理（额外 query），
+    // 会随机把 INSERT 计数从 1 变 2；固定 random 不落入抽样区间，保证计数确定性
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
   it('SQL 归一化、字段截断后写入 conversation_history', async () => {
     const query = vi.fn().mockResolvedValue([{}]);
     mockPool(query);
