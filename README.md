@@ -12,9 +12,11 @@
 - **歧义澄清交互**：问题存在多种理解时返回澄清选项，用户确认后重新提交
 - **数据自省**（数据源级开关，默认关）：先执行探查 SQL 确认真实取值，再生成最终 SQL
 - **语义缓存**：等价问题归一化后 10 分钟内命中缓存，秒级返回
-- **few-shot 样例注入**：从 SQL 样例库挑选最相似的「问题-SQL」消息对注入上下文
+- **few-shot 样例注入**：团队 SQL 样例库 + 本人历史成功问答对（个人沉淀）双通道挑选最相似的「问题-SQL」消息对注入上下文
 - **embedding 圈表**：关键词粗排 + embedding 精排自动圈选相关表（不可用时降级纯关键词）
-- **自学习闭环**：点赞反馈自动沉淀为训练样例（auto_train）
+- **自学习闭环**：点赞自动沉淀为训练样例（auto_train）；点踩问答对以反面教材注入，避免重复同类错误
+- **外部知识库注入**：接入企业级 RAG / 知识服务（Dify、RAGFlow、自建网关均可适配），与本地知识库并行检索注入（独立 token 预算，单源失败降级不阻断）
+- **对话历史**：问数留痕服务端落库（跨设备共享），支持关键词搜索、一键重问、单条删除与 Markdown 导出
 - **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，百炼/Gemini 按配置列入），选择随提问生效并持久化
 - **推导过程回放**：全程步骤埋点（query_trace），完成后可展开时间线查看每环节 SQL/行数/耗时
 - **计划模式**（开关）：先由 LLM 生成分析计划供批准，再携带 planId 执行
@@ -26,7 +28,7 @@
 - **Scope 白名单 + 敏感列过滤**：问数仅访问授权表，敏感字段自动剔除
 - **行级权限**：scope 登记表级行过滤谓词，所有真实执行链路由 AST 强制注入为过滤派生表（fail-closed）
 - **语义指标层**：管理员登记指标口径（同义词/聚合表达式/固定过滤），问数命中即模板化注入，口径全系统一致
-- **知识库**：业务术语、指标口径、字段含义检索注入（带 token 预算）
+- **知识库**：业务术语、指标口径、字段含义检索注入（带 token 预算）；可接入外部 RAG 知识服务（POST 检索协议 + 无/Bearer 认证，API Key 加密落库不出明文，接口配置仅管理员，支持生效范围与连通测试）
 - **SQL 样例库**：训练语料 CRUD，支持批量粘贴 SQL 由 LLM 反推问题冷启动导入
 - **技能库**：个人/系统提示模板，支持分享-审核流
 - **数据血缘**：数据流向与依赖可视化
@@ -49,7 +51,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
-| 测试 | Vitest（35 文件 / 373 用例）+ NL2SQL 评测集（server/eval，16 用例） |
+| 测试 | Vitest（45 文件 / 459 用例）+ NL2SQL 评测集（server/eval，16 用例） |
 
 ## 快速开始
 
@@ -143,21 +145,24 @@ server/
   queryHooks.ts            # 问数生命周期钩子
   queryFeedback.ts         # 反馈与 SQL 样例库（auto_train）
   knowledgeBase.ts         # 业务知识库检索
+  externalKnowledge.ts     # 外部知识库接入（检索协议适配 + 密钥加密 + 聚合检索）
+  conversationHistory.ts   # 对话历史服务端落库
   skillLibrary.ts          # 技能库（分享-审核流）
   sqlExecutor.ts           # 只读安全 SQL 执行
   auditLog.ts              # 问数审计
   llmClient.ts             # Ollama/Gemini 统一 LLM 通道
-  routes/                  # auth/admin/datasources/knowledge/sql-examples/skills/query/help
+  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/metrics/conversations/help
 src/
   components/              # query/charts/reports/dashboard/datasource/help/admin/auth
   hooks/  utils/  types/   # 状态管理（Zustand）与工具
 docs/系统功能说明书.md      # 功能单一事实源（系统内帮助实时读取）
+docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides）
 ```
 
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（373 用例）
+npm test             # Vitest（459 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

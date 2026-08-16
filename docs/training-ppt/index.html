@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能问数分析系统 · 功能培训</title>
+<link rel="stylesheet" href="assets/base.css">
+</head>
+<body>
+<div class="deck-root" id="deck-stage">
+
+<!-- ============ P1 封面 ============ -->
+<section class="slide cover" style="justify-content:center;align-items:flex-start;background:linear-gradient(135deg,#ffffff 0%,#eef4ff 60%,#e3edff 100%);">
+  <div data-anim="fade-up">
+    <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.4.0</div>
+    <h1 style="font-size:64px;">智能问数分析系统<br>功能培训</h1>
+    <p class="subtitle">用中文提问，让数据自己开口说话 —— 从自然语言到图表、洞察与决策简报</p>
+  </div>
+  <div class="grid grid-3" style="margin-top:48px;max-width:900px;" data-anim="fade-up">
+    <div class="card flat"><div class="pill accent">面向对象</div><p class="lead" style="font-size:15px;margin-top:10px;">业务分析师 · 数据管理员 · 企业管理者</p></div>
+    <div class="card flat"><div class="pill accent">培训时长</div><p class="lead" style="font-size:15px;margin-top:10px;">约 60 分钟 + 现场实操与答疑</p></div>
+    <div class="card flat"><div class="pill accent">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取功能说明书</p></div>
+  </div>
+  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，最后把真实查询结果变成图表、KPI 和一段可以直接读给领导听的洞察解读，还能一键产出高管决策简报。今天的培训大约六十分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容全部对齐系统内置帮助中心里的功能说明书，版本是 v0.4.0。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
+</section>
+
+<!-- ============ P2 培训目标与议程 ============ -->
+<section class="slide" data-mod="0">
+  <div class="kicker">AGENDA</div>
+  <h2>培训目标与议程</h2>
+  <p class="lead" style="margin-bottom:26px;">四个模块循序渐进：先会用，再用好，最后会管、会运维。</p>
+  <div class="grid grid-4 anim-stagger-list" style="flex:1;align-content:start;">
+    <div class="card">
+      <div class="pill accent">模块一 · 入门</div>
+      <h3 style="margin:12px 0 8px;">认识系统</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.6;">系统定位与核心能力<br>三种角色与权限边界<br>快速上手三步走</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">模块二 · 核心</div>
+      <h3 style="margin:12px 0 8px;">智能问数</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.6;">问数全链路与流式阶段<br>澄清 / 计划 / 深度分析<br>图表、下钻与决策报表</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">模块三 · 数据</div>
+      <h3 style="margin:12px 0 8px;">数据与内容管理</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.6;">数据源 / Schema / 血缘<br>知识库 · 样例库 · 指标 · 技能<br>对话历史与自主学习</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">模块四 · 运维</div>
+      <h3 style="margin:12px 0 8px;">管理与保障</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.6;">系统管理与 AI 引擎<br>安全合规与权限体系<br>质量保障 · 部署 · FAQ</p>
+    </div>
+  </div>
+  <div class="notes">今天的课程分四个模块。模块一是入门，半小时内让大家认识这个系统能干什么、三种角色各自能看到什么、以及登录后三步就能问出第一张图。模块二是核心，也是花时间最多的部分——智能问数的完整链路：一次提问在后台经历了什么、界面上那些流式进度意味着什么、遇到歧义系统会怎么反问，以及计划模式、深度分析、数据自省这三个进阶开关什么时候该打开。模块三面向数据管理，讲数据源接入、知识库、样例库这些让问数越用越准的内容设施。模块四是给管理员和运维同学的，讲权限安全、质量保障和部署。好，进入第一部分。</div>
+</section>
+
+<!-- ============ P3 系统概述 ============ -->
+<section class="slide" data-mod="1">
+  <div class="kicker">MODULE 01 · 系统概述</div>
+  <h2>系统是什么：自然语言数据分析平台</h2>
+  <p class="lead" style="margin-bottom:24px;">用中文提问 → 自动理解语义 → 匹配表结构 → 生成并执行 SQL → 图表 + KPI + 洞察解读 → 高管决策简报。</p>
+  <div class="grid grid-5 anim-stagger-list">
+    <div class="card"><h3 style="color:var(--accent-2);font-size:16px;">多源数据集成</h3><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.55;">MySQL / PostgreSQL / Greenplum / CSV / API / JSON 六类数据源统一接入</p></div>
+    <div class="card"><h3 style="color:var(--accent-2);font-size:16px;">自然语言交互</h3><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.55;">中文直接转 SQL，语义模糊时主动澄清，而不是瞎猜一个答案</p></div>
+    <div class="card"><h3 style="color:var(--accent-2);font-size:16px;">自动可视化</h3><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.55;">按结果智能推荐图表，输出归因诊断与关键洞察</p></div>
+    <div class="card"><h3 style="color:var(--accent-2);font-size:16px;">决策简报</h3><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.55;">一键生成面向高管的分析报告，可导出 PPT 与 PDF</p></div>
+    <div class="card"><h3 style="color:var(--accent-2);font-size:16px;">企业级安全</h3><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.55;">角色权限、只读执行、行级权限、限流与审计、敏感列过滤</p></div>
+  </div>
+  <div class="card tinted" style="margin-top:22px;" data-anim="fade-up">
+    <p style="font-size:15px;color:var(--accent-2);line-height:1.6;"><b>一句话理解：</b>它把「提数 → 写 SQL → 做图 → 写结论」这条原本要跨三四个岗位的链路，压缩成一次中文对话。</p>
+  </div>
+  <div class="notes">先建立整体认知。智能问数分析系统是一个自然语言数据分析平台，业内叫 NL2SQL。传统取数流程是：业务提需求、分析师写 SQL、跑数、做图、写结论，一个来回常常要半天。这个系统把链路压缩成一句中文提问——系统自动理解你要什么、在几十上百张表里圈出相关的表、生成 SQL、真实执行，再把结果转成图表和解读，最后还能一键产出高管简报。五个核心能力请记住：多源集成、自然语言交互、自动可视化、决策简报、企业级安全。特别强调第二点，遇到语义模糊系统会主动澄清而不是硬猜，这是它和普通聊天机器人的本质区别。</div>
+</section>
+
+<!-- ============ P4 角色与权限 ============ -->
+<section class="slide" data-mod="1">
+  <div class="kicker">MODULE 01 · 角色与权限</div>
+  <h2>三种角色：登录后看到的功能不同</h2>
+  <p class="lead" style="margin-bottom:18px;">越权访问会被前端路由守卫重定向到「决策数据看板」；接口层同样校验，返回 403。</p>
+  <table class="tbl" data-anim="fade-up">
+    <tr><th>角色</th><th>标识</th><th class="c">智能问数</th><th class="c">报表 / 看板</th><th class="c">数据源与 Schema</th><th class="c">系统管理</th><th>知识库 / 样例 / 技能</th></tr>
+    <tr><td><b>管理员</b></td><td><span class="tag">ADMIN</span></td><td class="c">✅</td><td class="c">✅</td><td class="c">✅</td><td class="c">✅</td><td>✅ 可审核分享</td></tr>
+    <tr><td><b>分析师</b></td><td><span class="tag">ANALYST</span></td><td class="c">✅</td><td class="c">✅</td><td class="c">❌</td><td class="c">❌</td><td>✅ 个人维度</td></tr>
+    <tr><td><b>只读用户</b></td><td><span class="tag">VIEWER</span></td><td class="c">❌</td><td class="c">✅</td><td class="c">❌</td><td class="c">❌</td><td>❌</td></tr>
+  </table>
+  <div class="grid grid-3" style="margin-top:22px;" >
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🔑 登录</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;">默认管理员 <span class="tag">admin / admin123</span>，首次部署务必修改</p></div>
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🗂 表结构可见性</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;">Schema 明细仅管理员可见，非管理员只能看到表数量</p></div>
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🛡 强制改密</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;">新建账号首次登录强制修改密码，账号安全从第一秒开始</p></div>
+  </div>
+  <div class="notes">权限是第一个要讲清楚的话题，决定了每个人打开系统的第一印象。系统内置三种角色。管理员是全能选手，能问数、能配数据源、能管用户，还能审核别人分享的技能；分析师是主力用户，可以问数、做报表、维护个人的知识样例技能，但看不到数据源配置和表结构明细；只读用户最克制，只能看报表和看板，不能发起问数。这里有三点提醒：第一，越权不是靠隐藏按钮实现的，路由守卫和接口层双重拦截，直接调接口也会返回 403；第二，表结构属于敏感信息，只有管理员能看明细；第三，默认账号 admin 斜杠 admin123 只用于首次部署，登录后第一件事就是改密码，新建的账号也会强制走这个流程。</div>
+</section>
+
+<!-- ============ P5 快速上手三步 ============ -->
+<section class="slide" data-mod="1">
+  <div class="kicker">MODULE 01 · 快速上手</div>
+  <h2>三步问出第一张图</h2>
+  <div class="split" style="margin-top:16px;">
+    <div class="steps" data-anim="fade-up">
+      <div class="step"><div class="body"><h3>登录系统</h3><p>浏览器打开系统地址，输入账号密码。首次登录按提示完成强制改密。</p></div></div>
+      <div class="step"><div class="body"><h3>选择数据源</h3><p>页面顶部切换器选择要分析的数据源（如「企业综合运营数仓」），问数、对话历史均按数据源隔离。</p></div></div>
+      <div class="step"><div class="body"><h3>输入问题，回车</h3><p>用中文描述需求，例如「各类型客户的数量是多少？」。观察流式进度，等待图表与解读生成。</p></div></div>
+    </div>
+    <div>
+      <div class="card" data-anim="slide-left">
+        <h3 style="font-size:16px;margin-bottom:10px;">💡 提问小技巧</h3>
+        <ul class="plain" style="font-size:14px;color:var(--text-2);line-height:1.9;">
+          <li>· 指明维度与指标：「按区域统计本季度销售金额」</li>
+          <li>· 用业务口径词汇（知识库里有定义的词命中更准）</li>
+          <li>· 复杂分析交给「深度分析」开关，简单问题直问</li>
+          <li>· 结果满意就点 👍 —— 系统会自动沉淀为样例，越用越准</li>
+        </ul>
+      </div>
+      <div class="card flat" style="margin-top:16px;" data-anim="slide-left">
+        <h3 style="font-size:16px;margin-bottom:8px;">⏱ 语义缓存</h3>
+        <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">相同或等价的问题（归一化后）10 分钟内命中缓存，秒级返回，审计状态标记为 CACHE。</p>
+      </div>
+    </div>
+  </div>
+  <div class="notes">现在动手。第一步登录，输入账号密码，新账号会被要求先改密码。第二步，看页面顶部的数据源切换器，选你要分析的那个库——这一点很重要，因为问数的表、历史对话、推荐问题都是跟着数据源走的，选错源问出来的就不是你要的数。第三步，在输入框用中文把需求说清楚，回车提交。屏幕上会出现流式的处理进度，最后给你 SQL、数据表、图表和一段解读。右边是提问技巧：说清维度和指标，比如「按区域统计本季度销售金额」就比「看看销售」好得多；多用业务口径里的词；简单问题直接问，复杂清洗类的开深度分析；对结果满意记得点赞，系统会把这条问答自动沉淀进样例库，下次同类问题直接命中。另外重复提问十秒内必回——语义缓存十分钟有效。</div>
+</section>
+
+<!-- ============ P6 界面导览 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 智能问数</div>
+  <h2>问数界面导览：输入区六大要素</h2>
+  <p class="lead" style="margin-bottom:20px;">左侧导航进入「智能问答与查询」，输入区从左到右依次是：</p>
+  <div class="grid grid-3 anim-stagger-list">
+    <div class="card"><span class="pill accent">＋ 技能按钮</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">点击向上弹出技能面板，选中即填充提问模板，面板外点击自动关闭</p></div>
+    <div class="card"><span class="pill accent">输入框</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">中文提问，回车提交；问题超长会被截断至 500 字并做注入检测</p></div>
+    <div class="card"><span class="pill accent">模型下拉</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">自选 AI 模型（目录实时来自系统接口），选择随提问生效并记住</p></div>
+    <div class="card"><span class="pill accent">模式开关</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">计划模式 / 深度分析 两个持久化开关，按需开启</p></div>
+    <div class="card"><span class="pill accent">历史对话</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">面板支持关键词搜索、一键重问、单条删除，按数据源隔离</p></div>
+    <div class="card"><span class="pill accent">导出按钮</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">当前数据源的全部对话一键导出为 Markdown 文件</p></div>
+  </div>
+  <div class="card tinted" style="margin-top:18px;" data-anim="fade-up">
+    <p style="font-size:14.5px;color:var(--accent-2);"><b>推荐问题：</b>数据源可配置专业快速问题（quickQuestions），无配置时按表结构智能推导，新用户不用从零开始想问题。</p>
+  </div>
+  <div class="notes">进入核心模块，先认界面。输入框左边有个加号，点开是技能面板，相当于提问模板库，选一个就自动填进来改两个词就能用。中间是输入框，右边有模型下拉，可以自己选 AI 模型——不同模型的结果缓存互相隔离，切换不会串。输入框附近还有两个模式开关：计划模式和深度分析，后面细讲。右侧历史对话面板能搜索、重问、删除，导出按钮把当前源的对话整个导成 Markdown，写周报特别方便。最下面还有一排推荐问题：管理员可以给数据源配置专业问题，没配置的话系统会根据表结构自动推导。新同事进来不用面对空白输入框发呆，点一个推荐问题就能跑通流程。</div>
+</section>
+
+<!-- ============ P7 一次提问的完整链路 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 处理链路</div>
+  <h2>一次提问在后台经历什么</h2>
+  <p class="lead" style="margin-bottom:20px;">十四步全链路，浓缩为七个关键环节；每一步都同步写入推导过程追踪（traceId）。</p>
+  <div class="flow" data-anim="fade-up">
+    <div class="node"><h3>① 输入防护</h3><p>500 字截断<br>注入检测</p></div><div class="arrow">→</div>
+    <div class="node"><h3>② 鉴权 · 限流</h3><p>角色校验<br>配额 + 并发槽互斥</p></div><div class="arrow">→</div>
+    <div class="node"><h3>③ 语义缓存</h3><p>命中即秒回<br>状态记 CACHE</p></div><div class="arrow">→</div>
+    <div class="node"><h3>④ 圈表</h3><p>关键词粗排<br>embedding 精排</p></div><div class="arrow">→</div>
+    <div class="node"><h3>⑤ SQL 生成</h3><p>few-shot 注入<br>澄清 / 自省在此触发</p></div><div class="arrow">→</div>
+    <div class="node"><h3>⑥ 安全执行</h3><p>仅放行 SELECT<br>行级权限强制注入</p></div><div class="arrow">→</div>
+    <div class="node"><h3>⑦ 解读 · 审计</h3><p>阶段二洞察生成<br>审计落账 + trace</p></div>
+  </div>
+  <div class="grid grid-2" style="margin-top:22px;">
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🧭 复杂度评估</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">LLM 判定 simple / multi-step；多步问题自动进入中间表清洗链（深度分析），启发式预门控省去简单问题的一次评估调用。</p></div>
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🧾 推导过程回放</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">圈表、知识库命中、自省、SQL 生成/重试、执行、解读各带 SQL、行数与耗时；查询中显示横向步骤器，完成后可展开垂直时间线。</p></div>
+  </div>
+  <div class="notes">很多同学好奇，回车之后那十几秒系统在干什么。看这条链路。第一关是输入防护，超长截断、注入检测；第二关鉴权限流，只有管理员和分析师能问数，每个用户还有查询配额，进行中的查询会互斥占槽，防止一个人把引擎打满。第三关查语义缓存，十分钟内同款问题直接秒回。第四关圈表，先用关键词粗排，再用向量精排，从上百张表里挑出真正相关的几张。第五关生成 SQL，这一步会把样例库里的相似问答、知识库里的业务口径注入给模型，如果语义有歧义，就在这里暂停反问用户。第六关安全执行，只放行 SELECT，行级权限强制注入。最后生成解读并审计落账。整条链路每一步都带 traceId 记录，结果出来后可以展开推导过程时间线回放，每一步用了什么 SQL、返回多少行、耗时多少，全程透明可审计。</div>
+</section>
+
+<!-- ============ P8 SSE 流式阶段 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 流式体验</div>
+  <h2>SSE 流式阶段：等待时屏幕上是什么</h2>
+  <p class="lead" style="margin-bottom:22px;">请求以 stream 方式提交，服务端通过 Server-Sent Events 实时推送阶段事件。</p>
+  <div class="grid grid-4 anim-stagger-list">
+    <div class="card"><div class="pill accent">understanding</div><h3 style="font-size:15px;margin:10px 0 6px;">语义理解中</h3><p style="font-size:13px;color:var(--text-2);line-height:1.55;">正在理解问题语义并匹配数据字段</p></div>
+    <div class="card"><div class="pill accent">introspecting</div><h3 style="font-size:15px;margin:10px 0 6px;">数据自省中</h3><p style="font-size:13px;color:var(--text-2);line-height:1.55;">执行探查 SQL，确认字段真实取值（需数据源开启自省）</p></div>
+    <div class="card"><div class="pill accent">executed</div><h3 style="font-size:15px;margin:10px 0 6px;">SQL 已执行</h3><p style="font-size:13px;color:var(--text-2);line-height:1.55;">返回真实行数；SQL 就绪后即先行回显，可提前预览</p></div>
+    <div class="card"><div class="pill accent">analyzing</div><h3 style="font-size:15px;margin:10px 0 6px;">洞察生成中</h3><p style="font-size:13px;color:var(--text-2);line-height:1.55;">基于真实数据生成解读与图表配置</p></div>
+  </div>
+  <div class="split" style="margin-top:22px;">
+    <div class="card" data-anim="fade-up">
+      <h3 style="font-size:15px;margin-bottom:10px;">📍 SQL 先行回显</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.65;">SQL 生成完成即推送到界面（sql_ready），无需等待执行与解读完成——审核 SQL 的同事可以提前介入，发现口径问题可提前终止。</p>
+    </div>
+    <div class="card" data-anim="fade-up">
+      <h3 style="font-size:15px;margin-bottom:10px;">🛟 降级兜底</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.65;">AI 引擎或数据库暂时不可用时，返回带明确标识的示例数据，界面不白屏；审计状态记为 FALLBACK，方便事后追溯。</p>
+    </div>
+  </div>
+  <div class="notes">等待的那段时间，屏幕不是空白转圈，而是实时告诉你系统进行到哪一步了。四个阶段：understanding 在理解语义；introspecting 是数据自省，只有数据源开了自省开关才会出现，它在真正出数前先探查一下字段里的真实取值；executed 表示 SQL 已经在数据库执行完，拿到真实行数了；analyzing 是最后的解读生成。这里有个很实用的细节：SQL 一生成完就会先行回显到界面上，不用等整条链路跑完。懂 SQL 的同学可以在这个窗口期先审一眼口径对不对，不对就提前停，省时间。另外记住降级兜底机制：万一大模型或者数据库临时不可用，系统会返回带明确标识的示例数据，保证界面不白屏，同时审计里记 FALLBACK，绝不会拿演示数据冒充真实结果。</div>
+</section>
+<!-- ============ P9 歧义澄清与智能增强 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 准确率保障</div>
+  <h2>歧义澄清：问不准时，系统会反问</h2>
+  <div class="split" style="margin-top:14px;">
+    <div>
+      <div class="card tinted" style="margin-bottom:16px;" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:8px;">🤔 触发场景</h3>
+        <p style="font-size:14px;color:var(--text-2);line-height:1.65;">「客户」可能指对公客户也可能含个人；「余额」可能是表里三个不同字段。此时系统<b style="color:var(--accent-2);">不直接执行 SQL</b>，而是返回澄清问题与候选理解，由用户点选确认后重新提交。</p>
+      </div>
+      <div class="card" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:8px;">✅ 为什么重要</h3>
+        <ul class="plain" style="font-size:14px;color:var(--text-2);line-height:1.85;">
+          <li>· 宁可多问一句，不给一个「看起来对」的错数</li>
+          <li>· 候选理解来自真实表结构，点选即可，无需改写问题</li>
+          <li>· 澄清结果随上下文带入，多轮对话不重复追问</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <h3 style="font-size:16px;margin-bottom:12px;">让问数更准的四重机制</h3>
+      <div class="steps" data-anim="slide-left">
+        <div class="step"><div class="body"><h3 style="font-size:15px;">few-shot 样例注入</h3><p style="font-size:13px;">从 SQL 样例库挑选与问题最相似的 top-3「问题-SQL」对注入上下文</p></div></div>
+        <div class="step"><div class="body"><h3 style="font-size:15px;">知识库 RAG</h3><p style="font-size:13px;">业务术语、口径、字段含义按相关性检索注入，带 token 预算控制</p></div></div>
+        <div class="step"><div class="body"><h3 style="font-size:15px;">语义指标命中</h3><p style="font-size:13px;">问题命中登记的指标名/同义词时，直接模板化注入标准口径</p></div></div>
+        <div class="step"><div class="body"><h3 style="font-size:15px;">反馈自学习</h3><p style="font-size:13px;">点赞自动沉淀样例（FEEDBACK_UP），点踩作为反例注入避免重蹈覆辙</p></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="notes">这一页回答一个高频疑问：系统会不会理解错？会——但它的设计原则是宁可反问，绝不硬猜。比如你问「客户余额」，库里可能有好几个余额字段，这时系统不执行，而是把候选理解列出来让你点选，选完自动重新提交。右边四重机制让准确率随使用不断提升：第一，样例库注入，和你的问题最相似的三条历史问答会作为范例给模型参考；第二，知识库检索，业务口径和术语定义按相关性注入；第三，语义指标，问题里一旦命中管理员登记的指标名或同义词，标准口径直接模板化注入，保证同一个指标全系统算法一致；第四，反馈闭环，你点的每一个赞都会变成新样例，点踩则会作为反面教材提醒模型别再犯同样的错。所以这个系统是用得越多越懂你的业务。</div>
+</section>
+
+<!-- ============ P10 进阶三开关 + 模型自选 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 进阶模式</div>
+  <h2>三个进阶开关与模型自选</h2>
+  <div class="grid grid-3 anim-stagger-list" style="margin-top:14px;">
+    <div class="card">
+      <div class="pill accent">计划模式</div>
+      <h3 style="font-size:15px;margin:10px 0 6px;">先出计划，批准再执行</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">提问后先生成分析计划（编号步骤、涉及表，<b>不执行</b>），展示计划卡片供批准；批准后携带 planId 执行。计划 10 分钟有效、一次性消费，过期或问题不匹配返回 409。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">深度分析</div>
+      <h3 style="font-size:15px;margin:10px 0 6px;">中间表清洗链</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">复杂问题自动多步清洗（去重 / 标准化 / 过滤 / 聚合），逐步物化为 <span class="tag">ait_*</span> 中间表（TTL 24 小时，每用户最多 10 张），最终 SQL 只引用中间表；清洗失败不阻断主链路。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">数据自省</div>
+      <h3 style="font-size:15px;margin:10px 0 6px;">先探查再生成</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">数据源级开关（默认关）。开启后模型可先执行一条探查 SQL（DISTINCT 取值 ≤30 行回喂），解决「取值不确定」型歧义。仅首轮一次，防止递归。</p>
+    </div>
+  </div>
+  <div class="split" style="margin-top:20px;">
+    <div class="card flat" data-anim="fade-up">
+      <b style="font-size:14px;">🎛 模型自选</b>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">输入框旁模型下拉实时列出可用模型（含本地 Ollama 已安装模型），选择随提问生效、持久化到浏览器；不同模型结果缓存互相隔离。</p>
+    </div>
+    <div class="card flat" data-anim="fade-up">
+      <b style="font-size:14px;">🧭 怎么选？</b>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">日常问数：默认即可；重要汇报口径：开计划模式先审步骤；数据脏、口径绕：开深度分析；字段取值拿不准：让管理员开自省。</p>
+    </div>
+  </div>
+  <div class="notes">这三个开关是分析师的进阶武器。计划模式适合重要场合：先看计划再执行，流程完全可控——系统列出编号步骤和要用的表，你批准了它才动手，而且计划十分钟内有效、用一次作废，防止拿着旧计划反复跑。深度分析对付脏数据和多步口径：系统会分步清洗，物化成 ait 开头的中间表，二十四小时自动清理，单人最多十张，不会把库占满；就算清洗失败，主链路照常出结果。数据自省是管理员在数据源上开的开关，让模型出 SQL 前先偷看一眼字段里的真实取值，解决「取值不确定」的歧义，只允许一轮，不会无限套娃。最后模型下拉，大家可以按需切换模型，不同模型的结果互不干扰。选择建议写在右下角，按场景开开关就好。</div>
+</section>
+
+<!-- ============ P11 图表与下钻 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 可视化</div>
+  <h2>图表体系：从结果到洞察的最后一公里</h2>
+  <div class="grid grid-4 anim-stagger-list" style="margin-top:14px;">
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">智能图表推荐</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">柱 / 折线 / 饼 / 面积 / 堆叠按数据形态自动选择，图表定制器可随时改类型与轴</p></div>
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">KPI 指标卡</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">关键指标带同比 / 环比与趋势方向，一眼看到变化</p></div>
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">数据明细表</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">图表下方展示真实结果集，表头中文化，支持核对原始数字</p></div>
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">图表批注</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">对图表添加评论与批注，团队协作评审结论</p></div>
+  </div>
+  <div class="card tinted" style="margin-top:20px;" data-anim="fade-up">
+    <h3 style="font-size:16px;margin-bottom:8px;">🔍 图表点击下钻</h3>
+    <p style="font-size:14px;color:var(--accent-2);line-height:1.65;">对柱状 / 折线 / 面积图<b>点击某个维度值</b>（如某个区域），系统基于该图表的原聚合 SQL 自动改写为明细查询（追加分维度条件，LIMIT 50）真实执行——行级权限在下钻链路同样强制注入。仅 ADMIN / ANALYST 可用。</p>
+  </div>
+  <div class="split" style="margin-top:18px;">
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">📋 SQL 预览与溯源</b><p style="font-size:13px;color:var(--text-2);margin-top:5px;line-height:1.6;">弹窗查看 / 复制完整 generatedSQL；结果标记数据来源（dataProvenance），真实执行与演示数据一目了然。</p></div>
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">💡 建议追问</b><p style="font-size:13px;color:var(--text-2);margin-top:5px;line-height:1.6;">每条结果附带建议问题（如「按月拆分趋势」），点击继续深入分析，形成分析动线。</p></div>
+  </div>
+  <div class="notes">结果出来后，可视化这一层有很多门道。图表类型是系统按数据形态智能选的，不合适可以打开定制器换类型、换轴；KPI 卡带同比环比；下面的明细表是真实结果集，表头是中文的，方便和图表互相核对；还可以直接在图上写批注，团队评审用。重点讲下钻：看到某个区域的柱子特别高，直接点它——系统会基于这张图原来的 SQL 自动改写成查明细的语句，追加这个维度值的过滤条件，最多返回五十行，行级权限在下钻时同样强制生效，不会绕开权限看数。另外每条结果都能打开 SQL 预览弹窗，复制完整的执行语句做复核；结果上还标了数据来源，是真查出来的还是降级演示的，一眼可辨。最后别忘了建议追问，点一下就能顺着分析动线继续挖。</div>
+</section>
+
+<!-- ============ P12 可视化决策报表 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 决策报表</div>
+  <h2>可视化决策报表：一键产出高管简报</h2>
+  <p class="lead" style="margin-bottom:18px;">自动生成执行摘要、关键指标、图表与结论建议；数据库型数据源走「查询计划 → 真实执行 → 真实数据摘要」双阶段。</p>
+  <div class="grid grid-4 anim-stagger-list">
+    <div class="card"><div class="pill accent">下载 PPT</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">服务端组装 PPTX：封面 / 高管摘要 / KPI 页 / 每图一页 / 结论页，图表转高清 PNG 内嵌</p></div>
+    <div class="card"><div class="pill accent">导出 PDF</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">高清导出，可选横 / 纵向与明暗主题；另支持浏览器打印友好模式</p></div>
+    <div class="card"><div class="pill accent">报告计划模式</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">先生成报表查询计划（每图标题 / 目的 / SQL）供批准，再真实执行生成</p></div>
+    <div class="card"><div class="pill accent">场景模板</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">内置综合经营 / 资产质量与风险 / 投资收益与财务 / 高管战略四大模板</p></div>
+  </div>
+  <div class="card tinted" style="margin-top:20px;" data-anim="fade-up">
+    <p style="font-size:14.5px;color:var(--accent-2);line-height:1.65;"><b>与问数的关系：</b>问数是「一次提问一张图」，报表是「一次生成一整套汇报材料」。周会、月度经营分析会前，直接挑一个场景模板生成，下载 PPT 微调后即可上场。</p>
+  </div>
+  <div class="notes">问数解决的是临时取数，报表解决的是周期性汇报。进入可视化决策报表，选个模板一键生成，系统会产出执行摘要、关键指标、一组图表和结论建议。它和问数的本质区别是：数据库型数据源走双阶段——先出查询计划真实执行，再基于真实数据撰写摘要，保证简报里的每个数字都可溯源。导出格式有三种：PPT 是服务端组装的，封面、高管摘要、KPI、每图一页、结论，结构完整拿去就能改；PDF 高清导出可选方向和主题；还有打印友好模式。谨慎场合可以开报告计划模式，先审每张图要查什么再放行。模板有四大场景：综合经营、资产质量与风险、投资收益与财务、高管战略。月度经营分析会前，从挑模板到下载 PPT，十分钟搞定过去一下午的活。</div>
+</section>
+
+<!-- ============ P13 决策数据看板 ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 数据看板</div>
+  <h2>决策数据看板：日常巡检与大屏投放</h2>
+  <div class="split" style="margin-top:16px;">
+    <div>
+      <div class="steps" data-anim="fade-up">
+        <div class="step"><div class="body"><h3>固化指标视图</h3><p>看板由一组固定图表组成（当前内置不良资产宽表月末快照 5 图：逐月投放趋势 / 业务分类结构 / 机构投放 TOP10 / 长龄机构 TOP8 / 投资收益走势）</p></div></div>
+        <div class="step"><div class="body"><h3>全角色可见</h3><p>管理员、分析师、只读用户都能查看——管理层无需问数也能随时掌握核心指标</p></div></div>
+        <div class="step"><div class="body"><h3>大屏与巡检</h3><p>适合投放到值班大屏与晨会屏幕，配合浏览器全屏模式使用</p></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="card" data-anim="slide-left">
+        <h3 style="font-size:16px;margin-bottom:10px;">🖼 三个模块的分工</h3>
+        <table class="tbl">
+          <tr><th>模块</th><th>定位</th><th>典型场景</th></tr>
+          <tr><td><b>智能问数</b></td><td>即席探索</td><td>临时问题、追因分析</td></tr>
+          <tr><td><b>决策报表</b></td><td>成套汇报</td><td>月度经营分析会</td></tr>
+          <tr><td><b>数据看板</b></td><td>固化监控</td><td>日常巡检、大屏</td></tr>
+        </table>
+      </div>
+      <div class="card flat" style="margin-top:16px;" data-anim="slide-left">
+        <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;">看板图表同样支持血缘溯源——数据从哪个库哪张表来，随时可查。</p>
+      </div>
+    </div>
+  </div>
+  <div class="notes">第三个展示形态是数据看板，定位是固化监控。问数是即席探索，报表是成套汇报，看板就是天天盯着看的那块屏。当前内置的五张图来自不良资产宽表的月末快照：逐月投放趋势、业务分类结构、机构投放 TOP10、长龄机构 TOP8、投资收益走势，覆盖了经营侧最核心的视角。看板最大的特点是全角色可见——只读用户虽然不能问数，但看板随便看，管理层打开系统第一眼看到的就是它，不用学任何提问技巧。使用场景就是日常巡检和晨会大屏，浏览器按 F 进全屏就是一块现成的监控屏。看板图表背后也有血缘可查，数据从哪个库哪张表来、口径是什么，点开就知道，出问题能快速定位。</div>
+</section>
+
+<!-- ============ P14 数据源与 Schema ============ -->
+<section class="slide" data-mod="3">
+  <div class="kicker">MODULE 03 · 数据源管理（管理员）</div>
+  <h2>数据源与 Schema：问数的地基</h2>
+  <p class="lead" style="margin-bottom:16px;">左侧「数据源与 Schema」包含五个子页签，仅管理员可操作。</p>
+  <table class="tbl" data-anim="fade-up">
+    <tr><th style="width:150px;">子页签</th><th>功能</th></tr>
+    <tr><td><b>数据源管理</b></td><td>新增 / 编辑 / 删除数据源；<b>测试连接</b>（真实探测可达性与凭证）；按数据源启停智能问数（disconnected 状态自动拒绝问数）</td></tr>
+    <tr><td><b>Schema 查看器</b></td><td>查看表结构、字段类型、行数与中文注释（单库上限 500 表）；表结构明细仅管理员可见</td></tr>
+    <tr><td><b>数据血缘</b></td><td>展示数据流向与依赖关系（DataLineageView），监控图表自动关联其真实上游数据源</td></tr>
+    <tr><td><b>知识库 / 样例库</b></td><td>维护业务知识与训练样例（详见后续两页）</td></tr>
+  </table>
+  <div class="grid grid-3" style="margin-top:18px;">
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🔌 六类数据源</b><p style="font-size:13px;color:var(--text-2);margin-top:5px;">MySQL · PostgreSQL · Greenplum · CSV · API · JSON</p></div>
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🧪 真实探测</b><p style="font-size:13px;color:var(--text-2);margin-top:5px;">测试连接真实建连验证，密码加密存储，不回显明文</p></div>
+    <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">📊 数据自省开关</b><p style="font-size:13px;color:var(--text-2);margin-top:5px;">数据源卡片上紫色扫描图标切换，默认关闭</p></div>
+  </div>
+  <div class="notes">模块三，讲管理员怎么搭问数的地基。数据源与 Schema 页签下有五块：数据源管理负责接入，支持 MySQL、PostgreSQL、Greenplum、CSV、API、JSON 六类；保存前先点测试连接，系统会真实建连验证地址和密码，不坑人；每个数据源还有个总开关，关掉问数后状态变 disconnected，前端直接拒绝提问，配合维护窗口用。Schema 查看器能看每张表的字段、类型、行数和中文注释，单库最多五百张表，这些结构信息就是 AI 圈表的依据，注释写得越清楚问数越准——这是个重要提示，建表注释值得花心思。数据血缘页展示监控图表和上游数据源的关系。最后每个数据源卡片上有个紫色扫描图标，那是数据自省开关，需要探查能力时再开。</div>
+</section>
+
+<!-- ============ P15 数据安全四道防线 ============ -->
+<section class="slide" data-mod="3">
+  <div class="kicker">MODULE 03 · 数据安全</div>
+  <h2>数据安全：四道防线层层设防</h2>
+  <div class="grid grid-2 anim-stagger-list" style="margin-top:14px;">
+    <div class="card">
+      <div class="pill accent">防线一 · 只读执行</div>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">所有问数与样例 SQL 强制走 SELECT 白名单校验（AST 解析），字符串字面量在校验副本中置空防关键字干扰，杜绝注入与写操作。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">防线二 · 行级权限</div>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">数据源 scope 可登记行过滤谓词（如 <span class="tag">region LIKE '安徽省%'</span>）；所有真实执行链路（问数 / 报表 / 重跑 / 下钻）执行前由 AST 强制包裹为过滤派生表，注入失败一律 fail-closed 拒绝查询。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">防线三 · 敏感信息过滤</div>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">Schema 上下文加载时剔除敏感列——AI 根本「看不见」这些字段，从源头防止敏感数据进入提示词与结果；数据源密码加密落库。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">防线四 · 审计与限流</div>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">每次问数审计落账（SUCCESS / FALLBACK / CLARIFY / CACHE / DENIED）；API 访问日志含被拒请求；限流 + 每用户配额 + 并发槽互斥。</p>
+    </div>
+  </div>
+  <div class="card tinted" style="margin-top:18px;" data-anim="fade-up">
+    <p style="font-size:14.5px;color:var(--accent-2);line-height:1.6;"><b>设计哲学：</b>权限不是「建议」，是执行层强制——AI 生成的任何 SQL 都逃不出这四道防线；宁可拒绝查询（fail-closed），绝不越权出数。</p>
+  </div>
+  <div class="notes">安全这一页请管理员务必记住，也请分析师放心。第一道防线只读执行：AI 生成的每条 SQL 都经过解析器白名单校验，只能 SELECT，写操作和注入根本进不了数据库。第二道行级权限：可以按数据源配置行过滤，比如某个分析师只能看安徽省的数据，那他无论怎么问，SQL 都会被强制包上一层过滤条件，覆盖子查询、联合、连接各种写法，注入失败就整个拒绝，宁可不出数也不越权。第三道敏感信息：敏感列在 AI 读表结构那一步就被剔掉了，模型压根不知道有这个字段，提示词里不会出现，结果里自然也没有。第四道审计限流：每次提问都有审计状态，谁在什么时间问了什么、走没走缓存、有没有被拒，全部留痕。一句话总结：这个系统里，权限是墙不是帘子。</div>
+</section>
+
+<!-- ============ P16 知识库 ============ -->
+<section class="slide" data-mod="3">
+  <div class="kicker">MODULE 03 · 知识库</div>
+  <h2>知识库：把业务口径喂给 AI</h2>
+  <div class="split" style="margin-top:14px;">
+    <div>
+      <div class="card" style="margin-bottom:16px;" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:8px;">📚 管什么</h3>
+        <p style="font-size:14px;color:var(--text-2);line-height:1.65;">业务术语、指标口径、字段含义、分析指南类文档。例如「月末快照」「BB=1 核算版」「长龄项目」这类只有业务自己才懂的词。</p>
+      </div>
+      <div class="card" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:8px;">⚙ 怎么生效</h3>
+        <ul class="plain" style="font-size:14px;color:var(--text-2);line-height:1.8;">
+          <li>· 问数时按相关性检索（TOP4，单文档限 2 块）</li>
+          <li>· 向量分 × 词法分混合选块，口径/指南类保留专门槽位</li>
+          <li>· 注入提示词带 token 预算控制，不会撑爆上下文</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card tinted" data-anim="slide-left">
+        <h3 style="font-size:16px;margin-bottom:10px;">📌 实践建议（管理员）</h3>
+        <ul class="plain" style="font-size:14px;color:var(--accent-2);line-height:1.9;">
+          <li>· 上线前先沉淀 10-20 条核心口径（版本字段、快照口径、专有缩写）</li>
+          <li>· 支持元数据 Excel 批量导入，宽表字段含义一次配齐</li>
+          <li>· 口径变更时同步更新知识库，AI 输出随之对齐</li>
+          <li>· 表 / 字段中文注释同样参与语义匹配，值得用心写</li>
+        </ul>
+      </div>
+      <div class="card flat" style="margin-top:16px;" data-anim="slide-left">
+        <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;"><b>效果：</b>知识库命中后，AI 用的是登记口径而非字面猜测——同一个「投资收益」，全系统同一个算法。</p>
+      </div>
+    </div>
+  </div>
+  <div class="notes">知识库是这个系统越用越准的第一秘诀。它管的是那些只存在业务同事脑子里的东西：术语、口径、字段含义、分析指南。举个例子，「月末快照」和「BB 等于 1」是什么意思，新来的分析师都要问老员工，AI 更不知道——但只要写进知识库，问数时系统会按相关性把这几条检索出来注入给模型，它就懂了。检索机制做了精细打磨：取最相关的前四块，单个文档最多贡献两块防止刷屏，向量相似度和关键词匹配混合打分，口径类指南类内容还有保留槽位。给管理员的实践建议：上线前先沉淀一二十条核心口径，宽表字段含义用 Excel 批量导入，口径变了记得同步更新。表和字段的中文注释也参与语义匹配，注释写得越用心，圈表和选列就越准。</div>
+</section>
+<!-- ============ P17 SQL 样例库 ============ -->
+<section class="slide" data-mod="3">
+  <div class="kicker">MODULE 03 · SQL 样例库</div>
+  <h2>SQL 样例库：AI 的「范文库 + 错题本」</h2>
+  <p class="lead" style="margin-bottom:18px;">每条样例是一对「问题 → SQL」；问数时自动挑选与当前问题最相似的 top-3 注入上下文（few-shot），让 AI 照着范文写。</p>
+  <div class="grid grid-3 anim-stagger-list">
+    <div class="card"><div class="pill accent">来源一 · MANUAL</div><p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.6;">管理员 / 分析师手工录入：问题、SQL、适用数据源、说明备注，适合沉淀高频标准取数</p></div>
+    <div class="card"><div class="pill ok">来源二 · FEEDBACK_UP</div><p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.6;">用户对结果点 👍 即自动沉淀该条问答为样例——最好的样例永远来自真实使用</p></div>
+    <div class="card"><div class="pill accent">来源三 · IMPORT</div><p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.6;">Excel 批量导入历史问答资产，存量取数经验一次性迁移进系统</p></div>
+  </div>
+  <div class="split" style="margin-top:20px;">
+    <div class="card tinted" data-anim="fade-up">
+      <h3 style="font-size:16px;margin-bottom:8px;">🎯 生效机制</h3>
+      <ul class="plain" style="font-size:14px;color:var(--accent-2);line-height:1.8;">
+        <li>· 相似度排序取 top-3，只注入最相关的范文，不撑爆上下文</li>
+        <li>· 样例 SQL 同样过 SELECT 白名单，安全校验不豁免</li>
+        <li>· 样例按数据源维度管理，换源不串味</li>
+      </ul>
+    </div>
+    <div class="card flat" data-anim="fade-up">
+      <h3 style="font-size:16px;margin-bottom:8px;">📉 点踩怎么办</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;">点 👎 的问答作为<b>反例</b>注入提示词，明确告诉模型「这类理解是错的」——AI 不仅学范文，也上错题本。</p>
+    </div>
+  </div>
+  <div class="notes">如果说知识库教 AI 懂业务，样例库就是教 AI 写 SQL。每条样例就是一个问题配上标准答案 SQL。攒样例有三条路：手工录入，把高频取数写成范文；点赞沉淀，这是最重要的一条——大家对结果满意就点个赞，这条问答立刻变成新样例，下次同事问类似问题直接命中；还有 Excel 批量导入，把过去多年的取数经验一次搬进来。生效的时候系统不是全量塞给模型，而是按相似度挑最像的三条做范文，上下文干净。样例 SQL 一样要过只读白名单，不能借样例之手干写操作。最后说点踩：点踩的问答会作为反例注入，明确提醒模型这种理解是错的。所以点赞点踩都是在训练你们自己的 AI 助手，成本为零，收益复利。</div>
+</section>
+
+<!-- ============ P18 语义指标层 + 技能库 ============ -->
+<section class="slide" data-mod="3">
+  <div class="kicker">MODULE 03 · 指标与技能</div>
+  <h2>语义指标层与技能库</h2>
+  <div class="split" style="margin-top:16px;">
+    <div>
+      <div class="card" style="margin-bottom:16px;" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:8px;">📐 语义指标层（管理员）</h3>
+        <p style="font-size:14px;color:var(--text-2);line-height:1.65;">按数据源登记指标：指标名、同义词、标准口径 SQL 片段（每源上限 200 条）。问题命中指标名或同义词时，<b style="color:var(--accent-2);">标准口径直接模板化注入</b>，AI 无需自行理解。</p>
+      </div>
+      <div class="card" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:8px;">为什么值得做</h3>
+        <ul class="plain" style="font-size:14px;color:var(--text-2);line-height:1.8;">
+          <li>· 「投资收益」「不良率」这类核心指标全系统一个算法</li>
+          <li>· 同义词登记后，口语化提问也能命中标准口径</li>
+          <li>· 口径变更只改一处，所有问数随之对齐</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:16px;" data-anim="slide-left">
+        <h3 style="font-size:16px;margin-bottom:8px;">⚡ 技能库：提问模板资产</h3>
+        <p style="font-size:14px;color:var(--text-2);line-height:1.65;">技能 = 预置提问模板（名称 + 模板文本 + 适用数据源）。输入区 <span class="tag">＋</span> 按钮弹出技能面板，选中即填充，改两个词就能提问。</p>
+      </div>
+      <div class="card tinted" data-anim="slide-left">
+        <h3 style="font-size:16px;margin-bottom:8px;">SYSTEM 与 USER</h3>
+        <ul class="plain" style="font-size:14px;color:var(--accent-2);line-height:1.8;">
+          <li>· <b>系统技能</b>：内置通用分析模板，开箱即用</li>
+          <li>· <b>用户技能</b>：个人技能可提交分享，管理员审核通过后全团队可用</li>
+          <li>· 技能与数据源绑定，换个源不会出现不适配的模板</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="notes">这页讲两个提升命中率的基础设施。先看语义指标层。很多争议来自同名不同义：你说投资收益是这个算法，他说投资收益是那个算法。管理员把核心指标登记进去——指标名、同义词、标准口径 SQL 片段，每源最多两百条。之后任何人提问只要命中指标名或同义词，标准口径直接模板化注入，AI 照抄就行，不用自己理解。口径变了改一处，全系统对齐。再看技能库。技能就是提问模板，解决「不知道怎么问」的问题：点输入框旁的加号弹出面板，选一个模板填充进来，改两个词就能跑。技能分系统内置和个人创建两类，个人技能可以提交分享，管理员审核通过后全团队复用。团队里总有人特别会提问，把他的问法沉淀成技能，就是最好的经验传承。</div>
+</section>
+
+<!-- ============ P19 对话历史与自主学习 ============ -->
+<section class="slide" data-mod="3">
+  <div class="kicker">MODULE 03 · 对话历史</div>
+  <h2>对话历史：个人分析资产，按数据源隔离</h2>
+  <div class="grid grid-4 anim-stagger-list" style="margin-top:14px;">
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">按源隔离</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">每个数据源独立的对话空间，切换数据源自动切换上下文，互不污染</p></div>
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">搜索与重问</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">关键词搜索定位历史问答；一键重问原样再跑一遍，单条记录可删除</p></div>
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">多轮上下文</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">澄清结论、上轮结果带入后续提问；「再按月份拆一下」这类追问直接可用</p></div>
+    <div class="card"><h3 style="font-size:15px;color:var(--accent-2);">一键导出</h3><p style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.55;">当前数据源全部对话导出 Markdown——问题、SQL、图表数据、解读完整留存</p></div>
+  </div>
+  <div class="card tinted" style="margin-top:20px;" data-anim="fade-up">
+    <h3 style="font-size:16px;margin-bottom:8px;">🔄 自主学习闭环：用得越多，越懂你的业务</h3>
+    <div class="flow" style="margin-top:6px;">
+      <div class="node"><h3>提问</h3><p>中文自然语言</p></div><div class="arrow">→</div>
+      <div class="node"><h3>知识 / 样例 / 指标注入</h3><p>按相关性检索上下文</p></div><div class="arrow">→</div>
+      <div class="node"><h3>结果 + 洞察</h3><p>SQL · 图表 · 解读</p></div><div class="arrow">→</div>
+      <div class="node"><h3>反馈</h3><p>👍 沉淀样例 / 👎 反例</p></div><div class="arrow">→</div>
+      <div class="node"><h3>下次更准</h3><p>新样例参与 few-shot</p></div>
+    </div>
+  </div>
+  <div class="notes">对话历史不只是流水账，它是每个人的分析资产。四个要点：第一，严格按数据源隔离，切源自动切上下文，不会把营销库的问题带到风险库的答案里。第二，支持关键词搜索和一键重问，上周查过的口径今天找回来重跑，几秒钟的事。第三，多轮上下文——你可以说「再按月份拆一下」「只看安徽省的」，系统知道「再」和「只」指的是上一轮的什么。第四，一键导出 Markdown，问题、SQL、解读全在里面，贴进周报就是现成素材。下面这个闭环请重点看：提问、注入、出结果、反馈、下次更准。你点的每一个赞都会变成样例库里的新范文，全团队受益。所以用系统最好的姿势就是大胆用、认真反馈——它真的是越用越懂你。</div>
+</section>
+
+<!-- ============ P20 系统管理与帮助中心 ============ -->
+<section class="slide" data-mod="4">
+  <div class="kicker">MODULE 04 · 系统管理（管理员）</div>
+  <h2>系统管理与帮助中心</h2>
+  <div class="grid grid-4 anim-stagger-list" style="margin-top:14px;">
+    <div class="card"><div class="pill accent">用户管理</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">新建账号、分配角色、重置密码、停用启用；新账号首登强制改密</p></div>
+    <div class="card"><div class="pill accent">AI 引擎配置</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">注册 / 启停各家引擎，查看实时健康状态，设定默认引擎与降级顺序</p></div>
+    <div class="card"><div class="pill accent">LLM 用量统计</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">按用户、按模型查看 token 消耗与调用次数，成本一目了然</p></div>
+    <div class="card"><div class="pill accent">帮助中心</div><p style="font-size:13px;color:var(--text-2);margin-top:8px;line-height:1.6;">内置「帮助」页实时读取功能说明书，文档与系统同版本演进</p></div>
+  </div>
+  <div class="split" style="margin-top:20px;">
+    <div class="card flat" data-anim="fade-up">
+      <b style="font-size:14px;">👥 角色运营建议</b>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">按「最小权限」发放角色：常规业务同事给 VIEWER 看报表即可；需要自助取数的再升 ANALYST；数据源与账号管理收敛到少数 ADMIN。</p>
+    </div>
+    <div class="card flat" data-anim="fade-up">
+      <b style="font-size:14px;">📖 培训材料维护</b>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">说明书即文档：功能变更后更新说明书，帮助中心即刻生效，全员随时自查——本份 PPT 的内容口径也与其对齐（v0.4.0）。</p>
+    </div>
+  </div>
+  <div class="notes">模块四，管理员日常。系统管理页四块功能：用户管理管账号生命周期，新建、授权、重置密码、停用，新账号第一次登录强制改密，这套流程前面讲过。AI 引擎配置用来注册和启停大模型引擎，界面上能看到每个引擎的实时健康状态，还能设置默认引擎和降级顺序，下一页细讲。LLM 用量统计是成本工具，按用户按模型看 token 消耗和调用次数，谁用得多、哪个模型烧钱，一目了然，预算管控有依据。最后是帮助中心：系统内置帮助页实时读取功能说明书，说明书更新帮助中心立刻跟着变，不存在文档过期问题。今天这份 PPT 的所有内容口径也对齐说明书 v0.4.0。给管理员的运营建议就一句：最小权限发放角色，需要再升，别图省事人人都给管理员。</div>
+</section>
+
+<!-- ============ P21 AI 引擎 ============ -->
+<section class="slide" data-mod="4">
+  <div class="kicker">MODULE 04 · AI 引擎</div>
+  <h2>AI 三引擎：可切换、可降级、可本地化</h2>
+  <div class="grid grid-3 anim-stagger-list" style="margin-top:14px;">
+    <div class="card">
+      <div class="pill ok">当前主力 · 本地</div>
+      <h3 style="font-size:16px;margin:10px 0 6px;">Ollama · deepseek-r1:32b</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">本地推理，数据不出内网；深度思考能力适配复杂口径的 SQL 生成，适合数据敏感场景与日常主力。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">云端 · 备选</div>
+      <h3 style="font-size:16px;margin:10px 0 6px;">Qwen · qwen3.8-max</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">云端大参数模型，复杂推理与长上下文能力强；按 API 计费，适合高峰期分流与高质量需求。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">云端 · 备选</div>
+      <h3 style="font-size:16px;margin:10px 0 6px;">Gemini</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">多模态云端引擎，作为第三选择扩展模型多样性；由管理员按合规要求启停。</p>
+    </div>
+  </div>
+  <div class="split" style="margin-top:20px;">
+    <div class="card tinted" data-anim="fade-up">
+      <h3 style="font-size:16px;margin-bottom:8px;">🛟 引擎故障转移</h3>
+      <p style="font-size:14px;color:var(--accent-2);line-height:1.65;">主引擎不可用时按配置顺序自动降级到下一个可用引擎；全部不可用则走演示数据兜底（FALLBACK 留痕），服务永不白屏。</p>
+    </div>
+    <div class="card flat" data-anim="fade-up">
+      <h3 style="font-size:16px;margin-bottom:8px;">🔒 敏感数据怎么选</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;">涉密数据源的分析全程走本地 Ollama，提示词与结果不出内网；云端引擎仅用于非敏感场景——由管理员在引擎配置中约束。</p>
+    </div>
+  </div>
+  <div class="notes">AI 引擎是这个系统的大脑供给线，目前接入三家。当前主力是本地部署的 Ollama 跑 deepseek-r1 三十二 B：数据完全不出内网，推理能力也足够应付复杂口径，敏感场景放心用。云端两家，Qwen 的 qwen3.8-max 参数量大、长上下文强，适合高峰分流和高质量需求；Gemini 作为第三选择扩展多样性。这里最值得讲的是故障转移：主引擎挂了，系统按管理员配置的顺序自动切到下一个可用引擎，用户几乎无感；万一全挂了，还有演示数据兜底，界面照常出结果但明确标识降级，审计记 FALLBACK。涉密数据的用法也强调一下：让管理员把敏感源的分析锁定在本地引擎上，提示词不出去，数据不出去，合规安心。</div>
+</section>
+
+<!-- ============ P22 安全合规全景 ============ -->
+<section class="slide" data-mod="4">
+  <div class="kicker">MODULE 04 · 安全合规</div>
+  <h2>安全合规全景：账号、数据、审计三张网</h2>
+  <div class="grid grid-3 anim-stagger-list" style="margin-top:14px;">
+    <div class="card">
+      <div class="pill accent">账号与会话</div>
+      <ul class="plain" style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.75;">
+        <li>· JWT 会话令牌，接口层统一鉴权</li>
+        <li>· 密码加密存储，永不明文回显</li>
+        <li>· 新账号首登强制改密</li>
+        <li>· 越权访问 403 + 路由重定向</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill accent">数据防线（回顾 P15）</div>
+      <ul class="plain" style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.75;">
+        <li>· SELECT 白名单（AST 解析）</li>
+        <li>· 行级权限强制注入，fail-closed</li>
+        <li>· 敏感列对 AI 不可见</li>
+        <li>· 数据源密码加密落库</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill accent">审计与限流</div>
+      <ul class="plain" style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.75;">
+        <li>· 问数审计五态：SUCCESS / FALLBACK / CLARIFY / CACHE / DENIED</li>
+        <li>· API 访问日志含被拒请求</li>
+        <li>· 限流 + 每用户配额 + 并发槽互斥</li>
+        <li>· 推导过程 traceId 全程可回放</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card tinted" style="margin-top:20px;" data-anim="fade-up">
+    <p style="font-size:14.5px;color:var(--accent-2);line-height:1.65;"><b>合规要点：</b>本地引擎方案下，提问、表结构、结果数据全程不出内网；全链路审计留痕满足内审与监管检查「谁在何时查了什么、看到了什么」的追溯要求。</p>
+  </div>
+  <div class="notes">安全讲了两页，这页收个总。三张网：账号层，JWT 会话加接口统一鉴权，密码加密存储永不明文回显，新账号强制改密，越权直接 403；数据层就是前面讲过的四道防线——只读白名单、行级权限、敏感列屏蔽、密码加密，这里列出来帮大家复习；审计层，每次问数落审计账，五种状态：成功、降级、澄清、缓存、拒绝，被拒的请求也记录，配上限流配额和并发槽，既能追责也能防滥用。合规角度总结一句话：用本地引擎部署时，从提问到表结构到结果数据全程不出内网；每个数字都能回答「谁、什么时候、问了什么、看到了什么」。这套体系拿去应对内审和监管检查，材料都是现成的。安全不是绊脚石，是这套系统能进生产环境的前提。</div>
+</section>
+
+<!-- ============ P23 质量保障与部署 ============ -->
+<section class="slide" data-mod="4">
+  <div class="kicker">MODULE 04 · 质量与部署</div>
+  <h2>质量保障与部署形态</h2>
+  <div class="grid grid-4 anim-stagger-list" style="margin-top:16px;">
+    <div class="stat"><div class="v">434</div><div class="l">单元测试全部通过，覆盖 SQL 安全校验、权限注入、链路各环节</div></div>
+    <div class="stat"><div class="v">3</div><div class="l">端到端 E2E 场景，模拟真实用户完整操作路径</div></div>
+    <div class="stat"><div class="v">59</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">TypeScript 双配置（前端 + 服务端）严格模式编译错误</div></div>
+  </div>
+  <div class="split" style="margin-top:24px;">
+    <div class="card" data-anim="fade-up">
+      <h3 style="font-size:16px;margin-bottom:8px;">🐳 Docker 一键部署</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.65;">前后端与依赖打包为容器，<span class="tag">docker compose up</span> 一条命令拉起完整环境；环境变量管理数据库与引擎连接，健康检查内置，升级即换镜像。</p>
+    </div>
+    <div class="card tinted" data-anim="fade-up">
+      <h3 style="font-size:16px;margin-bottom:8px;">🏗 技术栈一览</h3>
+      <p style="font-size:14px;color:var(--accent-2);line-height:1.7;">React + TypeScript 前端 · Node 服务端 · SSE 流式推送 · MySQL/PG/GP 多源接入 · Ollama 本地推理 · JWT 鉴权 · Docker Compose 编排</p>
+    </div>
+  </div>
+  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：四百三十四个单元测试全部通过，覆盖了最要命的安全校验和权限注入逻辑；三个端到端场景模拟真实用户的完整操作路径；五十九个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前后端两套 TypeScript 严格模式编译零错误。这四个数字意味着每次发版前都有自动化门禁兜底。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地推理。对企业来说，这意味着低运维成本和长期可维护性。质量不是口号，是门禁。</div>
+</section>
+
+<!-- ============ P24 总结与 FAQ ============ -->
+<section class="slide" data-mod="5">
+  <div class="kicker">WRAP-UP · 总结与答疑</div>
+  <h2>常见问题 FAQ</h2>
+  <div class="grid grid-2 anim-stagger-list" style="margin-top:14px;">
+    <div class="card">
+      <span class="pill accent">Q1 · 总是让我澄清？</span>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">说明问题里有系统拿不准的词。用业务口径提问、指明维度与指标；反复出现的术语建议管理员沉淀进知识库或登记为语义指标。</p>
+    </div>
+    <div class="card">
+      <span class="pill accent">Q2 · 数字和报表对不上？</span>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">依次检查：数据源选对了没有 → SQL 预览里口径是否符合预期 → 是否被行级权限过滤（属正常现象）→ 结果标记是真实执行还是 FALLBACK 演示。</p>
+    </div>
+    <div class="card">
+      <span class="pill accent">Q3 · 忘记密码 / 想问数没权限？</span>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">联系管理员重置密码（重置后首登强制改密）；只读用户需要问数时，由管理员评估后将角色调整为 ANALYST。</p>
+    </div>
+    <div class="card">
+      <span class="pill accent">Q4 · 结果能直接对外引用吗？</span>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">重要场合先开计划模式审步骤，出数后用 SQL 预览复核口径，确认 dataProvenance 为真实执行；点 👍 沉淀样例，保证下次同口径复现。</p>
+    </div>
+  </div>
+  <div class="card tinted" style="margin-top:18px;" data-anim="fade-up">
+    <p style="font-size:15px;color:var(--accent-2);line-height:1.6;"><b>今天就到这里：</b>登录 → 选源 → 提问，三步已经开始；每一次点赞，都在让系统更懂你的业务。<b>现在进入答疑环节 ——</b></p>
+  </div>
+  <div class="notes">最后收个尾，四个高频问题。第一，总被要求澄清？这是系统在保护你，别嫌烦——用业务术语、说清维度指标，反复出现的词让管理员进知识库，下次就不问了。第二，数字对不上？按四步排查：数据源、SQL 口径、行级权限、结果标记，九成问题出在前两步。第三，忘记密码或者只读用户想问数，都找管理员，一个重置一个升角色。第四，结果能不能直接引用？重要场合记住三件套：计划模式审步骤、SQL 预览核口径、确认真实执行标记。培训的内容就这么多。回想开头的三个数字：登录、选源、提问，三步就能开始；而每一次点赞点踩，都在训练这个系统更懂你们的业务。谢谢大家的时间，现在进入答疑环节，任何问题都欢迎提。</div>
+</section>
+
+</div>
+<script src="assets/runtime.js"></script>
+</body>
+</html>
