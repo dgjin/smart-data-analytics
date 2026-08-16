@@ -3,6 +3,7 @@ import {
   checkUserQueryLimit,
   acquireQuerySlot,
   releaseQuerySlot,
+  SLOT_TTL_SEC,
   _resetForTest,
 } from './userQueryLimit';
 
@@ -85,5 +86,36 @@ describe('acquireQuerySlot / releaseQuerySlot（L5 频率层：同用户并发�
     await releaseQuerySlot(1);
     await releaseQuerySlot(1);
     expect(await acquireQuerySlot(1)).toBe(true);
+  });
+});
+
+describe('并发槽 token 化与 TTL 兜底（客户端断开提前释放场景）', () => {
+  beforeEach(() => {
+    _resetForTest();
+  });
+
+  it('释放时 token 不匹配则不生效（防旧请求误删新请求的槽）', async () => {
+    expect(await acquireQuerySlot(1, 'tokenA')).toBe(true);
+    await releaseQuerySlot(1, 'tokenB'); // 错误 token：无效
+    expect(await acquireQuerySlot(1, 'tokenC')).toBe(false); // 槽仍被 tokenA 占用
+    await releaseQuerySlot(1, 'tokenA'); // 正确 token：生效
+    expect(await acquireQuerySlot(1, 'tokenC')).toBe(true);
+  });
+
+  it('槽超过 TTL 视为过期，新请求可重入（对齐 Redis 模式兜底）', async () => {
+    const t0 = 1_000_000_000;
+    expect(await acquireQuerySlot(1, 'old', t0)).toBe(true);
+    // 未过期：拒绝重入
+    expect(await acquireQuerySlot(1, 'new', t0 + SLOT_TTL_SEC * 1000 - 1)).toBe(false);
+    // 已过期：视为空闲，允许重入
+    expect(await acquireQuerySlot(1, 'new', t0 + SLOT_TTL_SEC * 1000)).toBe(true);
+  });
+
+  it('旧请求断开提前释放后跑完 finally，不会误删新请求的槽', async () => {
+    expect(await acquireQuerySlot(1, 'old')).toBe(true);
+    await releaseQuerySlot(1, 'old'); // 模拟 res.on('close') 客户端断开提前释放
+    expect(await acquireQuerySlot(1, 'new')).toBe(true); // 用户立即重试成功
+    await releaseQuerySlot(1, 'old'); // 旧链路跑完 finally 再释放：token 不匹配 → no-op
+    expect(await acquireQuerySlot(1, 'third')).toBe(false); // 新请求的槽仍被正确占用
   });
 });

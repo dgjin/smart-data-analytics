@@ -83,8 +83,12 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
     return res.status(429).json({ code: ERROR_CODES.QUERY_IN_FLIGHT, error: '上一个查询仍在进行中，请等待完成后再试' });
   }
 
-  // L3 上下文层：落库 schema + scope 白名单 + 敏感列过滤 + 5min 缓存（不信任前端提交的 schema）
-  const ctx = await loadSchemaContext(dataSourceId, schema);
+  // 客户端断开（前端 200s 超时 abort / 刷新页面 / 网络闪断）时立即释放并发槽，
+  // 让用户可以马上发起新查询；旧链路继续跑完，finally 里的释放因 token 已不匹配而为 no-op，
+  // 不会误删新请求的槽。正常结束时 writableEnded 为 true，不会重复释放。
+  res.on('close', () => {
+    if (!res.writableEnded) void releaseQuerySlot(user.id, slotToken);
+  });
 
   // P2-7 SSE：客户端请求流式时，live 链路按阶段推送事件（早期校验错误仍返 JSON，前端按 Content-Type 区分）
   const streamMode = req.body.stream === true;
@@ -123,6 +127,11 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   emitBeforeQuery(hookCtx);
 
   try {
+    // L3 上下文层：落库 schema + scope 白名单 + 敏感列过滤 + 5min 缓存（不信任前端提交的 schema）
+    // 必须在并发槽获取之后的同一 try 内执行：StateStore/DB 异常时 finally 才能保证释放槽，
+    // 否则一次抛错会把该用户的并发槽永久卡死（内存模式无 TTL 时只能重启恢复）
+    const ctx = await loadSchemaContext(dataSourceId, schema);
+
     // 数据源级 AI 开关：数据源被停用（disconnected）后拒绝问数
     if (ctx.status === 'disconnected') {
       writeAudit({ ...auditBase, question: query, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
@@ -265,6 +274,18 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       defense,
       dataProvenance: 'simulated',
     });
+  } catch (err: any) {
+    // 兜底：链路未捕获异常（LLM 通道 / DB / StateStore 等）。槽释放由 finally 保证；
+    // 此处补齐响应，避免请求挂起与 unhandledRejection（Express 4 不会自动接管 async 路由异常）
+    console.error('[Query] natural-language failed:', err?.message || err);
+    writeAudit({ ...auditBase, question: query, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    emitAfterQuery(hookCtx, { status: 'ERROR', durationMs: Date.now() - startedAt });
+    if (sseStarted) {
+      sseSend('error', { error: '查询处理异常，请稍后重试' });
+      res.end();
+    } else {
+      res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '查询处理异常，请稍后重试' });
+    }
   // 注意：finally 必须挂在外层 try 上，确保 DENIED_SWITCH 等早退路径也释放并发槽
   } finally {
     await releaseQuerySlot(user.id, slotToken);

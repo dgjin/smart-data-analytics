@@ -8,11 +8,12 @@ import { getStateStore, isRedisEnabled } from './stateStore';
 
 const WINDOW_MS = 60 * 60 * 1000; // 1 小时滑动窗口
 const maxPerWindow = () => Number(process.env.USER_QUERY_RATE_MAX) || 20;
-/** Redis 并发槽 TTL：覆盖最长问数链路耗时，崩溃后自动释放避免永久锁死 */
-const SLOT_TTL_SEC = 15 * 60;
+/** Redis 并发槽 TTL：覆盖最长问数链路耗时，崩溃后自动释放避免永久锁死（内存模式同样以此兜底） */
+export const SLOT_TTL_SEC = 15 * 60;
 
 const hits = new Map<number, number[]>(); // userId -> 窗口内时间戳
-const inflight = new Set<number>(); // 进行中的查询（并发互斥）
+/** 进行中的查询（并发互斥）：token 绑定请求，exp 为兜底过期时间（对齐 Redis 模式 TTL 语义） */
+const inflight = new Map<number, { token: string; exp: number }>();
 
 export interface RateCheck {
   ok: boolean;
@@ -49,8 +50,10 @@ export async function checkUserQueryLimit(userId: number, now: number = Date.now
 /**
  * 并发互斥：同一用户同一时间仅允许一个进行中的查询。
  * Redis 模式为分布式锁（token 绑定请求，释放时比对防误删）；返回 false 表示已有在途查询。
+ * 内存模式同样记录 token 与过期时间：客户端断开可提前释放（见路由 res.on('close')），
+ * 旧链路跑完后的 finally 释放因 token 不匹配为 no-op，不会误删新请求的槽。
  */
-export async function acquireQuerySlot(userId: number, token = 'local'): Promise<boolean> {
+export async function acquireQuerySlot(userId: number, token = 'local', now: number = Date.now()): Promise<boolean> {
   if (isRedisEnabled()) {
     try {
       return await getStateStore().acquireLock(`uqs:${userId}`, token, SLOT_TTL_SEC);
@@ -58,8 +61,9 @@ export async function acquireQuerySlot(userId: number, token = 'local'): Promise
       return false; // fail-closed
     }
   }
-  if (inflight.has(userId)) return false;
-  inflight.add(userId);
+  const cur = inflight.get(userId);
+  if (cur && cur.exp > now) return false;
+  inflight.set(userId, { token, exp: now + SLOT_TTL_SEC * 1000 });
   return true;
 }
 
@@ -72,7 +76,8 @@ export async function releaseQuerySlot(userId: number, token = 'local'): Promise
     }
     return;
   }
-  inflight.delete(userId);
+  const cur = inflight.get(userId);
+  if (cur && cur.token === token) inflight.delete(userId);
 }
 
 // 定期清理过期窗口记录
