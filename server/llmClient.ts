@@ -7,6 +7,14 @@
  */
 import { AsyncLocalStorage } from 'async_hooks';
 import { recordLlmUsage } from './llmUsage';
+import {
+  CircuitBreaker,
+  LatencyWindow,
+  Semaphore,
+  adaptiveTimeoutMs,
+  makeLlmError,
+  withRetry,
+} from './llmResilience';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -26,6 +34,108 @@ const GEMINI_MODEL = 'gemini-3.6-flash';
 const geminiModel = () => overrideModel('gemini') || GEMINI_MODEL;
 
 type EngineKind = 'ollama' | 'gemini' | 'qwen';
+
+// ---------- P0-3 调用韧性：重试 + 引擎级熔断 + 并发排队 + 自适应超时 ----------
+/** 最大重试次数（不含首次，默认 2；仅超时/5xx/网络错误重试，4xx 立即失败） */
+const llmRetryMax = () => {
+  const n = Number(process.env.LLM_RETRY_MAX);
+  return Number.isFinite(n) && n >= 0 ? Math.min(3, Math.floor(n)) : 2;
+};
+/** 每引擎并发上限（默认 4：本地 Ollama 算力有限，超出排队而非打爆推理进程） */
+const llmMaxConcurrent = () => {
+  const n = Number(process.env.LLM_MAX_CONCURRENT);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 4;
+};
+/** 熔断：连续失败开路阈值（默认 3）与冷却期（默认 30s，过后半开单探测） */
+const breakerFailThreshold = () => {
+  const n = Number(process.env.LLM_BREAKER_FAILS);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
+};
+const breakerCooldownMs = () => {
+  const n = Number(process.env.LLM_BREAKER_COOLDOWN_MS);
+  return Number.isFinite(n) && n >= 1000 ? Math.floor(n) : 30_000;
+};
+/** 自适应超时开关（默认开：以近期成功 P95×3 动态收紧配置上限；LLM_ADAPTIVE_TIMEOUT=0 关闭） */
+const adaptiveTimeoutEnabled = () => process.env.LLM_ADAPTIVE_TIMEOUT !== '0';
+
+interface ResilienceState {
+  breakers: Record<EngineKind, CircuitBreaker>;
+  semaphores: Record<EngineKind, Semaphore>;
+  windows: Record<EngineKind, LatencyWindow>;
+}
+let resilience: ResilienceState | null = null;
+function resilienceState(): ResilienceState {
+  if (!resilience) {
+    resilience = {
+      breakers: {
+        ollama: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
+        qwen: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
+        gemini: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
+      },
+      semaphores: {
+        ollama: new Semaphore(llmMaxConcurrent()),
+        qwen: new Semaphore(llmMaxConcurrent()),
+        gemini: new Semaphore(llmMaxConcurrent()),
+      },
+      windows: { ollama: new LatencyWindow(), qwen: new LatencyWindow(), gemini: new LatencyWindow() },
+    };
+  }
+  return resilience;
+}
+
+/** 测试用：重置全部熔断/信号量/耗时窗口状态 */
+export function resetLlmResilienceForTest(): void {
+  resilience = null;
+}
+
+/** 引擎可配置性：ollama 本地默认可试（不可达由熔断接管）；qwen/gemini 需密钥 */
+function engineConfigured(kind: EngineKind): boolean {
+  if (kind === 'ollama') return true;
+  if (kind === 'qwen') return Boolean(process.env.QWEN_API_KEY);
+  return Boolean(process.env.GEMINI_API_KEY);
+}
+
+/**
+ * 引擎级熔断转移：主引擎开路时切换到已配置且未开路的备用引擎
+ * （如 Ollama 连续失败自动切 Qwen）；全部开路时 circuitOpen=true，调用方快速失败不雪崩。
+ */
+export function resolveEngineWithFailover(
+  primary: EngineKind
+): { kind: EngineKind; failovered: boolean; circuitOpen: boolean } {
+  const rs = resilienceState();
+  if (rs.breakers[primary].canRequest()) return { kind: primary, failovered: false, circuitOpen: false };
+  const order: EngineKind[] =
+    primary === 'ollama' ? ['qwen', 'gemini'] : primary === 'qwen' ? ['ollama', 'gemini'] : ['qwen', 'ollama'];
+  for (const alt of order) {
+    if (engineConfigured(alt) && rs.breakers[alt].canRequest()) {
+      console.warn(`[LLM] 引擎 ${primary} 熔断开路，本次调用故障转移到 ${alt}`);
+      return { kind: alt, failovered: true, circuitOpen: false };
+    }
+  }
+  return { kind: primary, failovered: false, circuitOpen: true };
+}
+
+/** 通道调用包装：信号量排队 → 退避重试 → 熔断记账（成功/失败） */
+async function callChannel(kind: EngineKind, fn: () => Promise<ChannelOutcome>): Promise<ChannelOutcome> {
+  const rs = resilienceState();
+  const release = await rs.semaphores[kind].acquire();
+  try {
+    const outcome = await withRetry(fn, {
+      maxRetries: llmRetryMax(),
+      onRetry: (err, attempt, delay) =>
+        console.warn(
+          `[LLM] ${kind} 调用失败，第 ${attempt} 次重试（${delay}ms 后）：${String((err as any)?.message || err).slice(0, 120)}`
+        ),
+    });
+    rs.breakers[kind].onSuccess();
+    return outcome;
+  } catch (err) {
+    rs.breakers[kind].onFailure();
+    throw err;
+  } finally {
+    release();
+  }
+}
 
 /** 阶段级模型路由（P1-2）：调用方可为单次调用指定引擎/模型（如 SQL 生成用快速小模型） */
 export interface LlmStageRoute {
@@ -212,7 +322,10 @@ interface ChannelOutcome {
 /** 通义千问 OpenAI 兼容通道（百炼按量 / Coding Plan 均适用，端点由 QWEN_URL 决定） */
 async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<ChannelOutcome> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), qwenTimeoutMs());
+  // P0-3 自适应超时：近期成功 P95×3 动态收紧配置上限（慢模型不误杀，快模型不被长超时拖死）
+  const configured = qwenTimeoutMs();
+  const timeout = adaptiveTimeoutEnabled() ? adaptiveTimeoutMs(resilienceState().windows.qwen, configured) : configured;
+  const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
     const res = await fetch(`${qwenUrl()}/chat/completions`, {
@@ -232,7 +345,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Qwen API error: ${res.status} ${text}`);
+      throw makeLlmError(`Qwen API error: ${res.status} ${text}`, { status: res.status });
     }
 
     const json: any = await res.json();
@@ -246,7 +359,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
     };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
-      throw new Error(`Qwen 推理超时（超过 ${Math.round(qwenTimeoutMs() / 1000)} 秒）`, { cause: err });
+      throw makeLlmError(`Qwen 推理超时（超过 ${Math.round(timeout / 1000)} 秒）`, { code: 'TIMEOUT', cause: err });
     }
     throw err;
   } finally {
@@ -256,7 +369,9 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
 
 async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<ChannelOutcome> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ollamaTimeoutMs());
+  const configured = ollamaTimeoutMs();
+  const timeout = adaptiveTimeoutEnabled() ? adaptiveTimeoutMs(resilienceState().windows.ollama, configured) : configured;
+  const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
     const res = await fetch(`${ollamaUrl()}/api/chat`, {
@@ -275,7 +390,7 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverr
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Ollama API error: ${res.status} ${text}`);
+      throw makeLlmError(`Ollama API error: ${res.status} ${text}`, { status: res.status });
     }
 
     const json: any = await res.json();
@@ -288,7 +403,7 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverr
     };
   } catch (err: any) {
     if (err?.name === 'AbortError') {
-      throw new Error(`Ollama 推理超时（超过 ${Math.round(ollamaTimeoutMs() / 1000)} 秒）`, { cause: err });
+      throw makeLlmError(`Ollama 推理超时（超过 ${Math.round(timeout / 1000)} 秒）`, { code: 'TIMEOUT', cause: err });
     }
     throw err;
   } finally {
@@ -310,16 +425,31 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
 
   // 阶段路由仅在用户未自选模型时生效（用户显式选择始终优先）
   const route = overrideStore.getStore()?.model ? undefined : opts?.route;
-  const kind: EngineKind = route ? route.engine : engineKind();
-  const usedModel = kind === 'ollama' ? route?.model || llmModel() : kind === 'qwen' ? route?.model || qwenModel() : route?.model || geminiModel();
+  // P0-3 引擎级熔断转移：主引擎开路（如 Ollama 连续失败）自动切已配置备用引擎（如 Qwen）
+  const primary: EngineKind = route ? route.engine : engineKind();
+  const { kind, failovered, circuitOpen } = resolveEngineWithFailover(primary);
+  // 全部引擎开路：快速失败（埋点 ok:false），不再发起网络调用防止雪崩
+  if (circuitOpen) {
+    const err = makeLlmError(`LLM 引擎 ${primary} 熔断开路中（冷却期后自动恢复），请稍后重试`, { code: 'CIRCUIT_OPEN' });
+    recordUsage({ engine: primary, model: '', channel: 'json', promptTokens: 0, completionTokens: 0, durationMs: 0, ok: false });
+    throw err;
+  }
+  // 故障转移后阶段路由的模型名不适用于目标引擎，回落目标引擎默认模型
+  const effectiveRoute = failovered ? undefined : route;
+  const usedModel =
+    kind === 'ollama'
+      ? effectiveRoute?.model || llmModel()
+      : kind === 'qwen'
+        ? effectiveRoute?.model || qwenModel()
+        : effectiveRoute?.model || geminiModel();
 
   // P2-4 成本埋点：统一计时，成功/失败均落库（fire-and-forget）
   const t0 = Date.now();
   try {
-    let outcome: ChannelOutcome;
-    if (kind === 'ollama') outcome = await ollamaChat(messages, true, route?.model);
-    else if (kind === 'qwen') outcome = await qwenChat(messages, true, route?.model);
-    else {
+    // P0-3：信号量并发排队 + 退避重试 + 熔断记账
+    const outcome = await callChannel(kind, async (): Promise<ChannelOutcome> => {
+      if (kind === 'ollama') return ollamaChat(messages, true, effectiveRoute?.model);
+      if (kind === 'qwen') return qwenChat(messages, true, effectiveRoute?.model);
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const contents = [
@@ -330,7 +460,7 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
         { role: 'user', parts: [{ text: user }] },
       ];
       const response = await ai.models.generateContent({
-        model: route?.model || geminiModel(),
+        model: effectiveRoute?.model || geminiModel(),
         contents,
         config: {
           systemInstruction: system,
@@ -338,13 +468,16 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
         },
       });
       const um = (response as any)?.usageMetadata;
-      outcome = {
+      return {
         text: response.text || '{}',
-        usage: um && (Number(um.promptTokenCount) > 0 || Number(um.candidatesTokenCount) > 0)
-          ? { promptTokens: Number(um.promptTokenCount) || 0, completionTokens: Number(um.candidatesTokenCount) || 0 }
-          : undefined,
+        usage:
+          um && (Number(um.promptTokenCount) > 0 || Number(um.candidatesTokenCount) > 0)
+            ? { promptTokens: Number(um.promptTokenCount) || 0, completionTokens: Number(um.candidatesTokenCount) || 0 }
+            : undefined,
       };
-    }
+    });
+    // 自适应超时样本：仅记录成功调用耗时
+    resilienceState().windows[kind].record(Date.now() - t0);
     recordUsage({
       engine: kind,
       model: usedModel,
@@ -366,28 +499,35 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
  * 与 callLLMJson 的区别仅是不要求 JSON 输出格式。
  */
 export async function callLLMText(system: string, user: string): Promise<string> {
-  const kind = engineKind();
+  const primary = engineKind();
+  const { kind, circuitOpen } = resolveEngineWithFailover(primary);
+  if (circuitOpen) {
+    const err = makeLlmError(`LLM 引擎 ${primary} 熔断开路中（冷却期后自动恢复），请稍后重试`, { code: 'CIRCUIT_OPEN' });
+    recordUsage({ engine: primary, model: '', channel: 'text', promptTokens: 0, completionTokens: 0, durationMs: 0, ok: false });
+    throw err;
+  }
   const usedModel = kind === 'ollama' ? llmModel() : kind === 'qwen' ? qwenModel() : geminiModel();
   const t0 = Date.now();
   try {
-    let outcome: ChannelOutcome;
-    if (kind === 'ollama') {
-      outcome = await ollamaChat(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        false
-      );
-    } else if (kind === 'qwen') {
-      outcome = await qwenChat(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        false
-      );
-    } else {
+    const outcome = await callChannel(kind, async (): Promise<ChannelOutcome> => {
+      if (kind === 'ollama') {
+        return ollamaChat(
+          [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          false
+        );
+      }
+      if (kind === 'qwen') {
+        return qwenChat(
+          [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          false
+        );
+      }
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const response = await ai.models.generateContent({
@@ -396,13 +536,15 @@ export async function callLLMText(system: string, user: string): Promise<string>
         config: { systemInstruction: system },
       });
       const um = (response as any)?.usageMetadata;
-      outcome = {
+      return {
         text: response.text || '',
-        usage: um && (Number(um.promptTokenCount) > 0 || Number(um.candidatesTokenCount) > 0)
-          ? { promptTokens: Number(um.promptTokenCount) || 0, completionTokens: Number(um.candidatesTokenCount) || 0 }
-          : undefined,
+        usage:
+          um && (Number(um.promptTokenCount) > 0 || Number(um.candidatesTokenCount) > 0)
+            ? { promptTokens: Number(um.promptTokenCount) || 0, completionTokens: Number(um.candidatesTokenCount) || 0 }
+            : undefined,
       };
-    }
+    });
+    resilienceState().windows[kind].record(Date.now() - t0);
     recordUsage({
       engine: kind,
       model: usedModel,

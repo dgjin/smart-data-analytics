@@ -16,10 +16,10 @@ export interface EvalCase {
   goldenSql: string;
   /** Top-N 类用例结果行序有意义（ORDER BY + LIMIT），按行序比较 */
   ordered?: boolean;
-  /** 难度分类（六类分层）：single_agg/join/time/subquery/clarify/refuse，用于分层统计 */
-  category?: string;
-  /** 期望结果：result=执行准确率（默认）；clarify=应澄清；refuse=应拒答 */
-  expect?: 'result' | 'clarify' | 'refuse';
+  /** 难度分类（六类分层）：single_agg/join/time/subquery/clarify/refuse；加载时缺省补 single_agg */
+  category: string;
+  /** 期望结果：result=执行准确率；clarify=应澄清；refuse=应拒答；加载时缺省补 result */
+  expect: 'result' | 'clarify' | 'refuse';
 }
 
 export interface EvalSuite {

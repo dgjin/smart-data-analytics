@@ -97,9 +97,9 @@ describe('P0-1 六类分层扩展', () => {
 
   it('computeCategoryStats 按 category 聚合 total/pass/accuracy', () => {
     const cases = [
-      { id: 'a', question: '', goldenSql: 'SELECT 1', category: 'single_agg' },
-      { id: 'b', question: '', goldenSql: 'SELECT 1', category: 'single_agg' },
-      { id: 'c', question: '', goldenSql: 'SELECT 1', category: 'join' },
+      { id: 'a', question: '', goldenSql: 'SELECT 1', category: 'single_agg', expect: 'result' as const },
+      { id: 'b', question: '', goldenSql: 'SELECT 1', category: 'single_agg', expect: 'result' as const },
+      { id: 'c', question: '', goldenSql: 'SELECT 1', category: 'join', expect: 'result' as const },
     ];
     const results = [
       { caseId: 'a', question: '', status: 'pass' as const, durationMs: 0 },
