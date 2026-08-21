@@ -8,6 +8,8 @@ export const ERROR_CODES = {
   INVALID_INPUT: 'INVALID_INPUT',
   /** 角色或权限不足（含越权访问他人资源） */
   FORBIDDEN: 'FORBIDDEN',
+  /** P2-11 无该数据源访问权限（可通过权限申请审批流开通） */
+  DS_ACCESS_DENIED: 'DS_ACCESS_DENIED',
   /** 管理员已停用该数据源的智能问数功能 */
   AI_SWITCHED_OFF: 'AI_SWITCHED_OFF',
   /** 触发限流 */

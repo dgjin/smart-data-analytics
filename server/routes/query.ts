@@ -23,6 +23,7 @@ import { runSimulatedQuery } from '../simulatedQuery';
 import { runDrill } from '../drill';
 import { executeSafeSql } from '../sqlExecutor';
 import { saveFeedback } from '../queryFeedback';
+import { checkDataSourceAccess } from '../accessControl';
 import { recordConversation } from '../conversationHistory';
 import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from '../queryCache';
 import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from '../queryTrace';
@@ -49,6 +50,12 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
     writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无问数权限`, durationMs: Date.now() - startedAt });
     return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有智能问数权限' });
+  }
+
+  // P2-11 数据源访问控制：非 ADMIN 需命中部门/个人授权清单
+  if (auditBase.dataSourceId && !(await checkDataSourceAccess(user, auditBase.dataSourceId))) {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: '无数据源访问权限（ACL）', durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.DS_ACCESS_DENIED, error: '没有该数据源的访问权限，可向管理员申请开通' });
   }
 
   // L1 输入层：控制字符过滤 + 注入特征拒绝 + 500 字截断
@@ -377,7 +384,11 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: clean.reason });
   }
 
-  // 模型自选：与问数路由同构（可选，非法值直接拒绝）
+  // P2-11 数据源访问控制
+  if (dsIdStr && !(await checkDataSourceAccess(user, dsIdStr))) {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: '无数据源访问权限（ACL）', durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.DS_ACCESS_DENIED, error: '没有该数据源的访问权限，可向管理员申请开通' });
+  }
   const bodyModel = req.body.model && typeof req.body.model === 'object' ? req.body.model : {};
   const modelSel = validateModelSelection(bodyModel.engine, bodyModel.model);
   if (modelSel && 'error' in modelSel) {
@@ -454,6 +465,11 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
 
   if (typeof dataSourceId !== 'string' || !dataSourceId || typeof sql !== 'string' || !sql.trim()) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'dataSourceId 与 sql 必填' });
+  }
+  // P2-11 数据源访问控制
+  if (!(await checkDataSourceAccess(user, dataSourceId))) {
+    writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_AUTH', detail: '无数据源访问权限（ACL）', durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.DS_ACCESS_DENIED, error: '没有该数据源的访问权限，可向管理员申请开通' });
   }
   // v0.4.13：灵活查询可组合多指标/多筛选/HAVING，复杂 SQL 放宽至 10000 字符
   if (sql.length > 10000) {
@@ -544,10 +560,14 @@ router.post('/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
   if (originalSql.length > 10000) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
+  // P2-11 数据源访问控制
+  if (!(await checkDataSourceAccess(user, dataSourceId))) {
+    return res.status(403).json({ code: ERROR_CODES.DS_ACCESS_DENIED, error: '没有该数据源的访问权限，可向管理员申请开通' });
+  }
 
   const ctx = await loadSchemaContext(dataSourceId, undefined);
   if (ctx.status === 'disconnected') {
-    return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
+    return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已 被管理员停用' });
   }
 
   const outcome = await runDrill({

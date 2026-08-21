@@ -9,6 +9,7 @@ import pg from 'pg';
 import { authMiddleware, requireRole } from '../auth';
 import { getPool } from '../db';
 import { sanitizeDataScope } from '../scope';
+import { canAccessDataSource, checkDataSourceAccess, parseAcl, sanitizeAcl } from '../accessControl';
 import { invalidateSchemaCache } from '../schemaContext';
 import { invalidateExecutorPool } from '../sqlExecutor';
 import { computeDataVersion } from '../dataVersion';
@@ -36,6 +37,8 @@ function rowToDataSource(row: any) {
     config: safeConfig,
     tables: safeJson(row.schema_json, []),
     scope: safeJson(row.scope_json, null),
+    // P2-11 访问控制清单（仅 ADMIN 下发；非管理员由列表接口剥离）
+    acl: parseAcl(row.acl_json),
     // 管理员登记的专业快速问题推荐（优先于前端通用 Schema 推导）
     quickQuestions: safeJson(row.quick_questions_json, null),
     allowIntrospection: Number(row.allow_introspection) === 1,
@@ -220,15 +223,33 @@ function safeJson(text: any, fallback: any) {
 // GET /api/datasources（所有登录用户）
 // 表结构详情（tables）仅 ADMIN 可见；其他角色剥离 tables 并附 tableCount 供徽标展示。
 // 问数链路不依赖该字段（服务端 loadSchemaContext 直接读落库 schema），功能不受影响。
+// P2-11 访问控制：非 ADMIN 对无权限的数据源仅下发最小信息 + accessDenied 标记（供「申请权限」入口展示）。
 router.get('/', async (req, res) => {
   try {
-    const isAdmin = req.user?.role === 'ADMIN';
+    const user = req.user;
+    const isAdmin = user?.role === 'ADMIN';
     const [rows] = await getPool().query('SELECT * FROM data_sources ORDER BY created_at ASC');
     return res.json({
       dataSources: (rows as any[]).map((row) => {
         const ds = rowToDataSource(row);
         if (isAdmin) return ds;
-        const { tables, ...rest } = ds;
+        if (!canAccessDataSource(user, ds.acl)) {
+          return {
+            id: ds.id,
+            name: ds.name,
+            type: ds.type,
+            status: ds.status,
+            accessDenied: true,
+            config: {},
+            tables: [],
+            tableCount: 0,
+            scope: null,
+            quickQuestions: null,
+            allowIntrospection: false,
+            lastSyncedAt: ds.lastSyncedAt,
+          };
+        }
+        const { tables, acl: _acl, ...rest } = ds;
         return { ...rest, tables: [], tableCount: (tables as any[]).length };
       }),
     });
@@ -257,9 +278,13 @@ router.get('/:id/data-version', async (req, res) => {
 // GET /api/datasources/:id/flex-schema（ADMIN/ANALYST）
 // v0.4.9 灵活查询：拖拉拽构建器需要表/列结构；列表接口对非 ADMIN 不下发 tables 详情，
 // 此端点单独开放只读 schema（执行仍受 executeSafeSql 白名单 + 敏感列 + 行级过滤约束）。
+// P2-11：同样受数据源 ACL 约束（无权限的分析师不可绕过列表限制读取 schema）。
 router.get('/:id/flex-schema', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const dataSourceId = String(req.params.id || '');
   try {
+    if (!(await checkDataSourceAccess(req.user!, dataSourceId))) {
+      return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
+    }
     const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [dataSourceId]);
     const list = rows as any[];
     if (!list.length) return res.status(404).json({ error: '数据源不存在' });
@@ -532,6 +557,27 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
   } catch (err) {
     console.error('[DataSources] update schema-meta failed:', err);
     return res.status(500).json({ error: '指标维度维护保存失败' });
+  }
+});
+
+// PUT /api/datasources/:id/acl（ADMIN）
+// P2-11 访问控制清单：body { departments?: string[], userIds?: number[] }，空对象/空数组 = 解除限制（全员可见）
+router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
+  const id = String(req.params.id);
+  try {
+    const [rows] = await getPool().query('SELECT id FROM data_sources WHERE id = ?', [id]);
+    if (!(rows as any[])[0]) return res.status(404).json({ error: '数据源不存在' });
+
+    const acl = sanitizeAcl(req.body);
+    await getPool().query('UPDATE data_sources SET acl_json = ? WHERE id = ?', [
+      acl ? JSON.stringify(acl) : null,
+      id,
+    ]);
+    const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
+  } catch (err) {
+    console.error('[DataSources] update acl failed:', err);
+    return res.status(500).json({ error: '访问控制保存失败' });
   }
 });
 

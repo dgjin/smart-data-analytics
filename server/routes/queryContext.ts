@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { authMiddleware, requireRole } from '../auth';
 import { loadSchemaContext } from '../schemaContext';
+import { checkDataSourceAccess } from '../accessControl';
 import { MAX_TABLES_IN_PROMPT } from '../schemaLinking';
 
 const router = Router();
@@ -39,6 +40,10 @@ router.get('/context', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const dataSourceId = String(req.query.dataSourceId || '');
   if (!dataSourceId) return res.status(400).json({ error: 'dataSourceId 必填' });
   try {
+    // P2-11 数据源访问控制：无权限不暴露任何上下文信息
+    if (!(await checkDataSourceAccess(req.user!, dataSourceId))) {
+      return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
+    }
     // 不传前端 schema：完全以服务端落库上下文为准（与问数执行链路同源）
     const ctx = await loadSchemaContext(dataSourceId, []);
     return res.json(buildContextSummary(ctx, req.user?.role === 'ADMIN'));

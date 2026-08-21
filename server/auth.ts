@@ -15,6 +15,8 @@ export interface AuthUser {
   username: string;
   displayName: string;
   role: UserRole;
+  /** P2-11 组织维度：所属部门（数据源授权按部门匹配；未设置为空串） */
+  department?: string;
   /** 首登/被重置密码后置位：改密前禁止访问一切业务接口（/api/auth 放行） */
   mustChangePassword?: boolean;
 }
@@ -69,7 +71,7 @@ export async function authMiddleware(
 
   try {
     const [rows] = await getPool().query(
-      'SELECT id, username, display_name, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, username, display_name, department, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
       [payload.sub]
     );
     const user = (rows as any[])[0];
@@ -80,6 +82,7 @@ export async function authMiddleware(
       id: user.id,
       username: user.username,
       displayName: user.display_name,
+      department: user.department || '',
       role: user.role,
       mustChangePassword: !!user.must_change_password,
     };

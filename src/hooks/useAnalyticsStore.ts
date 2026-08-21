@@ -282,9 +282,11 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       if (!Array.isArray(data.dataSources)) return;
       const list = data.dataSources as DataSource[];
       set((state) => {
-        const stillValid = list.some((d) => d.id === state.activeDataSourceId);
-        const nextActiveId = stillValid ? state.activeDataSourceId : list[0]?.id || '';
-        const nextActiveDS = list.find((d) => d.id === nextActiveId);
+        // P2-11：无访问权限（accessDenied）的数据源不可作为活跃源（选择器也不展示）
+        const accessible = list.filter((d) => !d.accessDenied);
+        const stillValid = accessible.some((d) => d.id === state.activeDataSourceId);
+        const nextActiveId = stillValid ? state.activeDataSourceId : accessible[0]?.id || '';
+        const nextActiveDS = accessible.find((d) => d.id === nextActiveId);
         return {
           dataSources: list,
           activeDataSourceId: nextActiveId,

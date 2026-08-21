@@ -8,6 +8,8 @@ export interface AuthUser {
   username: string;
   displayName: string;
   role: UserRole;
+  /** P2-11 组织维度：所属部门（数据源授权的部门匹配键） */
+  department?: string;
   /** 首登/被重置密码后置位：改密前只能进入强制改密页 */
   mustChangePassword?: boolean;
 }
@@ -62,6 +64,10 @@ export interface DataSource {
   allowIntrospection?: boolean;
   /** 表数量（非管理员不下发 tables 详情时由服务端提供，供 UI 徽标展示） */
   tableCount?: number;
+  /** P2-11：当前用户无访问权限时为 true（仅下发 id/name/type 等最小信息，可申请权限） */
+  accessDenied?: boolean;
+  /** P2-11 访问控制清单（仅 ADMIN 下发）：空/null = 全员可见 */
+  acl?: { departments: string[]; userIds: number[] } | null;
   scope?: DataScope | null;
   /** 管理员登记的专业快速问题推荐（优先于通用 Schema 推导的推荐问题） */
   quickQuestions?: string[] | null;

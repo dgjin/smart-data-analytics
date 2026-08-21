@@ -26,6 +26,7 @@ import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
 import skillRoutes from './server/routes/skills';
 import queryContextRoutes from './server/routes/queryContext';
+import accessRequestRoutes from './server/routes/accessRequests';
 import helpRoutes from './server/routes/help';
 // P1-4 路由拆分：问数主链路 / 对话历史 / 报告三条业务线从本文件迁出
 import queryRoutes from './server/routes/query';
@@ -157,6 +158,8 @@ async function startServer() {
   app.use('/api/query-reports', queryReportRoutes);
   // P0-4 在线准确率度量看板（见 server/routes/opsMetrics.ts）
   app.use('/api/ops', opsMetricsRoutes);
+  // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）
+  app.use('/api/access-requests', accessRequestRoutes);
 
   // Vite development middleware or production static handling
   if (process.env.NODE_ENV !== 'production') {

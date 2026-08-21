@@ -25,7 +25,7 @@ async function countActiveAdmins(excludeId?: number): Promise<number> {
 router.get('/users', async (_req, res) => {
   try {
     const [rows] = await getPool().query(
-      `SELECT id, username, display_name AS displayName, role, status, must_change_password AS mustChangePassword,
+      `SELECT id, username, display_name AS displayName, department, role, status, must_change_password AS mustChangePassword,
               created_at AS createdAt, last_login_at AS lastLoginAt
        FROM users ORDER BY id ASC`
     );
@@ -36,9 +36,9 @@ router.get('/users', async (_req, res) => {
   }
 });
 
-// POST /api/admin/users { username, password, displayName, role }
+// POST /api/admin/users { username, password, displayName, role, department? }
 router.post('/users', async (req, res) => {
-  const { username, password, displayName, role } = req.body || {};
+  const { username, password, displayName, role, department } = req.body || {};
   if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) {
     return res.status(400).json({ error: '用户名需为 3-20 位字母、数字或下划线' });
   }
@@ -56,13 +56,13 @@ router.post('/users', async (req, res) => {
 
   try {
     const [result] = await getPool().query(
-      'INSERT INTO users (username, password_hash, display_name, role, must_change_password) VALUES (?, ?, ?, ?, 1)',
-      [username, hashPassword(password), String(displayName || username).slice(0, 50), role]
+      'INSERT INTO users (username, password_hash, display_name, department, role, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
+      [username, hashPassword(password), String(displayName || username).slice(0, 50), String(department || '').trim().slice(0, 100), role]
     );
     const insertId = (result as any).insertId;
     return res.status(201).json({
       success: true,
-      user: { id: insertId, username, displayName: displayName || username, role, status: 'ACTIVE' },
+      user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE' },
     });
   } catch (err: any) {
     if (err?.code === 'ER_DUP_ENTRY') {
@@ -73,20 +73,25 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:id { displayName?, role?, status? }
+// PUT /api/admin/users/:id { displayName?, role?, status?, department? }
 router.put('/users/:id', async (req, res) => {
   const targetId = Number(req.params.id);
   if (!Number.isInteger(targetId)) {
     return res.status(400).json({ error: '用户 ID 无效' });
   }
 
-  const { displayName, role, status } = req.body || {};
+  const { displayName, role, status, department } = req.body || {};
   const updates: string[] = [];
   const params: any[] = [];
 
   if (displayName !== undefined) {
     updates.push('display_name = ?');
     params.push(String(displayName).slice(0, 50));
+  }
+  if (department !== undefined) {
+    // P2-11 组织维度：部门是数据源授权的匹配键，仅管理员可改（防止用户自助改部门越权）
+    updates.push('department = ?');
+    params.push(String(department).trim().slice(0, 100));
   }
   if (role !== undefined) {
     if (!VALID_ROLES.includes(role)) {

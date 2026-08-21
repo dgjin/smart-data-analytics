@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Sparkles, LogIn, AlertCircle, RefreshCw } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Sparkles, LogIn, AlertCircle, RefreshCw, KeySquare } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 
 export const Login: React.FC = () => {
@@ -8,6 +8,21 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // P2-11 OIDC：服务端配置了 OIDC_ISSUER + OIDC_CLIENT_ID 时展示企业统一登录入口
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/auth/oidc/status')
+      .then((r) => r.json())
+      .then((d) => setOidcEnabled(!!d?.enabled))
+      .catch(() => setOidcEnabled(false));
+    // OIDC 回调失败的重定向错误（/?sso_error=...）
+    const ssoError = new URLSearchParams(window.location.search).get('sso_error');
+    if (ssoError) {
+      setError(ssoError);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,6 +106,24 @@ export const Login: React.FC = () => {
             )}
             <span>{isSubmitting ? '登录中…' : '登 录'}</span>
           </button>
+
+          {/* P2-11 企业统一身份认证（OIDC）入口 */}
+          {oidcEnabled && (
+            <>
+              <div className="flex items-center space-x-3 text-[11px] text-slate-500">
+                <div className="flex-1 h-px bg-slate-800" />
+                <span>或</span>
+                <div className="flex-1 h-px bg-slate-800" />
+              </div>
+              <a
+                href="/api/auth/oidc/login"
+                className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm font-semibold transition-all"
+              >
+                <KeySquare className="w-4 h-4 text-cyan-400" />
+                <span>企业统一登录（SSO）</span>
+              </a>
+            </>
+          )}
 
           <p className="text-[11px] text-slate-500 text-center leading-relaxed">
             初始账号：admin / admin123<br />

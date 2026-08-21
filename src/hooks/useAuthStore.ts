@@ -6,6 +6,8 @@ interface AuthState {
   token: string | null;
   user: AuthUser | null;
   login: (username: string, password: string) => Promise<void>;
+  /** P2-11 OIDC 回跳：用 SSO 换发的本地 JWT 完成登录（拉取 /api/auth/me 校验并填充用户） */
+  loginWithToken: (token: string) => Promise<void>;
   logout: () => void;
   hasRole: (...roles: UserRole[]) => boolean;
   /** 改密成功后清除标记，退出强制改密页 */
@@ -34,6 +36,19 @@ export const useAuthStore = create<AuthState>()(
         // 切换账号时清理上一个账号的本地分析缓存
         localStorage.removeItem('analytics-store');
         set({ token: data.token, user: data.user });
+      },
+
+      // P2-11 OIDC 回跳：服务端已在回调里完成 JIT 建号并签发本地 JWT
+      loginWithToken: async (token) => {
+        const response = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'SSO 登录校验失败');
+        }
+        localStorage.removeItem('analytics-store');
+        set({ token, user: data.user });
       },
 
       logout: () => {

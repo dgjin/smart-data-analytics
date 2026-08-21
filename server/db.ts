@@ -91,6 +91,13 @@ export async function initSchema(): Promise<void> {
     if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // P2-11 组织维度：用户所属部门（数据源授权按部门匹配；OIDC JIT 建号时从 IdP claim 同步）
+  try {
+    await pool.query("ALTER TABLE users ADD COLUMN department VARCHAR(100) NOT NULL DEFAULT '' AFTER display_name");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS data_sources (
       id VARCHAR(64) PRIMARY KEY,
@@ -119,6 +126,34 @@ export async function initSchema(): Promise<void> {
   } catch (err: any) {
     if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
   }
+
+  // P2-11 数据源访问控制清单（ACL）：{ departments: string[], userIds: number[] }；
+  // NULL 或两组皆空 = 不限制（全员可见），非空 = 仅 ADMIN/清单内部门成员/清单内用户可访问
+  try {
+    await pool.query('ALTER TABLE data_sources ADD COLUMN acl_json TEXT NULL AFTER scope_json');
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // P2-11 权限申请审批流：用户申请数据源访问权 → ADMIN 审批 → 通过自动并入该数据源 acl_json.userIds
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS permission_requests (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL DEFAULT '',
+      department VARCHAR(100) NOT NULL DEFAULT '',
+      data_source_id VARCHAR(64) NOT NULL,
+      reason VARCHAR(500) NOT NULL DEFAULT '',
+      status ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+      approver VARCHAR(50) NOT NULL DEFAULT '',
+      decide_note VARCHAR(300) NOT NULL DEFAULT '',
+      decided_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_perm_req_status (status, created_at),
+      INDEX idx_perm_req_user (user_id, data_source_id),
+      INDEX idx_perm_req_ds (data_source_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 
   // L6 审计层：智能问数全链路审计（含被拒绝的请求）
   await pool.query(`

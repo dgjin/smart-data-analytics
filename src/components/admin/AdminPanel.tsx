@@ -20,11 +20,13 @@ import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
 import { ReportTemplateManager } from './ReportTemplateManager';
 import { MetricsPanel } from './MetricsPanel';
+import { AccessRequestsPanel } from './AccessRequestsPanel';
 
 interface AdminUser {
   id: number;
   username: string;
   displayName: string;
+  department?: string;
   role: UserRole;
   status: 'ACTIVE' | 'DISABLED';
   mustChangePassword?: boolean;
@@ -47,8 +49,8 @@ const ROLE_BADGE: Record<UserRole, string> = {
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
 
-  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 指标治理（P1-8）/ 报告模板（v0.5.0）
-  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'metrics' | 'templates'>('users');
+  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 指标治理（P1-8）/ 权限审批（P2-11）/ 报告模板（v0.5.0）
+  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'metrics' | 'access' | 'templates'>('users');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,6 +61,7 @@ export const AdminPanel: React.FC = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newDepartment, setNewDepartment] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('ANALYST');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -105,6 +108,7 @@ export const AdminPanel: React.FC = () => {
           username: newUsername.trim(),
           displayName: newDisplayName.trim() || newUsername.trim(),
           password: newPassword,
+          department: newDepartment.trim(),
           role: newRole,
         }),
       });
@@ -115,6 +119,7 @@ export const AdminPanel: React.FC = () => {
       setNewUsername('');
       setNewDisplayName('');
       setNewPassword('');
+      setNewDepartment('');
       setNewRole('ANALYST');
       loadUsers();
     } catch (err: any) {
@@ -153,6 +158,24 @@ export const AdminPanel: React.FC = () => {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || '重置失败');
       showNotice('success', `已重置 ${u.username} 的密码`);
+    } catch (err: any) {
+      showNotice('error', err.message);
+    }
+  };
+
+  const handleEditDepartment = async (u: AdminUser) => {
+    const input = window.prompt(`修改用户 ${u.username} 的所属部门（数据源授权按部门匹配，留空为未设置）:`, u.department || '');
+    if (input === null) return;
+    try {
+      const res = await apiFetch(`/api/admin/users/${u.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ department: input.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
+      showNotice('success', `已更新 ${u.username} 的部门为「${input.trim() || '未设置'}」`);
+      loadUsers();
     } catch (err: any) {
       showNotice('error', err.message);
     }
@@ -237,6 +260,17 @@ export const AdminPanel: React.FC = () => {
             <span>指标治理</span>
           </button>
           <button
+            onClick={() => setSection('access')}
+            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+              section === 'access'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>权限审批</span>
+          </button>
+          <button
             onClick={() => setSection('templates')}
             className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
               section === 'templates'
@@ -291,7 +325,7 @@ export const AdminPanel: React.FC = () => {
             <span>创建新账号</span>
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
             <div className="space-y-1">
               <label className="text-slate-300 font-medium">用户名 (3-20位字母/数字/下划线):</label>
               <input
@@ -321,6 +355,17 @@ export const AdminPanel: React.FC = () => {
                 placeholder="初始密码"
                 autoComplete="new-password"
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-slate-300 font-medium">部门（P2-11 授权匹配键，可选）:</label>
+              <input
+                type="text"
+                value={newDepartment}
+                onChange={(e) => setNewDepartment(e.target.value)}
+                placeholder="例如: 财务部"
+                maxLength={100}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
               />
             </div>
             <div className="space-y-1">
@@ -386,6 +431,7 @@ export const AdminPanel: React.FC = () => {
               <tr className="text-left text-slate-400 border-b border-slate-800 bg-slate-950/50">
                 <th className="px-5 py-3 font-medium">用户名</th>
                 <th className="px-5 py-3 font-medium">显示名称</th>
+                <th className="px-5 py-3 font-medium">部门</th>
                 <th className="px-5 py-3 font-medium">角色</th>
                 <th className="px-5 py-3 font-medium">状态</th>
                 <th className="px-5 py-3 font-medium">最近登录</th>
@@ -414,6 +460,15 @@ export const AdminPanel: React.FC = () => {
                       )}
                     </td>
                     <td className="px-5 py-3">{u.displayName}</td>
+                    <td className="px-5 py-3">
+                      <button
+                        onClick={() => handleEditDepartment(u)}
+                        title="点击修改部门（数据源授权按部门匹配）"
+                        className="text-slate-300 hover:text-indigo-300 transition-colors"
+                      >
+                        {u.department || <span className="text-slate-500">未设置</span>}
+                      </button>
+                    </td>
                     <td className="px-5 py-3">
                       <span
                         className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${ROLE_BADGE[u.role]}`}
@@ -472,7 +527,7 @@ export const AdminPanel: React.FC = () => {
               })}
               {!isLoading && users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
+                  <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
                     暂无用户数据
                   </td>
                 </tr>
@@ -493,7 +548,10 @@ export const AdminPanel: React.FC = () => {
       {/* ============ 区块四：指标层治理（P1-8 提议-审批-版本化） ============ */}
       {section === 'metrics' && <MetricsPanel />}
 
-      {/* ============ 区块五：报告模板管理（v0.5.0） ============ */}
+      {/* ============ 区块五：数据源权限审批（P2-11 申请-审批-授权） ============ */}
+      {section === 'access' && <AccessRequestsPanel />}
+
+      {/* ============ 区块六：报告模板管理（v0.5.0） ============ */}
       {section === 'templates' && <ReportTemplateManager />}
     </div>
   );

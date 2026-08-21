@@ -18,7 +18,21 @@ const QueryReportCenter = lazy(() => import('./components/reports/QueryReportCen
 
 export default function App() {
   const { activeTab, setActiveTab, loadDataSources } = useAnalyticsStore();
-  const { token, user } = useAuthStore();
+  const { token, user, loginWithToken } = useAuthStore();
+
+  // P2-11 OIDC 回跳：/api/auth/oidc/callback 签发本地 JWT 后重定向回 /?sso_token=...
+  // （失败时带 sso_error，登录页读取并展示）
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ssoToken = params.get('sso_token');
+    if (!ssoToken) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    loginWithToken(ssoToken).catch((err) => {
+      console.error('[SSO] 登录态校验失败:', err);
+      window.history.replaceState(null, '', `/?sso_error=${encodeURIComponent(err?.message || 'SSO 登录失败')}`);
+      window.location.reload();
+    });
+  }, [loginWithToken]);
 
   // 登录后从服务端加载数据源
   useEffect(() => {
