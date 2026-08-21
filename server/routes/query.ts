@@ -176,7 +176,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         approvedPlan = consumed.plan;
       }
 
-      // P1-6 结果缓存：L1 归一化精确 + L2 embedding 语义（阈值默认 0.85 实测标定，误命中代价高故保守）；
+      // P1-6 结果缓存：L1 归一化精确 + L2 embedding 语义（阈值默认 0.95，同域近似问题 0.85~0.95 区间误命中会答非所问，宁缺毋滥）；
       // 缓存键含模型变体，避免跨模型串用；refreshCache=true 跳过缓存读（用户对缓存结果的强制刷新入口）
       const ck = cacheKey(dataSourceId, query, cacheVariant);
       const skipCacheRead = req.body.refreshCache === true;

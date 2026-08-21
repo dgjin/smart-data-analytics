@@ -207,7 +207,9 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
       const res = await fetch(`${baseUrl}/api/query/natural-language`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ query: c.question, dataSourceId }),
+        // refreshCache=true：评测测的是 LLM 全链路准确率，必须旁路 L1/L2 结果缓存，
+        // 否则同域近似问题会命中彼此缓存导致测量失真（P1-7 基线评测实测污染）
+        body: JSON.stringify({ query: c.question, dataSourceId, refreshCache: true }),
         signal: controller.signal,
       });
       clearTimeout(timer);

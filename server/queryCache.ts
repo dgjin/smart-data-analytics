@@ -108,13 +108,15 @@ export async function invalidateQueryCache(dataSourceId?: string): Promise<void>
 
 /**
  * 语义命中阈值：误命中代价高（答非所问），需保守。
- * 默认 0.85 为实测标定值（nomic-embed-text 中文问数场景）：同义改写 0.85~0.97、语义无关 ≤0.68，
- * 0.85 在「同义可命中」与「无误命中」间留出 0.17 安全边距；计划初始值 0.95 实测过于严格（同义对峰值 0.906 不命中，功能失效）。
+ * 默认 0.95（与计划要求 ≥0.95 一致）。nomic-embed-text 中文问数实测标定：跨域无关对 ≤0.68，
+ * 但同域近似问题（同表同结构、过滤条件不同，如「各客户类型的拜访次数」vs「重点客户的拜访次数」）
+ * 相似度落在 0.85~0.95 区间——0.85 阈值会在该区间误命中并返回错误缓存答案（P1-7 基线评测实测污染），
+ * 故取 0.95 宁缺毋滥，代价是部分同义改写不命中（用户可用「重新查询」强制刷新）。
  * 更换 embedding 模型后应重新标定；可用 SEMANTIC_CACHE_THRESHOLD 覆盖。
  */
 export function semanticCacheThreshold(): number {
   const raw = Number(process.env.SEMANTIC_CACHE_THRESHOLD);
-  return Number.isFinite(raw) && raw > 0.5 && raw <= 1 ? raw : 0.85;
+  return Number.isFinite(raw) && raw > 0.5 && raw <= 1 ? raw : 0.95;
 }
 
 /** 每数据源（含模型变体）语义索引条数上限 */

@@ -122,8 +122,16 @@ describe('queryCache: P1-6 L2 语义缓存', () => {
     expect(vi.mocked(callEmbedding).mock.calls.length).toBe(callsBefore);
   });
 
-  it('语义阈值默认 0.85（实测标定：同义 0.85~0.97 / 无关 ≤0.68，安全边距 0.17）', () => {
+  it('语义阈值默认 0.95（同域近似问题 0.85~0.95 区间误命中会答非所问，宁缺毋滥）', () => {
     delete process.env.SEMANTIC_CACHE_THRESHOLD;
-    expect(semanticCacheThreshold()).toBe(0.85);
+    expect(semanticCacheThreshold()).toBe(0.95);
+  });
+
+  it('同域近似问题（相似度 0.85~0.95 困难负例）不命中', async () => {
+    registerEmbedding('各客户类型的拜访次数是多少', [1, 0]);
+    // cos = 0.93：同表同结构但过滤条件不同的近似问题，0.85 阈值会误命中返错答案
+    registerEmbedding('重点客户的拜访次数是多少', [0.93, 0.3676]);
+    await setCachedQuery(cacheKey('ds-hard', '各客户类型的拜访次数是多少'), { success: true }, { dataSourceId: 'ds-hard', question: '各客户类型的拜访次数是多少' });
+    expect(await getSemanticCachedQuery('ds-hard', '重点客户的拜访次数是多少')).toBeNull();
   });
 });

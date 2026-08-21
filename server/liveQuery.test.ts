@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { candidatePrompt, selfCorrectCandidates, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats } from './liveQuery';
+import { candidatePrompt, selfCorrectCandidates, resultSignature, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats } from './liveQuery';
 
 describe('normalizeAmountUnit: 金额单位白名单', () => {
   it('四个白名单单位原样返回', () => {
@@ -78,12 +78,44 @@ describe('candidatePrompt: 多候选差异化提示', () => {
   });
 });
 
+describe('resultSignature: P1-7 多数表决结果集规范化签名', () => {
+  it('列顺序不同但内容相同 → 签名一致', () => {
+    const a = [{ name: '华东', total: 100 }, { name: '华北', total: 200 }];
+    const b = [{ total: 100, name: '华东' }, { total: 200, name: '华北' }];
+    expect(resultSignature(a)).toBe(resultSignature(b));
+  });
+
+  it('mysql2 字符串数值与 number 归一后签名一致（DECIMAL 字符串场景）', () => {
+    const a = [{ total: '1234.5', cnt: '3' }];
+    const b = [{ total: 1234.5, cnt: 3 }];
+    expect(resultSignature(a)).toBe(resultSignature(b));
+  });
+
+  it('结果不同 → 签名不同（多数表决能区分分歧候选）', () => {
+    const a = [{ total: 100 }];
+    const b = [{ total: 200 }];
+    expect(resultSignature(a)).not.toBe(resultSignature(b));
+  });
+
+  it('行顺序不同 → 签名不同（结果集语义不同，不应误判为一致）', () => {
+    const a = [{ name: 'A', v: 1 }, { name: 'B', v: 2 }];
+    const b = [{ name: 'B', v: 2 }, { name: 'A', v: 1 }];
+    expect(resultSignature(a)).not.toBe(resultSignature(b));
+  });
+
+  it('空结果集签名稳定', () => {
+    expect(resultSignature([])).toBe(resultSignature([]));
+    expect(resultSignature([])).not.toBe(resultSignature([{ a: 1 }]));
+  });
+});
+
 describe('selfCorrectCandidates: 候选数解析', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('未设置或空值返回 1（默认不增延迟）', () => {
+  it('未设置或空值返回 1（简单问题默认不增延迟）', () => {
     vi.stubEnv('SELF_CORRECT_CANDIDATES', '');
     expect(selfCorrectCandidates()).toBe(1);
+    expect(selfCorrectCandidates(false)).toBe(1);
   });
 
   it('非法值返回 1', () => {
@@ -103,6 +135,20 @@ describe('selfCorrectCandidates: 候选数解析', () => {
     expect(selfCorrectCandidates()).toBe(2);
     vi.stubEnv('SELF_CORRECT_CANDIDATES', '9');
     expect(selfCorrectCandidates()).toBe(3);
+  });
+
+  it('P1-7 分档触发：未配置 env 时复杂问题 3 候选、简单问题 1 候选', () => {
+    vi.stubEnv('SELF_CORRECT_CANDIDATES', '');
+    expect(selfCorrectCandidates(true)).toBe(3);
+    expect(selfCorrectCandidates(false)).toBe(1);
+    expect(selfCorrectCandidates()).toBe(1);
+  });
+
+  it('显式 env 优先于分档（1 = 强制关闭多候选，2/3 = 强制候选数）', () => {
+    vi.stubEnv('SELF_CORRECT_CANDIDATES', '1');
+    expect(selfCorrectCandidates(true)).toBe(1);
+    vi.stubEnv('SELF_CORRECT_CANDIDATES', '2');
+    expect(selfCorrectCandidates(false)).toBe(2);
   });
 });
 

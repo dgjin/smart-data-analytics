@@ -385,14 +385,28 @@ export function formatIntrospectionRows(rows: Record<string, any>[]): string {
 }
 
 /**
- * P1-B 自纠错候选数（借鉴 DB-GPT Self-consistency 思想）。
- * 重试阶段可生成多条候选 SQL 择优，提升准确率；默认 1 等价原行为不增延迟，
- * 通过 env SELF_CORRECT_CANDIDATES（2-3）按需开启。
+ * P1-B/P1-7 自纠错候选数（借鉴 DB-GPT Self-consistency 思想）。
+ * 多候选 SQL 生成后逐候选执行、结果集多数表决择优，提升复杂问题准确率。
+ * P1-7 分档触发：未显式配置时按问题结构复杂度分档——复杂问题（多表/嵌套/需清洗链）3 候选，
+ * 简单问题保持 1 以控成本；env SELF_CORRECT_CANDIDATES 显式设置（1-3）时优先于分档（1 = 强制关闭多候选）。
  */
-export function selfCorrectCandidates(): number {
-  const n = Number(process.env.SELF_CORRECT_CANDIDATES);
-  if (!Number.isFinite(n) || n <= 1) return 1;
-  return Math.min(3, Math.floor(n));
+export function selfCorrectCandidates(complex?: boolean): number {
+  const raw = process.env.SELF_CORRECT_CANDIDATES;
+  if (raw !== undefined && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n <= 1 ? 1 : Math.min(3, Math.floor(n));
+  }
+  return complex === true ? 3 : 1;
+}
+
+/** 结果集规范化签名（多数表决用）：列名排序 + 数值列归一，消除列序/数值字符串差异 */
+export function resultSignature(rows: Record<string, any>[]): string {
+  const normalized = coerceNumericColumns(rows).map((r) => {
+    const sorted: Record<string, any> = {};
+    for (const k of Object.keys(r).sort()) sorted[k] = r[k];
+    return sorted;
+  });
+  return JSON.stringify(normalized);
 }
 
 /** 多候选提示：首个候选用原 prompt，其余候选追加差异化引导以增加多样性 */
@@ -642,8 +656,11 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   // 数据自省仅首次尝试允许一轮（防止递归内省拖慢响应）
   let introspected = false;
 
-  // P1-B 自纠错：重试阶段可生成多候选 SQL 择优（默认 1 个，等价原行为）
-  const candidateCount = selfCorrectCandidates();
+  // P1-7 自纠错：按问题结构复杂度分档生成多候选（Self-Consistency 多数表决择优）。
+  // 复杂信号：schema linking 圈定 ≥2 张表（多表 JOIN 场景）或复杂度评估判定需清洗链（multi-step/嵌套）。
+  // 注意：assessment.complexity 的语义是「是否需要中间清洗链」，不等于 SQL 结构复杂度，不能单独作分档依据。
+  const isComplexQuery = assessment.complexity === 'multi-step' || promptSchema.length >= 2;
+  const candidateCount = selfCorrectCandidates(isComplexQuery);
 
   // 阶段一 + 执行，失败时把原因回喂 LLM 重试一次
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -675,7 +692,6 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
         if (r.status === 'fulfilled') texts.push(r.value);
       }
     }
-
     let candidateIndex = 0;
     for (const text of texts) {
       // 歧义澄清：仅首次尝试的第一个候选在接受（重试阶段视为用户已确认，按 SQL 契约执行）；
@@ -728,6 +744,20 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       if (p) plans.push(p);
       candidateIndex++;
     }
+    // P1-7 Self-Consistency 首轮多候选：复杂问题首候选成功解析后并行补发其余候选；
+    // 澄清/拒答已在上方 return，自省链（introspected=true）已二次生成最终 SQL，均不补发
+    if (attempt === 0 && candidateCount > 1 && plans.length > 0 && !introspected) {
+      const supplement = await Promise.allSettled(
+        Array.from({ length: candidateCount - 1 }, (_, i) =>
+          callLLMJson(stage1System, candidatePrompt(basePrompt, i + 1, candidateCount), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() })
+        )
+      );
+      for (const r of supplement) {
+        if (r.status !== 'fulfilled') continue;
+        const sp = parseStage1(r.value);
+        if (sp) plans.push(sp);
+      }
+    }
     if (plans.length === 0) {
       lastError = 'LLM 输出未通过 SQL 契约校验';
       retries++;
@@ -744,33 +774,65 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     });
     // P2-1 SQL 先行回显：候选确定即推送（执行前），长执行等待期用户可先看到生成的 SQL
     input.onStage?.('sql_ready', { sql: plans[0].sql });
-    // 逐候选执行，取第一个成功（SELECT-only 只读，安全）；
+    // 逐候选执行（SELECT-only 只读，安全）；多候选时执行全部成功候选做结果集多数表决（P1-7 Self-Consistency）；
     // M3：仅引用已注册 ait_* 中间表的 SQL 改在应用库执行（不得与源表混用）
     let succeeded = false;
     const registeredAit = chainTables.length > 0 ? await getRegisteredAitNames() : new Set<string>();
+    type ExecSuccess = Extract<Awaited<ReturnType<typeof executeSafeSql>>, { ok: true }>;
+    const successes: { p: Stage1Plan; exec: ExecSuccess }[] = [];
     for (const p of plans) {
       const execAt = Date.now();
       const aitRefs = extractAitRefs(p.sql);
+      let cur: Awaited<ReturnType<typeof executeSafeSql>>;
       if (aitRefs.length > 0) {
-        exec = await executeOnAppDb(p.sql, registeredAit);
+        cur = await executeOnAppDb(p.sql, registeredAit);
       } else {
-        exec = await executeSafeSql(dataSourceId, p.sql, schema, sensitiveRemoved, 500, input.rowFilters || {});
+        cur = await executeSafeSql(dataSourceId, p.sql, schema, sensitiveRemoved, 500, input.rowFilters || {});
       }
-      if (exec.ok === true) {
-        plan = p;
-        succeeded = true;
-        input.onStage?.('executed', { sql: exec.result.finalSql, rowCount: exec.result.rows.length });
+      if (cur.ok === true) {
+        successes.push({ p, exec: cur });
         trace({
           stepType: 'execution',
           title: aitRefs.length > 0 ? '安全执行 SQL（分析库中间表）' : '安全执行 SQL',
           inputSummary: aitRefs.length > 0 ? `引用中间表：${aitRefs.join(', ')}` : 'SELECT-only 白名单校验通过',
-          sqlText: exec.result.finalSql,
-          rowCount: exec.result.rows.length,
+          sqlText: cur.result.finalSql,
+          rowCount: cur.result.rows.length,
           durationMs: Date.now() - execAt,
         });
-        break;
+        // 单候选：首个成功即收工；多候选：继续执行其余候选收集表决票
+        if (plans.length === 1) break;
+      } else {
+        lastError = cur.reason;
       }
-      lastError = exec.reason;
+    }
+    if (successes.length > 0) {
+      succeeded = true;
+      let winner = successes[0];
+      if (successes.length > 1) {
+        // 结果集多数表决：按规范化签名分组，多数派胜出；无多数（各候选互不相同）取首个成功候选
+        const groups = new Map<string, { count: number; item: { p: Stage1Plan; exec: ExecSuccess } }>();
+        for (const s of successes) {
+          const sig = resultSignature(s.exec.result.rows);
+          const g = groups.get(sig);
+          if (g) g.count++;
+          else groups.set(sig, { count: 1, item: s });
+        }
+        let best: { count: number; item: (typeof successes)[number] } | null = null;
+        for (const g of groups.values()) {
+          if (!best || g.count > best.count) best = g;
+        }
+        if (best && best.count > successes.length / 2) winner = best.item;
+        trace({
+          stepType: 'execution',
+          title: 'Self-Consistency 多数表决',
+          inputSummary: `${successes.length} 个候选执行成功，${groups.size} 种不同结果`,
+          outputSummary: `采纳「${winner.p.title}」（${best ? best.count : 1}/${successes.length} 票）`,
+          durationMs: 0,
+        });
+      }
+      plan = winner.p;
+      exec = winner.exec;
+      input.onStage?.('executed', { sql: exec.result.finalSql, rowCount: exec.result.rows.length });
     }
     if (succeeded) break;
     retries++;
