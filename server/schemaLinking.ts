@@ -160,3 +160,174 @@ function pickByKeyword(tables: any[], candidates: { idx: number }[], maxTables: 
   const picked = new Set(candidates.slice(0, maxTables).map((s) => s.idx));
   return tables.filter((_, idx) => picked.has(idx));
 }
+
+// ---------- P1-5 列级 Schema Linking（宽表 top-N 列注入） ----------
+
+/** 列数超过该阈值的宽表触发列级裁剪（如 204 列财务宽表） */
+export const WIDE_TABLE_COLUMN_THRESHOLD = 50;
+/** 宽表注入 prompt 的最大列数（top-N 相关列 + 强制保留列） */
+export const MAX_COLUMNS_IN_WIDE_TABLE = 30;
+/** 列级 embedding 精排的粗排候选倍数（控制 embedding 调用量） */
+const COLUMN_COARSE_FACTOR = 2;
+
+/** SQL 聚合/关键字集合：从指标表达式提取列名时排除 */
+const SQL_EXPR_KEYWORDS = new Set([
+  'count', 'sum', 'avg', 'min', 'max', 'distinct', 'case', 'when', 'then', 'else', 'end',
+  'and', 'or', 'not', 'in', 'is', 'null', 'like', 'between', 'as', 'cast', 'coalesce',
+  'ifnull', 'if', 'date', 'left', 'right', 'substr', 'substring', 'year', 'month', 'day',
+  'concat', 'round', 'abs', 'where', 'select', 'from', 'group', 'by', 'order', 'limit',
+]);
+
+/** 从指标聚合表达式/固定过滤条件中提取引用的列名标识符 */
+export function extractExprColumns(expr: string): string[] {
+  const ids = String(expr || '').match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  return [...new Set(ids.filter((x) => !SQL_EXPR_KEYWORDS.has(x.toLowerCase())))];
+}
+
+/** 指标层引用列按表归组：expr 与 filters 中出现的列都强制保留 */
+export function metricColumnsByTable(metrics: Array<{ tableName: string; expr: string; filters?: string }>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const m of metrics || []) {
+    const t = String(m?.tableName || '');
+    if (!t) continue;
+    const cols = [...extractExprColumns(m.expr), ...extractExprColumns(m.filters || '')];
+    out[t] = [...new Set([...(out[t] || []), ...cols])];
+  }
+  return out;
+}
+
+/** 单列相关性打分：列中文名整词命中最强，主键（JOIN 键）与维度/指标标记加权 */
+function columnScore(col: any, question: string): number {
+  let score = 0;
+  const name = String(col?.name || '');
+  const desc = String(col?.description || '');
+  if (name && question.toLowerCase().includes(name.toLowerCase())) score += 4;
+  if (desc.length >= 2 && question.includes(desc)) score += 5;
+  else score += bigramOverlap(question, `${name} ${desc}`) * 2;
+  if (col?.isPrimaryKey) score += 3;
+  if (col?.isDimension || col?.isMetric) score += 1;
+  return score;
+}
+
+export interface ColumnPruneStat {
+  table: string;
+  before: number;
+  after: number;
+}
+
+/**
+ * 宽表列裁剪（纯关键词版，可单测）：仅处理 >WIDE_TABLE_COLUMN_THRESHOLD 列的表，
+ * 按问题相关性保留 top-N，主键与指标层引用列（forceColumnsByTable）强制保留；
+ * 返回保持原顺序的新表数组（不修改入参）。
+ */
+export function pruneWideTableColumns(
+  tables: any[],
+  question: string,
+  forceColumnsByTable: Record<string, string[]> = {},
+  maxColumns: number = MAX_COLUMNS_IN_WIDE_TABLE,
+  extraScore?: (table: any, col: any) => number
+): { tables: any[]; pruned: ColumnPruneStat[] } {
+  const list = Array.isArray(tables) ? tables : [];
+  const q = String(question || '');
+  const pruned: ColumnPruneStat[] = [];
+  const out = list.map((t) => {
+    const cols = Array.isArray(t?.columns) ? t.columns : [];
+    if (cols.length <= WIDE_TABLE_COLUMN_THRESHOLD) return t;
+    const tableName = String(t?.name || '');
+    const forced = new Set((forceColumnsByTable[tableName] || []).map((c) => c.toLowerCase()));
+    const scored = cols.map((c: any, idx: number) => ({
+      c,
+      idx,
+      keep: columnScore(c, q) + (extraScore ? extraScore(t, c) : 0),
+      force: forced.has(String(c?.name || '').toLowerCase()) || c?.isPrimaryKey === true,
+    }));
+    const topPicked = new Set(
+      [...scored].sort((a, b) => b.keep - a.keep || a.idx - b.idx).slice(0, maxColumns).map((s) => s.idx)
+    );
+    // 强制保留列不受 top-N 限制
+    for (const s of scored) if (s.force) topPicked.add(s.idx);
+    const keptCols = cols.filter((_: any, idx: number) => topPicked.has(idx));
+    pruned.push({ table: tableName, before: cols.length, after: keptCols.length });
+    return { ...t, columns: keptCols };
+  });
+  return { tables: out, pruned };
+}
+
+// 列摘要 embedding 缓存（进程内）：schema 不变时同列不重复调用 embedding
+const columnEmbeddingCache = new Map<string, number[]>();
+const COLUMN_EMBEDDING_CACHE_MAX = 2000;
+
+async function embedColumn(tableName: string, col: any): Promise<number[] | null> {
+  const digest = `${String(col?.name || '')} ${String(col?.description || '')}`.trim();
+  if (!digest) return null;
+  const key = `${tableName}::${digest.slice(0, 120)}`;
+  const hit = columnEmbeddingCache.get(key);
+  if (hit) return hit;
+  try {
+    const vec = await callEmbedding(digest, 'document');
+    if (Array.isArray(vec) && vec.length > 0) {
+      if (columnEmbeddingCache.size >= COLUMN_EMBEDDING_CACHE_MAX) {
+        const oldest = columnEmbeddingCache.keys().next().value;
+        if (oldest !== undefined) columnEmbeddingCache.delete(oldest);
+      }
+      columnEmbeddingCache.set(key, vec);
+      return vec;
+    }
+  } catch {
+    // embedding 不可用，降级纯关键词打分
+  }
+  return null;
+}
+
+/**
+ * 宽表列裁剪（embedding 增强版）：关键词粗排到 2×top-N 候选，embedding 精排后取 top-N。
+ * embedding 不可用时等价于纯关键词版（行为不退化）。
+ */
+export async function pruneWideTableColumnsAsync(
+  tables: any[],
+  question: string,
+  forceColumnsByTable: Record<string, string[]> = {},
+  maxColumns: number = MAX_COLUMNS_IN_WIDE_TABLE
+): Promise<{ tables: any[]; pruned: ColumnPruneStat[] }> {
+  const list = Array.isArray(tables) ? tables : [];
+  const wideTables = list.filter((t) => Array.isArray(t?.columns) && t.columns.length > WIDE_TABLE_COLUMN_THRESHOLD);
+  if (wideTables.length === 0) return { tables: list, pruned: [] };
+
+  const q = String(question || '');
+  let qVec: number[] | null = null;
+  try {
+    qVec = await callEmbedding(q, 'query');
+    if (!Array.isArray(qVec) || qVec.length === 0) qVec = null;
+  } catch {
+    qVec = null;
+  }
+  if (!qVec) return pruneWideTableColumns(list, q, forceColumnsByTable, maxColumns);
+
+  const pruned: ColumnPruneStat[] = [];
+  const out = await Promise.all(
+    list.map(async (t) => {
+      const cols = Array.isArray(t?.columns) ? t.columns : [];
+      if (cols.length <= WIDE_TABLE_COLUMN_THRESHOLD) return t;
+      const tableName = String(t?.name || '');
+      const forced = new Set((forceColumnsByTable[tableName] || []).map((c) => c.toLowerCase()));
+      // 关键词粗排候选（控制 embedding 调用量），强制保留列直接入桶
+      const coarse = cols.map((c: any, idx: number) => ({ c, idx, kw: columnScore(c, q), force: forced.has(String(c?.name || '').toLowerCase()) || c?.isPrimaryKey === true }));
+      const candidates = [...coarse].sort((a, b) => b.kw - a.kw || a.idx - b.idx).slice(0, maxColumns * COLUMN_COARSE_FACTOR);
+      const refined = await Promise.all(
+        candidates.map(async (cd) => {
+          const cVec = await embedColumn(tableName, cd.c);
+          const sim = cVec ? Math.max(0, cosineSim(qVec as number[], cVec)) : 0;
+          return { ...cd, score: cd.kw + sim * 8 };
+        })
+      );
+      const topPicked = new Set(
+        [...refined].sort((a, b) => b.score - a.score || a.idx - b.idx).slice(0, maxColumns).map((s) => s.idx)
+      );
+      for (const cd of coarse) if (cd.force) topPicked.add(cd.idx);
+      const keptCols = cols.filter((_: any, idx: number) => topPicked.has(idx));
+      pruned.push({ table: tableName, before: cols.length, after: keptCols.length });
+      return { ...t, columns: keptCols };
+    })
+  );
+  return { tables: out, pruned };
+}

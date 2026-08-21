@@ -8,7 +8,7 @@
 import { callLLMJson, sqlStageRoute, analysisStageRoute, ChatMessage } from './llmClient';
 import { executeSafeSql } from './sqlExecutor';
 import { resolveExpertPersona } from './expertPersona';
-import { selectRelevantTablesAsync } from './schemaLinking';
+import { selectRelevantTablesAsync, pruneWideTableColumnsAsync, metricColumnsByTable } from './schemaLinking';
 import { loadFewShotExamples, FewShotExample, loadNegativeExamples, NegativeExample } from './queryFeedback';
 import { loadConversationFewShot } from './conversationHistory';
 import { retrieveKnowledgeSnippets } from './knowledgeBase';
@@ -527,12 +527,12 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   }
   // Schema Linking（借鉴 Chat2DB AI 数据集）：大 schema 时只把相关表注入 prompt（P2-9 关键词粗排 + embedding 精排）；
   // 安全白名单（executeSafeSql）仍用全量 schema，召回遗漏不会误杀合法 SQL
-  const promptSchema = await selectRelevantTablesAsync(schema, query);
+  const promptSchemaBase = await selectRelevantTablesAsync(schema, query);
   trace({
     stepType: 'linking',
     title: 'Schema 圈表：选定相关表',
     inputSummary: query,
-    outputSummary: `命中 ${promptSchema.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchema.map((t: any) => String(t?.name || '')).join(', ')}`,
+    outputSummary: `命中 ${promptSchemaBase.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchemaBase.map((t: any) => String(t?.name || '')).join(', ')}`,
     durationMs: Date.now() - t0,
   });
   // 上下文构建并行化：few-shot / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀六者互不依赖，并发执行（各自失败不阻断）
@@ -541,7 +541,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     loadFewShotExamples(
       dataSourceId,
       query,
-      promptSchema.map((t: any) => String(t?.name || ''))
+      promptSchemaBase.map((t: any) => String(t?.name || ''))
     ).catch(() => [] as FewShotExample[]),
     // P1-A 知识库 RAG：检索业务知识片段注入 prompt，按 token 预算截断
     retrieveKnowledgeSnippets(dataSourceId, query).catch(() => ''),
@@ -558,7 +558,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       input.userId,
       dataSourceId,
       query,
-      promptSchema.map((t: any) => String(t?.name || ''))
+      promptSchemaBase.map((t: any) => String(t?.name || ''))
     ).catch(() => []),
   ]);
   // Vanna 借鉴：few-shot 以 user/assistant 消息对注入对话历史（比平铺文本更贴合 LLM 多轮格式）；
@@ -587,6 +587,19 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       title: '语义指标层命中',
       inputSummary: query,
       outputSummary: `命中 ${metricHits.length} 个指标定义：${metricHits.map((m) => m.name).join('、')}`,
+      durationMs: Date.now() - t0,
+    });
+  }
+  // P1-5 列级 Schema Linking：宽表（>50 列）圈表后再做列级相关性排序，仅注入 top-N 相关列
+  // + 指标层引用列/主键（强制保留），降低宽表 prompt token 占用；安全白名单仍用全量 schema
+  const columnPrune = await pruneWideTableColumnsAsync(promptSchemaBase, query, metricColumnsByTable(metricHits));
+  const promptSchema = columnPrune.tables;
+  if (columnPrune.pruned.length > 0) {
+    trace({
+      stepType: 'linking',
+      title: '列级裁剪：宽表 top-N 列注入',
+      inputSummary: query,
+      outputSummary: columnPrune.pruned.map((p) => `${p.table} ${p.before}→${p.after} 列`).join('；'),
       durationMs: Date.now() - t0,
     });
   }
