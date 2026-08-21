@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.3",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -21,7 +21,6 @@
     "date-fns": "^4.4.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "html2pdf.js": "^0.14.0",
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.546.0",
@@ -41,7 +40,6 @@
     "@tailwindcss/vite": "^4.1.14",
     "@testing-library/react": "^16.3.2",
     "@types/express": "^4.17.21",
-    "@types/html2pdf.js": "^0.10.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.14.0",
     "@types/pg": "^8.21.0",

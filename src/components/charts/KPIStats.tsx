@@ -54,7 +54,12 @@ export const KPIStats: React.FC<KPIStatsProps> = ({ metrics }) => {
             </div>
 
             <div className="text-xl sm:text-2xl font-extrabold text-slate-100 tracking-tight font-mono">
-              {item.value}
+              {/* 数值：千分位 + 非整数补足两位小数（整数不补零）；字符串值（已含单位文字）原样展示 */}
+              {typeof item.value === 'number'
+                ? Number.isInteger(item.value)
+                  ? item.value.toLocaleString()
+                  : item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : item.value}
             </div>
 
             {item.subtext && (

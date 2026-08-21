@@ -41,7 +41,7 @@ describe('runSimulatedQuery: 演示模式问数生成', () => {
     (callLLMJson as any).mockResolvedValue(JSON.stringify(validLlmPayload));
     const out = await runSimulatedQuery({ query: '各区域销售', history: [], schema: [], guidance: '' });
     expect(out.ok).toBe(true);
-    if (out.ok) {
+    if (out.ok === true) {
       expect(out.parsed.generatedSQL).toContain('orders');
       expect(out.result.generatedSQL).toContain('orders');
       expect(out.result.rows.length).toBe(2);
@@ -57,9 +57,19 @@ describe('runSimulatedQuery: 演示模式问数生成', () => {
     (callLLMJson as any).mockResolvedValue(JSON.stringify(payload));
     const out = await runSimulatedQuery({ query: 'q', history: [], schema: [], guidance: '' });
     expect(out.ok).toBe(true);
-    if (out.ok) {
+    if (out.ok === true) {
       expect(out.parsed.chartConfig.yAxisNames.amount).toBe('销售额');
       expect(out.parsed.chartConfig.xAxisName).toBe('区域');
+    }
+  });
+
+  it('拒答契约：问题与数据源无关时返回 ok=refuse 且不生成演示数据', async () => {
+    (callLLMJson as any).mockResolvedValue(JSON.stringify({ refuse: true, reason: '该问题与当前数据源无关，无法基于现有数据回答。' }));
+    const out = await runSimulatedQuery({ query: '帮我写一首诗', history: [], schema: [], guidance: '' });
+    expect(out.ok).toBe('refuse');
+    if (out.ok === 'refuse') {
+      expect(out.reason).toContain('与当前数据源无关');
+      expect((out as any).result).toBeUndefined();
     }
   });
 

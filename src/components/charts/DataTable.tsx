@@ -189,7 +189,11 @@ export const DataTable: React.FC<DataTableProps> = ({
                         isNumber ? 'font-mono text-indigo-300' : 'text-slate-200'
                       }`}
                     >
-                      {isNumber ? cell.toLocaleString() : String(cell ?? '-')}
+                      {isNumber
+                        ? Number.isInteger(cell)
+                          ? cell.toLocaleString()
+                          : cell.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                        : String(cell ?? '-')}
                     </td>
                   );
                 })}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Sparkles,
   FileSpreadsheet,
@@ -23,11 +23,24 @@ import { SavedReport } from '../../types/analytics';
 import { generateSchemaSuggestions } from '../../utils/querySuggestions';
 
 import { scanReportForAnomalies } from '../../utils/anomalyDetector';
+import { useDataVersion } from '../../hooks/useDataVersion';
+
+// v0.5.2 金额单位：读取问数页选定的口径（localStorage 共享键），报告生成沿用同一单位
+const AMOUNT_UNIT_KEY = 'app-amount-unit';
+const readAmountUnit = (): string | undefined => {
+  try {
+    const v = localStorage.getItem(AMOUNT_UNIT_KEY) || '';
+    return ['亿元', '百万元', '万元', '元'].includes(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 export const ReportGenerator: React.FC = () => {
   const {
     savedReports,
     addSavedReport,
+    replaceSavedReport,
     deleteSavedReport,
     activeDataSourceId,
     dataSources,
@@ -58,6 +71,63 @@ export const ReportGenerator: React.FC = () => {
   }, [planMode]);
 
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
+
+  // v0.4.8 自主更新：监测当前查看的 live 报表所属数据源，检测到数据变化时按原自定义要求重新生成并就地替换
+  const activeReport = savedReports[activeReportIndex];
+  const watchedReportDsId =
+    canGenerate && activeReport && activeReport.dataProvenance === 'live' ? activeReport.dataSourceId : undefined;
+  const [autoRegenerating, setAutoRegenerating] = useState(false);
+  const [autoRegenMsg, setAutoRegenMsg] = useState<string | null>(null);
+  const reportGenStateRef = useRef({ isGenerating, pendingPlan });
+  reportGenStateRef.current = { isGenerating, pendingPlan };
+  const activeReportRef = useRef(activeReport);
+  activeReportRef.current = activeReport;
+  useDataVersion(watchedReportDsId, () => {
+    void autoRegenerateActiveReport();
+  });
+
+  async function autoRegenerateActiveReport(): Promise<void> {
+    // 与手动生成/待批准计划互斥，避免并发重复生成
+    if (reportGenStateRef.current.isGenerating || reportGenStateRef.current.pendingPlan) return;
+    const original = activeReportRef.current;
+    if (!original || original.dataProvenance !== 'live' || !original.dataSourceId) return;
+    setAutoRegenerating(true);
+    setAutoRegenMsg(null);
+    try {
+      const response = await apiFetch('/api/report/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateType,
+          customPrompt: original.customPrompt || '',
+          dataSourceId: original.dataSourceId,
+          amountUnit: readAmountUnit(), // v0.5.2 金额单位与问数选定口径一致
+        }),
+      });
+      const data = await response.json();
+      if (data.success && data.report) {
+        const fresh: SavedReport = {
+          ...original,
+          title: data.report.title || original.title,
+          summary: data.report.summary || original.summary,
+          createdAt: data.report.createdAt || new Date().toISOString().split('T')[0],
+          insights: data.report.insights || [],
+          kpiList: data.report.kpiList || [],
+          charts: data.report.charts || [],
+          ...(Array.isArray(data.report.executedSqls) ? { executedSqls: data.report.executedSqls } : {}),
+          comments: original.comments, // 数据刷新不清空已有批注
+        };
+        replaceSavedReport(original.id, scanReportForAnomalies(fresh));
+        setAutoRegenMsg(`检测到数据变化，已自动重新生成报表「${original.title}」`);
+      } else {
+        setAutoRegenMsg('检测到数据变化，但报表自动重生成失败（可点击生成手动重试）');
+      }
+    } catch {
+      setAutoRegenMsg('检测到数据变化，但报表自动重生成失败（可点击生成手动重试）');
+    } finally {
+      setAutoRegenerating(false);
+    }
+  }
   // 仅数据库型且未停用的数据源支持报表计划模式（与服务端 canPlan 判定一致）
   const canPlanMode = !!activeDS && ['mysql', 'postgresql', 'greenplum'].includes(activeDS.type) && activeDS.status !== 'disconnected';
   // L7 AI 开关：数据源被停用（disconnected）时禁用报表生成入口（服务端同样强制 403）
@@ -109,6 +179,7 @@ export const ReportGenerator: React.FC = () => {
           templateType,
           customPrompt,
           dataSourceId: activeDataSourceId,
+          amountUnit: readAmountUnit(), // v0.5.2 金额单位与问数选定口径一致
           ...(reportPlanId ? { reportPlanId } : {}),
         }),
       });
@@ -128,6 +199,9 @@ export const ReportGenerator: React.FC = () => {
           charts: data.report.charts || [],
           // P2-2 下钻：live 链路各图表对应的原聚合 SQL（与 charts 顺序对齐）
           ...(Array.isArray(data.report.executedSqls) ? { executedSqls: data.report.executedSqls } : {}),
+          // v0.4.8 自主更新：记录自定义要求与数据来源，数据变化时按同参数重新生成
+          ...(customPrompt.trim() ? { customPrompt: customPrompt.trim() } : {}),
+          dataProvenance: data.dataProvenance === 'simulated' ? 'simulated' : 'live',
         };
 
         const scannedReport = scanReportForAnomalies(rawReport);
@@ -155,7 +229,7 @@ export const ReportGenerator: React.FC = () => {
       const response = await apiFetch('/api/report/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateType, customPrompt, dataSourceId: activeDataSourceId }),
+        body: JSON.stringify({ templateType, customPrompt, dataSourceId: activeDataSourceId, amountUnit: readAmountUnit() }),
       });
       const data = await response.json();
       if (data.success && data.reportPlanId && data.plan) {
@@ -195,6 +269,18 @@ export const ReportGenerator: React.FC = () => {
           <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
             2x 矢量高清 PDF 文档导出
           </span>
+          {/* v0.4.8 自主更新：数据源变化自动重新生成报表的状态标识 */}
+          {(autoRegenerating || autoRegenMsg) && (
+            <span
+              className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${
+                autoRegenerating
+                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30 animate-pulse'
+                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+              }`}
+            >
+              {autoRegenerating ? '检测到数据变化，正在自动重新生成报表…' : autoRegenMsg}
+            </span>
+          )}
         </div>
         <h1 className="text-2xl md:text-3xl font-extrabold text-slate-100 tracking-tight">
           智能报表构建器 (Visual Report Studio)

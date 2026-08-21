@@ -14,7 +14,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 import { initSchema } from './server/db';
 import { authMiddleware, requireRole } from './server/auth';
 import { llmEngineLabel, llmEngineInfo, listAvailableModels } from './server/llmClient';
-import { summarizeLlmUsage } from './server/llmUsage';
+import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llmUsage';
 import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/analysisChain';
 import { requestLogger } from './server/requestLogger';
 import authRoutes from './server/routes/auth';
@@ -31,6 +31,8 @@ import helpRoutes from './server/routes/help';
 import queryRoutes from './server/routes/query';
 import conversationRoutes from './server/routes/conversation';
 import reportRoutes from './server/routes/report';
+import reportTemplateRoutes from './server/routes/reportTemplates';
+import queryReportRoutes from './server/routes/queryReports';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -114,14 +116,14 @@ async function startServer() {
     }
   });
 
-  // 1d. API Endpoint: P2-4 LLM 用量统计（近 N 天按引擎/模型聚合，多引擎成本对比；仅管理员）
+  // 1d. API Endpoint: P2-4 LLM 用量统计（近 N 天按引擎/模型 + 按用户聚合，多引擎成本对比与用户消耗审计；仅管理员）
   app.get('/api/system/llm-usage', authMiddleware, requireRole('ADMIN'), async (req, res) => {
     try {
       const days = Number(req.query.days) || 7;
-      const usage = await summarizeLlmUsage(days);
-      res.json({ days, usage });
-    } catch (err) {
-      console.error('[LlmUsage] summarize failed:', err);
+      const [usage, byUser] = await Promise.all([summarizeLlmUsage(days), summarizeLlmUsageByUser(days)]);
+      res.json({ days, usage, byUser });
+    } catch (err: any) {
+      console.error('[LlmUsage] summarize failed:', err?.message || err);
       res.status(500).json({ error: '用量统计获取失败' });
     }
   });
@@ -147,6 +149,10 @@ async function startServer() {
   app.use('/api/conversations', conversationRoutes);
   // 4/4-pre/4a. 报告生成/计划/导出（见 server/routes/report.ts）
   app.use('/api/report', reportRoutes);
+  // v0.5.0 报告模板管理（见 server/routes/reportTemplates.ts）
+  app.use('/api/report-templates', reportTemplateRoutes);
+  // v0.5.0 智能问数报告中心（见 server/routes/queryReports.ts）
+  app.use('/api/query-reports', queryReportRoutes);
 
   // Vite development middleware or production static handling
   if (process.env.NODE_ENV !== 'production') {

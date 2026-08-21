@@ -11,6 +11,7 @@ export type AuditStatus =
   | 'FALLBACK'
   | 'ERROR'
   | 'CLARIFY'
+  | 'REFUSED'
   | 'DENIED_INPUT'
   | 'DENIED_AUTH'
   | 'DENIED_RATE'
@@ -19,7 +20,7 @@ export type AuditStatus =
 export interface AuditEntry {
   userId: number;
   username: string;
-  endpoint: 'query' | 'report';
+  endpoint: 'query' | 'report' | 'query_report' | 'report_template';
   dataSourceId?: string;
   question?: string;
   status: AuditStatus;

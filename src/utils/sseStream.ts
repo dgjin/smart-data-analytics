@@ -26,8 +26,8 @@ export interface SseStreamHandlers {
   onStage?: (label: string, stage: string, info?: Record<string, any>) => void;
   /** M1 推导留痕步骤事件（追加步骤器） */
   onTrace?: (step: any) => void;
-  /** 终端事件（done / clarify），payload 与非流式 JSON 响应同构 */
-  onTerminal?: (event: 'done' | 'clarify', data: any) => void;
+  /** 终端事件（done / clarify / refuse），payload 与非流式 JSON 响应同构 */
+  onTerminal?: (event: 'done' | 'clarify' | 'refuse', data: any) => void;
 }
 
 /** 消费 SSE 响应体：逐块解码、按空行分段、event:/data: 行解析后分发回调 */
@@ -61,7 +61,7 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
         handlers.onStage?.(stageLabel(stage), stage, info);
       } else if (eventName === 'trace') {
         if (data && typeof data.title === 'string') handlers.onTrace?.(data);
-      } else if (eventName === 'done' || eventName === 'clarify') {
+      } else if (eventName === 'done' || eventName === 'clarify' || eventName === 'refuse') {
         handlers.onTerminal?.(eventName, data);
       } else if (eventName === 'error') {
         throw new Error(String(data?.error || '查询失败'));

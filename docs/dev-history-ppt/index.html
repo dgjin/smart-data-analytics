@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能问数分析系统 · 项目开发历程汇报</title>
+<link rel="stylesheet" href="../training-ppt/assets/base.css">
+<style>
+  /* 汇报版局部增强：时间轴与引用块 */
+  .tl-row { display:grid; grid-template-columns:150px 110px 1fr; gap:16px; align-items:start; padding:13px 0; border-bottom:1px dashed var(--line); }
+  .tl-row:last-child { border-bottom:none; }
+  .tl-date { font-weight:700; font-size:15px; color:var(--text-1); }
+  .tl-ver { font-size:13px; font-weight:700; color:#fff; background:var(--accent); border-radius:999px; padding:3px 12px; text-align:center; white-space:nowrap; }
+  .tl-desc { font-size:14px; color:var(--text-2); line-height:1.6; }
+  .quote { border-left:4px solid var(--accent); background:var(--accent-soft); border-radius:0 10px 10px 0; padding:16px 20px; font-size:16px; color:var(--text-1); line-height:1.7; margin-top:22px; }
+  .badge-num { font-size:34px; font-weight:800; color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="deck-root" id="deck-stage">
+
+<!-- ============ P1 封面 ============ -->
+<section class="slide cover" style="justify-content:center;align-items:flex-start;background:linear-gradient(135deg,#ffffff 0%,#eef4ff 60%,#e3edff 100%);">
+  <div data-anim="fade-up">
+    <div class="kicker">PROJECT REVIEW · NL2SQL PRO V0.4.7</div>
+    <h1 style="font-size:60px;">智能问数分析系统<br>项目开发历程汇报</h1>
+    <p class="subtitle">从一个模板起步，七天二十七个版本 —— 一套真库真数、全程留痕的企业级智能问数系统</p>
+  </div>
+  <div class="grid grid-3" style="margin-top:48px;max-width:900px;" data-anim="fade-up">
+    <div class="card flat"><div class="pill accent">迭代节奏</div><p class="lead" style="font-size:15px;margin-top:10px;">6 天 · 27 个版本<br>v0.1 → v0.4.7</p></div>
+    <div class="card flat"><div class="pill accent">质量守护</div><p class="lead" style="font-size:15px;margin-top:10px;">492 个自动化测试<br>每次变更全量回归</p></div>
+    <div class="card flat"><div class="pill accent">数据底座</div><p class="lead" style="font-size:15px;margin-top:10px;">1266 万行真实口径<br>双宽表 · 20 个月末快照</p></div>
+  </div>
+  <div class="notes">各位领导好，今天向大家汇报智能问数分析系统的完整开发历程。先用一句话概括这个项目：让业务同事用一句中文提问，系统自动理解意图、生成并执行 SQL，把真实查询结果变成图表、KPI 和一段可以直接读给大家听的洞察解读。这个项目从一个开源模板起步，七天之内完成了二十七个版本的迭代，从 v0.1 一路演进到 v0.4.7。更重要的是，它不是演示玩具——底层是 1266 万行真实业务口径数据，492 个自动化测试全程守护，每一个结论都可追溯、可复核。接下来我分五个部分汇报：项目是什么、怎么一步步建起来的、关键数字、沉淀的经验、以及后续规划。</div>
+</section>
+
+<!-- ============ P2 项目是什么 ============ -->
+<section class="slide">
+  <div class="kicker">01 · OVERVIEW</div>
+  <h2>项目是什么：一句话提问，数据自己开口</h2>
+  <p class="lead" style="margin-bottom:22px;">面向不良资产经营分析场景的自然语言数据分析系统，覆盖三类角色。</p>
+  <div class="grid grid-3 anim-stagger-list" style="align-content:start;">
+    <div class="card">
+      <div class="pill accent">核心能力</div>
+      <h3 style="margin:12px 0 8px;">自然语言问数</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.7;">中文提问 → 语义理解 → 生成 SQL → 真实执行 → 图表 + AI 解读 + 建议追问；歧义先澄清、无关问题如实拒答，不编造数据。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">业务场景</div>
+      <h3 style="margin:12px 0 8px;">不良资产经营分析</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.7;">机构投放排名、长龄业务、风险去化、逾期、投资收益等八大专业场景，内置专业技能模板与高管决策简报。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">角色权限</div>
+      <h3 style="margin:12px 0 8px;">三级管控</h3>
+      <p style="font-size:14px;color:var(--text-2);line-height:1.7;">管理员全权配置、分析师问数与知识沉淀、只读用户看数；行级权限强制注入，问数直达生产库也放心。</p>
+    </div>
+  </div>
+  <div class="quote">业务价值：把「提需求 → 排队取数 → 等报表」的天级流程，压缩为「一句话提问 → 秒级出图出结论」。</div>
+  <div class="notes">先讲清楚这个项目是什么。它的核心能力是自然语言问数：业务同事在对话框里输入一句中文，比如「各机构本年投放金额排名」，系统会自动理解语义、找到对应的表和字段、生成 SQL 并在数据库里真实执行，最后把结果变成图表、关键指标卡片和一段通俗易懂的 AI 解读。这里要特别强调两点：第一，所有结果都来自数据库真实执行，不是 AI 编的；遇到歧义它会先反问澄清，遇到答不了的问题会如实说答不了，绝不糊弄。第二，它不是通用玩具，是专门为不良资产经营分析定制的——机构画像、长龄业务、风险去化、投资收益等八大场景都有现成的专业技能模板。权限上分三级：管理员、分析师、只读用户，并且支持行级权限控制。对业务最直接的价值，就是把过去提需求、排队取数、等报表的天级流程，压缩成一句话提问、秒级出结论。</div>
+</section>
+
+<!-- ============ P3 技术底座 ============ -->
+<section class="slide">
+  <div class="kicker">01 · OVERVIEW</div>
+  <h2>技术底座：本地优先、真库真数、轻量可控</h2>
+  <div class="grid grid-2" style="margin-top:8px;align-items:stretch;">
+    <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px;"><span style="font-weight:600;">AI 引擎</span><span style="font-size:14px;color:var(--text-2);">本地 Ollama 双模型分工：大模型生成 SQL + 小模型快速解读，可选云端通义千问</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px;"><span style="font-weight:600;">数据底座</span><span style="font-size:14px;color:var(--text-2);">MySQL 双宽表（业务 94 列 / 财务 204 列），兼容 PostgreSQL 与 Greenplum</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px;"><span style="font-weight:600;">知识增强</span><span style="font-size:14px;color:var(--text-2);">口径知识库 + 语义指标 + SQL 样例库，教模型「懂业务口径」</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:600;">应用架构</span><span style="font-size:14px;color:var(--text-2);">React 前端 + Node 后端一体化，Docker 可部署，单机即可运行</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="card flat"><div class="pill accent">本地优先</div><p style="font-size:14px;color:var(--text-2);line-height:1.7;margin-top:8px;">AI 模型跑在本地，数据不出内网，满足金融数据安全要求；云端引擎仅作可选补充。</p></div>
+      <div class="card flat"><div class="pill accent">轻量向量方案</div><p style="font-size:14px;color:var(--text-2);line-height:1.7;margin-top:8px;">知识检索用嵌入式向量 + 关键词混合，不引入独立向量数据库——百千级规模下零新增运维组件。</p></div>
+      <div class="card flat"><div class="pill accent">双模型分工</div><p style="font-size:14px;color:var(--text-2);line-height:1.7;margin-top:8px;">重思考用大模型保证准确，轻解读用小模型保证速度，问数整体提速一倍。</p></div>
+    </div>
+  </div>
+  <div class="notes">这一页讲技术底座，向各位保证三件事：本地优先、真库真数、轻量可控。AI 引擎跑在本地服务器上，数据不出内网，这对金融业务数据是硬要求；同时保留了云端通义千问作为可选补充。数据底座是两张真实业务宽表，业务宽表 94 列、财务宽表 204 列，合计 1266 万行、覆盖 20 个月末报告期快照，而且系统同时兼容 MySQL、PostgreSQL 和 Greenplum 三种数据库，未来对接数仓不需要重写。特别值得一提的是双模型分工的设计：生成 SQL 这种重思考的任务交给大模型保证准确率，生成解读这种轻任务交给小模型保证速度，整体问数速度提升了一倍。整个架构单机就能跑，Docker 一键部署，没有引入任何重型中间件——这是刻意的选型：在当前数据规模下，够用、可控、运维成本最低。</div>
+</section>
+
+<!-- ============ P4 开发历程总览 ============ -->
+<section class="slide">
+  <div class="kicker">02 · TIMELINE</div>
+  <h2>开发历程：五个阶段，七天二十七版</h2>
+  <div class="grid grid-5 anim-stagger-list" style="grid-template-columns:repeat(5,1fr);margin-top:10px;align-content:start;">
+    <div class="card flat" style="text-align:center;"><div class="badge-num">0</div><h3 style="margin:6px 0;">数据地基</h3><p style="font-size:13px;color:var(--text-2);line-height:1.6;">模板起步<br>1266 万行数据入库<br>确立真库真数基准</p></div>
+    <div class="card flat" style="text-align:center;"><div class="badge-num">1</div><h3 style="margin:6px 0;">正名奠基</h3><p style="font-size:13px;color:var(--text-2);line-height:1.6;">v0.1 · 8/13<br>系统更名<br>AI 引擎接入与自选</p></div>
+    <div class="card flat" style="text-align:center;"><div class="badge-num">2</div><h3 style="margin:6px 0;">框架成型</h3><p style="font-size:13px;color:var(--text-2);line-height:1.6;">v0.2~v0.3 · 8/13~14<br>推导留痕 · 知识库 RAG<br>评测集 · 行级权限</p></div>
+    <div class="card flat" style="text-align:center;"><div class="badge-num">3</div><h3 style="margin:6px 0;">体验生态</h3><p style="font-size:13px;color:var(--text-2);line-height:1.6;">v0.4.0~v0.4.1 · 8/15~16<br>对话历史 · 自主学习<br>外部知识库接入</p></div>
+    <div class="card flat" style="text-align:center;"><div class="badge-num">4</div><h3 style="margin:6px 0;">口径治理</h3><p style="font-size:13px;color:var(--text-2);line-height:1.6;">v0.4.2~v0.4.7 · 8/17~18<br>口径事故修复<br>双模型 · 拒答契约</p></div>
+  </div>
+  <div class="quote" style="margin-top:26px;">节奏特点：前两天搭框架，中间两天扩生态，最后两天深水区治理——<b>越往后，越贴近真实业务的硬骨头</b>。</div>
+  <div class="notes">整个开发历程可以归纳为五个阶段。阶段零是数据地基：项目从一个开源应用模板起步，我们第一时间把真实业务数据灌了进去——两张宽表 1266 万行，这一步立下了规矩：后面所有迭代都用真实数据验证，不做演示摆设。阶段一是正名奠基，八月十三日系统正式更名、接入 AI 引擎并支持用户自选模型。阶段二是框架成型，也是最密集的两天：推导过程留痕、计划模式、知识库检索增强、评测基准、行级权限这些企业级能力全部落地。阶段三做体验和生态：对话历史、自主学习、外部知识库接入。阶段四进入深水区，专门治理真实业务口径问题——这一阶段的每个版本都在修真问题，后面会重点讲。整体节奏是：先搭框架、再扩生态、最后啃业务硬骨头。</div>
+</section>
+
+<!-- ============ P5 阶段 0-1 ============ -->
+<section class="slide">
+  <div class="kicker">02 · TIMELINE</div>
+  <h2>起步：真数据先行，引擎三连胜</h2>
+  <div class="grid grid-2" style="margin-top:6px;">
+    <div class="card">
+      <div class="pill accent">阶段 0 · 数据地基</div>
+      <ul style="font-size:14px;color:var(--text-2);line-height:2;margin:12px 0 0 18px;">
+        <li>源系统建表语句是 Greenplum 方言，自动转译后导入 MySQL</li>
+        <li>业务宽表 <b>127 万行</b> + 财务宽表 <b>1139 万行</b>批量灌库</li>
+        <li>确立验证基准：<b>任何改动必须能用真实业务问题回归</b></li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill accent">阶段 1 · v0.1 引擎奠基</div>
+      <ul style="font-size:14px;color:var(--text-2);line-height:2;margin:12px 0 0 18px;">
+        <li>系统正式更名「智能问数分析系统」，版本归零重启</li>
+        <li>接入通义千问云端引擎，本地/云端双引擎可切换</li>
+        <li>上线<b>用户自选模型</b>：提问时可随时切换模型，结果互不串扰</li>
+        <li>踩坑即立规：API Key 与端点严格配套，写进团队规范</li>
+      </ul>
+    </div>
+  </div>
+  <div class="quote">开发原则第一天就定了：<b>真库真数</b>。后来能一次次抓住「看似正确实则错得离谱」的口径问题，靠的就是这条底线。</div>
+  <div class="notes">起步阶段有两件事值得汇报。第一件是数据先行。我们没有先写功能，而是先把真实数据准备好：源系统的建表语句是另一种数据库方言，我们做了自动转译导入 MySQL，两张宽表合计 1266 万行数据一次性灌库。这一步看似基础，实际意义很大——它立下了整个项目的验证规矩：任何功能改动，都必须能用真实业务问题回归验证，不做纸上谈兵的功能。第二件是 AI 引擎建设：系统正式更名，接入云端通义千问引擎，实现本地和云端双引擎切换，并且上线了用户自选模型——业务同事提问时可以自己选模型，不同模型的结果互相隔离不串扰。这个阶段还踩了一个坑并当场立了规矩：云端接口的密钥和访问端点必须严格配套，这个教训直接写进了团队开发规范。</div>
+</section>
+
+<!-- ============ P6 阶段 2 ============ -->
+<section class="slide">
+  <div class="kicker">02 · TIMELINE</div>
+  <h2>框架成型：两天十个版本，企业级能力全面落地</h2>
+  <div class="grid grid-3 anim-stagger-list" style="align-content:start;">
+    <div class="card"><div class="pill accent">可信</div><h3 style="margin:10px 0 6px;">全程留痕</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">每一步推导记录在案，时间线可回放；问数先出计划、用户批准再执行，不盲跑。</p></div>
+    <div class="card"><div class="pill accent">准确</div><h3 style="margin:10px 0 6px;">知识增强三件套</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">口径知识库检索注入、历史成功案例自动示范、多候选 SQL 自纠错投票——借鉴业界先进方案工程化落地。</p></div>
+    <div class="card"><div class="pill accent">安全</div><h3 style="margin:10px 0 6px;">企业级管控</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">行级权限强制注入、敏感字段自动剔除、SQL 只读白名单双重校验。</p></div>
+    <div class="card"><div class="pill accent">专业</div><h3 style="margin:10px 0 6px;">业务定制</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">宽表元数据字典整本导入知识库，教模型懂业务口径；八大不良资产分析场景技能库。</p></div>
+    <div class="card"><div class="pill accent">快</div><h3 style="margin:10px 0 6px;">性能优化</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">标杆问题端到端 <b>105 秒 → 68 秒</b>；重复提问秒回；数据库索引优化最高提速 20 倍。</p></div>
+    <div class="card"><div class="pill accent">规范</div><h3 style="margin:10px 0 6px;">评测与文档</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">16 用例评测基准防止能力退化；功能说明书成为单一事实源，系统内置帮助实时读取。</p></div>
+  </div>
+  <div class="notes">框架成型是最密集的两天，十个版本，我按六个关键词汇报。可信：每一次问数的完整推导过程都记录在案、可以回放查看；还支持计划模式——复杂问题系统先给出分析计划，用户批准后才执行，不盲跑。准确：我们落地了知识增强三件套——业务口径知识库自动注入、历史成功案例自动示范、多个候选 SQL 互相纠错投票，这些都是借鉴业界先进的智能问数方案做的工程化落地。安全：行级权限强制注入、敏感字段自动剔除、SQL 只读白名单双重校验，三道闸门。专业：我们把宽表的元数据字典整本导入知识库，相当于教会模型看懂我们的业务口径；并内置八大不良资产分析场景的技能库。快：性能优化把标杆问题从 105 秒压到 68 秒，重复提问秒回，数据库索引优化最高提速 20 倍。规范：建立 16 用例评测基准防止能力退化，功能说明书成为单一事实源。这六个方面构成了系统的企业级骨架。</div>
+</section>
+
+<!-- ============ P7 阶段 3 ============ -->
+<section class="slide">
+  <div class="kicker">02 · TIMELINE</div>
+  <h2>体验与生态：从能用到好用、从单机到开放</h2>
+  <div class="grid grid-2" style="margin-top:6px;">
+    <div class="card">
+      <div class="pill accent">v0.4.0 · 对话历史与自主学习</div>
+      <ul style="font-size:14px;color:var(--text-2);line-height:1.95;margin:12px 0 0 18px;">
+        <li>对话服务端落库，换电脑、换设备历史不丢</li>
+        <li>历史面板：搜索、一键重问、导出 Markdown</li>
+        <li><b>越用越聪明</b>：本人的成功问答自动成为个人经验；点「踩」的错误答案进反面教材，同样的错不犯第二次</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill accent">v0.4.1 · 外部接入与多库兼容</div>
+      <ul style="font-size:14px;color:var(--text-2);line-height:1.95;margin:12px 0 0 18px;">
+        <li>外部知识库接入：可对接企业既有知识平台，密钥加密存储</li>
+        <li>Greenplum 全链路支持：数据源矩阵扩展为 MySQL / PostgreSQL / Greenplum</li>
+        <li>对话按数据源隔离，多个库的问答互不串扰</li>
+      </ul>
+    </div>
+  </div>
+  <div class="quote">这个阶段的关键转变：系统从「我们开发的工具」变成「业务持续喂养的平台」——用得越多，越懂业务。</div>
+  <div class="notes">第三阶段的主题是体验和生态，两个大版本。第一个是对话历史与自主学习：所有对话在服务端落库，换设备不丢；提供历史面板可以搜索、一键重问、导出。最有价值的是自主学习机制——系统会越用越聪明：每位同事成功的问答会自动沉淀成个人经验，下次类似问题直接参考；而被点踩的错误答案会进入反面教材库，系统保证同样的错误不犯第二次。这意味着系统的智能资产是随使用持续积累的。第二个版本做开放生态：外部知识库接入能力上线，可以对接企业既有的知识平台，接入密钥全程加密存储；同时完成 Greenplum 数据库全链路支持，数据源矩阵扩展到三种主流数据库，未来对接正式数仓零改造。另外对话按数据源做了隔离，多个库的问答互不串扰。一句话总结这个阶段：系统从我们开发的工具，变成了业务持续喂养的平台。</div>
+</section>
+
+<!-- ============ P8 阶段 4 上：口径治理 ============ -->
+<section class="slide">
+  <div class="kicker">02 · TIMELINE</div>
+  <h2>深水区：真实业务口径治理（v0.4.2 ~ v0.4.4）</h2>
+  <div class="grid grid-3 anim-stagger-list" style="align-content:start;">
+    <div class="card" style="border-left:4px solid #d97706;">
+      <h3 style="margin:0 0 8px;">17 倍虚增事故修复</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">月末快照表被跨期重复累加，本年投放 <b>2318 亿误算成 39204 亿</b>。根因定位到口径配置层，修复 8 个指标定义，<b>未改一行代码</b>。</p>
+    </div>
+    <div class="card" style="border-left:4px solid #d97706;">
+      <h3 style="margin:0 0 8px;">伪同环比清除</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">分类维度图表曾把「上一家机构」误当历史基线算同比。新增时间轴智能判定，<b>只有真时间序列才启用同环比</b>。</p>
+    </div>
+    <div class="card" style="border-left:4px solid #d97706;">
+      <h3 style="margin:0 0 8px;">双模型分工提速</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">修复复杂查询被安全校验误拒的同时，确立大模型出 SQL、小模型做解读的分工，<b>生成速度提升一倍</b>。</p>
+    </div>
+  </div>
+  <div class="quote">这一阶段的每个版本都源自真实使用中发现的问题。<b>敢于暴露并修复口径错误，恰恰是系统可信度的来源。</b></div>
+  <div class="notes">第四阶段是深水区，也是我最想向各位汇报的部分——真实业务口径治理。讲三个典型案例。第一个是 17 倍虚增事故：有同事发现本年投放金额大得离谱，排查发现是月末快照表被跨期重复累加——2318 亿被算成了 39204 亿，虚增近 17 倍。我们的处理很关键：根因定位在口径配置层，修复 8 个指标定义就解决了，没有改一行核心代码，零回归风险。第二个是伪同环比：分类维度的图表曾经把上一家机构的数值当成历史基线去算同比，产生看似合理实则完全错误的数据；我们新增了时间轴智能判定，现在只有真正的时间序列才启用同环比。第三个是在修复复杂查询被安全机制误拒的同时，确立了双模型分工，生成速度提升一倍。我要特别强调：这一阶段的每个版本都源自真实使用中发现的问题。一个数据分析系统最宝贵的品质不是永不犯错，而是错误能被快速发现、精确定位、彻底修复——这正是全程留痕和真库真数两条原则带来的能力。</div>
+</section>
+
+<!-- ============ P9 阶段 4 下：交互打磨 ============ -->
+<section class="slide">
+  <div class="kicker">02 · TIMELINE</div>
+  <h2>收尾打磨：降级不撒谎，答不了就说答不了（v0.4.5 ~ v0.4.7）</h2>
+  <div class="grid grid-3 anim-stagger-list" style="align-content:start;">
+    <div class="card">
+      <div class="pill accent">v0.4.5</div>
+      <h3 style="margin:10px 0 6px;">金额单位自选</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">亿元 / 百万元 / 万元 / 元随提问切换，全链路统一口径；小数与千分位展示全系统拉齐。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">v0.4.6</div>
+      <h3 style="margin:10px 0 6px;">解读失败规则化降级</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">AI 解读异常时不再输出空洞文案，改由规则引擎基于<b>真实统计值</b>生成有信息量的解读。</p>
+    </div>
+    <div class="card">
+      <div class="pill accent">v0.4.7</div>
+      <h3 style="margin:10px 0 6px;">拒答契约</h3>
+      <p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">无关问题、超出能力的问题<b>如实反馈</b>，不再拿演示数据充数；每次拒答审计留痕。</p>
+    </div>
+  </div>
+  <div class="quote">设计哲学一以贯之：<b>系统可以有边界，但不能撒谎</b>——降级给真实数据，拒答给真实理由。</div>
+  <div class="notes">最后三个版本是收尾打磨，围绕一个设计哲学：系统可以有边界，但不能撒谎。第一个，金额单位自选：汇报时大家习惯不同，有人看亿元有人看万元，现在提问时可以随时切换，整条链路——图表、解读、导出——全部统一口径。第二个，解读失败降级优化：以前 AI 解读偶尔失败时会输出一句空洞的兜底文案，毫无信息量；现在改为规则引擎接管，基于真实查询结果的统计值自动生成有信息量的解读——总计多少、均值多少、最高最低是谁，全部真实可核。第三个是最新上线的拒答契约：如果有人问系统写一首诗、或者问数据源里根本没有的指标，系统会如实说明这个问题与当前数据无关或者缺少支撑数据，而不是编一份演示数据糊弄过去，并且每次拒答都会在审计日志留痕。这三个版本看似小，实际共同守住了数据分析系统最核心的资产——可信度。</div>
+</section>
+
+<!-- ============ P10 关键数字 ============ -->
+<section class="slide">
+  <div class="kicker">03 · NUMBERS</div>
+  <h2>关键数字一览</h2>
+  <div class="grid grid-3 anim-stagger-list" style="margin-top:14px;align-content:start;">
+    <div class="stat"><div class="v">27</div><div class="l">版本迭代 · 6 天高强度交付（v0.1 → v0.4.7）</div></div>
+    <div class="stat"><div class="v">492</div><div class="l">自动化测试 · 48 个测试文件 · 每次变更全量回归</div></div>
+    <div class="stat"><div class="v">1266万</div><div class="l">真实口径数据行数 · 双宽表 · 20 个月末快照</div></div>
+    <div class="stat"><div class="v">105→68s</div><div class="l">标杆问题端到端提速 35% · 重复提问秒回</div></div>
+    <div class="stat"><div class="v">2×</div><div class="l">双模型分工后 SQL 生成提速一倍</div></div>
+    <div class="stat"><div class="v">2318.28亿</div><div class="l">本年投放总额与手工 SQL 精确一致（口径已验证）</div></div>
+  </div>
+  <div class="quote" style="margin-top:24px;">另有：8 篇知识文档 326 块 · 8 个语义指标 · 16 条标准 SQL 样例 · 3 种数据库兼容 · 9 种图表类型 · 59 个 API 端点全覆盖校验。</div>
+  <div class="notes">这一页是数字速览，六个核心数字。二十七个版本，六天完成，从 v0.1 到 v0.4.7。四百九十二个自动化测试，分布在四十八个测试文件里，每一次代码变更都全量回归，这是迭代敢快的底气。数据底座 1266 万行真实口径数据。性能上，标杆问题端到端从 105 秒降到 68 秒，提速百分之三十五，重复提问命中缓存秒回；双模型分工后 SQL 生成又快了一倍。最后一个数字最有分量：2318.28 亿——这是「各机构本年投放金额」的口径验证结果，系统生成的 SQL 和人工手写 SQL 的结果精确到小数点后两位完全一致，29 家机构逐一核对过。底下还有一行补充：知识库、语义指标、标准样例、三种数据库、九种图表、59 个接口端点全覆盖校验。这些数字共同说明一件事：这个系统是快的，更是准的、稳的。</div>
+</section>
+
+<!-- ============ P11 经验沉淀 ============ -->
+<section class="slide">
+  <div class="kicker">04 · LESSONS</div>
+  <h2>沉淀的六条经验：可复制到下一个项目</h2>
+  <div class="grid grid-3 anim-stagger-list" style="align-content:start;">
+    <div class="card"><h3 style="margin:0 0 6px;">① 真库真数是底线</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">第一天就用真实数据验证，「看似正确」的口径错误逃不过与手工 SQL 的比对。</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;">② 配置优先于代码</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">口径类问题在配置层修复，不动核心代码，零回归风险。</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;">③ 全链路留痕</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">推导回放、审计八态、对话落库——每个结论可追溯、可复盘、可定责。</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;">④ 降级不撒谎</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">失败给真实统计，答不了给真实理由，演示数据永远显式标记。</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;">⑤ 文档即产品</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">功能说明书是唯一事实源，系统内帮助入口实时读取，文档永不失真。</p></div>
+    <div class="card"><h3 style="margin:0 0 6px;">⑥ 安全纵深防御</h3><p style="font-size:13.5px;color:var(--text-2);line-height:1.7;">白名单 + 语法树双校验、行级权限、敏感剔除、密钥加密——问数直达生产库也放心。</p></div>
+  </div>
+  <div class="notes">七天开发沉淀了六条经验，条条可以复制到下一个项目。第一，真库真数是底线——从第一天就用真实数据验证，这是后来能抓住 17 倍虚增这类问题的根本。第二，配置优先于代码——口径类问题尽量在配置层修复，不动核心代码，就没有回归风险，17 倍虚增的修复就是范例。第三，全链路留痕——推导过程可回放、审计日志八种状态、对话全部落库，任何结论都能追溯、复盘。第四，降级不撒谎——这是我们最坚持的设计哲学：AI 失败时给真实统计结果，答不了的问题给真实的拒答理由，演示数据永远带显式标记。第五，文档即产品——功能说明书是唯一事实源，系统里的帮助按钮实时读取它，文档和系统永远一致。第六，安全纵深防御——SQL 白名单加语法树双重校验、行级权限、敏感字段剔除、密钥加密存储，层层设防。这六条既是这个项目的成功要素，也是团队的方法论资产。</div>
+</section>
+
+<!-- ============ P12 后续规划 ============ -->
+<section class="slide">
+  <div class="kicker">05 · NEXT</div>
+  <h2>现状与后续规划</h2>
+  <div class="grid grid-2" style="margin-top:6px;">
+    <div class="card">
+      <div class="pill accent">当前状态</div>
+      <ul style="font-size:14px;color:var(--text-2);line-height:2;margin:12px 0 0 18px;">
+        <li>v0.4.7 稳定运行，功能培训已完成，操作手册与内置帮助齐备</li>
+        <li>代码已提交 GitHub 托管，21 个语义化提交、四批企业级改造全量验证</li>
+        <li>Docker 部署手册就绪，具备向其它环境复制的条件</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="pill accent">后续方向</div>
+      <ul style="font-size:14px;color:var(--text-2);line-height:2;margin:12px 0 0 18px;">
+        <li>扩大试点：更多业务同事接入，用真实反馈喂养自主学习闭环</li>
+        <li>口径资产沉淀：持续扩充语义指标与 SQL 样例库，越用越准</li>
+        <li>对接正式数仓：Greenplum 链路已就绪，等待数据侧打通</li>
+        <li>知识规模上量后评估向量索引升级（当前轻量方案够用）</li>
+      </ul>
+    </div>
+  </div>
+  <div class="quote">请求支持：<b>① 组织业务试点推广　② 协调正式数仓对接排期　③ 各条线指定口径责任人共建指标库</b>。</div>
+  <div class="notes">最后汇报现状和下一步。当前状态：v0.4.7 稳定运行，面向分析师和管理员的功能培训已经完成，操作手册和系统内置帮助齐备；全部代码提交 GitHub 托管，四批企业级改造经过全量验证后推送；Docker 部署手册就绪，随时可以复制到其它环境。后续四个方向：一是扩大试点，让更多业务同事用起来，真实使用反馈会持续喂养系统的自主学习闭环；二是持续沉淀口径资产，语义指标和 SQL 样例库越积越厚，系统就越用越准；三是对接正式数仓，Greenplum 链路技术上已经完全就绪，就等数据侧打通；四是知识库规模上量之后再评估向量检索的升级，当前方案完全够用。最后有三个请求希望得到支持：组织业务试点推广、协调正式数仓对接排期、以及请各条线指定口径责任人跟我们共建指标库。我的汇报到此结束，谢谢大家。</div>
+</section>
+
+<!-- ============ P13 结尾 ============ -->
+<section class="slide cover" style="justify-content:center;align-items:center;text-align:center;background:linear-gradient(135deg,#ffffff 0%,#eef4ff 60%,#e3edff 100%);">
+  <div data-anim="fade-up">
+    <div class="kicker" style="justify-content:center;">THANK YOU</div>
+    <h1 style="font-size:52px;">用一句话提问<br>让数据如实作答</h1>
+    <p class="subtitle">智能问数分析系统 · NL2SQL Pro v0.4.7<br>谢谢各位，恳请指导</p>
+  </div>
+  <div class="grid grid-3" style="margin-top:44px;max-width:860px;" data-anim="fade-up">
+    <div class="card flat"><p class="lead" style="font-size:15px;">现场演示<br><span style="font-size:13px;color:var(--text-2);">一句中文问数全流程</span></p></div>
+    <div class="card flat"><p class="lead" style="font-size:15px;">系统试用<br><span style="font-size:13px;color:var(--text-2);">账号开通与培训支持</span></p></div>
+    <div class="card flat"><p class="lead" style="font-size:15px;">材料获取<br><span style="font-size:13px;color:var(--text-2);">开发历程文档与功能说明书</span></p></div>
+  </div>
+  <div class="notes">谢谢各位领导和同事。最后用两句话收尾：用一句话提问，让数据如实作答——这就是这个系统的全部承诺。如果时间允许，我非常乐意现场演示一句中文问数的完整流程，从提问到图表到 AI 解读，全程不超过一分钟。需要试用系统的同事，会后我们可以开通账号并提供一对一培训。今天的汇报材料和完整的开发历程文档、功能说明书都可以随时索取。再次感谢大家的时间，恳请各位领导和同事多提宝贵意见。</div>
+</section>
+
+</div>
+<script src="../training-ppt/assets/runtime.js"></script>
+</body>
+</html>

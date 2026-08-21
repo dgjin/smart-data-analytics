@@ -7,11 +7,88 @@
 import { callLLMJson } from './llmClient';
 import { executeSafeSql } from './sqlExecutor';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
-import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes } from './liveQuery';
+import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from './liveQuery';
 import { getStateStore, isRedisEnabled } from './stateStore';
 
 const MAX_REPORT_QUERIES = 4;
 const SAMPLE_ROWS_PER_CHART = 10;
+
+/**
+ * v0.5.1 报表文案中文化：从 schema 提取「英文标识符 → 中文名」映射。
+ * 覆盖表名（name → displayName）与列名（name → description），供 prompt 注入与服务端兜底替换。
+ */
+export function buildIdentifierNameMap(schema: any[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const t of Array.isArray(schema) ? schema : []) {
+    if (!t || typeof t.name !== 'string' || !t.name.trim()) continue;
+    const tableCn = typeof t.displayName === 'string' && t.displayName.trim() ? t.displayName.trim() : '';
+    if (tableCn && tableCn !== t.name) map[t.name] = tableCn;
+    for (const c of Array.isArray(t.columns) ? t.columns : []) {
+      if (!c || typeof c.name !== 'string' || !c.name.trim()) continue;
+      const colCn = typeof c.description === 'string' && c.description.trim() ? c.description.trim() : '';
+      // 列名映射不覆盖已有表名映射；同名取先出现者
+      if (colCn && colCn !== c.name && !map[c.name]) map[c.name] = colCn;
+    }
+  }
+  return map;
+}
+
+/** 转义正则元字符 */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * v0.5.1 报表文案中文化兜底：将文本中出现的英文表名/列名替换为中文名。
+ * 规则：
+ * - 标识符边界匹配（前后不能是字母/数字/下划线），避免误伤包含关系
+ * - 长标识符优先替换（防短名先替换导致长名残留）
+ * - 优先连同【】/[]/引号包裹符一起替换（如【dn_tzsy】→ 中文名，而非【中文名】）
+ */
+export function replaceIdentifiersWithChinese(text: string, nameMap: Record<string, string>): string {
+  if (!text || typeof text !== 'string') return text;
+  const keys = Object.keys(nameMap).sort((a, b) => b.length - a.length);
+  if (keys.length === 0) return text;
+  let out = text;
+  for (const key of keys) {
+    const cn = nameMap[key];
+    if (!cn) continue;
+    // 注意：字符串层 \[ / \] 会产生正则层的转义方括号，避免字符类提前闭合
+    const wrapped = new RegExp('[【\\[\u300c\'"]' + escapeRegExp(key) + '[\\]\】\u300d\'"]', 'g');
+    out = out.replace(wrapped, cn);
+    const bare = new RegExp('(?<![A-Za-z0-9_])' + escapeRegExp(key) + '(?![A-Za-z0-9_])', 'g');
+    out = out.replace(bare, cn);
+  }
+  return out;
+}
+
+/**
+ * v0.5.1 报表文案中文化：对阶段二输出的所有文案字段做英文标识符 → 中文名替换（LLM 不守约束时的服务端兜底）
+ */
+export function sanitizeReportNarrative<T extends Record<string, any>>(report: T, schema: any[]): T {
+  const nameMap = buildIdentifierNameMap(schema);
+  if (Object.keys(nameMap).length === 0) return report;
+  const fix = (s: any): any => (typeof s === 'string' ? replaceIdentifiersWithChinese(s, nameMap) : s);
+  const out: Record<string, any> = { ...report };
+  if (typeof out.title === 'string') out.title = fix(out.title);
+  if (typeof out.summary === 'string') out.summary = fix(out.summary);
+  if (Array.isArray(out.insights)) {
+    out.insights = out.insights.map((i: any) =>
+      i && typeof i === 'object' ? { ...i, title: fix(i.title), content: fix(i.content), actionItem: fix(i.actionItem) } : i
+    );
+  }
+  if (Array.isArray(out.kpiList)) {
+    out.kpiList = out.kpiList.map((k: any) =>
+      k && typeof k === 'object' ? { ...k, label: fix(k.label), value: fix(k.value), change: fix(k.change) } : k
+    );
+  }
+  if (Array.isArray(out.charts)) {
+    out.charts = out.charts.map((c: any) =>
+      c && typeof c === 'object' ? { ...c, title: fix(c.title), commentary: fix(c.commentary) } : c
+    );
+  }
+  return out as T;
+}
 
 export interface LiveReportInput {
   templateType: string;
@@ -26,6 +103,8 @@ export interface LiveReportInput {
   rowFilters?: Record<string, string>;
   /** M4 报告计划批准：用户已批准的查询计划，存在时跳过阶段一重新生成 */
   approvedPlans?: { reportTitle: string; plans: ReportQueryPlan[] };
+  /** v0.5.2 金额单位（亿元/百万元/万元/元）：与问数口径一致，注入阶段一 SQL 换算约定 */
+  amountUnit?: string;
 }
 
 export type LiveReportOutcome =
@@ -51,6 +130,8 @@ type ReportPlanEntry = {
   templateType: string;
   userId: number;
   dataSourceId: string;
+  /** v0.5.2 计划生成时的金额单位口径：批准执行时必须一致，防口径互串 */
+  amountUnit?: string;
   expiresAt: number;
 };
 const reportPlanStore = new Map<string, ReportPlanEntry>();
@@ -61,7 +142,7 @@ export function newReportPlanId(): string {
 
 export async function storeReportPlan(
   plan: { reportTitle: string; plans: ReportQueryPlan[] },
-  meta: { templateType: string; userId: number; dataSourceId: string },
+  meta: { templateType: string; userId: number; dataSourceId: string; amountUnit?: string },
   now = Date.now()
 ): Promise<string> {
   const id = newReportPlanId();
@@ -83,6 +164,7 @@ export async function consumeReportPlan(
   userId: number,
   dataSourceId: string,
   templateType: string,
+  amountUnit?: string,
   now = Date.now()
 ): Promise<ReportPlanConsumeResult> {
   if (isRedisEnabled()) {
@@ -99,6 +181,10 @@ export async function consumeReportPlan(
     if (entry.dataSourceId !== dataSourceId || entry.templateType !== templateType) {
       return { ok: false, reason: '报告计划与当前数据源/模板不匹配，请重新制定' };
     }
+    // v0.5.2 金额单位口径一致性：计划 SQL 已按生成时单位换算，批准时换单位须重新制定
+    if ((entry.amountUnit || '') !== (amountUnit || '')) {
+      return { ok: false, reason: '金额单位与计划制定时不一致，请重新制定' };
+    }
     return { ok: true, plan: entry.plan };
   }
   const entry = reportPlanStore.get(planId);
@@ -108,6 +194,10 @@ export async function consumeReportPlan(
   if (entry.userId !== userId) return { ok: false, reason: '无权使用他人的报告计划' };
   if (entry.dataSourceId !== dataSourceId || entry.templateType !== templateType) {
     return { ok: false, reason: '报告计划与当前数据源/模板不匹配，请重新制定' };
+  }
+  // v0.5.2 金额单位口径一致性：计划 SQL 已按生成时单位换算，批准时换单位须重新制定
+  if ((entry.amountUnit || '') !== (amountUnit || '')) {
+    return { ok: false, reason: '金额单位与计划制定时不一致，请重新制定' };
   }
   return { ok: true, plan: entry.plan };
 }
@@ -121,7 +211,7 @@ export async function clearReportPlanStoreForTest(): Promise<void> {
 export async function generateReportPlans(input: Omit<LiveReportInput, 'approvedPlans'>): Promise<
   { ok: true; plan: { reportTitle: string; plans: ReportQueryPlan[] } } | { ok: false; error: string }
 > {
-  const parsed = await generateStage1Plans(input.templateType, input.customPrompt, input.schema, input.guidance, input.dsType);
+  const parsed = await generateStage1Plans(input.templateType, input.customPrompt, input.schema, input.guidance, input.dsType, input.amountUnit);
   if (!parsed) return { ok: false, error: '报表查询计划生成失败' };
   return { ok: true, plan: parsed };
 }
@@ -132,15 +222,18 @@ async function generateStage1Plans(
   customPrompt: string,
   schema: any[],
   guidance: string,
-  dsType?: string
+  dsType?: string,
+  amountUnit?: string
 ): Promise<{ reportTitle: string; plans: ReportQueryPlan[] } | null> {
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = null;
   let lastError = '';
+  // v0.5.2 金额单位约定拼在用户消息首位（与问数链路口径一致）
+  const unitPrompt = buildAmountUnitPrompt(amountUnit);
   for (let attempt = 0; attempt < 2; attempt++) {
     const userPrompt =
       attempt === 0
-        ? `报表主题：${templateType}\n额外要求：${customPrompt}`
-        : `报表主题：${templateType}\n额外要求：${customPrompt}\n\n（上次输出未通过校验：${lastError}，请修正后按同一 JSON 契约重新输出。）`;
+        ? `${unitPrompt}报表主题：${templateType}\n额外要求：${customPrompt}`
+        : `${unitPrompt}报表主题：${templateType}\n额外要求：${customPrompt}\n\n（上次输出未通过校验：${lastError}，请修正后按同一 JSON 契约重新输出。）`;
     let text: string;
     try {
       text = await callLLMJson(buildReportStage1System(schema, guidance, dsType), userPrompt);
@@ -170,6 +263,7 @@ ${dialect.rules}- queries 之间应选择不同维度（如时间趋势、类别
 - chartType 从 bar/line/area/pie/donut/radar/treemap/heatmap 选择（时间趋势用 line/area，类别对比用 bar，占比结构用 pie/donut，层级占比用 treemap，多指标横向对照用 heatmap）；xAxisKey 与 yAxisKeys 必须与 SQL 输出列严格一致
 - purpose: 一句话说明该图回答的业务问题
 - 结果行数控制在 50 行以内（通过聚合或 LIMIT）
+- 【文案中文化】reportTitle/title/purpose 中严禁出现英文表名/列名（如 dn_tzsy、BNTFJE），必须使用 Schema 中 displayName/description 对应的中文业务名称
 
 请只输出纯 JSON，不要包含 markdown 代码块标记或其他说明文字。`;
 }
@@ -200,7 +294,11 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
   };
 }
 
-function buildReportStage2System(): string {
+function buildReportStage2System(schema: any[]): string {
+  const nameMap = buildIdentifierNameMap(schema);
+  const nameMapText = Object.entries(nameMap)
+    .map(([en, cn]) => `${en} = ${cn}`)
+    .join('；');
   return `你是资深数据分析总监。你将收到一组真实数据库查询结果（各图表的 SQL、行数、列统计与数据样本）。基于这些真实数据撰写高管报表内容。
 
 【强制约束】
@@ -210,18 +308,19 @@ function buildReportStage2System(): string {
 - insights: 4 条战略洞察 [{"title","type","content","actionItem"}]，type 从 positive/warning/info/critical 选择，content 须引用真实数值
 - kpiList: 4 个核心 KPI [{"label","value","change","status"}]，value 必须由真实数据计算（可引用列统计），change 仅在数据支持时给出，status 从 good/bad/neutral 选择
 - commentaries: 字符串数组，按给定图表顺序逐图解读（每张图 60 字以内，须引用该图真实数据）
+- 【文案中文化】title/summary/insights/kpiList/commentaries 中严禁出现英文表名/列名标识符（SQL 中的标识符仅用于理解数据结构，不得出现在文案中），一律使用下列中文业务名称：${nameMapText || '（以 Schema 中文名为准）'}
 
 请只输出纯 JSON，不要包含 markdown 代码块标记或其他说明文字。`;
 }
 
 export async function runLiveReport(input: LiveReportInput): Promise<LiveReportOutcome> {
-  const { templateType, customPrompt, schema, guidance, dataSourceId, dsType, sensitiveRemoved, rowFilters } = input;
+  const { templateType, customPrompt, schema, guidance, dataSourceId, dsType, sensitiveRemoved, rowFilters, amountUnit } = input;
   const executedSqls: string[] = [];
 
   // 阶段一：生成查询计划（已批准计划直接复用，跳过重新生成）
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = input.approvedPlans ?? null;
   if (!parsed) {
-    parsed = await generateStage1Plans(templateType, customPrompt, schema, guidance, dsType);
+    parsed = await generateStage1Plans(templateType, customPrompt, schema, guidance, dsType, amountUnit);
   }
   if (!parsed) {
     return { ok: false, error: '查询计划生成失败', executedSqls };
@@ -293,9 +392,14 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
 
   let analysis: Record<string, any>;
   try {
-    const text2 = await callLLMJson(buildReportStage2System(), stage2User);
+    const text2 = await callLLMJson(buildReportStage2System(schema), stage2User);
     analysis = safeParseJson(text2) || {};
-  } catch {
+    if (Object.keys(analysis).length === 0) {
+      console.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));
+    }
+  } catch (err: any) {
+    // v0.5.0：阶段二失败不再静默——记录原因便于诊断（报表降级为兜底摘要，KPI/洞察缺失）
+    console.warn('[LiveReport] 阶段二 LLM 调用失败（kpiList/insights 将缺失）:', err?.message || err);
     analysis = {};
   }
 
@@ -306,7 +410,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     c.commentary = commentaries[i] || `本图基于真实查询返回的 ${(c.data as any[]).length} 行数据。`;
   });
 
-  const report = {
+  const rawReport = {
     title:
       (typeof analysis.title === 'string' && analysis.title.trim()) ||
       parsed.reportTitle ||
@@ -328,6 +432,9 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
       })),
     charts,
   };
+
+  // v0.5.1 报表文案中文化兜底：阶段二未遵守约束时，服务端将英文表名/列名替换为中文业务名称
+  const report = sanitizeReportNarrative(rawReport, schema);
 
   return { ok: true, report, executedSqls, totalRows };
 }

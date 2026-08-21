@@ -14,10 +14,13 @@ import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../user
 import { writeAudit } from '../auditLog';
 import { loadSchemaContext } from '../schemaContext';
 import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from '../liveReport';
+import { normalizeAmountUnit } from '../liveQuery';
 import { runSimulatedReport } from '../simulatedReport';
 import { getFallbackExecutiveReport } from '../../serverFallbacks';
 import { normalizeExportData, buildReportPptx, buildExportFilename } from '../reportExport';
+import { runPdfGenerator } from '../pdfExport';
 import { normalizeReport } from '../../src/utils/queryResultNormalizer';
+import { getPool } from '../db';
 
 const router = Router();
 
@@ -42,6 +45,13 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
   const safeTemplate = String(templateType || '综合经营分析').slice(0, 200);
   const safeCustom = String(customPrompt || '生成包含核心KPI、多维趋势图表与战略建议的决策简报').slice(0, 1000);
   const auditQuestion = `report:${safeTemplate}`;
+
+  // v0.5.2 金额单位（亿元/百万元/万元/元）：白名单外直接拒绝，与问数链路口径一致
+  const amountUnit = normalizeAmountUnit(req.body.amountUnit);
+  if (req.body.amountUnit != null && req.body.amountUnit !== '' && !amountUnit) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: `非法金额单位：${String(req.body.amountUnit).slice(0, 20)}`, durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
+  }
 
   // L1 输入层：报告主题与自定义要求过注入特征检测
   if (containsInjection(safeTemplate) || containsInjection(safeCustom)) {
@@ -76,7 +86,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
     let approvedPlans: Parameters<typeof runLiveReport>[0]['approvedPlans'];
     const reportPlanId = typeof req.body.reportPlanId === 'string' ? req.body.reportPlanId : '';
     if (reportPlanId) {
-      const consumed = await consumeReportPlan(reportPlanId, user.id, dataSourceId, safeTemplate);
+      const consumed = await consumeReportPlan(reportPlanId, user.id, dataSourceId, safeTemplate, amountUnit);
       if (consumed.ok !== true) {
         writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: consumed.reason, durationMs: Date.now() - startedAt });
         return res.status(409).json({ code: ERROR_CODES.PLAN_INVALID, error: consumed.reason });
@@ -96,6 +106,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
         dsType: ctx.dsType || undefined,
         sensitiveRemoved: ctx.sensitiveRemoved,
         rowFilters: ctx.rowFilters,
+        amountUnit,
         ...(approvedPlans ? { approvedPlans } : {}),
       });
       if (live.ok === true) {
@@ -168,6 +179,13 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告参数包含不允许的指令内容' });
   }
 
+  // v0.5.2 金额单位白名单校验（计划按当前单位生成 SQL，批准执行时校验口径一致）
+  const amountUnit = normalizeAmountUnit(req.body.amountUnit);
+  if (req.body.amountUnit != null && req.body.amountUnit !== '' && !amountUnit) {
+    writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'DENIED_INPUT', detail: `非法金额单位：${String(req.body.amountUnit).slice(0, 20)}`, durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
+  }
+
   const ctx = await loadSchemaContext(dataSourceId, schema);
   if (ctx.status === 'disconnected') {
     writeAudit({ ...auditBase, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
@@ -187,12 +205,13 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
       dataSourceId,
       dsType: ctx.dsType || undefined,
       sensitiveRemoved: ctx.sensitiveRemoved,
+      amountUnit,
     });
     if (out.ok !== true) {
       writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: out.error, durationMs: Date.now() - startedAt });
       return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: out.error });
     }
-    const reportPlanId = await storeReportPlan(out.plan, { templateType: safeTemplate, userId: user.id, dataSourceId });
+    const reportPlanId = await storeReportPlan(out.plan, { templateType: safeTemplate, userId: user.id, dataSourceId, amountUnit });
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
     return res.json({ success: true, reportPlanId, plan: out.plan, expiresInSec: 600 });
   } catch (err: any) {
@@ -202,7 +221,151 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
   }
 });
 
-// 4a. M4 报告导出：服务端用 pptxgenjs 组装 PPTX（封面/摘要/KPI/每图一页/结论），图表由前端转 base64 PNG 提交
+// 4a. v0.5.0 智能问数报告生成：从对话生成报告（支持模板选择或智能推断）
+router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const { question, dataSourceId, templateId } = req.body;
+  const auditBase = {
+    userId: user.id,
+    username: user.username,
+    endpoint: 'report' as const,
+    dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+  };
+
+  // L2 权限层：Service 侧复核
+  if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告生成权限`, durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告生成权限' });
+  }
+
+  // 输入校验
+  if (!question || typeof question !== 'string' || question.trim().length === 0) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '提问内容不能为空' });
+  }
+  if (!dataSourceId || typeof dataSourceId !== 'string') {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '缺少数据源 ID' });
+  }
+
+  const safeQuestion = question.trim().slice(0, 500);
+  const auditQuestion = `query-report:${safeQuestion.slice(0, 100)}`;
+
+  // v0.5.2 金额单位白名单校验（与问数链路口径一致）
+  const amountUnit = normalizeAmountUnit(req.body.amountUnit);
+  if (req.body.amountUnit != null && req.body.amountUnit !== '' && !amountUnit) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: `非法金额单位：${String(req.body.amountUnit).slice(0, 20)}`, durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
+  }
+
+  // L1 输入层：提问内容过注入特征检测
+  if (containsInjection(safeQuestion)) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: '提问内容包含注入特征', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '提问内容包含不允许的指令' });
+  }
+
+  // L5 频率层：与智能问数共享用户配额与并发互斥
+  const limit = await checkUserQueryLimit(user.id);
+  if (!limit.ok) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
+  }
+  const reportSlotToken = randomUUID();
+  if (!(await acquireQuerySlot(user.id, reportSlotToken))) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: '存在进行中的查询', durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.QUERY_IN_FLIGHT, error: '上一个查询仍在进行中，请等待完成后再试' });
+  }
+
+  try {
+    // L3 上下文层：加载数据源 schema
+    const ctx = await loadSchemaContext(dataSourceId, req.body.schema);
+    if (ctx.status === 'disconnected') {
+      writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
+      return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
+    }
+
+    let templateType = '智能推断';
+    let customPrompt = safeQuestion;
+    let templateName = '';
+    let templateIdNum: number | null = null;
+
+    // 如果指定了模板，加载模板内容
+    if (templateId && typeof templateId === 'number') {
+      const pool = getPool();
+      const [rows] = await pool.query('SELECT * FROM report_templates WHERE id = ?', [templateId]);
+      const template = (rows as any[])[0];
+      if (template) {
+        templateType = template.name;
+        templateName = template.name;
+        templateIdNum = template.id;
+        // 将模板内容与用户提问结合
+        const templateContent = JSON.parse(template.template_content);
+        const sectionsPrompt = templateContent.sections?.map((s: any) => `${s.title}：${s.prompt}`).join('；') || '';
+        customPrompt = `${safeQuestion}。请按照以下模板结构生成报告：${sectionsPrompt}`;
+      }
+    }
+
+    // P1 报表真实化：数据库型数据源走双阶段
+    const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+    if (!canRunLive) {
+      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '仅数据库型数据源支持报告生成' });
+    }
+
+    const live = await runLiveReport({
+      templateType,
+      customPrompt,
+      schema: ctx.schema,
+      guidance: ctx.guidance,
+      dataSourceId,
+      dsType: ctx.dsType || undefined,
+      sensitiveRemoved: ctx.sensitiveRemoved,
+      rowFilters: ctx.rowFilters,
+      amountUnit,
+    });
+
+    if (live.ok === true) {
+      const report = normalizeReport(live.report);
+      if (report) {
+        // 生成报告 ID
+        const reportId = `report-${Date.now()}`;
+        // 将报告插入 query_reports 表
+        const pool = getPool();
+        await pool.query(
+          'INSERT INTO query_reports (report_id, user_id, username, data_source_id, question, template_id, template_name, report_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [reportId, user.id, user.username, dataSourceId, safeQuestion, templateIdNum, templateName, JSON.stringify(report)]
+        );
+
+        writeAudit({ ...auditBase, question: auditQuestion, status: 'SUCCESS', executedSql: live.executedSqls.join(' ; '), rowCount: live.totalRows, durationMs: Date.now() - startedAt });
+        return res.json({ success: true, executionTimeMs: Date.now() - startedAt, report: { ...report, executedSqls: live.executedSqls }, reportId, templateName, dataProvenance: 'live' });
+      }
+    }
+
+    // 生成失败，走降级
+    writeAudit({
+      ...auditBase,
+      question: auditQuestion,
+      status: 'FALLBACK',
+      detail: String(live.ok === true ? '报表结构校验失败' : live.error).slice(0, 200),
+      executedSql: live.executedSqls.join(' ; '),
+      durationMs: Date.now() - startedAt,
+    });
+    return res.json({
+      success: true,
+      executionTimeMs: Date.now() - startedAt,
+      isFallback: true,
+      report: getFallbackExecutiveReport(templateType, ctx.schema),
+      templateName,
+      dataProvenance: 'simulated',
+    });
+  } catch (err: any) {
+    console.error('Generate Report From Query Error:', err);
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '报告生成失败，请稍后重试' });
+  } finally {
+    await releaseQuerySlot(user.id, reportSlotToken);
+  }
+});
+
+// 4b. M4 报告导出：服务端用 pptxgenjs 组装 PPTX（封面/摘要/KPI/每图一页/结论），图表由前端转 base64 PNG 提交
 router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const startedAt = Date.now();
   const user = req.user!;
@@ -230,6 +393,39 @@ router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddlew
     console.error('Report Export Error:', err);
     writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'PPT 生成失败，请稍后重试' });
+  }
+});
+
+// 4c. v0.5.3 报告 PDF 导出：ReportLab 服务端原生排版（替代前端 html2canvas 截图），图表由前端转 base64 PNG 提交
+router.post('/export-pdf', express.json({ limit: '20mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
+
+  // L2 权限层：Service 侧复核
+  if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告导出权限`, durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告导出权限' });
+  }
+
+  const data = normalizeExportData(req.body?.report ?? req.body);
+  if (!data) {
+    writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告导出参数无效' });
+  }
+  // 方向白名单（portrait 竖版默认 / landscape 横版）
+  const orientation = req.body?.orientation === 'landscape' ? 'landscape' : 'portrait';
+
+  try {
+    const pdf = await runPdfGenerator({ ...data, orientation });
+    writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.pdf'))}`);
+    return res.send(pdf);
+  } catch (err: any) {
+    console.error('Report PDF Export Error:', err);
+    writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: String(err?.message || 'PDF 生成失败，请稍后重试').slice(0, 200) });
   }
 });
 

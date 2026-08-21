@@ -205,7 +205,7 @@ export async function initSchema(): Promise<void> {
       question VARCHAR(500) NOT NULL DEFAULT '',
       executed_sql VARCHAR(2000) NOT NULL DEFAULT '',
       answer_summary VARCHAR(800) NOT NULL DEFAULT '',
-      status ENUM('SUCCESS','FALLBACK') NOT NULL DEFAULT 'SUCCESS',
+      status ENUM('SUCCESS','FALLBACK','REFUSED') NOT NULL DEFAULT 'SUCCESS',
       provenance VARCHAR(20) NOT NULL DEFAULT '',
       row_count INT NOT NULL DEFAULT 0,
       duration_ms INT NOT NULL DEFAULT 0,
@@ -213,6 +213,15 @@ export async function initSchema(): Promise<void> {
       INDEX idx_conv_user_ds (user_id, data_source_id, id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // 存量库迁移：status ENUM 扩展 REFUSED（拒答留痕；MODIFY 幂等，重复执行无副作用）
+  try {
+    await pool.query(
+      "ALTER TABLE conversation_history MODIFY COLUMN status ENUM('SUCCESS','FALLBACK','REFUSED') NOT NULL DEFAULT 'SUCCESS'"
+    );
+  } catch (err: any) {
+    console.warn('[DB] conversation_history status migration skipped:', err?.message || err);
+  }
 
   // P1-A 知识库 RAG：管理员登记的业务知识（指标口径/术语），切块后向量检索注入问数 prompt
   await pool.query(`
@@ -293,6 +302,98 @@ export async function initSchema(): Promise<void> {
     `);
   }
 
+  // v0.5.0 智能问数报告模式：报告模板表（预设模板 + 用户自定义模板）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS report_templates (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL COMMENT '模板名称',
+      description VARCHAR(500) DEFAULT '' COMMENT '模板描述',
+      template_content TEXT NOT NULL COMMENT '模板内容（JSON 格式：{sections: [{title, prompt, chartType}]}）',
+      is_preset TINYINT(1) DEFAULT 0 COMMENT '是否预设模板（1=系统预设不可删除）',
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_rt_preset (is_preset)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.5.0 智能问数报告模式：智能问数报告记录表（对话生成的报告）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS query_reports (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      report_id VARCHAR(64) NOT NULL UNIQUE COMMENT '报告唯一标识（前端生成 report-{timestamp}）',
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL,
+      data_source_id VARCHAR(64) NOT NULL,
+      question TEXT NOT NULL COMMENT '用户提问',
+      template_id BIGINT NULL COMMENT '使用的模板ID（NULL=智能推断）',
+      template_name VARCHAR(100) DEFAULT '' COMMENT '模板名称快照',
+      report_data MEDIUMTEXT NOT NULL COMMENT '报告完整数据（JSON：title/summary/kpiList/charts/insights）',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_qr_user (user_id, data_source_id),
+      INDEX idx_qr_report_id (report_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.5.0 初始化预设报告模板（幂等插入）
+  const [templateRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM report_templates WHERE is_preset = 1');
+  if (Number(templateRows[0]?.cnt) === 0) {
+    const presetTemplates = [
+      {
+        name: '综合经营分析',
+        description: '投放规模与逐月趋势、业务分类结构、机构分布及长龄/逾期资产质量的月末快照综合盘点',
+        content: JSON.stringify({
+          sections: [
+            { title: '投放规模与趋势', prompt: '分析本年投放金额的总体规模、逐月趋势与同比变化', chartType: 'line' },
+            { title: '业务分类结构', prompt: '按业务分类统计投放金额占比与分布', chartType: 'pie' },
+            { title: '机构分布', prompt: '按机构统计投放金额排名与占比', chartType: 'bar' },
+            { title: '资产质量', prompt: '分析长龄业务占比、逾期金额分布等风险指标', chartType: 'bar' },
+          ],
+        }),
+      },
+      {
+        name: '资产质量与风险监控',
+        description: '聚焦长龄业务占比与机构分布、逾期金额按业务分类分布及风险项目机构分布',
+        content: JSON.stringify({
+          sections: [
+            { title: '长龄业务分析', prompt: '统计长龄业务占比、机构分布与趋势', chartType: 'bar' },
+            { title: '逾期金额分布', prompt: '按业务分类统计逾期金额与占比', chartType: 'pie' },
+            { title: '风险项目分布', prompt: '按机构统计风险项目数量与金额', chartType: 'bar' },
+          ],
+        }),
+      },
+      {
+        name: '投资收益与财务分析',
+        description: '基于财务宽表（核算版），按科目一级分类与月度分析投资收益、利息收入等财务效能指标',
+        content: JSON.stringify({
+          sections: [
+            { title: '投资收益分析', prompt: '按科目分类统计投资收益规模与趋势', chartType: 'line' },
+            { title: '利息收入分析', prompt: '统计利息收入的月度变化与构成', chartType: 'bar' },
+            { title: '财务效能指标', prompt: '计算并分析关键财务效能指标', chartType: 'kpi' },
+          ],
+        }),
+      },
+      {
+        name: '企业战略决策简报',
+        description: '面向CEO/CFO的高管摘要，包含不良资产业务归因诊断、风险预警与战略落地方案',
+        content: JSON.stringify({
+          sections: [
+            { title: '高管摘要', prompt: '生成一段话高管摘要，概括核心业务表现与关键发现', chartType: 'text' },
+            { title: '业务归因诊断', prompt: '分析业务表现的根本原因与驱动因素', chartType: 'text' },
+            { title: '风险预警', prompt: '识别潜在风险点并提供预警建议', chartType: 'text' },
+            { title: '战略落地方案', prompt: '提出可操作的战略落地建议与行动项', chartType: 'text' },
+          ],
+        }),
+      },
+    ];
+    for (const tpl of presetTemplates) {
+      await pool.query(
+        'INSERT INTO report_templates (name, description, template_content, is_preset, created_by) VALUES (?, ?, ?, 1, ?)',
+        [tpl.name, tpl.description, tpl.content, 'system']
+      );
+    }
+  }
+
   // P1-1 语义指标层：管理员登记的业务指标权威口径（名称/同义词/聚合表达式/归属表/固定过滤），
   // 问数命中后模板化注入阶段一 prompt，保证同指标全系统口径一致
   await pool.query(`
@@ -322,6 +423,8 @@ export async function initSchema(): Promise<void> {
       engine VARCHAR(16) NOT NULL,
       model VARCHAR(128) NOT NULL,
       channel VARCHAR(12) NOT NULL,
+      user_id INT NULL,
+      username VARCHAR(64) NULL,
       prompt_tokens INT NOT NULL DEFAULT 0,
       completion_tokens INT NOT NULL DEFAULT 0,
       total_tokens INT NOT NULL DEFAULT 0,
@@ -329,9 +432,23 @@ export async function initSchema(): Promise<void> {
       ok TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_llm_usage_created (created_at),
-      INDEX idx_llm_usage_engine_model (engine, model)
+      INDEX idx_llm_usage_engine_model (engine, model),
+      INDEX idx_llm_usage_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // 存量库迁移：LLM 用量按用户维度统计（user_id/username 冗余存快照，改名不影响历史）
+  for (const ddl of [
+    'ALTER TABLE llm_usage ADD COLUMN user_id INT NULL AFTER channel',
+    'ALTER TABLE llm_usage ADD COLUMN username VARCHAR(64) NULL AFTER user_id',
+    'ALTER TABLE llm_usage ADD INDEX idx_llm_usage_user (user_id)',
+  ]) {
+    try {
+      await pool.query(ddl);
+    } catch (err: any) {
+      if (err?.code !== 'ER_DUP_FIELDNAME' && err?.code !== 'ER_DUP_KEYNAME') throw err;
+    }
+  }
 
   // 外部知识库接入：管理员配置企业级外部 RAG/知识服务检索接口，
   // 问数时与本地知识库一并检索注入（智能问数自主学习的又一来源）；

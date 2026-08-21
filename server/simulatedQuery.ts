@@ -4,7 +4,7 @@
  * prompt 构建、结构校验与列名中文化组装收敛在本模块；审计/历史落库/fallback 属路由关注点，不在此层。
  */
 import { callLLMJson, ChatMessage } from './llmClient';
-import { buildColumnNames } from './liveQuery';
+import { buildColumnNames, parseRefusal } from './liveQuery';
 import { normalizeQueryResult, safeParseJson } from '../src/utils/queryResultNormalizer';
 
 export interface SimulatedQueryInput {
@@ -27,7 +27,13 @@ export interface SimulatedQueryFailure {
   error: string;
 }
 
-export type SimulatedQueryOutcome = SimulatedQuerySuccess | SimulatedQueryFailure;
+/** 问题与当前数据源无关或超出能力时返回拒答：如实反馈，不生成演示数据托底 */
+export interface SimulatedQueryRefuse {
+  ok: 'refuse';
+  reason: string;
+}
+
+export type SimulatedQueryOutcome = SimulatedQuerySuccess | SimulatedQueryFailure | SimulatedQueryRefuse;
 
 /** 演示模式 system prompt（纯函数抽出便于单测；文案与 live 链路共同维护） */
 export function buildSimulatedSystemPrompt(schema: any[], guidance: string): string {
@@ -46,7 +52,8 @@ ${guidance}
 - 维度（分组/切片依据）只能从各表的"维度"列中选取（通常是类别、日期、文本列）。
 - 指标（度量/聚合对象）只能从各表的"指标"列中选取（通常是数值列），并选择合适的聚合方式（SUM/AVG/MAX/MIN/COUNT）。
 - generatedSQL、chartConfig.xAxisKey、chartConfig.yAxisKeys、data 的字段名必须与 Schema 中实际存在的表名和字段名完全一致，严禁编造 Schema 中不存在的表或字段。
-- 若用户问题与当前 Schema 无关，请基于 Schema 中语义最接近的表与字段作答，并在 aiExplanation 中说明所作假设。
+- 若用户问题与当前 Schema 不完全匹配但存在语义相近的表与字段，请基于最接近的映射作答，并在 aiExplanation 中说明所作假设。
+- 拒答：当用户问题与当前 Schema 完全无关（闲聊、常识问答、代码/翻译等通用请求），或问题涉及的指标、维度在 Schema 中不存在任何语义相近的表/字段时，**禁止编造演示数据**，只输出纯 JSON：{"refuse": true, "reason": "..."}，reason 必须严格使用统一话术模板：「抱歉，我是数据分析助手，仅协助处理数据分析相关工作，无法处理XXXX」，其中 XXXX 替换为用户请求的具体类型简述（如「天气查询」「写诗创作」「编写Python代码」，或 Schema 缺失的业务数据），一句话内完成，不附加其他内容，XXXX 不得原样保留。
 
 请务必返回符合严格JSON Schema的分析对象:
 1. generatedSQL: 标准且美化的SQL查询语句（演示用途，不会真实执行）。
@@ -67,6 +74,9 @@ ${guidance}
 export async function runSimulatedQuery(input: SimulatedQueryInput): Promise<SimulatedQueryOutcome> {
   try {
     const resultText = await callLLMJson(buildSimulatedSystemPrompt(input.schema, input.guidance), input.query, input.history);
+    // 拒答优先判定：问题与数据源无关/超出能力时如实反馈，不生成演示数据
+    const refusal = parseRefusal(resultText);
+    if (refusal) return { ok: 'refuse', reason: refusal.reason };
     const parsed = safeParseJson(resultText);
     // 中文表头：schema 列业务含义兜底 + LLM 映射覆盖（与 live 链路同一组装逻辑）
     if (parsed && Array.isArray(parsed.data)) {

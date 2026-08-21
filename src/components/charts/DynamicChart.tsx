@@ -42,6 +42,7 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { CHART_THEMES, getAutoOptimizedColors, ChartTheme } from '../../utils/chartThemes';
+import { detectTemporalAxis } from '../../utils/temporalAxis';
 
 export type ComparisonMode = 'none' | 'yoy' | 'mom';
 
@@ -103,11 +104,13 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
   // Reset comparison mode when the dataset no longer supports it
   useEffect(() => {
     const len = data?.length || 0;
-    const momOk = len >= 3;
-    const yoyOk = len > (len >= 13 ? 12 : 4);
+    // 仅时间序列 x 轴允许同/环比：分类维度（机构名等）下偏移基线是维度错配的伪数据
+    const temporal = detectTemporalAxis((data || []).map((d) => d?.[config.xAxisKey]));
+    const momOk = temporal && len >= 3;
+    const yoyOk = temporal && len > (len >= 13 ? 12 : 4);
     if (activeComparisonMode === 'mom' && !momOk) setActiveComparisonMode('none');
     if (activeComparisonMode === 'yoy' && !yoyOk) setActiveComparisonMode('none');
-  }, [data, activeComparisonMode]);
+  }, [data, activeComparisonMode, config.xAxisKey]);
 
   const isCartesian = ['line', 'bar', 'area'].includes(config.type);
   const dataLen = data?.length || 0;
@@ -182,9 +185,12 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   // YoY / MoM comparison availability — never fabricate baselines.
   // MoM needs at least 3 points; YoY needs a full prior cycle (offset 4 or 12).
+  // 且仅限时间序列 x 轴：分类维度下「上一条/周期偏移条」不是历史同期，
+  // 对其计算同/环比会把其他分类的值误当基线（v0.4.2 修复）。
   const yoyOffset = data.length >= 13 ? 12 : 4;
-  const canCompareMom = data.length >= 3;
-  const canCompareYoy = data.length > yoyOffset;
+  const isTemporalX = detectTemporalAxis(data.map((d) => d?.[xAxisKey]));
+  const canCompareMom = isTemporalX && data.length >= 3;
+  const canCompareYoy = isTemporalX && data.length > yoyOffset;
 
   // Calculate YoY / MoM comparison baselines & difference percentages.
   // Points without a real historical baseline are left undefined (no fabricated data).
@@ -225,13 +231,13 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   const chartData = processComparisonData(visibleData, activeComparisonMode);
 
-  // Format large number in tooltip/axis（中文计数单位：万/亿）
+  // Format number in tooltip/axis：千分位 + 非整数补足两位小数（整数不补零）；
+  // 不再自动缩写为万/亿——金额单位已由问数侧选定（SQL 按单位换算、表头带单位），二次缩写会与所选单位冲突
   const formatValue = (val: any) => {
     if (typeof val === 'number') {
-      if (Math.abs(val) >= 100000000) return `¥${(val / 100000000).toFixed(2)}亿`;
-      if (Math.abs(val) >= 1000000) return `¥${(val / 10000).toFixed(1)}万`;
-      if (Math.abs(val) >= 10000) return `${(val / 10000).toFixed(1)}万`;
-      return val.toLocaleString();
+      return Number.isInteger(val)
+        ? val.toLocaleString()
+        : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     return val;
   };
@@ -744,7 +750,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                       ? 'text-slate-400 hover:text-indigo-300'
                       : 'text-slate-600 cursor-not-allowed opacity-50'
                 }`}
-                title={canCompareYoy ? '同比 Year-over-Year (与去年同期对比)' : '数据点不足，无法计算同比'}
+                title={canCompareYoy ? '同比 Year-over-Year (与去年同期对比)' : !isTemporalX ? '仅时间序列维度支持同比对比' : '数据点不足，无法计算同比'}
               >
                 <GitCompare className="w-3 h-3 text-indigo-400" />
                 <span>同比 YoY</span>
@@ -760,7 +766,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                       ? 'text-slate-400 hover:text-cyan-300'
                       : 'text-slate-600 cursor-not-allowed opacity-50'
                 }`}
-                title={canCompareMom ? '环比 Month-over-Month (与上期值对比)' : '数据点不足，无法计算环比'}
+                title={canCompareMom ? '环比 Month-over-Month (与上期值对比)' : !isTemporalX ? '仅时间序列维度支持环比对比' : '数据点不足，无法计算环比'}
               >
                 <TrendingUp className="w-3 h-3 text-cyan-400" />
                 <span>环比 MoM</span>

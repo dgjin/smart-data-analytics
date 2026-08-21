@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   MessageSquareCode,
   FileSpreadsheet,
+  FileText,
   Database,
   LayoutDashboard,
   Table,
@@ -10,6 +11,7 @@ import {
   ShieldCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -85,12 +87,30 @@ export const Sidebar: React.FC = () => {
       badge: '自动生成',
     },
     {
+      id: 'query-reports',
+      label: '问数报告中心',
+      sublabel: '智能问数报告模式生成的报告',
+      icon: FileText,
+      badge: '报告模式',
+    },
+    {
       id: 'dashboard',
       label: '决策数据看板',
       sublabel: '固化指标图表与看板展示',
       icon: LayoutDashboard,
     }
   );
+
+  // v0.4.9 灵活查询：拖拉拽定制固定报表（依赖 flex-schema，仅 ADMIN/ANALYST）
+  if (user?.role !== 'VIEWER') {
+    navItems.push({
+      id: 'flexquery',
+      label: '灵活查询',
+      sublabel: '拖拉拽可视化定制固定报表',
+      icon: SlidersHorizontal,
+      badge: '自定义',
+    });
+  }
 
   if (user?.role === 'ADMIN') {
     navItems.push(
@@ -104,7 +124,7 @@ export const Sidebar: React.FC = () => {
       {
         id: 'admin',
         label: '系统管理',
-        sublabel: '用户账号与角色权限配置',
+        sublabel: '用户角色与 Token 用量管理',
         icon: ShieldCheck,
       }
     );

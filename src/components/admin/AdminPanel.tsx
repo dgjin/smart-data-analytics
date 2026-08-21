@@ -7,11 +7,15 @@ import {
   Trash2,
   AlertCircle,
   CheckCircle2,
+  Coins,
   Users,
+  FileText,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { UserRole } from '../../types/analytics';
+import { LlmUsagePanel } from './LlmUsagePanel';
+import { ReportTemplateManager } from './ReportTemplateManager';
 
 interface AdminUser {
   id: number;
@@ -38,6 +42,9 @@ const ROLE_BADGE: Record<UserRole, string> = {
 
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
+
+  // 区块切换：用户管理 / Token 用量查询 / 报告模板（v0.5.0 新增）
+  const [section, setSection] = useState<'users' | 'usage' | 'templates'>('users');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -170,20 +177,60 @@ export const AdminPanel: React.FC = () => {
             <span>系统管理 · 仅管理员可见</span>
           </div>
           <h1 className="text-xl md:text-2xl font-extrabold text-slate-100 tracking-tight">
-            用户与权限管理 (User Management)
+            系统管理 (Administration)
           </h1>
           <p className="text-xs text-slate-400">
-            管理系统账号与角色：管理员（全部权限）、分析师（查询与报表）、只读用户（仅查看）。
+            管理系统账号与角色、查询各用户 LLM Token 消耗：管理员（全部权限）、分析师（查询与报表）、只读用户（仅查看）。
           </p>
         </div>
+      </div>
 
-        <button
-          onClick={() => setIsCreating((v) => !v)}
-          className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all shrink-0"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>创建账号</span>
-        </button>
+      {/* Section Tabs：用户管理 / Token 用量查询 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex items-center justify-between gap-2 shadow-xl">
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={() => setSection('users')}
+            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+              section === 'users'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>用户管理</span>
+          </button>
+          <button
+            onClick={() => setSection('usage')}
+            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+              section === 'usage'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <Coins className="w-4 h-4" />
+            <span>Token 用量查询</span>
+          </button>
+          <button
+            onClick={() => setSection('templates')}
+            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+              section === 'templates'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>报告模板</span>
+          </button>
+        </div>
+        {section === 'users' && (
+          <button
+            onClick={() => setIsCreating((v) => !v)}
+            className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all shrink-0"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>创建账号</span>
+          </button>
+        )}
       </div>
 
       {/* Notice */}
@@ -204,6 +251,9 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
 
+      {/* ============ 区块一：用户管理 ============ */}
+      {section === 'users' && (
+        <>
       {/* Create User Form */}
       {isCreating && (
         <form
@@ -405,6 +455,14 @@ export const AdminPanel: React.FC = () => {
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      {/* ============ 区块二：Token 用量查询（每个用户的 token 消耗） ============ */}
+      {section === 'usage' && <LlmUsagePanel />}
+
+      {/* ============ 区块三：报告模板管理（v0.5.0） ============ */}
+      {section === 'templates' && <ReportTemplateManager />}
     </div>
   );
 };

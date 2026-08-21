@@ -64,12 +64,32 @@ export function analysisStageRoute(): LlmStageRoute | undefined {
 export interface LlmOverride {
   engine?: EngineKind;
   model?: string;
+  /** 请求用户上下文（authMiddleware 注入，随 LLM 用量埋点落库，支撑按用户统计） */
+  userId?: number;
+  username?: string;
 }
 const overrideStore = new AsyncLocalStorage<LlmOverride>();
 
-/** 在当前请求上下文内设置引擎/模型覆盖（enterWith：覆盖本次请求异步链，Express 每请求独立上下文不会互串） */
+/** 在当前请求上下文内设置引擎/模型覆盖（合并式 enterWith：保留已注入的用户上下文等字段） */
 export function setLlmOverride(override: LlmOverride): void {
-  overrideStore.enterWith(override);
+  overrideStore.enterWith({ ...overrideStore.getStore(), ...override });
+}
+
+/** 鉴权后注入请求用户上下文（本次请求异步链内的 LLM 用量埋点均携带该用户） */
+export function setLlmUserContext(userId: number, username: string): void {
+  overrideStore.enterWith({ ...overrideStore.getStore(), userId, username });
+}
+
+/** 当前上下文的用户上下文（无请求上下文时返回空，如启动期/后台任务） */
+export function getLlmUserContext(): { userId?: number; username?: string } {
+  const o = overrideStore.getStore();
+  return o ? { userId: o.userId, username: o.username } : {};
+}
+
+/** 带请求用户上下文的用量埋点：避免逐调用点手动取 store */
+function recordUsage(entry: Parameters<typeof recordLlmUsage>[0]): void {
+  const ctx = getLlmUserContext();
+  recordLlmUsage({ ...entry, userId: ctx.userId, username: ctx.username });
 }
 
 /** 当前上下文生效的模型名（仅当覆盖引擎与目标通道一致时生效） */
@@ -325,7 +345,7 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
           : undefined,
       };
     }
-    recordLlmUsage({
+    recordUsage({
       engine: kind,
       model: usedModel,
       channel: 'json',
@@ -336,7 +356,7 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
     });
     return outcome.text;
   } catch (err) {
-    recordLlmUsage({ engine: kind, model: usedModel, channel: 'json', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
+    recordUsage({ engine: kind, model: usedModel, channel: 'json', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
     throw err;
   }
 }
@@ -383,7 +403,7 @@ export async function callLLMText(system: string, user: string): Promise<string>
           : undefined,
       };
     }
-    recordLlmUsage({
+    recordUsage({
       engine: kind,
       model: usedModel,
       channel: 'text',
@@ -394,7 +414,7 @@ export async function callLLMText(system: string, user: string): Promise<string>
     });
     return outcome.text;
   } catch (err) {
-    recordLlmUsage({ engine: kind, model: usedModel, channel: 'text', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
+    recordUsage({ engine: kind, model: usedModel, channel: 'text', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
     throw err;
   }
 }
@@ -477,7 +497,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
       const emb = json.data?.[0]?.embedding;
       if (!Array.isArray(emb) || emb.length === 0) throw new Error('Qwen 返回空向量');
       embedCacheSet(cacheKey, emb);
-      recordLlmUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: Number(json?.usage?.total_tokens) || 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
+      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: Number(json?.usage?.total_tokens) || 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
       return emb;
     } finally {
       clearTimeout(timer);
@@ -501,7 +521,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
         throw new Error('Ollama 返回空向量（请确认已安装 embedding 模型，如 ollama pull nomic-embed-text）');
       }
       embedCacheSet(cacheKey, emb);
-      recordLlmUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
+      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
       return emb;
     } finally {
       clearTimeout(timer);
@@ -517,6 +537,6 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
   const vals = r?.embeddings?.[0]?.values ?? r?.values;
   if (!Array.isArray(vals) || vals.length === 0) throw new Error('Gemini 返回空向量');
   embedCacheSet(cacheKey, vals);
-  recordLlmUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
+  recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
   return vals;
 }

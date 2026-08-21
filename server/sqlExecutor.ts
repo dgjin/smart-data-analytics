@@ -24,7 +24,7 @@ export function dialectOfDsType(dsType: string): SqlDialect | null {
   return null;
 }
 
-const MAX_ROWS = 500;
+const MAX_ROWS = 100000; // v0.4.14：500→100000，满足真实记录数输出，保留兜底防 OOM
 const QUERY_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 
@@ -40,7 +40,7 @@ export const FORBIDDEN_KEYWORD_RE = FORBIDDEN_PATTERN;
 
 // 注意：项目 tsconfig 未开启 strictNullChecks，真值窄化（if (!x.ok)）对判别联合不生效，
 // 所有使用处必须用 x.ok !== true / x.ok === false 的显式比较（同 queryGuard 的先例）。
-export type SqlSafetyResult = { ok: true; sql: string } | { ok: false; reason: string };
+export type SqlSafetyResult = { ok: true; sql: string; astFallback?: boolean } | { ok: false; reason: string };
 
 /** 剥离单行/块注释与字符串字面量，避免注释或字符串中的关键字干扰结构校验 */
 export function stripCommentsAndStrings(sql: string): string {
@@ -75,6 +75,9 @@ export function extractTableRefs(strippedSql: string): string[] {
   // 补充：FROM 子句内逗号分隔的多表（JOIN 链已由主扫描覆盖；到子句终止或右括号为止）
   const fromSeg = /\bfrom\b([\s\S]*?)(?=\bwhere\b|\bgroup\s+by\b|\border\s+by\b|\blimit\b|\bhaving\b|\bunion\b|\)|;|$)/gi;
   while ((m = fromSeg.exec(strippedSql))) {
+    // 段内含括号（子查询/函数）时逗号分表不可靠：子查询 SELECT 列表的逗号会把列名/聚合函数名
+    // （如 SUM/BNTFJE）误当表名拒拦合法 SQL；子查询内部真实表已由主扫描 FROM/JOIN 命中覆盖
+    if (/[()]/.test(m[1])) continue;
     for (const slotRaw of m[1].split(',')) {
       const slot = slotRaw.split(/\bon\b|\busing\b/i)[0];
       const lead = slot.trimStart().match(/^([`"\w.]+)/);
@@ -94,12 +97,15 @@ export function checkAstSafety(
   sql: string,
   allowedTables: Set<string>,
   dialect: SqlDialect = 'mysql'
-): { ok: true } | { ok: false; reason: string } {
+): { ok: true; astFallback?: boolean } | { ok: false; reason: string } {
   let entries: string[];
+  let astFallback = false;
   try {
     entries = astParser.tableList(sql, { database: dialect === 'pg' ? 'PostgreSQL' : 'MySQL' });
   } catch {
-    return { ok: true };
+    // P1-3：AST 解析失败放行（正则白名单已兜底），但标记 astFallback 供路由层审计
+    astFallback = true;
+    return { ok: true, astFallback };
   }
   for (const entry of entries) {
     // 条目格式：`<action>::<db>::<table>`，如 `select::null::orders`
@@ -159,8 +165,8 @@ export function validateSelectSql(
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/;+\s*$/, '');
-  // 语句过长直接拒绝（防御畸形输出）
-  if (stripped.length > 4000) {
+  // 语句过长直接拒绝（防御畸形输出；v0.4.13 随路由层放宽至 10000）
+  if (stripped.length > 10000) {
     return { ok: false, reason: 'SQL 长度超出限制' };
   }
   // 单语句：分号只允许出现在末尾
@@ -192,6 +198,7 @@ export function validateSelectSql(
   if (astCheck.ok !== true) {
     return { ok: false, reason: astCheck.reason };
   }
+  const astFallback = astCheck.astFallback === true;
   // 敏感列拒绝（裸列名整词匹配，覆盖反引号写法）
   for (const col of sensitiveColumns) {
     const name = String(col).split('.').pop() || '';
@@ -201,7 +208,7 @@ export function validateSelectSql(
       return { ok: false, reason: `SQL 涉及受保护的敏感字段：${name}` };
     }
   }
-  // 强制 LIMIT：无 LIMIT 追加；有 LIMIT 则将返回行数 clamp 到 MAX_ROWS
+  // 强制 LIMIT：无 LIMIT 追加；有 LIMIT 则将返回行数 clamp 到 MAX_ROWS（v0.4.14 放宽至 10 万）
   // 方言差异：MySQL 支持 LIMIT offset,count；PG/Greenplum 仅支持 LIMIT n OFFSET m
   // 注意：基于原文操作，保证字符串字面量（如 WHERE region = '合肥市'）不被篡改
   let finalSql = original;
@@ -223,7 +230,7 @@ export function validateSelectSql(
           : `LIMIT ${clamped}`;
     finalSql = finalSql.replace(limitRe, replacement);
   }
-  return { ok: true, sql: finalSql };
+  return { ok: true, sql: finalSql, astFallback };
 }
 
 /**
@@ -345,14 +352,16 @@ export interface ExecResult {
   /** true 表示结果被 MAX_ROWS 截断 */
   truncated: boolean;
   finalSql: string;
+  /** P1-3：true 表示 AST 解析失败放行（正则白名单兜底），供路由层审计 */
+  astFallback?: boolean;
 }
 
 export type ExecOutcome =
   | { ok: true; result: ExecResult }
   | { ok: false; reason: string };
 
-/** 读取数据源连接配置（含密码，仅服务端使用） */
-async function loadDataSourceConfig(dataSourceId: string): Promise<{ type: string; config: any } | null> {
+/** 读取数据源连接配置（含密码，仅服务端使用；dataVersion 指纹探测亦复用） */
+export async function loadDataSourceConfig(dataSourceId: string): Promise<{ type: string; config: any } | null> {
   const [rows] = await getPool().query('SELECT type, config_json FROM data_sources WHERE id = ?', [dataSourceId]);
   const ds = (rows as any[])[0];
   if (!ds) return null;
@@ -366,7 +375,7 @@ async function loadDataSourceConfig(dataSourceId: string): Promise<{ type: strin
   return { type: String(ds.type || ''), config };
 }
 
-function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any): DsPoolEntry {
+export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any): DsPoolEntry {
   let entry = dsPools.get(dataSourceId);
   if (!entry) {
     if (dialect === 'pg') {
@@ -451,6 +460,7 @@ export async function executeSafeSql(
         rowCount: list.length,
         truncated: list.length > maxRows,
         finalSql,
+        astFallback: check.astFallback === true,
       },
     };
   } catch (err: any) {

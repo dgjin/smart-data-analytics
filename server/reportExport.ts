@@ -207,8 +207,8 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
 }
 
 /** 从报告标题生成安全文件名（.pptx） */
-export function buildExportFilename(title: string, createdAt?: string): string {
+export function buildExportFilename(title: string, createdAt?: string, ext = '.pptx'): string {
   const safe = (title || '分析报告').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 60);
   const date = (createdAt || '').replace(/[^\d-]/g, '').slice(0, 10);
-  return `${safe}_分析简报${date ? `_${date}` : ''}.pptx`;
+  return `${safe}_分析简报${date ? `_${date}` : ''}${ext}`;
 }

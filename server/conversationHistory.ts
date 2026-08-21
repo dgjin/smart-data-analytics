@@ -10,7 +10,8 @@ import { extractTableRefs, stripCommentsAndStrings } from './sqlExecutor';
 import { bigramOverlap, normalizeSql } from './queryFeedback';
 import { approxTokens } from './promptBudget';
 
-export type ConversationStatus = 'SUCCESS' | 'FALLBACK';
+/** 对话状态：SUCCESS/FALLBACK 常规问答；REFUSED 拒答（问题无关/超出能力，同样不参与 few-shot 检索） */
+export type ConversationStatus = 'SUCCESS' | 'FALLBACK' | 'REFUSED';
 
 export interface ConversationRecord {
   id: number;

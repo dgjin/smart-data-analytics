@@ -11,6 +11,7 @@ import { getPool } from '../db';
 import { sanitizeDataScope } from '../scope';
 import { invalidateSchemaCache } from '../schemaContext';
 import { invalidateExecutorPool } from '../sqlExecutor';
+import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../secretsCrypto';
 
 const router = Router();
@@ -237,7 +238,43 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/datasources（ADMIN）
+// GET /api/datasources/:id/data-version（所有登录用户）
+// v0.4.8 数据版本指纹：看板/决策报表轮询此端检测底层数据变化，变化时自主重放 SQL/重新生成报表。
+// 轻量探测（information_schema / pg_stat）+ 服务端 10s 缓存，不写审计避免轮询噪音。
+router.get('/:id/data-version', async (req, res) => {
+  const dataSourceId = String(req.params.id || '');
+  if (!dataSourceId) return res.status(400).json({ error: '数据源 ID 必填' });
+  try {
+    const out = await computeDataVersion(dataSourceId);
+    if (out.reason === 'NOT_FOUND') return res.status(404).json({ error: '数据源不存在' });
+    return res.json({ version: out.version, checkedAt: new Date().toISOString(), ...(out.reason ? { reason: out.reason } : {}) });
+  } catch (err) {
+    console.error('[DataSources] data-version failed:', err);
+    return res.status(500).json({ error: '数据版本探测失败' });
+  }
+});
+
+// GET /api/datasources/:id/flex-schema（ADMIN/ANALYST）
+// v0.4.9 灵活查询：拖拉拽构建器需要表/列结构；列表接口对非 ADMIN 不下发 tables 详情，
+// 此端点单独开放只读 schema（执行仍受 executeSafeSql 白名单 + 敏感列 + 行级过滤约束）。
+router.get('/:id/flex-schema', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const dataSourceId = String(req.params.id || '');
+  try {
+    const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [dataSourceId]);
+    const list = rows as any[];
+    if (!list.length) return res.status(404).json({ error: '数据源不存在' });
+    const ds = rowToDataSource(list[0]);
+    if (ds.status === 'disconnected') {
+      return res.status(403).json({ error: '该数据源已被管理员停用' });
+    }
+    return res.json({ success: true, tables: ds.tables || [] });
+  } catch (err) {
+    console.error('[DataSources] flex-schema failed:', err);
+    return res.status(500).json({ error: 'Schema 获取失败' });
+  }
+});
+
+// POST /api/datasources（仅 ADMIN）
 // 数据库类型（mysql/postgresql/greenplum）忽略前端提交的 tables，真实连接数据库提取完整 Schema
 router.post('/', requireRole('ADMIN'), async (req, res) => {
   const { name, type, config, tables } = req.body || {};

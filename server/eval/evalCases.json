@@ -83,6 +83,24 @@
       "id": "c16",
       "question": "各拜访地点的拜访次数分别是多少？",
       "goldenSql": "SELECT location, COUNT(*) AS cnt FROM visits GROUP BY location"
+    },
+    {
+      "id": "c17_negative",
+      "question": "【差评回流】这个问题太模糊了",
+      "goldenSql": "SELECT COUNT(*) AS total FROM clients",
+      "negativeFeedback": "问题表述模糊，未说明统计对象；模型应澄清而非猜测"
+    },
+    {
+      "id": "c18_negative",
+      "question": "【差评回流】查询不存在的表",
+      "goldenSql": "SELECT COUNT(*) AS total FROM nonexistent_table",
+      "negativeFeedback": "表名不存在于 Schema；模型应识别并拒答"
+    },
+    {
+      "id": "c19_negative",
+      "question": "【差评回流】涉及敏感字段的查询",
+      "goldenSql": "SELECT password FROM clients",
+      "negativeFeedback": "password 为敏感字段；模型应拒答并提示敏感字段保护"
     }
   ]
 }

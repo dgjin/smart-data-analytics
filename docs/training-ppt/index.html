@@ -12,14 +12,14 @@
 <!-- ============ P1 封面 ============ -->
 <section class="slide cover" style="justify-content:center;align-items:flex-start;background:linear-gradient(135deg,#ffffff 0%,#eef4ff 60%,#e3edff 100%);">
   <div data-anim="fade-up">
-    <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.4.0</div>
+    <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.4.5</div>
     <h1 style="font-size:64px;">智能问数分析系统<br>功能培训</h1>
     <p class="subtitle">用中文提问，让数据自己开口说话 —— 从自然语言到图表、洞察与决策简报</p>
   </div>
   <div class="grid grid-3" style="margin-top:48px;max-width:900px;" data-anim="fade-up">
     <div class="card flat"><div class="pill accent">面向对象</div><p class="lead" style="font-size:15px;margin-top:10px;">业务分析师 · 数据管理员 · 企业管理者</p></div>
     <div class="card flat"><div class="pill accent">培训时长</div><p class="lead" style="font-size:15px;margin-top:10px;">约 60 分钟 + 现场实操与答疑</p></div>
-    <div class="card flat"><div class="pill accent">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取功能说明书</p></div>
+    <div class="card flat"><div class="pill accent">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取功能说明书（v0.4.5）</p></div>
   </div>
   <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，最后把真实查询结果变成图表、KPI 和一段可以直接读给领导听的洞察解读，还能一键产出高管决策简报。今天的培训大约六十分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容全部对齐系统内置帮助中心里的功能说明书，版本是 v0.4.0。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
 </section>
@@ -123,7 +123,7 @@
 <!-- ============ P6 界面导览 ============ -->
 <section class="slide" data-mod="2">
   <div class="kicker">MODULE 02 · 智能问数</div>
-  <h2>问数界面导览：输入区六大要素</h2>
+  <h2>问数界面导览：输入区七大要素</h2>
   <p class="lead" style="margin-bottom:20px;">左侧导航进入「智能问答与查询」，输入区从左到右依次是：</p>
   <div class="grid grid-3 anim-stagger-list">
     <div class="card"><span class="pill accent">＋ 技能按钮</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">点击向上弹出技能面板，选中即填充提问模板，面板外点击自动关闭</p></div>
@@ -132,11 +132,12 @@
     <div class="card"><span class="pill accent">模式开关</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">计划模式 / 深度分析 两个持久化开关，按需开启</p></div>
     <div class="card"><span class="pill accent">历史对话</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">面板支持关键词搜索、一键重问、单条删除，按数据源隔离</p></div>
     <div class="card"><span class="pill accent">导出按钮</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">当前数据源的全部对话一键导出为 Markdown 文件</p></div>
+    <div class="card"><span class="pill ok">金额单位</span><p style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.6;">工具栏金额单位选择器（亿元/百万元/万元/元），选择随提问生效，SQL 自动按单位换算，结果缓存隔离防口径互串</p></div>
   </div>
   <div class="card tinted" style="margin-top:18px;" data-anim="fade-up">
     <p style="font-size:14.5px;color:var(--accent-2);"><b>推荐问题：</b>数据源可配置专业快速问题（quickQuestions），无配置时按表结构智能推导，新用户不用从零开始想问题。</p>
   </div>
-  <div class="notes">进入核心模块，先认界面。输入框左边有个加号，点开是技能面板，相当于提问模板库，选一个就自动填进来改两个词就能用。中间是输入框，右边有模型下拉，可以自己选 AI 模型——不同模型的结果缓存互相隔离，切换不会串。输入框附近还有两个模式开关：计划模式和深度分析，后面细讲。右侧历史对话面板能搜索、重问、删除，导出按钮把当前源的对话整个导成 Markdown，写周报特别方便。最下面还有一排推荐问题：管理员可以给数据源配置专业问题，没配置的话系统会根据表结构自动推导。新同事进来不用面对空白输入框发呆，点一个推荐问题就能跑通流程。</div>
+  <div class="notes">进入核心模块，先认界面。输入框左边有个加号，点开是技能面板，相当于提问模板库，选一个就自动填进来改两个词就能用。中间是输入框，右边有模型下拉，可以自己选 AI 模型——不同模型的结果缓存互相隔离，切换不会串。输入框附近还有两个模式开关：计划模式和深度分析，后面细讲。工具栏还有个金额单位选择器，支持亿元、百万元、万元、元四档，选好之后提问时 SQL 自动按你选的单位换算，不用每次在问题里写「以万元为单位」，结果缓存按单位隔离不会串口径。右侧历史对话面板能搜索、重问、删除，导出按钮把当前源的对话整个导成 Markdown，写周报特别方便。最下面还有一排推荐问题：管理员可以给数据源配置专业问题，没配置的话系统会根据表结构自动推导。新同事进来不用面对空白输入框发呆，点一个推荐问题就能跑通流程。</div>
 </section>
 
 <!-- ============ P7 一次提问的完整链路 ============ -->
@@ -397,9 +398,13 @@
       <div class="card flat" style="margin-top:16px;" data-anim="slide-left">
         <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;"><b>效果：</b>知识库命中后，AI 用的是登记口径而非字面猜测——同一个「投资收益」，全系统同一个算法。</p>
       </div>
+      <div class="card flat" style="margin-top:12px;" data-anim="slide-left">
+        <b style="font-size:14px;">🔗 外部知识源接入（v0.4.1）</b>
+        <p style="font-size:13px;color:var(--text-2);margin-top:5px;">知识库面板底部可接入企业已有 RAG 服务（Dify/RAGFlow/自建网关），POST 检索协议，Bearer 认证，与本地知识并行检索，独立 token 预算不挤占。</p>
+      </div>
     </div>
   </div>
-  <div class="notes">知识库是这个系统越用越准的第一秘诀。它管的是那些只存在业务同事脑子里的东西：术语、口径、字段含义、分析指南。举个例子，「月末快照」和「BB 等于 1」是什么意思，新来的分析师都要问老员工，AI 更不知道——但只要写进知识库，问数时系统会按相关性把这几条检索出来注入给模型，它就懂了。检索机制做了精细打磨：取最相关的前四块，单个文档最多贡献两块防止刷屏，向量相似度和关键词匹配混合打分，口径类指南类内容还有保留槽位。给管理员的实践建议：上线前先沉淀一二十条核心口径，宽表字段含义用 Excel 批量导入，口径变了记得同步更新。表和字段的中文注释也参与语义匹配，注释写得越用心，圈表和选列就越准。</div>
+  <div class="notes">知识库是这个系统越用越准的第一秘诀。它管的是那些只存在业务同事脑子里的东西：术语、口径、字段含义、分析指南。举个例子，「月末快照」和「BB 等于 1」是什么意思，新来的分析师都要问老员工，AI 更不知道——但只要写进知识库，问数时系统会按相关性把这几条检索出来注入给模型，它就懂了。检索机制做了精细打磨：取最相关的前四块，单个文档最多贡献两块防止刷屏，向量相似度和关键词匹配混合打分，口径类指南类内容还有保留槽位。另外管理员还可以在知识库面板底部接入外部知识源——比如企业已有的 Dify、RAGFlow 等 RAG 服务，配好接口地址和认证就能用，问数时和本地知识库并行检索，独立 token 预算不挤占，单源失败也不阻断，知识来源更丰富。给管理员的实践建议：上线前先沉淀一二十条核心口径，宽表字段含义用 Excel 批量导入，口径变了记得同步更新。表和字段的中文注释也参与语义匹配，注释写得越用心，圈表和选列就越准。</div>
 </section>
 <!-- ============ P17 SQL 样例库 ============ -->
 <section class="slide" data-mod="3">
@@ -505,7 +510,7 @@
     </div>
     <div class="card flat" data-anim="fade-up">
       <b style="font-size:14px;">📖 培训材料维护</b>
-      <p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">说明书即文档：功能变更后更新说明书，帮助中心即刻生效，全员随时自查——本份 PPT 的内容口径也与其对齐（v0.4.0）。</p>
+      <p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">说明书即文档：功能变更后更新说明书，帮助中心即刻生效，全员随时自查——本份 PPT 的内容口径也与其对齐（v0.4.5）。</p>
     </div>
   </div>
   <div class="notes">模块四，管理员日常。系统管理页四块功能：用户管理管账号生命周期，新建、授权、重置密码、停用，新账号第一次登录强制改密，这套流程前面讲过。AI 引擎配置用来注册和启停大模型引擎，界面上能看到每个引擎的实时健康状态，还能设置默认引擎和降级顺序，下一页细讲。LLM 用量统计是成本工具，按用户按模型看 token 消耗和调用次数，谁用得多、哪个模型烧钱，一目了然，预算管控有依据。最后是帮助中心：系统内置帮助页实时读取功能说明书，说明书更新帮助中心立刻跟着变，不存在文档过期问题。今天这份 PPT 的所有内容口径也对齐说明书 v0.4.0。给管理员的运营建议就一句：最小权限发放角色，需要再升，别图省事人人都给管理员。</div>
@@ -589,7 +594,7 @@
   <div class="kicker">MODULE 04 · 质量与部署</div>
   <h2>质量保障与部署形态</h2>
   <div class="grid grid-4 anim-stagger-list" style="margin-top:16px;">
-    <div class="stat"><div class="v">434</div><div class="l">单元测试全部通过，覆盖 SQL 安全校验、权限注入、链路各环节</div></div>
+    <div class="stat"><div class="v">476</div><div class="l">单元测试全部通过，覆盖 SQL 安全校验、权限注入、链路各环节</div></div>
     <div class="stat"><div class="v">3</div><div class="l">端到端 E2E 场景，模拟真实用户完整操作路径</div></div>
     <div class="stat"><div class="v">59</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
     <div class="stat"><div class="v">0</div><div class="l">TypeScript 双配置（前端 + 服务端）严格模式编译错误</div></div>
@@ -604,7 +609,7 @@
       <p style="font-size:14px;color:var(--accent-2);line-height:1.7;">React + TypeScript 前端 · Node 服务端 · SSE 流式推送 · MySQL/PG/GP 多源接入 · Ollama 本地推理 · JWT 鉴权 · Docker Compose 编排</p>
     </div>
   </div>
-  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：四百三十四个单元测试全部通过，覆盖了最要命的安全校验和权限注入逻辑；三个端到端场景模拟真实用户的完整操作路径；五十九个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前后端两套 TypeScript 严格模式编译零错误。这四个数字意味着每次发版前都有自动化门禁兜底。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地推理。对企业来说，这意味着低运维成本和长期可维护性。质量不是口号，是门禁。</div>
+  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：四百七十六个单元测试全部通过，覆盖了最要命的安全校验和权限注入逻辑；三个端到端场景模拟真实用户的完整操作路径；五十九个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前后端两套 TypeScript 严格模式编译零错误。这四个数字意味着每次发版前都有自动化门禁兆底。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地推理。对企业来说，这意味着低运维成本和长期可维护性。质量不是口号，是门禁。</div>
 </section>
 
 <!-- ============ P24 总结与 FAQ ============ -->

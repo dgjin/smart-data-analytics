@@ -15,7 +15,7 @@ describe('validateSelectSql: SELECT-only 防线', () => {
   it('放行普通 SELECT 并自动追加 LIMIT', () => {
     const r = validateSelectSql('SELECT channel, SUM(amount) AS total FROM tbl_orders GROUP BY channel', ALLOWED);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.sql).toMatch(/LIMIT 500$/);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 100000$/);
   });
 
   it('拒绝写操作与 DDL', () => {
@@ -65,7 +65,7 @@ describe('validateSelectSql: SELECT-only 防线', () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.sql).toContain("channel = '电话'");
-      expect(r.sql).toMatch(/LIMIT 500$/);
+      expect(r.sql).toMatch(/LIMIT 100000$/);
     }
   });
 
@@ -79,6 +79,18 @@ describe('validateSelectSql: SELECT-only 防线', () => {
   it('PROCEDURE ANALYSE 危险构造被拒绝', () => {
     const r = validateSelectSql('SELECT id FROM tbl_orders PROCEDURE ANALYSE()', ALLOWED);
     expect(r.ok).toBe(false);
+  });
+
+  it('子查询 SELECT 列表的逗号不把列名/聚合函数误当表名（两期对比回归）', () => {
+    // 回归：FROM 段补充扫描曾按逗号分表，把子查询内的 SUM（函数名）误当表名拒绝
+    const subSum = validateSelectSql('SELECT x.jgmc FROM (SELECT JGMC jgmc, SUM(amount) s FROM tbl_orders GROUP BY JGMC) x', ALLOWED);
+    expect(subSum.ok).toBe(true);
+    // 回归：JOIN 两期子查询时内层列名（amount）曾被误判为表名 bntfje 同类问题
+    const joinCols = validateSelectSql("SELECT c.jgmc, SUM(c.a) FROM (SELECT JGMC jgmc, amount a FROM tbl_orders WHERE dt='2026-08-31') c JOIN (SELECT JGMC jgmc, amount p FROM tbl_orders WHERE dt='2025-08-31') p ON p.jgmc=c.jgmc GROUP BY c.jgmc", ALLOWED);
+    expect(joinCols.ok).toBe(true);
+    // 无括号简单多表逗号写法仍被正确提取（不得因修复而漏判白名单外表）
+    const multi = validateSelectSql('SELECT a.id FROM tbl_orders a, tbl_users b WHERE a.id = b.id', ALLOWED);
+    expect(multi.ok).toBe(false);
   });
 
   it('拒绝非 SELECT 开头的语句（WITH/SET/SHOW 等）', () => {
@@ -176,14 +188,14 @@ describe('validateSelectSql: 敏感列拒绝', () => {
 });
 
 describe('validateSelectSql: LIMIT 强制', () => {
-  it('无 LIMIT 追加 500', () => {
+  it('无 LIMIT 追加 100000', () => {
     const r = validateSelectSql('SELECT id FROM tbl_orders', ALLOWED);
-    expect(r.ok && /LIMIT 500$/.test(r.sql)).toBe(true);
+    expect(r.ok && /LIMIT 100000$/.test(r.sql)).toBe(true);
   });
 
-  it('超出上限的 LIMIT 被 clamp 到 500', () => {
-    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 99999', ALLOWED);
-    expect(r.ok && /LIMIT 500$/.test(r.sql)).toBe(true);
+  it('超出上限的 LIMIT 被 clamp 到 100000', () => {
+    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 999999', ALLOWED);
+    expect(r.ok && /LIMIT 100000$/.test(r.sql)).toBe(true);
   });
 
   it('合理 LIMIT 保持不变', () => {
@@ -192,8 +204,8 @@ describe('validateSelectSql: LIMIT 强制', () => {
   });
 
   it('LIMIT offset, count 形式的 count 被 clamp', () => {
-    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 10, 800', ALLOWED);
-    expect(r.ok && /LIMIT 10, 500$/.test(r.sql)).toBe(true);
+    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 10, 999999', ALLOWED);
+    expect(r.ok && /LIMIT 10, 100000$/.test(r.sql)).toBe(true);
   });
 });
 
@@ -329,16 +341,16 @@ describe('PG 方言（postgresql/greenplum）支持', () => {
     if (r.ok) expect(r.sql).toMatch(/LIMIT 100 OFFSET 10$/);
   });
 
-  it('PG 方言下原生 OFFSET 写法保留且 clamp 到 500', () => {
-    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 999 OFFSET 5', ALLOWED, [], 'pg');
+  it('PG 方言下原生 OFFSET 写法保留且 clamp 到 100000', () => {
+    const r = validateSelectSql('SELECT id FROM tbl_orders LIMIT 999999 OFFSET 5', ALLOWED, [], 'pg');
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.sql).toMatch(/LIMIT 500 OFFSET 5$/);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 100000 OFFSET 5$/);
   });
 
-  it('PG 方言无 LIMIT 时追加 LIMIT 500', () => {
+  it('PG 方言无 LIMIT 时追加 LIMIT 100000', () => {
     const r = validateSelectSql('SELECT id FROM tbl_orders', ALLOWED, [], 'pg');
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.sql).toMatch(/LIMIT 500$/);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 100000$/);
   });
 
   it('PG 方言 AST 解析双引号标识符表白名单', () => {

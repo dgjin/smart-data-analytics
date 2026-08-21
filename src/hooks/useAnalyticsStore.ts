@@ -227,6 +227,8 @@ interface AnalyticsState {
   // Generated Visual Reports
   savedReports: SavedReport[];
   addSavedReport: (report: SavedReport) => void;
+  /** v0.4.8 自主更新：数据变化重新生成后就地替换同 id 报表（保留批注等交互状态由调用方并入） */
+  replaceSavedReport: (id: string, report: SavedReport) => void;
   deleteSavedReport: (id: string) => void;
   addReportComment: (reportId: string, comment: ChartComment) => void;
   addReportCommentReply: (reportId: string, commentId: string, reply: ChartCommentReply) => void;
@@ -235,6 +237,10 @@ interface AnalyticsState {
   // Active View Tab
   activeTab: AppTab;
   setActiveTab: (tab: AppTab) => void;
+
+  /** v0.5.0 报告中心：从问数对话跳转时待查看的报告 ID（报告中心消费后清除） */
+  pendingReportId: string | null;
+  setPendingReportId: (reportId: string | null) => void;
 }
 
 export const useAnalyticsStore = create<AnalyticsState>()(
@@ -474,6 +480,10 @@ export const useAnalyticsStore = create<AnalyticsState>()(
     set((state) => ({
       savedReports: [report, ...state.savedReports],
     })),
+  replaceSavedReport: (id, report) =>
+    set((state) => ({
+      savedReports: state.savedReports.map((r) => (r.id === id ? report : r)),
+    })),
   deleteSavedReport: (id) =>
     set((state) => ({
       savedReports: state.savedReports.filter((r) => r.id !== id),
@@ -529,6 +539,10 @@ export const useAnalyticsStore = create<AnalyticsState>()(
 
   activeTab: 'query',
   setActiveTab: (tab) => set({ activeTab: tab }),
+
+  // v0.5.0 报告中心跳转（不持久化，会话内有效）
+  pendingReportId: null,
+  setPendingReportId: (reportId) => set({ pendingReportId: reportId }),
     }),
     {
       // v2：默认看板组件与示例报表切换为不良资产真实数据快照，旧版本本地缓存直接废弃重建

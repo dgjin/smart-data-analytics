@@ -28,9 +28,11 @@ import {
   Library,
   Plus,
   Cpu,
+  Coins,
   ListChecks,
   History,
   Download,
+  FileText,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -47,6 +49,7 @@ import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { TraceStepper, TraceReplay, TraceStepInfo } from './AnalysisTracePanel';
 import { useConversationHistory } from '../../hooks/useConversationHistory';
+import { ReportTemplate } from '../../types/analytics';
 import { useSpeechInput } from '../../hooks/useSpeechInput';
 import { readSseStream } from '../../utils/sseStream';
 import { ChartConfig, ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
@@ -55,6 +58,9 @@ import { ChartConfig, ChatMessage, QueryPlanData, QueryResultData } from '../../
 const MAX_QUERY_INPUT_LENGTH = 500;
 // 模型自选持久化键（值为 "engine::model"，空串表示跟随服务端默认）
 const SELECTED_MODEL_KEY = 'app-selected-model';
+// 金额单位自选持久化键（亿元/百万元/万元/元，与服务端白名单一致）
+const AMOUNT_UNIT_KEY = 'app-amount-unit';
+const AMOUNT_UNIT_CHOICES = ['亿元', '百万元', '万元', '元'] as const;
 // M2 计划模式持久化键（'1' = 开启「先制定计划」）
 const PLAN_MODE_KEY = 'app-plan-mode';
 // M3 深度分析持久化键（'1' = 强制启用中间表清洗链）
@@ -75,6 +81,8 @@ export const QueryChat: React.FC = () => {
     updateMessageChartConfig,
     setMessageFeedback,
     clearChat,
+    setActiveTab,
+    setPendingReportId,
   } = useAnalyticsStore();
   const currentUser = useAuthStore((s) => s.user);
 
@@ -137,6 +145,44 @@ export const QueryChat: React.FC = () => {
       return next;
     });
   };
+  // v0.5.0 报告模式：开启后提问直接生成完整报告（支持模板选择或智能推断）
+  const REPORT_MODE_KEY = 'app-report-mode';
+  const [reportMode, setReportMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(REPORT_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [reportTemplates, setReportTemplates] = useState<ReportTemplate[]>([]);
+  const toggleReportMode = () => {
+    setReportMode((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem(REPORT_MODE_KEY, '1');
+        else localStorage.removeItem(REPORT_MODE_KEY);
+      } catch {
+        // 存储不可用时仅本次会话生效
+      }
+      return next;
+    });
+  };
+  // 加载报告模板列表
+  useEffect(() => {
+    if (!reportMode) return;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/report-templates');
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.templates)) {
+          setReportTemplates(data.templates);
+        }
+      } catch (err) {
+        console.error('Failed to load report templates:', err);
+      }
+    })();
+  }, [reportMode]);
   // 模型自选：目录来自 /api/system/models，选择持久化到 localStorage
   const { models: modelCatalog } = useModelCatalog();
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -151,6 +197,24 @@ export const QueryChat: React.FC = () => {
     try {
       if (value) localStorage.setItem(SELECTED_MODEL_KEY, value);
       else localStorage.removeItem(SELECTED_MODEL_KEY);
+    } catch {
+      // 存储不可用时仅本次会话生效
+    }
+  };
+
+  // 金额单位自选：问数前选择，随每次提问生效并持久化；非法存量值回落亿元
+  const [amountUnit, setAmountUnit] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(AMOUNT_UNIT_KEY) || '';
+      return (AMOUNT_UNIT_CHOICES as readonly string[]).includes(saved) ? saved : '亿元';
+    } catch {
+      return '亿元';
+    }
+  });
+  const handleSelectAmountUnit = (value: string) => {
+    setAmountUnit(value);
+    try {
+      localStorage.setItem(AMOUNT_UNIT_KEY, value);
     } catch {
       // 存储不可用时仅本次会话生效
     }
@@ -391,6 +455,7 @@ export const QueryChat: React.FC = () => {
             dataSourceId: activeDataSourceId,
             schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
             ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
+            amountUnit,
           }),
         });
         const planData = await planResp.json().catch(() => null);
@@ -411,6 +476,74 @@ export const QueryChat: React.FC = () => {
           id: `msg-err-plan-${Date.now()}`,
           role: 'assistant',
           content: `分析计划生成失败：${err?.message || '请稍后重试'}`,
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          error: err?.message,
+          dataSourceId: submitDSId,
+        });
+      } finally {
+        setQueryLoading(false);
+      }
+      return;
+    }
+
+    // v0.5.0 报告模式：提问直接生成完整报告（模板或智能推断），不落普通查询链路
+    if (reportMode && !approvedPlanId) {
+      addChatMessage(userMsg);
+      setCurrentQuery('');
+      setQueryLoading(true);
+      try {
+        const reportResp = await apiFetch('/api/report/generate-from-query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question: textToSubmit,
+            dataSourceId: activeDataSourceId,
+            amountUnit, // v0.5.2 报告金额单位与问数选定口径一致
+            ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
+          }),
+        });
+        const reportData = await reportResp.json().catch(() => null);
+        if (!reportResp.ok || !reportData?.success || !reportData.report) {
+          throw new Error(reportData?.error || '报告生成失败');
+        }
+        const r = reportData.report;
+        // 演示降级数据不入库不可跳转，如实提示
+        if (reportData.isFallback === true || reportData.dataProvenance === 'simulated') {
+          addChatMessage({
+            id: `msg-report-fb-${Date.now()}`,
+            role: 'assistant',
+            content: `报告「${r.title}」生成时真实数据链路未命中，当前为演示数据（未入库，无法跳转报告中心）。请检查数据源连接后重试。`,
+            timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+            question: textToSubmit,
+            isFallback: true,
+            dataProvenance: 'simulated',
+            dataSourceId: submitDSId,
+          });
+          return;
+        }
+        addChatMessage({
+          id: `msg-report-${Date.now()}`,
+          role: 'assistant',
+          content: `报告「${r.title}」已生成完成。`,
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          question: textToSubmit,
+          reportCard: {
+            reportId: reportData.reportId,
+            title: r.title,
+            summary: (r.summary || '').slice(0, 100),
+            kpiCount: Array.isArray(r.kpiList) ? r.kpiList.length : 0,
+            chartCount: Array.isArray(r.charts) ? r.charts.length : 0,
+            insightCount: Array.isArray(r.insights) ? r.insights.length : 0,
+            templateName: reportData.templateName || '智能推断',
+          },
+          dataProvenance: 'live',
+          dataSourceId: submitDSId,
+        });
+      } catch (err: any) {
+        addChatMessage({
+          id: `msg-err-report-${Date.now()}`,
+          role: 'assistant',
+          content: `报告生成失败：${err?.message || '请稍后重试'}`,
           timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
           error: err?.message,
           dataSourceId: submitDSId,
@@ -454,7 +587,21 @@ export const QueryChat: React.FC = () => {
 
     // 统一消费响应体（JSON 与 SSE 终端事件同构）
     const consumeResponse = (resData: any) => {
-      if (resData.success && resData.needClarification && resData.clarification) {
+      if (resData.success && resData.refused) {
+        // 拒答：问题与数据源无关/超出能力，如实展示反馈（不用演示数据托底）
+        addChatMessage({
+          id: `msg-ai-${Date.now()}`,
+          role: 'assistant',
+          content: typeof resData.refuseReason === 'string' && resData.refuseReason.trim()
+            ? resData.refuseReason.trim()
+            : '抱歉，我是数据分析助手，仅协助处理数据分析相关工作，无法处理该请求。',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          refused: true,
+          question: textToSubmit,
+          traceId: typeof resData.traceId === 'string' ? resData.traceId : undefined,
+          dataSourceId: submitDSId,
+        });
+      } else if (resData.success && resData.needClarification && resData.clarification) {
         // 歧义澄清：服务端对问题语义有异议，展示候选理解供用户点选确认后重新提交
         const c = resData.clarification;
         addChatMessage({
@@ -516,6 +663,7 @@ export const QueryChat: React.FC = () => {
           ...(approvedPlanId ? { planId: approvedPlanId } : {}),
           ...(deepMode ? { deepAnalysis: true } : {}),
           ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
+          amountUnit,
         }),
       });
 
@@ -788,6 +936,14 @@ export const QueryChat: React.FC = () => {
                   </div>
                 )}
 
+                {/* 拒答提示：问题与数据源无关/超出能力，如实反馈（无演示数据托底） */}
+                {!isUser && msg.refused && (
+                  <div className="p-2 rounded-lg bg-slate-800/60 border border-slate-500/40 text-slate-300 text-[11px] flex items-center space-x-1.5">
+                    <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>问数仅支持当前数据源相关的数据分析；该问题与数据无关或数据源中缺少支撑数据，未生成任何结果。</span>
+                  </div>
+                )}
+
                 {/* 数据来源徽标（P1：live = 真实库执行；simulated = 演示数据，CSV/demo 等场景强制标记） */}
                 {!isUser && msg.queryResult && msg.dataProvenance === 'live' && (
                   <div className="p-2 rounded-lg bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-[11px] flex items-center space-x-1.5">
@@ -927,6 +1083,36 @@ export const QueryChat: React.FC = () => {
                   </div>
                 )}
 
+                {/* v0.5.0 报告卡片：报告模式生成的完整报告摘要，点击跳转报告中心查看详情 */}
+                {!isUser && msg.reportCard && (
+                  <div className="p-4 bg-emerald-950/30 border border-emerald-500/30 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-1.5 font-bold text-emerald-300 text-xs">
+                        <FileText className="w-4 h-4" />
+                        <span>分析报告已生成（模板：{msg.reportCard.templateName}）</span>
+                      </div>
+                    </div>
+                    <div className="text-sm font-bold text-slate-100">{msg.reportCard.title}</div>
+                    {msg.reportCard.summary && (
+                      <div className="text-xs text-slate-400 leading-relaxed line-clamp-2">{msg.reportCard.summary}…</div>
+                    )}
+                    <div className="flex items-center space-x-3 text-[11px] text-slate-400">
+                      <span>KPI {msg.reportCard.kpiCount} 项</span>
+                      <span>图表 {msg.reportCard.chartCount} 张</span>
+                      <span>洞察 {msg.reportCard.insightCount} 条</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setPendingReportId(msg.reportCard!.reportId);
+                        setActiveTab('query-reports');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
+                    >
+                      查看完整报告
+                    </button>
+                  </div>
+                )}
+
                 {/* 用户提问操作条：复制问题 / 再次编辑 */}
                 {isUser && (
                   <div className="flex items-center justify-end space-x-2 pt-1.5 mt-0.5 border-t border-white/15">
@@ -1002,6 +1188,10 @@ export const QueryChat: React.FC = () => {
                               chartConfig: msg.queryResult!.chartConfig!,
                               data: msg.queryResult!.rows,
                               dataSourceId: activeDataSourceId || undefined,
+                              // v0.4.8 自主更新：仅 live 链路携带原聚合 SQL，供数据变化时重放刷新
+                              ...(msg.queryResult!.dataProvenance === 'live' && msg.queryResult!.generatedSQL
+                                ? { sourceSql: msg.queryResult!.generatedSQL }
+                                : {}),
                             });
                             showToast('已成功固定该图表至决策数据看板');
                           }}
@@ -1218,9 +1408,63 @@ export const QueryChat: React.FC = () => {
                 </button>
               )}
 
+              {/* v0.5.0 报告模式：开启后提问直接生成完整报告（支持模板选择或智能推断） */}
+              {canPlanMode && (
+                <button
+                  type="button"
+                  onClick={toggleReportMode}
+                  title={reportMode ? '已开启：提问后直接生成完整分析报告' : '已关闭：提问后返回单条分析结果'}
+                  className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
+                    reportMode
+                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-emerald-500/60 hover:text-emerald-300'
+                  }`}
+                >
+                  <FileText className="w-3 h-3" />
+                  <span>{reportMode ? '报告模式：开' : '报告模式：关'}</span>
+                </button>
+              )}
+
+              {/* 报告模式模板选择：开启后显示 */}
+              {reportMode && reportTemplates.length > 0 && (
+                <span className="shrink-0 flex items-center space-x-1 pl-2 border-l border-slate-800">
+                  <FileText className="w-3 h-3 text-emerald-400" />
+                  <select
+                    value={selectedTemplateId ?? ''}
+                    onChange={(e) => setSelectedTemplateId(e.target.value ? Number(e.target.value) : null)}
+                    disabled={isQueryLoading}
+                    title="选择报告模板：选中后按模板结构生成报告；留空则根据提问智能推断"
+                    className="bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-50"
+                  >
+                    <option value="">智能推断</option>
+                    {reportTemplates.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>
+                        {tpl.name}{tpl.isPreset ? '（预设）' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              )}
+
+              {/* 金额单位自选：问数前选择，SQL 生成按所选单位换算（亿元/百万元/万元/元） */}
+              <span className="shrink-0 flex items-center space-x-1 ml-auto pl-2 border-l border-slate-800">
+                <Coins className="w-3 h-3 text-amber-400" />
+                <select
+                  value={amountUnit}
+                  onChange={(e) => handleSelectAmountUnit(e.target.value)}
+                  disabled={isQueryLoading}
+                  title="金额输出单位：本次问数的金额指标按此单位换算（随提问生效并记忆）"
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-amber-500 cursor-pointer disabled:opacity-50"
+                >
+                  {AMOUNT_UNIT_CHOICES.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              </span>
+
               {/* 模型自选：目录由服务端按实际部署给出，选择随提问生效并持久化 */}
               {modelCatalog.length > 0 && (
-                <span className="shrink-0 flex items-center space-x-1 ml-auto pl-2 border-l border-slate-800">
+                <span className="shrink-0 flex items-center space-x-1 pl-2 border-l border-slate-800">
                   <Cpu className="w-3 h-3 text-violet-400" />
                   <select
                     value={selectedModel}

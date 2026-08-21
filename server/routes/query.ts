@@ -18,7 +18,7 @@ import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../user
 import { writeAudit } from '../auditLog';
 import { loadSchemaContext } from '../schemaContext';
 import { callLLMText, validateModelSelection, setLlmOverride, ChatMessage } from '../llmClient';
-import { runLiveQuery, buildColumnNames } from '../liveQuery';
+import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from '../liveQuery';
 import { runSimulatedQuery } from '../simulatedQuery';
 import { runDrill } from '../drill';
 import { executeSafeSql } from '../sqlExecutor';
@@ -68,6 +68,15 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   }
   if (modelSel && 'engine' in modelSel) setLlmOverride({ engine: modelSel.engine, model: modelSel.model });
   const modelVariant = modelSel && 'engine' in modelSel ? `${modelSel.engine}:${modelSel.model}` : '';
+
+  // 金额单位自选（亿元/百万元/万元/元）：白名单外直接拒绝，避免非法值静默落入默认口径
+  const amountUnit = normalizeAmountUnit(req.body.amountUnit);
+  if (req.body.amountUnit != null && req.body.amountUnit !== '' && !amountUnit) {
+    writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: `非法金额单位：${String(req.body.amountUnit).slice(0, 20)}`, durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
+  }
+  // 单位进缓存键：显式选单位与不选（依赖知识库默认口径）分别缓存，防口径互串
+  const cacheVariant = [modelVariant, amountUnit || ''].filter(Boolean).join(':');
 
   // L5 频率层：每用户 20 次/小时滑动窗口
   const limit = await checkUserQueryLimit(user.id);
@@ -168,7 +177,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       }
 
       // P1-6 结果缓存：同数据源相同问题（归一化后）短期内复用成功结果；缓存键含模型变体，避免跨模型串用
-      const ck = cacheKey(dataSourceId, query, modelVariant);
+      const ck = cacheKey(dataSourceId, query, cacheVariant);
       const cached = await getCachedQuery(ck);
       if (cached) {
         writeAudit({ ...auditBase, question: query, status: 'CACHE', executedSql: String(cached.executedSql || ''), rowCount: typeof cached.rowCount === 'number' ? cached.rowCount : -1, durationMs: Date.now() - startedAt });
@@ -188,6 +197,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         allowIntrospection: ctx.allowIntrospection,
         approvedPlan,
         deepAnalysis: req.body.deepAnalysis === true,
+        amountUnit,
         userId: user.id,
         traceId,
         onStage: streamMode ? (stage, info) => sseSend('stage', { stage, ...(info || {}) }) : undefined,
@@ -210,6 +220,22 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
           dataProvenance: 'live',
           traceId,
         }, 'clarify');
+      }
+      if (live.ok === 'refuse') {
+        // 拒答：问题与数据源无关/超出能力，如实反馈（不走演示数据托底）；小模型照抄模板句时兜底增强理由
+        const refuseReason = enrichRefusalReason(live.reason, effectiveSchema);
+        writeAudit({ ...auditBase, question: query, status: 'REFUSED', detail: refuseReason.slice(0, 200), durationMs: Date.now() - startedAt });
+        emitAfterQuery(hookCtx, { status: 'REFUSED', durationMs: Date.now() - startedAt });
+        recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+        return respond({
+          success: true,
+          executionTimeMs: Date.now() - startedAt,
+          refused: true,
+          refuseReason,
+          defense,
+          dataProvenance: 'live',
+          traceId,
+        }, 'refuse');
       }
       if (live.ok === true) {
         const normalized = normalizeQueryResult(live.result);
@@ -249,6 +275,20 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
 
     // 演示模式（非 mysql / 未落库数据源）：LLM 单阶段生成模拟数据，响应显式标记 simulated（生成逻辑见 server/simulatedQuery）
     const sim = await runSimulatedQuery({ query, history: sanitizedHistory, schema: effectiveSchema, guidance: schemaGuidance });
+    if (sim.ok === 'refuse') {
+      // 拒答：问题与数据源无关/超出能力，如实反馈（不生成演示数据托底）；小模型照抄模板句时兜底增强理由
+      const refuseReason = enrichRefusalReason(sim.reason, effectiveSchema);
+      writeAudit({ ...auditBase, question: query, status: 'REFUSED', detail: refuseReason.slice(0, 200), durationMs: Date.now() - startedAt });
+      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+      return res.json({
+        success: true,
+        executionTimeMs: Date.now() - startedAt,
+        refused: true,
+        refuseReason,
+        defense,
+        dataProvenance: 'simulated',
+      });
+    }
     if (sim.ok === true) {
       // L6 审计层：成功落账
       writeAudit({ ...auditBase, question: query, status: 'SUCCESS', durationMs: Date.now() - startedAt });
@@ -404,7 +444,8 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
   if (typeof dataSourceId !== 'string' || !dataSourceId || typeof sql !== 'string' || !sql.trim()) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'dataSourceId 与 sql 必填' });
   }
-  if (sql.length > 4000) {
+  // v0.4.13：灵活查询可组合多指标/多筛选/HAVING，复杂 SQL 放宽至 10000 字符
+  if (sql.length > 10000) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
 
@@ -419,14 +460,24 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
     return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
 
-  const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved, 500, ctx.rowFilters);
+  // v0.4.14：maxRows 不传（用服务端默认 100000），与灵活查询 LIMIT 放宽对齐
+  const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved, undefined, ctx.rowFilters);
   if (outcome.ok !== true) {
     const status = outcome.reason === 'UNSUPPORTED_DS_TYPE' ? 400 : 422;
     writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_INPUT', detail: outcome.reason.slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(status).json({ error: outcome.reason === 'UNSUPPORTED_DS_TYPE' ? '仅 MySQL / PostgreSQL / Greenplum 数据源支持 SQL 真实执行' : outcome.reason });
   }
 
-  writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'SUCCESS', executedSql: outcome.result.finalSql, rowCount: outcome.result.rowCount, durationMs: Date.now() - startedAt });
+  // P1-3：AST 解析失败放行补审计（status=FALLBACK，detail 标记 AST_FALLBACK）
+  const durationMs = Date.now() - startedAt;
+  // P2-9：慢查询治理（执行时长 > 3s 或行数 > 10 万，detail 前缀标记 SLOW）
+  const isSlow = durationMs > 3000 || outcome.result.rowCount > 100000;
+  const slowPrefix = isSlow ? 'SLOW: ' : '';
+  if (outcome.result.astFallback === true) {
+    writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'FALLBACK', detail: `${slowPrefix}AST_FALLBACK: AST 解析失败，正则白名单兜底放行`, executedSql: outcome.result.finalSql, rowCount: outcome.result.rowCount, durationMs });
+  } else {
+    writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'SUCCESS', detail: isSlow ? `${slowPrefix}执行时长 ${durationMs}ms，行数 ${outcome.result.rowCount}` : undefined, executedSql: outcome.result.finalSql, rowCount: outcome.result.rowCount, durationMs });
+  }
   return res.json({
     success: true,
     executionTimeMs: Date.now() - startedAt,
@@ -448,7 +499,7 @@ router.post('/sql-assist', rateLimiter, authMiddleware, requireRole('ADMIN', 'AN
   if (typeof sql !== 'string' || !sql.trim()) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '缺少 SQL 内容' });
   }
-  if (sql.length > 4000) {
+  if (sql.length > 10000) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
 
@@ -479,7 +530,7 @@ router.post('/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
   ) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'dataSourceId、originalSql、dimensionKey、dimensionValue 必填' });
   }
-  if (originalSql.length > 4000) {
+  if (originalSql.length > 10000) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
   }
 

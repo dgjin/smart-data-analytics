@@ -16,11 +16,14 @@ import {
   Lock,
   Unlock,
   Grid,
+  RefreshCw,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { DynamicChart } from '../charts/DynamicChart';
 import { CHART_THEMES } from '../../utils/chartThemes';
 import { DashboardWidget } from '../../types/analytics';
+import { apiFetch } from '../../api/client';
+import { useDataVersion } from '../../hooks/useDataVersion';
 
 export const CustomDashboard: React.FC = () => {
   const {
@@ -41,6 +44,50 @@ export const CustomDashboard: React.FC = () => {
 
   // Mouse Resize state
   const [resizingWidgetId, setResizingWidgetId] = useState<string | null>(null);
+
+  // v0.4.8 自主更新：监测固化图表所属数据源，检测到数据变化时重放原聚合 SQL 刷新看板
+  const [autoRefreshing, setAutoRefreshing] = useState(false);
+  const [autoUpdateMsg, setAutoUpdateMsg] = useState<string | null>(null);
+  // 看板固化通常来自同一问数会话的单一数据源，取首个可重放 widget 的数据源作为监测对象
+  const watchedDsId = dashboardWidgets.find((w) => w.dataSourceId && w.sourceSql)?.dataSourceId;
+  const widgetsRef = useRef(dashboardWidgets);
+  widgetsRef.current = dashboardWidgets;
+  const { lastCheckedAt } = useDataVersion(watchedDsId, () => {
+    void replayWidgets();
+  });
+
+  async function replayWidgets(): Promise<void> {
+    if (autoRefreshing) return;
+    setAutoRefreshing(true);
+    try {
+      const targets = widgetsRef.current.filter((w) => w.dataSourceId === watchedDsId && w.sourceSql);
+      let refreshed = 0;
+      for (const w of targets) {
+        try {
+          const res = await apiFetch('/api/query/execute-sql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataSourceId: w.dataSourceId, sql: w.sourceSql }),
+          });
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.success && Array.isArray(data.rows)) {
+            updateDashboardWidget(w.id, { data: data.rows, lastAutoUpdatedAt: new Date().toISOString() });
+            refreshed += 1;
+          }
+        } catch {
+          // 单个 widget 重放失败不影响其余
+        }
+      }
+      setAutoUpdateMsg(
+        refreshed > 0
+          ? `检测到数据变化，已自动刷新 ${refreshed} 个图表`
+          : '检测到数据变化，但图表刷新失败（可手动重新固化）',
+      );
+    } finally {
+      setAutoRefreshing(false);
+    }
+  }
   const resizeStartRef = useRef<{
     widgetId: string;
     startX: number;
@@ -195,6 +242,18 @@ export const CustomDashboard: React.FC = () => {
           <p className="text-xs text-slate-400">
             支持拖拽排序与鼠标拽拉调尺寸，自由打造个性化高效率仪表盘。
           </p>
+          {/* v0.4.8 自主更新：数据源监测状态（轮询指纹比对，变化时重放 SQL 自动刷新） */}
+          {watchedDsId && (
+            <p className="text-[11px] text-slate-500 flex items-center space-x-1.5">
+              {autoRefreshing ? (
+                <RefreshCw className="w-3 h-3 text-indigo-400 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3 text-emerald-400" />
+              )}
+              <span>{autoRefreshing ? '正在自动刷新图表…' : autoUpdateMsg || '已开启数据变化自动监测与更新'}</span>
+              {lastCheckedAt && <span className="text-slate-600">· 最近探测 {lastCheckedAt}</span>}
+            </p>
+          )}
         </div>
 
         <button
@@ -393,6 +452,15 @@ export const CustomDashboard: React.FC = () => {
                     )}
 
                     <h3 className="font-bold text-xs text-slate-100 truncate">{widget.title}</h3>
+                    {/* v0.4.8 自主更新：最近一次自动刷新时间角标 */}
+                    {widget.lastAutoUpdatedAt && (
+                      <span
+                        className="text-[9px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                        title="数据源变化后已自动重放 SQL 刷新"
+                      >
+                        自动更新 {new Date(widget.lastAutoUpdatedAt).toLocaleTimeString('zh-CN', { hour12: false })}
+                      </span>
+                    )}
                   </div>
 
                   {/* Header Actions & Column Span quick toggles */}

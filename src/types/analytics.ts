@@ -12,7 +12,7 @@ export interface AuthUser {
   mustChangePassword?: boolean;
 }
 
-export type AppTab = 'query' | 'reports' | 'datasources' | 'dashboard' | 'admin';
+export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery';
 
 export interface ColumnSchema {
   name: string;
@@ -142,12 +142,24 @@ export interface ChatMessage {
     question: string;
     options: { label: string; query: string }[];
   };
+  /** 拒答：问题与当前数据源无关或超出系统能力，如实反馈（无演示数据托底） */
+  refused?: boolean;
   /** M1 推导留痕：本次问数全链路步骤 trace ID（可按需回放查看每个环节） */
   traceId?: string;
   /** M2 计划模式：待批准的分析计划卡片（批准/取消后禁用操作） */
   queryPlan?: QueryPlanData;
   /** 对话归属数据源：历史按源隔离展示，避免不同数据源的对话串源 */
   dataSourceId?: string;
+  /** v0.5.0 报告模式：报告消息卡片（点击跳转报告中心查看完整报告） */
+  reportCard?: {
+    reportId: string;
+    title: string;
+    summary: string;
+    kpiCount: number;
+    chartCount: number;
+    insightCount: number;
+    templateName: string;
+  };
 }
 
 export interface AnomalyItem {
@@ -223,6 +235,9 @@ export interface SavedReport {
   anomalies?: AnomalyItem[];
   anomalyScanTime?: string;
   comments?: ChartComment[];
+  /** v0.4.8 自主更新：生成时的自定义要求与数据来源，数据变化时按同参数重新生成 */
+  customPrompt?: string;
+  dataProvenance?: 'live' | 'simulated';
 }
 
 export interface DashboardWidget {
@@ -232,6 +247,36 @@ export interface DashboardWidget {
   data: Record<string, any>[];
   /** 固化时所在的问数数据源（旧数据可能缺失，消费方需兜底） */
   dataSourceId?: string;
+  /** v0.4.8 自主更新：固化时的原聚合 SQL（仅 live 链路），数据变化时重放刷新；缺失则不参与自动更新 */
+  sourceSql?: string;
+  /** v0.4.8 最近一次自动更新时间（检测到数据变化并重放成功后写入） */
+  lastAutoUpdatedAt?: string;
   colSpan?: 1 | 2 | 3;
   height?: number;
+}
+
+// v0.5.0 智能问数报告模式：报告模板
+export interface ReportTemplate {
+  id: number;
+  name: string;
+  description: string;
+  templateContent: string; // JSON 字符串
+  isPreset: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// v0.5.0 智能问数报告模式：问数报告记录
+export interface QueryReport {
+  id: number;
+  reportId: string;
+  userId: number;
+  username: string;
+  dataSourceId: string;
+  question: string;
+  templateId: number | null;
+  templateName: string;
+  reportData: SavedReport; // 复用现有 SavedReport 类型
+  createdAt: string;
 }

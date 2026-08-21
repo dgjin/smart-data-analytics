@@ -20,6 +20,7 @@
 - **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，百炼/Gemini 按配置列入），选择随提问生效并持久化
 - **推导过程回放**：全程步骤埋点（query_trace），完成后可展开时间线查看每环节 SQL/行数/耗时
 - **计划模式**（开关）：先由 LLM 生成分析计划供批准，再携带 planId 执行
+- **报告模式**（开关）：提问直接生成完整分析报告（摘要+KPI+图表+洞察），支持选择报告模板或智能推断；报告落库并可在「问数报告中心」集中管理
 - **深度分析（中间表清洗链）**：复杂问题多步清洗并物化应用库中间表 `ait_*`（TTL 24h，失败不阻断）
 - **降级兜底**：LLM/数据库不可用时返回带明确标识的示例数据
 
@@ -34,7 +35,8 @@
 - **数据血缘**：数据流向与依赖可视化
 
 ### 分析与呈现
-- **可视化决策报表**：一键生成高管分析简报，支持报告计划模式（批准后生成）、PPT 下载（服务端 pptxgenjs）、PDF 导出、图表批注与图表点击下钻明细（LIMIT 50）
+- **可视化决策报表**：一键生成高管分析简报，支持报告计划模式（批准后生成）、PPT 下载（服务端 pptxgenjs）、PDF 导出、图表批注与图表点击下钻明细（LIMIT 50）；图表同/环比对比仅限时间序列维度（分类维度自动禁用，防维度错配伪数据）
+- **问数报告中心**：智能问数报告模式生成的报告集中展示与管理（列表/详情/删除/导出 PDF/PPT），支持自定义报告模板（管理员维护，预设模板不可改删）
 - **决策数据看板**：固化指标图表，适合日常巡检与大屏投放
 - **深浅色主题**：一键切换，偏好持久化
 
@@ -51,7 +53,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
-| 测试 | Vitest（45 文件 / 459 用例）+ NL2SQL 评测集（server/eval，16 用例） |
+| 测试 | Vitest（54 文件 / 569 用例）+ NL2SQL 评测集（server/eval，19 用例） |
 
 ## 快速开始
 
@@ -64,6 +66,12 @@
 ```bash
 ollama pull deepseek-r1:32b      # 主推理模型（可用 LLM_MODEL 覆盖）
 ollama pull nomic-embed-text     # embedding 模型（圈表精排用，可选）
+```
+
+- Python 3 + ReportLab（报告 PDF 导出，可选）：
+
+```bash
+pip3 install reportlab           # 服务端原生排版生成 PDF（无此依赖时 PDF 导出不可用，其余功能不受影响）
 ```
 
 ### 安装与配置
@@ -151,6 +159,8 @@ server/
   sqlExecutor.ts           # 只读安全 SQL 执行
   auditLog.ts              # 问数审计
   llmClient.ts             # Ollama/Gemini 统一 LLM 通道
+  pdfExport.ts             # 报告 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
+  pdfgen/report_pdf.py     # ReportLab 排版脚本（A4 竖/横版、中文 CID 字体、图表 PNG 嵌入）
   routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/metrics/conversations/help
 src/
   components/              # query/charts/reports/dashboard/datasource/help/admin/auth
@@ -162,10 +172,20 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides）
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（459 用例）
+npm test             # Vitest（569 用例）
 npm run lint         # TypeScript 类型检查
 ```
 
 ## 文档维护约定
 
 `docs/系统功能说明书.md` 是系统功能的单一事实源：每次功能新增或变更时同步更新该文件并在其「变更记录」章节追加一行；系统 Header 右上角「帮助」按钮实时读取展示。
+
+## Git 协作与提交规范（必须执行）
+
+为保证多环境协作时代码始终一致，本项目强制执行以下 Git 工作流：
+
+1. **修改前先拉取**：每次开始代码修改前，先 `git pull origin main` 拉取 GitHub 最新版本，确保基于最新代码开发，避免冲突累积。
+2. **完成后自动提交推送**：代码修改完成并通过验证（`npm run lint` + `npm test`）后，执行 `git add -A` → `git commit`（语义化 message）→ `git push origin main`，使本地改动即时同步到 GitHub。
+3. **版本一致性**：任何时刻本地 `main` 应与 GitHub `origin/main` 保持一致，不得在本地长期积压未提交改动。
+
+> 仓库：`github.com/dgjin/smart-data-analytics`（分支 `main`，凭据经 macOS osxkeychain 缓存可非交互推送；禁止使用 `push --force` 推送 main）。

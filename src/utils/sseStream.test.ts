@@ -68,18 +68,20 @@ describe('readSseStream', () => {
     expect(onTrace.mock.calls[0][0]).toMatchObject({ title: '步骤一' });
   });
 
-  it('done / clarify 触发 onTerminal 且 data 原样透传', async () => {
+  it('done / clarify / refuse 触发 onTerminal 且 data 原样透传', async () => {
     const onTerminal = vi.fn();
     await readSseStream(
       sseResponse([
         'event: done\ndata: {"answer":"ok"}\n\n',
         'event: clarify\ndata: {"question":"选哪个？"}\n\n',
+        'event: refuse\ndata: {"refused":true,"refuseReason":"与数据源无关"}\n\n',
       ]),
       { onTerminal },
     );
     expect(onTerminal.mock.calls).toEqual([
       ['done', { answer: 'ok' }],
       ['clarify', { question: '选哪个？' }],
+      ['refuse', { refused: true, refuseReason: '与数据源无关' }],
     ]);
   });
 

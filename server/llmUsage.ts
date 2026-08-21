@@ -14,6 +14,9 @@ export interface LlmUsageEntry {
   completionTokens: number;
   durationMs: number;
   ok: boolean;
+  /** 请求用户（authMiddleware 注入的上下文；无请求上下文时为空，归入「系统/后台」） */
+  userId?: number;
+  username?: string;
 }
 
 /** 单次调用用量落库（异步不等待；库未初始化/写入失败仅记日志） */
@@ -22,11 +25,13 @@ export function recordLlmUsage(entry: LlmUsageEntry): void {
   try {
     void getPool()
       .query(
-        'INSERT INTO llm_usage (engine, model, channel, prompt_tokens, completion_tokens, total_tokens, duration_ms, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO llm_usage (engine, model, channel, user_id, username, prompt_tokens, completion_tokens, total_tokens, duration_ms, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
           entry.engine.slice(0, 16),
           entry.model.slice(0, 128),
           entry.channel,
+          entry.userId || null,
+          entry.username ? entry.username.slice(0, 64) : null,
           entry.promptTokens | 0,
           entry.completionTokens | 0,
           total,
@@ -77,5 +82,48 @@ export async function summarizeLlmUsage(days = 7): Promise<LlmUsageSummary[]> {
     completionTokens: Number(r.completionTokens) || 0,
     totalTokens: Number(r.totalTokens) || 0,
     avgDurationMs: Math.round(Number(r.avgDurationMs) || 0),
+  }));
+}
+
+export interface LlmUsageByUser {
+  userId: number | null;
+  username: string;
+  calls: number;
+  okCalls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  avgDurationMs: number;
+  lastUsedAt: string;
+}
+
+/** 近 N 天按用户聚合（管理员视角：谁在消耗 token；无用户上下文的历史记录归入「系统/后台」） */
+export async function summarizeLlmUsageByUser(days = 7): Promise<LlmUsageByUser[]> {
+  const d = Math.max(1, Math.min(90, days | 0));
+  const [rows] = await getPool().query(
+    `SELECT user_id, COALESCE(NULLIF(username, ''), '系统/后台') AS username,
+            COUNT(*) AS calls,
+            SUM(ok) AS okCalls,
+            SUM(prompt_tokens) AS promptTokens,
+            SUM(completion_tokens) AS completionTokens,
+            SUM(total_tokens) AS totalTokens,
+            ROUND(AVG(duration_ms)) AS avgDurationMs,
+            MAX(created_at) AS lastUsedAt
+     FROM llm_usage
+     WHERE created_at >= NOW() - INTERVAL ? DAY
+     GROUP BY user_id, COALESCE(NULLIF(username, ''), '系统/后台')
+     ORDER BY totalTokens DESC`,
+    [d]
+  );
+  return (rows as any[]).map((r) => ({
+    userId: r.user_id == null ? null : Number(r.user_id),
+    username: String(r.username),
+    calls: Number(r.calls) || 0,
+    okCalls: Number(r.okCalls) || 0,
+    promptTokens: Number(r.promptTokens) || 0,
+    completionTokens: Number(r.completionTokens) || 0,
+    totalTokens: Number(r.totalTokens) || 0,
+    avgDurationMs: Math.round(Number(r.avgDurationMs) || 0),
+    lastUsedAt: new Date(r.lastUsedAt).toISOString(),
   }));
 }

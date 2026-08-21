@@ -1,5 +1,52 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { candidatePrompt, selfCorrectCandidates, VALID_STAGE1_CHARTS } from './liveQuery';
+import { candidatePrompt, selfCorrectCandidates, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats } from './liveQuery';
+
+describe('normalizeAmountUnit: 金额单位白名单', () => {
+  it('四个白名单单位原样返回', () => {
+    for (const u of ['亿元', '百万元', '万元', '元']) expect(normalizeAmountUnit(u)).toBe(u);
+  });
+
+  it('空白/undefined/非法值返回 undefined（不注入约定）', () => {
+    expect(normalizeAmountUnit(undefined)).toBeUndefined();
+    expect(normalizeAmountUnit('')).toBeUndefined();
+    expect(normalizeAmountUnit('  ')).toBeUndefined();
+    expect(normalizeAmountUnit('万亿元')).toBeUndefined();
+    expect(normalizeAmountUnit('YI')).toBeUndefined();
+  });
+
+  it('除数与后缀约定正确（亿 1e8 / 百万 1e6 / 万 1e4 / 元 1）', () => {
+    expect(AMOUNT_UNIT_OPTIONS['亿元'].divisor).toBe(100000000);
+    expect(AMOUNT_UNIT_OPTIONS['百万元'].divisor).toBe(1000000);
+    expect(AMOUNT_UNIT_OPTIONS['万元'].divisor).toBe(10000);
+    expect(AMOUNT_UNIT_OPTIONS['元'].divisor).toBe(1);
+    for (const u of Object.values(AMOUNT_UNIT_OPTIONS)) {
+      expect(u.suffix).toMatch(/^[a-z]+$/);
+    }
+  });
+});
+
+describe('buildAmountUnitPrompt: 金额单位约定注入（v0.5.2 起报表链路复用）', () => {
+  it('有效单位生成含除数与后缀的约定文本', () => {
+    const p = buildAmountUnitPrompt('万元');
+    expect(p).toContain('【金额单位约定】');
+    expect(p).toContain('「万元」');
+    expect(p).toContain('/10000');
+    expect(p).toContain('_wan');
+  });
+
+  it('元为原值口径：明确不除以 1', () => {
+    const p = buildAmountUnitPrompt('元');
+    expect(p).toContain('「元」');
+    expect(p).toContain('不要除以 1');
+    expect(p).toContain('_yuan');
+  });
+
+  it('空/非法单位返回空串（不注入约定）', () => {
+    expect(buildAmountUnitPrompt(undefined)).toBe('');
+    expect(buildAmountUnitPrompt('')).toBe('');
+    expect(buildAmountUnitPrompt('万亿元')).toBe('');
+  });
+});
 
 describe('VALID_STAGE1_CHARTS: P2-B 图表类型白名单', () => {
   it('包含基础五种与新增 radar/scatter/treemap/heatmap', () => {
@@ -56,5 +103,56 @@ describe('selfCorrectCandidates: 候选数解析', () => {
     expect(selfCorrectCandidates()).toBe(2);
     vi.stubEnv('SELF_CORRECT_CANDIDATES', '9');
     expect(selfCorrectCandidates()).toBe(3);
+  });
+});
+
+describe('buildFallbackAnalysis: 阶段二 LLM 失败时的规则化降级解读', () => {
+  // 回归：解读生成失败时不得再返回「查询返回 N 行」式无信息量兜底文案，
+  // 而是基于真实列统计生成有数据支撑的解读
+  const rows = [
+    { jgmc: '北京', total_bntfje: 720.26 },
+    { jgmc: '上海', total_bntfje: 285.5 },
+    { jgmc: '四川', total_bntfje: 210.1 },
+  ];
+  const columnNames = { jgmc: '机构名称', total_bntfje: '本年投放金额（亿元）' };
+  const chartConfig = { xAxisKey: 'jgmc', yAxisKeys: ['total_bntfje'] };
+
+  it('数值列 + 维度列：解读含真实统计值与中文表头', () => {
+    const stats = buildColumnStats(rows);
+    const r = buildFallbackAnalysis(rows, stats, columnNames, chartConfig);
+    expect(r.aiExplanation).toContain('3 条记录');
+    expect(r.aiExplanation).toContain('本年投放金额（亿元）');
+    expect(r.aiExplanation).toContain('1,215.86'); // 总计（千分位）
+    expect(r.aiExplanation).toContain('机构名称');
+    expect(r.aiExplanation).toContain('图表以 机构名称 为维度展示');
+    expect(r.keyInsights.length).toBeGreaterThan(0);
+    expect(r.keyInsights.length).toBeLessThanOrEqual(3);
+    expect(r.keyInsights.some((s) => s.includes('720.26'))).toBe(true); // 洞察引用真实最大值
+    expect(r.kpiMetrics.length).toBe(2); // 1 个数值列 → 总计/峰值两张 KPI
+    expect(r.kpiMetrics[0].label).toContain('总计');
+  });
+
+  it('纯维度列：不报错且洞察仍可出分组数', () => {
+    const dimRows = [{ region: '华东' }, { region: '华北' }, { region: '华东' }];
+    const stats = buildColumnStats(dimRows);
+    const r = buildFallbackAnalysis(dimRows, stats, {}, {});
+    expect(r.aiExplanation).toContain('3 条记录');
+    expect(r.kpiMetrics).toEqual([]);
+    expect(r.keyInsights.some((s) => s.includes('2 个分组'))).toBe(true);
+  });
+
+  it('空 rows：解读仍可读，不抛异常', () => {
+    const r = buildFallbackAnalysis([], {}, {}, {});
+    expect(r.aiExplanation).toContain('0 条记录');
+    expect(r.keyInsights).toEqual([]);
+    expect(r.kpiMetrics).toEqual([]);
+  });
+
+  it('多个数值列：洞察取前两列且 KPI 不超过 4 张', () => {
+    const multiRows = Array.from({ length: 5 }, (_, i) => ({ a: i, b: i * 10, c: i * 100, d: i * 1000 }));
+    const stats = buildColumnStats(multiRows);
+    const r = buildFallbackAnalysis(multiRows, stats, {}, {});
+    expect(r.kpiMetrics.length).toBe(4); // 前 2 列 × 2 张 = 4，封顶
+    expect(r.keyInsights.length).toBeLessThanOrEqual(3);
   });
 });

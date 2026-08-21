@@ -28,7 +28,6 @@ import {
   Percent,
   Presentation,
 } from 'lucide-react';
-import html2pdf from 'html2pdf.js';
 import { SavedReport, AnomalyItem, ChartComment, ChartCommentReply } from '../../types/analytics';
 import { DynamicChart, ComparisonMode } from '../charts/DynamicChart';
 import { scanReportForAnomalies } from '../../utils/anomalyDetector';
@@ -60,7 +59,6 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   const [isExportingPDF, setIsExportingPDF] = useState<boolean>(false);
   const [pdfExportSuccess, setPdfExportSuccess] = useState<boolean>(false);
   const [pdfOrientation, setPdfOrientation] = useState<'portrait' | 'landscape'>('portrait');
-  const [pdfTheme, setPdfTheme] = useState<'dark' | 'light'>('dark');
   const [includeComments, setIncludeComments] = useState<boolean>(true);
 
   // M4 PPT Export States（服务端 pptxgenjs 组装，图表转 base64 PNG 提交）
@@ -218,57 +216,59 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }
   };
 
-  // High Quality PDF Export Function using html2pdf.js
+  // v0.5.3 PDF 导出：服务端 ReportLab 原生排版（替代 html2pdf.js 截图方案），图表 SVG→PNG 随数据提交
   const handleExportPDF = async () => {
-    if (!reportRef.current) return;
+    if (!reportRef.current || isExportingPDF) return;
     setIsExportingPDF(true);
     setPdfExportSuccess(false);
-
     try {
-      const originalTheme = globalThemeId;
-      if (pdfTheme === 'light') {
-        setGlobalThemeId('light');
-      }
+      setShowPdfExportModal(false);
+      // 截取图表（recharts SVG → PNG base64，深色底与报告卡片一致）
+      const svgs = Array.from(reportRef.current.querySelectorAll('svg.recharts-surface'));
+      const charts = await Promise.all(
+        activeReport.charts.map(async (chartBlock, idx) => {
+          const svg = svgs[idx];
+          const imageBase64 = svg ? await svgToPng(svg as SVGSVGElement, '#0f172a') : null;
+          return {
+            title: chartBlock.title,
+            commentary: chartBlock.commentary || '',
+            ...(imageBase64 ? { imageBase64 } : {}),
+          };
+        })
+      );
 
-      // Wait briefly for DOM theme update
-      await new Promise((r) => setTimeout(r, 250));
-
-      const element = reportRef.current;
-      const sanitizeName = activeReport.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
-      const filename = `${sanitizeName}_分析报表_${activeReport.createdAt}.pdf`;
-
-      const opt = {
-        margin: 8,
-        filename,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          letterRendering: true,
-          backgroundColor: pdfTheme === 'light' ? '#ffffff' : '#0f172a',
-        },
-        jsPDF: {
-          unit: 'mm',
-          format: 'a4',
+      const response = await apiFetch('/api/report/export-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: activeReport.title,
+          summary: activeReport.summary,
+          createdAt: activeReport.createdAt,
+          templateType: activeReport.templateType,
+          kpiList: activeReport.kpiList || [],
+          insights: activeReport.insights || [],
+          charts,
           orientation: pdfOrientation,
-        },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
-      };
-
-      await html2pdf().set(opt).from(element).save();
-
-      if (pdfTheme === 'light') {
-        setGlobalThemeId(originalTheme);
+        }),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => null);
+        throw new Error(err?.error || `导出失败（${response.status}）`);
       }
-
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${activeReport.title.replace(/[\\/:*?"<>|\s]+/g, '_')}_分析简报_${activeReport.createdAt}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
       setPdfExportSuccess(true);
-      setTimeout(() => {
-        setPdfExportSuccess(false);
-        setShowPdfExportModal(false);
-      }, 2000);
-    } catch (err) {
+      setTimeout(() => setPdfExportSuccess(false), 2000);
+    } catch (err: any) {
       console.error('PDF Export Error:', err);
+      alert(`PDF 导出失败：${err?.message || '未知错误'}`);
     } finally {
       setIsExportingPDF(false);
     }
@@ -813,33 +813,9 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                 </div>
               </div>
 
-              {/* PDF Theme Style */}
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-200">2. PDF 渲染底色模式 (Visual Mode)</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPdfTheme('dark')}
-                    className={`p-3 rounded-xl border font-bold flex items-center justify-center space-x-2 transition-all ${
-                      pdfTheme === 'dark'
-                        ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200 shadow'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>🌙 尊享暗夜黑金 (Executive Dark)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPdfTheme('light')}
-                    className={`p-3 rounded-xl border font-bold flex items-center justify-center space-x-2 transition-all ${
-                      pdfTheme === 'light'
-                        ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200 shadow'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>☀️ 纯白高清印刷 (Clean Print Light)</span>
-                  </button>
-                </div>
+              {/* v0.5.3 服务端 ReportLab 排版：矢量文字 + 图表高清嵌入，无截图错位/遮挡问题 */}
+              <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-[11px] text-indigo-300 leading-relaxed">
+                2. 渲染引擎已升级为服务端原生排版（ReportLab）：标题/摘要/KPI/洞察为矢量文字，图表按 2x 高清嵌入，不再存在截图错位与遮挡。
               </div>
 
               {/* Include Options */}

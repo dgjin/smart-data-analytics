@@ -6,6 +6,7 @@ import type express from 'express';
 import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { getPool } from './db';
+import { setLlmUserContext } from './llmClient';
 
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
 
@@ -82,6 +83,8 @@ export async function authMiddleware(
       role: user.role,
       mustChangePassword: !!user.must_change_password,
     };
+    // LLM 用量按用户统计：鉴权后注入请求级用户上下文（本次请求异步链内的 LLM 埋点均携带）
+    setLlmUserContext(user.id, user.username);
     // P0-1 服务端强制改密：首登/被重置密码的用户，改密前只放行 /api/auth/*（登录/改密/当前用户）
     if (user.must_change_password && !req.originalUrl.startsWith('/api/auth/')) {
       return res.status(403).json({ code: 'PASSWORD_CHANGE_REQUIRED', error: '首次登录或密码已被重置，请先修改密码' });
