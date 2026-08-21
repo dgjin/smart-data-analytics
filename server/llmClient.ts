@@ -40,7 +40,7 @@ function stageRouteFromEnv(engineVar: string, modelVar: string): LlmStageRoute |
   const engine = String(process.env[engineVar] || '').toLowerCase();
   const model = String(process.env[modelVar] || '').trim();
   if (engine !== 'ollama' && engine !== 'gemini' && engine !== 'qwen') return undefined;
-  if (!model || model.length > 100 || !/^[\w.:\-]+$/.test(model)) return undefined;
+  if (!model || model.length > 100 || !/^[\w.:-]+$/.test(model)) return undefined;
   return { engine: engine as EngineKind, model };
 }
 
@@ -152,7 +152,7 @@ export function validateModelSelection(
   if (typeof engine !== 'string' || !['ollama', 'gemini', 'qwen'].includes(engine)) {
     return { error: '不支持的模型引擎' };
   }
-  if (typeof model !== 'string' || !model.trim() || model.length > 100 || !/^[\w.:\-]+$/.test(model)) {
+  if (typeof model !== 'string' || !model.trim() || model.length > 100 || !/^[\w.:-]+$/.test(model)) {
     return { error: '模型名称不合法' };
   }
   return { engine: engine as EngineKind, model: model.trim() };

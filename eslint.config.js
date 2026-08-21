@@ -27,6 +27,10 @@ export default tseslint.config(
       // 避免阻塞 lint 门禁；rules-of-hooks 等核心规则仍保持 error。
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/purity': 'warn',
+      // 同属 react-hooks v6 React Compiler 级规则：渲染期读 ref.current / 先声明后访问
+      // 在本项目多处为既有合法模式（如 resize 观测、回调透传），降级为 warn 渐进改进。
+      'react-hooks/refs': 'warn',
+      'react-hooks/immutability': 'warn',
       'preserve-caught-error': 'warn',
     },
   }

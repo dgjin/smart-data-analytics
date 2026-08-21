@@ -1,0 +1,58 @@
+# P0-2 CI 质量门禁：push/PR 到 main 触发。
+# - quality 作业：tsc（前端+server 双 tsconfig）+ eslint + vitest 全量单测
+# - eval-gate 作业：评测集结构门禁（规模/六类覆盖/字段合法性，mock-free 不连 DB/LLM）；
+#   真实 LLM 准确率评测放本地/nightly（npm run eval -- --min-accuracy 85），
+#   prompt 相关文件变更时输出全量评测提醒。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: 质量门禁（tsc + eslint + vitest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: TypeScript 类型检查（前端主 tsconfig）
+        run: npm run lint
+      - name: TypeScript 类型检查（server strict）
+        run: npm run lint:server
+      - name: ESLint
+        run: npm run lint:js
+      - name: Vitest 单测全量
+        run: npm test
+
+  eval-gate:
+    name: 评测集门禁（结构 + 阈值契约）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 评测集结构校验（≥100 条 + 六类分层覆盖）
+        run: npx tsx server/eval/checkEvalSet.ts --min-count 100
+      - name: prompt 变更触发全量评测提醒
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+        run: |
+          # event 字段经 env 传入（防 shell 注入）；before 为 GitHub 生成的 commit SHA，校验为十六进制后再用
+          BASE="${EVENT_BEFORE:-HEAD~1}"
+          if ! echo "${BASE}" | grep -qE '^[0-9a-f]{40}$'; then BASE="HEAD~1"; fi
+          CHANGED="$(git diff --name-only "${BASE}" HEAD 2>/dev/null || git show --name-only --format= HEAD)"
+          if echo "${CHANGED}" | grep -qE 'server/(liveQuery|liveReport|llmClient|schemaLinking|schemaContext)\.ts|server/eval/'; then
+            echo "::warning::检测到 prompt/评测相关文件变更，请本地执行全量评测：npm run eval -- --min-accuracy 85"
+          fi

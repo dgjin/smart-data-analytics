@@ -79,7 +79,7 @@ export function buildMetricPrompt(hits: MetricDefinition[]): string {
 // ---------- CRUD（routes/metrics.ts 调用） ----------
 
 function rowToMetric(r: any): MetricDefinition {
-  let aliases: string[] = [];
+  let aliases: string[];
   try {
     const parsed = JSON.parse(String(r.aliases_json || '[]'));
     aliases = Array.isArray(parsed) ? parsed.filter((a: any) => typeof a === 'string') : [];

@@ -57,7 +57,7 @@ export function validateSkillInput(input: {
 }
 
 function toRecord(row: mysql.RowDataPacket): SkillRecord {
-  let ph: unknown = [];
+  let ph: unknown;
   try {
     ph = JSON.parse(String(row.placeholders || '[]'));
   } catch {

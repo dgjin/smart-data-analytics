@@ -362,9 +362,9 @@ export function enrichRefusalReason(reason: string, schema: any[]): string {
     ? `当前数据源仅覆盖：${tables.slice(0, 8).join('、')}${tables.length > 8 ? ` 等 ${tables.length} 张表` : ''}。`
     : '';
   // 已是模板句式则保留；否则按统一话术改写（过短理由用「该请求」占位）
-  const what = cleaned.length < 15 ? '该请求' : cleaned.replace(/[。\.]+$/, '');
+  const what = cleaned.length < 15 ? '该请求' : cleaned.replace(/[。.]+$/, '');
   const core = /抱歉，我是数据分析助手/.test(cleaned)
-    ? cleaned.replace(/[。\.]+$/, '')
+    ? cleaned.replace(/[。.]+$/, '')
     : `抱歉，我是数据分析助手，仅协助处理数据分析相关工作，无法处理${what}`;
   return `${core}。${scope}`.slice(0, 400);
 }

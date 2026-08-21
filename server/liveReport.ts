@@ -54,7 +54,7 @@ export function replaceIdentifiersWithChinese(text: string, nameMap: Record<stri
     const cn = nameMap[key];
     if (!cn) continue;
     // 注意：字符串层 \[ / \] 会产生正则层的转义方括号，避免字符类提前闭合
-    const wrapped = new RegExp('[【\\[\u300c\'"]' + escapeRegExp(key) + '[\\]\】\u300d\'"]', 'g');
+    const wrapped = new RegExp('[【\\[\u300c\'"]' + escapeRegExp(key) + '[\\]】\u300d\'"]', 'g');
     out = out.replace(wrapped, cn);
     const bare = new RegExp('(?<![A-Za-z0-9_])' + escapeRegExp(key) + '(?![A-Za-z0-9_])', 'g');
     out = out.replace(bare, cn);

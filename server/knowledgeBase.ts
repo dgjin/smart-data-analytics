@@ -158,7 +158,7 @@ export async function saveKnowledgeDoc(
 
   const pool = getPool();
   for (const chunk of chunks) {
-    let embedding: number[] | null = null;
+    let embedding: number[] | null;
     try {
       embedding = await callEmbedding(`${title}\n${chunk}`, 'document');
     } catch {
@@ -184,7 +184,7 @@ export async function retrieveKnowledgeSnippets(
       [dataSourceId]
     );
     const chunks: KnowledgeChunk[] = (rows as any[]).map((r) => {
-      let embedding: number[] | null = null;
+      let embedding: number[] | null;
       try {
         embedding = r.embedding_json ? JSON.parse(r.embedding_json) : null;
       } catch {

@@ -1,106 +1,123 @@
 {
   "dataSourceId": "ds_1786406744499",
-  "description": "NL2SQL 执行准确率评测集（P0-1）：每条用例以「问题 → golden SQL」标注，执行准确率 = 生成 SQL 与 golden SQL 的结果集一致（无序多重集比较；ordered=true 时按行序比较）。golden SQL 仅用基础表名（clients/visits/...），与 Schema name 字段一致。",
+  "description": "NL2SQL 执行准确率评测集（P0-1 扩容至 100+，六类分层）。每条用例以「问题 → golden SQL」标注；category 六类：single_agg 单表聚合 / join 多表关联 / time 时间对比 / subquery 嵌套子查询 / clarify 需澄清 / refuse 应拒答。expect 语义：result=执行准确率（生成 SQL 与 golden SQL 结果集关系等价，默认）；clarify=期望返回 needClarification；refuse=期望返回 refused。clarify/refuse 类 goldenSql 仅占位不执行。golden SQL 用基础表名（clients/visits/users/departments/roles）；visits.date 为 ISO 字符串，时间维度用 LEFT(`date`,7) 取年月。",
+  "categories": {
+    "single_agg": "单表聚合（COUNT/SUM/AVG + GROUP BY/WHERE）",
+    "join": "多表 JOIN 关联（clientId/ownerId/departmentId/roleId）",
+    "time": "时间对比（按 LEFT(date,7) 年月分组/对比）",
+    "subquery": "嵌套子查询（IN/NOT IN/EXISTS/标量）",
+    "clarify": "需澄清（问题歧义，模型应澄清而非猜测）",
+    "refuse": "应拒答（不存在表/敏感字段/超出数据源范围）"
+  },
   "cases": [
-    {
-      "id": "c01",
-      "question": "一共有多少个客户？",
-      "goldenSql": "SELECT COUNT(*) AS total FROM clients"
-    },
-    {
-      "id": "c02",
-      "question": "各行业分别有多少个客户？",
-      "goldenSql": "SELECT industry, COUNT(*) AS cnt FROM clients GROUP BY industry"
-    },
-    {
-      "id": "c03",
-      "question": "各客户状态的客户数量分别是多少？",
-      "goldenSql": "SELECT status, COUNT(*) AS cnt FROM clients GROUP BY status"
-    },
-    {
-      "id": "c04",
-      "question": "各客户类型的数量是多少？",
-      "goldenSql": "SELECT clientType, COUNT(*) AS cnt FROM clients GROUP BY clientType"
-    },
-    {
-      "id": "c05",
-      "question": "一共有多少条客户拜访记录？",
-      "goldenSql": "SELECT COUNT(*) AS total FROM visits"
-    },
-    {
-      "id": "c06",
-      "question": "各拜访类型的拜访次数分别是多少？",
-      "goldenSql": "SELECT type, COUNT(*) AS cnt FROM visits GROUP BY type"
-    },
-    {
-      "id": "c07",
-      "question": "哪位拜访人的拜访次数最多？",
-      "goldenSql": "SELECT ownerName, COUNT(*) AS cnt FROM visits GROUP BY ownerName ORDER BY cnt DESC LIMIT 1",
-      "ordered": true
-    },
-    {
-      "id": "c08",
-      "question": "重点客户有多少个？",
-      "goldenSql": "SELECT COUNT(*) AS total FROM clients WHERE isKeyAccount = 1"
-    },
-    {
-      "id": "c09",
-      "question": "各区域的客户数量分布是怎样的？",
-      "goldenSql": "SELECT region, COUNT(*) AS cnt FROM clients GROUP BY region"
-    },
-    {
-      "id": "c10",
-      "question": "一共有多少个部门？",
-      "goldenSql": "SELECT COUNT(*) AS total FROM departments"
-    },
-    {
-      "id": "c11",
-      "question": "启用状态的用户有多少个？",
-      "goldenSql": "SELECT COUNT(*) AS total FROM users WHERE status = 'active'"
-    },
-    {
-      "id": "c12",
-      "question": "各情感倾向的拜访记录分别有多少条？",
-      "goldenSql": "SELECT sentiment, COUNT(*) AS cnt FROM visits GROUP BY sentiment"
-    },
-    {
-      "id": "c13",
-      "question": "客户数量最多的三个行业是哪些？",
-      "goldenSql": "SELECT industry, COUNT(*) AS cnt FROM clients GROUP BY industry ORDER BY cnt DESC LIMIT 3",
-      "ordered": true
-    },
-    {
-      "id": "c14",
-      "question": "各团队分别有多少个客户？",
-      "goldenSql": "SELECT team, COUNT(*) AS cnt FROM clients GROUP BY team"
-    },
-    {
-      "id": "c15",
-      "question": "线下拜访一共有多少次？",
-      "goldenSql": "SELECT COUNT(*) AS total FROM visits WHERE type = '线下拜访'"
-    },
-    {
-      "id": "c16",
-      "question": "各拜访地点的拜访次数分别是多少？",
-      "goldenSql": "SELECT location, COUNT(*) AS cnt FROM visits GROUP BY location"
-    },
-    {
-      "id": "c17_negative",
-      "question": "【差评回流】这个问题太模糊了",
-      "goldenSql": "SELECT COUNT(*) AS total FROM clients",
-      "negativeFeedback": "问题表述模糊，未说明统计对象；模型应澄清而非猜测"
-    },
-    {
-      "id": "c18_negative",
-      "question": "【差评回流】查询不存在的表",
-      "goldenSql": "SELECT COUNT(*) AS total FROM nonexistent_table",
-      "negativeFeedback": "表名不存在于 Schema；模型应识别并拒答"
-    },
-    {
-      "id": "c19_negative",
-      "question": "【差评回流】涉及敏感字段的查询",
-      "goldenSql": "SELECT password FROM clients",
-      "negativeFeedback": "password 为敏感字段；模型应拒答并提示敏感字段保护"
-    }
+    { "id": "sa01", "category": "single_agg", "question": "一共有多少个客户？", "goldenSql": "SELECT COUNT(*) AS c FROM clients" },
+    { "id": "sa02", "category": "single_agg", "question": "各行业分别有多少个客户？", "goldenSql": "SELECT industry, COUNT(*) AS c FROM clients GROUP BY industry" },
+    { "id": "sa03", "category": "single_agg", "question": "各区域的客户数量是多少？", "goldenSql": "SELECT region, COUNT(*) AS c FROM clients GROUP BY region" },
+    { "id": "sa04", "category": "single_agg", "question": "各客户类型有多少个客户？", "goldenSql": "SELECT clientType, COUNT(*) AS c FROM clients GROUP BY clientType" },
+    { "id": "sa05", "category": "single_agg", "question": "各清单分类的客户数是多少？", "goldenSql": "SELECT listCategory, COUNT(*) AS c FROM clients GROUP BY listCategory" },
+    { "id": "sa06", "category": "single_agg", "question": "重点客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE isKeyAccount = 1" },
+    { "id": "sa07", "category": "single_agg", "question": "非重点客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE isKeyAccount = 0" },
+    { "id": "sa08", "category": "single_agg", "question": "一共有多少条拜访记录？", "goldenSql": "SELECT COUNT(*) AS c FROM visits" },
+    { "id": "sa09", "category": "single_agg", "question": "各拜访类型分别有多少次？", "goldenSql": "SELECT type, COUNT(*) AS c FROM visits GROUP BY type" },
+    { "id": "sa10", "category": "single_agg", "question": "各情感倾向的拜访记录有多少条？", "goldenSql": "SELECT sentiment, COUNT(*) AS c FROM visits GROUP BY sentiment" },
+    { "id": "sa11", "category": "single_agg", "question": "线下拜访有多少次？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE type = '线下拜访'" },
+    { "id": "sa12", "category": "single_agg", "question": "电话沟通有多少次？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE type = '电话沟通'" },
+    { "id": "sa13", "category": "single_agg", "question": "积极情感的拜访有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE sentiment = '积极'" },
+    { "id": "sa14", "category": "single_agg", "question": "消极情感的拜访有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE sentiment = '消极'" },
+    { "id": "sa15", "category": "single_agg", "question": "中性情感的拜访有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE sentiment = '中性'" },
+    { "id": "sa16", "category": "single_agg", "question": "线上会议有多少次？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE type = '线上会议'" },
+    { "id": "sa17", "category": "single_agg", "question": "客户到访有多少次？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE type = '客户到访'" },
+    { "id": "sa18", "category": "single_agg", "question": "一共有多少个用户？", "goldenSql": "SELECT COUNT(*) AS c FROM users" },
+    { "id": "sa19", "category": "single_agg", "question": "启用状态的用户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM users WHERE status = 'active'" },
+    { "id": "sa20", "category": "single_agg", "question": "一共有多少个部门？", "goldenSql": "SELECT COUNT(*) AS c FROM departments" },
+    { "id": "sa21", "category": "single_agg", "question": "一共有多少个角色？", "goldenSql": "SELECT COUNT(*) AS c FROM roles" },
+    { "id": "sa22", "category": "single_agg", "question": "制造业的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE industry = '制造业'" },
+    { "id": "sa23", "category": "single_agg", "question": "金融机构类型的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE clientType = '金融机构'" },
+    { "id": "sa24", "category": "single_agg", "question": "央国企客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE listCategory = '央国企客户'" },
+    { "id": "sa25", "category": "single_agg", "question": "拜访次数最多的拜访人是谁？", "goldenSql": "SELECT ownerName, COUNT(*) AS c FROM visits GROUP BY ownerName ORDER BY c DESC LIMIT 1", "ordered": true },
+    { "id": "sa26", "category": "single_agg", "question": "客户数量最多的行业是哪个？", "goldenSql": "SELECT industry, COUNT(*) AS c FROM clients GROUP BY industry ORDER BY c DESC LIMIT 1", "ordered": true },
+    { "id": "sa27", "category": "single_agg", "question": "各拜访人的拜访次数是多少？", "goldenSql": "SELECT ownerName, COUNT(*) AS c FROM visits GROUP BY ownerName" },
+    { "id": "sa28", "category": "single_agg", "question": "建筑业的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE industry = '建筑业'" },
+    { "id": "sa29", "category": "single_agg", "question": "产业客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE clientType = '产业客户'" },
+    { "id": "sa30", "category": "single_agg", "question": "地方政府客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE clientType = '地方政府'" },
+
+    { "id": "jn01", "category": "join", "question": "每个客户的拜访次数分别是多少？", "goldenSql": "SELECT c.name, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id GROUP BY c.name" },
+    { "id": "jn02", "category": "join", "question": "有拜访记录的客户有多少个？", "goldenSql": "SELECT COUNT(DISTINCT v.clientId) AS c FROM visits v JOIN clients c ON v.clientId = c.id" },
+    { "id": "jn03", "category": "join", "question": "各行业的拜访次数是多少？", "goldenSql": "SELECT c.industry, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id GROUP BY c.industry" },
+    { "id": "jn04", "category": "join", "question": "各客户类型的拜访次数是多少？", "goldenSql": "SELECT c.clientType, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id GROUP BY c.clientType" },
+    { "id": "jn05", "category": "join", "question": "重点客户的拜访次数是多少？", "goldenSql": "SELECT COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE c.isKeyAccount = 1" },
+    { "id": "jn06", "category": "join", "question": "各用户负责的客户数是多少？", "goldenSql": "SELECT u.name, COUNT(c.id) AS c FROM users u JOIN clients c ON c.ownerId = u.id GROUP BY u.name" },
+    { "id": "jn07", "category": "join", "question": "各部门的用户数是多少？", "goldenSql": "SELECT d.name, COUNT(u.id) AS c FROM departments d JOIN users u ON u.departmentId = d.id GROUP BY d.name" },
+    { "id": "jn08", "category": "join", "question": "各角色的用户数是多少？", "goldenSql": "SELECT r.name, COUNT(u.id) AS c FROM roles r JOIN users u ON u.roleId = r.id GROUP BY r.name" },
+    { "id": "jn09", "category": "join", "question": "各拜访人负责的客户数是多少？", "goldenSql": "SELECT v.ownerName, COUNT(DISTINCT v.clientId) AS c FROM visits v GROUP BY v.ownerName" },
+    { "id": "jn10", "category": "join", "question": "制造业客户的拜访次数是多少？", "goldenSql": "SELECT COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE c.industry = '制造业'" },
+    { "id": "jn11", "category": "join", "question": "积极情感拜访涉及多少个客户？", "goldenSql": "SELECT COUNT(DISTINCT v.clientId) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE v.sentiment = '积极'" },
+    { "id": "jn12", "category": "join", "question": "线下拜访的客户行业分布是怎样的？", "goldenSql": "SELECT c.industry, COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE v.type = '线下拜访' GROUP BY c.industry" },
+    { "id": "jn13", "category": "join", "question": "合肥地区客户的拜访次数是多少？", "goldenSql": "SELECT COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE c.region LIKE '%合肥%'" },
+    { "id": "jn14", "category": "join", "question": "央国企客户的拜访次数是多少？", "goldenSql": "SELECT COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE c.listCategory = '央国企客户'" },
+    { "id": "jn15", "category": "join", "question": "拜访次数超过1次的客户有哪些？", "goldenSql": "SELECT c.name, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id GROUP BY c.name HAVING COUNT(v.id) > 1" },
+    { "id": "jn16", "category": "join", "question": "没有拜访记录的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients c LEFT JOIN visits v ON v.clientId = c.id WHERE v.id IS NULL" },
+    { "id": "jn17", "category": "join", "question": "各区域的拜访次数是多少？", "goldenSql": "SELECT c.region, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id GROUP BY c.region" },
+    { "id": "jn18", "category": "join", "question": "重点客户各情感倾向的拜访次数是多少？", "goldenSql": "SELECT v.sentiment, COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE c.isKeyAccount = 1 GROUP BY v.sentiment" },
+    { "id": "jn19", "category": "join", "question": "各团队客户的拜访次数是多少？", "goldenSql": "SELECT c.team, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id GROUP BY c.team" },
+    { "id": "jn20", "category": "join", "question": "各客户类型的积极情感拜访次数是多少？", "goldenSql": "SELECT c.clientType, COUNT(v.id) AS c FROM clients c JOIN visits v ON v.clientId = c.id WHERE v.sentiment = '积极' GROUP BY c.clientType" },
+    { "id": "jn21", "category": "join", "question": "拜访记录和客户关联的总条数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits v JOIN clients c ON v.clientId = c.id" },
+    { "id": "jn22", "category": "join", "question": "各用户负责的拜访次数是多少？", "goldenSql": "SELECT u.name, COUNT(v.id) AS c FROM users u JOIN clients c ON c.ownerId = u.id JOIN visits v ON v.clientId = c.id GROUP BY u.name" },
+
+    { "id": "tm01", "category": "time", "question": "2026年4月的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-04'" },
+    { "id": "tm02", "category": "time", "question": "2026年5月的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-05'" },
+    { "id": "tm03", "category": "time", "question": "2026年6月的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-06'" },
+    { "id": "tm04", "category": "time", "question": "2026年7月的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-07'" },
+    { "id": "tm05", "category": "time", "question": "2026年8月的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-08'" },
+    { "id": "tm06", "category": "time", "question": "每月的拜访次数是多少？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(*) AS c FROM visits GROUP BY LEFT(`date`, 7)" },
+    { "id": "tm07", "category": "time", "question": "每月的线下拜访次数是多少？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(*) AS c FROM visits WHERE type = '线下拜访' GROUP BY LEFT(`date`, 7)" },
+    { "id": "tm08", "category": "time", "question": "2026年第二季度的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) IN ('2026-04', '2026-05', '2026-06')" },
+    { "id": "tm09", "category": "time", "question": "2026年7月积极情感的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-07' AND sentiment = '积极'" },
+    { "id": "tm10", "category": "time", "question": "2026年5月各行业的拜访次数是多少？", "goldenSql": "SELECT c.industry, COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE LEFT(v.`date`, 7) = '2026-05' GROUP BY c.industry" },
+    { "id": "tm11", "category": "time", "question": "2026年4月和5月的拜访次数对比如何？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) IN ('2026-04', '2026-05') GROUP BY LEFT(`date`, 7)" },
+    { "id": "tm12", "category": "time", "question": "每月拜访的客户数是多少？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(DISTINCT clientId) AS c FROM visits GROUP BY LEFT(`date`, 7)" },
+    { "id": "tm13", "category": "time", "question": "2026年6月各拜访类型的次数是多少？", "goldenSql": "SELECT type, COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-06' GROUP BY type" },
+    { "id": "tm14", "category": "time", "question": "每月积极情感的拜访次数是多少？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(*) AS c FROM visits WHERE sentiment = '积极' GROUP BY LEFT(`date`, 7)" },
+    { "id": "tm15", "category": "time", "question": "2026年7月拜访了多少个客户？", "goldenSql": "SELECT COUNT(DISTINCT clientId) AS c FROM visits WHERE LEFT(`date`, 7) = '2026-07'" },
+    { "id": "tm16", "category": "time", "question": "拜访次数最多的月份是哪个？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(*) AS c FROM visits GROUP BY LEFT(`date`, 7) ORDER BY c DESC LIMIT 1", "ordered": true },
+    { "id": "tm17", "category": "time", "question": "2026年8月各团队客户的拜访次数是多少？", "goldenSql": "SELECT c.team, COUNT(v.id) AS c FROM visits v JOIN clients c ON v.clientId = c.id WHERE LEFT(v.`date`, 7) = '2026-08' GROUP BY c.team" },
+    { "id": "tm18", "category": "time", "question": "2026年全年的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 4) = '2026'" },
+    { "id": "tm19", "category": "time", "question": "2026年下半年7到8月的拜访次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE LEFT(`date`, 7) IN ('2026-07', '2026-08')" },
+    { "id": "tm20", "category": "time", "question": "每月电话沟通的次数是多少？", "goldenSql": "SELECT LEFT(`date`, 7) AS ym, COUNT(*) AS c FROM visits WHERE type = '电话沟通' GROUP BY LEFT(`date`, 7)" },
+
+    { "id": "sq01", "category": "subquery", "question": "有拜访记录的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE id IN (SELECT clientId FROM visits)" },
+    { "id": "sq02", "category": "subquery", "question": "没有拜访记录的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE id NOT IN (SELECT clientId FROM visits)" },
+    { "id": "sq03", "category": "subquery", "question": "拜访过制造业客户的拜访记录有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId IN (SELECT id FROM clients WHERE industry = '制造业')" },
+    { "id": "sq04", "category": "subquery", "question": "重点客户的拜访记录有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId IN (SELECT id FROM clients WHERE isKeyAccount = 1)" },
+    { "id": "sq05", "category": "subquery", "question": "拜访次数最多的客户的拜访记录有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId = (SELECT clientId FROM visits GROUP BY clientId ORDER BY COUNT(*) DESC LIMIT 1)" },
+    { "id": "sq06", "category": "subquery", "question": "有积极情感拜访记录的客户的拜访总次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId IN (SELECT DISTINCT clientId FROM visits WHERE sentiment = '积极')" },
+    { "id": "sq07", "category": "subquery", "question": "央国企客户的拜访记录有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId IN (SELECT id FROM clients WHERE listCategory = '央国企客户')" },
+    { "id": "sq08", "category": "subquery", "question": "合肥客户的拜访记录有多少条？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId IN (SELECT id FROM clients WHERE region LIKE '%合肥%')" },
+    { "id": "sq09", "category": "subquery", "question": "至少被拜访2次的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM (SELECT clientId FROM visits GROUP BY clientId HAVING COUNT(*) >= 2) t" },
+    { "id": "sq10", "category": "subquery", "question": "存在拜访记录的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients c WHERE EXISTS (SELECT 1 FROM visits v WHERE v.clientId = c.id)" },
+    { "id": "sq11", "category": "subquery", "question": "拜访次数高于平均水平的客户有哪些？", "goldenSql": "SELECT clientId, COUNT(*) AS c FROM visits GROUP BY clientId HAVING COUNT(*) > (SELECT COUNT(*) / COUNT(DISTINCT clientId) FROM visits)" },
+    { "id": "sq12", "category": "subquery", "question": "电话沟通涉及的客户行业分布是怎样的？", "goldenSql": "SELECT c.industry, COUNT(*) AS c FROM clients c WHERE c.id IN (SELECT clientId FROM visits WHERE type = '电话沟通') GROUP BY c.industry" },
+    { "id": "sq13", "category": "subquery", "question": "2026年7月有拜访记录的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE id IN (SELECT clientId FROM visits WHERE LEFT(`date`, 7) = '2026-07')" },
+    { "id": "sq14", "category": "subquery", "question": "有消极情感拜访的客户有多少个？", "goldenSql": "SELECT COUNT(*) AS c FROM clients WHERE id IN (SELECT clientId FROM visits WHERE sentiment = '消极')" },
+    { "id": "sq15", "category": "subquery", "question": "拜访次数排名前3的客户的拜访总次数是多少？", "goldenSql": "SELECT COUNT(*) AS c FROM visits WHERE clientId IN (SELECT clientId FROM (SELECT clientId FROM visits GROUP BY clientId ORDER BY COUNT(*) DESC LIMIT 3) t)" },
+    { "id": "sq16", "category": "subquery", "question": "拜访次数最多的客户名称是什么？", "goldenSql": "SELECT c.name FROM clients c WHERE c.id = (SELECT clientId FROM visits GROUP BY clientId ORDER BY COUNT(*) DESC LIMIT 1)" },
+
+    { "id": "cl01", "category": "clarify", "expect": "clarify", "question": "最近业绩怎么样？", "goldenSql": "SELECT 1" },
+    { "id": "cl02", "category": "clarify", "expect": "clarify", "question": "查一下客户情况", "goldenSql": "SELECT 1" },
+    { "id": "cl03", "category": "clarify", "expect": "clarify", "question": "数据如何？", "goldenSql": "SELECT 1" },
+    { "id": "cl04", "category": "clarify", "expect": "clarify", "question": "帮我看看拜访", "goldenSql": "SELECT 1" },
+    { "id": "cl05", "category": "clarify", "expect": "clarify", "question": "统计一下", "goldenSql": "SELECT 1" },
+    { "id": "cl06", "category": "clarify", "expect": "clarify", "question": "分析一下趋势", "goldenSql": "SELECT 1" },
+    { "id": "cl07", "category": "clarify", "expect": "clarify", "question": "对比一下", "goldenSql": "SELECT 1" },
+    { "id": "cl08", "category": "clarify", "expect": "clarify", "question": "客户情况如何", "goldenSql": "SELECT 1" },
+
+    { "id": "rf01", "category": "refuse", "expect": "refuse", "question": "查询订单表的总金额", "goldenSql": "SELECT 1" },
+    { "id": "rf02", "category": "refuse", "expect": "refuse", "question": "显示所有用户的密码", "goldenSql": "SELECT 1" },
+    { "id": "rf03", "category": "refuse", "expect": "refuse", "question": "今天天气怎么样", "goldenSql": "SELECT 1" },
+    { "id": "rf04", "category": "refuse", "expect": "refuse", "question": "帮我写一首诗", "goldenSql": "SELECT 1" },
+    { "id": "rf05", "category": "refuse", "expect": "refuse", "question": "查询 suppliers 表的所有数据", "goldenSql": "SELECT 1" },
+    { "id": "rf06", "category": "refuse", "expect": "refuse", "question": "员工的身份证号分别是多少", "goldenSql": "SELECT 1" },
+    { "id": "rf07", "category": "refuse", "expect": "refuse", "question": "系统里有多少张订单", "goldenSql": "SELECT 1" },
+    { "id": "rf08", "category": "refuse", "expect": "refuse", "question": "帮我查一下股票行情", "goldenSql": "SELECT 1" }
   ]
 }

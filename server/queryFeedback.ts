@@ -316,7 +316,7 @@ export async function generateQuestionsForSqls(sqls: string[]): Promise<{ sql: s
       out.push({ sql, question: '' });
       continue;
     }
-    let question = '';
+    let question: string;
     try {
       const text = await callLLMJson(
         '你是数据分析助手。给定一条 SELECT 查询，用一句简洁的中文自然语言问题描述它的分析意图（不要提及表名细节，聚焦业务含义）。只输出问题本身，不要任何前缀、引号或解释。',

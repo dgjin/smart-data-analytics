@@ -1,5 +1,6 @@
 /**
- * 评测 CLI 入口：npm run eval [-- --limit 5 | --case c01,c07 | --base-url http://...]
+ * 评测 CLI 入口：npm run eval [-- --limit 5 | --case c01,c07 | --base-url http://... | --min-accuracy 85]
+ * --min-accuracy：准确率阈值（0-100 百分比或 0-1 小数），低于阈值以非零码退出（P0-2 CI 门禁阻断依据）
  */
 import dotenv from 'dotenv';
 import { dirname, join } from 'node:path';
@@ -13,12 +14,17 @@ dotenv.config({ path: join(ROOT, '.env.local') });
 dotenv.config({ path: join(ROOT, '.env') });
 
 function parseArgs(argv: string[]) {
-  const opts: { limit?: number; caseIds?: string[]; baseUrl?: string } = {};
+  const opts: { limit?: number; caseIds?: string[]; baseUrl?: string; minAccuracy?: number } = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') opts.limit = Number(argv[++i]) || undefined;
     else if (a === '--case') opts.caseIds = String(argv[++i] || '').split(',').filter(Boolean);
     else if (a === '--base-url') opts.baseUrl = argv[++i];
+    else if (a === '--min-accuracy') {
+      const v = Number(argv[++i]);
+      // 支持 0-100 百分比或 0-1 小数两种写法
+      if (Number.isFinite(v)) opts.minAccuracy = v > 1 ? v / 100 : v;
+    }
   }
   return opts;
 }
@@ -32,8 +38,9 @@ function parseArgs(argv: string[]) {
   return runEval(parseArgs(process.argv.slice(2)));
 })()
   .then((s) => {
-    // 存在失败/错误用例时以非零码退出，便于 CI 回归把关
-    process.exit(s.fail + s.error > 0 ? 1 : 0);
+    // 存在失败/错误用例，或准确率低于阈值（P0-2 CI 门禁）时以非零码退出，便于 CI 回归把关
+    const failed = s.fail + s.error > 0 || s.belowThreshold === true;
+    process.exit(failed ? 1 : 0);
   })
   .catch((err) => {
     console.error('[eval] 运行失败:', err?.message || err);

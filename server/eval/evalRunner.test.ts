@@ -7,6 +7,8 @@ import {
   normalizeCell,
   compareRowSets,
   extractTableNames,
+  computeCategoryStats,
+  isBelowThreshold,
 } from './evalRunner';
 
 describe('loadEvalCases', () => {
@@ -78,5 +80,44 @@ describe('extractTableNames', () => {
     );
     expect(extractTableNames('select count(*) from Departments')).toEqual(['Departments']);
     expect(extractTableNames('')).toEqual([]);
+  });
+});
+
+describe('P0-1 六类分层扩展', () => {
+  it('loadEvalCases 解析 category 与 expect 字段，六类齐全', () => {
+    const suite = loadEvalCases();
+    const cats = new Set(suite.cases.map((c) => c.category));
+    for (const cat of ['single_agg', 'join', 'time', 'subquery', 'clarify', 'refuse']) {
+      expect(cats.has(cat as any)).toBe(true);
+    }
+    expect(suite.cases.find((c) => c.id === 'cl01')?.expect).toBe('clarify');
+    expect(suite.cases.find((c) => c.id === 'rf01')?.expect).toBe('refuse');
+    expect(suite.cases.find((c) => c.id === 'sa01')?.expect).toBe('result');
+  });
+
+  it('computeCategoryStats 按 category 聚合 total/pass/accuracy', () => {
+    const cases = [
+      { id: 'a', question: '', goldenSql: 'SELECT 1', category: 'single_agg' },
+      { id: 'b', question: '', goldenSql: 'SELECT 1', category: 'single_agg' },
+      { id: 'c', question: '', goldenSql: 'SELECT 1', category: 'join' },
+    ];
+    const results = [
+      { caseId: 'a', question: '', status: 'pass' as const, durationMs: 0 },
+      { caseId: 'b', question: '', status: 'fail' as const, durationMs: 0 },
+      { caseId: 'c', question: '', status: 'pass' as const, durationMs: 0 },
+    ];
+    const stats = computeCategoryStats(results, cases);
+    expect(stats.single_agg.total).toBe(2);
+    expect(stats.single_agg.pass).toBe(1);
+    expect(stats.single_agg.accuracy).toBeCloseTo(0.5);
+    expect(stats.join.total).toBe(1);
+    expect(stats.join.accuracy).toBe(1);
+  });
+
+  it('isBelowThreshold 阈值判定（等于阈值不算低于）', () => {
+    expect(isBelowThreshold(0.8, 0.85)).toBe(true);
+    expect(isBelowThreshold(0.9, 0.85)).toBe(false);
+    expect(isBelowThreshold(0.8, undefined)).toBe(false);
+    expect(isBelowThreshold(0.85, 0.85)).toBe(false);
   });
 });

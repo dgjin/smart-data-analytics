@@ -99,13 +99,11 @@ export function checkAstSafety(
   dialect: SqlDialect = 'mysql'
 ): { ok: true; astFallback?: boolean } | { ok: false; reason: string } {
   let entries: string[];
-  let astFallback = false;
   try {
     entries = astParser.tableList(sql, { database: dialect === 'pg' ? 'PostgreSQL' : 'MySQL' });
   } catch {
     // P1-3：AST 解析失败放行（正则白名单已兜底），但标记 astFallback 供路由层审计
-    astFallback = true;
-    return { ok: true, astFallback };
+    return { ok: true, astFallback: true };
   }
   for (const entry of entries) {
     // 条目格式：`<action>::<db>::<table>`，如 `select::null::orders`

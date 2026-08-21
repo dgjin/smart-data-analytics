@@ -16,6 +16,10 @@ export interface EvalCase {
   goldenSql: string;
   /** Top-N 类用例结果行序有意义（ORDER BY + LIMIT），按行序比较 */
   ordered?: boolean;
+  /** 难度分类（六类分层）：single_agg/join/time/subquery/clarify/refuse，用于分层统计 */
+  category?: string;
+  /** 期望结果：result=执行准确率（默认）；clarify=应澄清；refuse=应拒答 */
+  expect?: 'result' | 'clarify' | 'refuse';
 }
 
 export interface EvalSuite {
@@ -32,6 +36,13 @@ export interface EvalCaseResult {
   durationMs: number;
 }
 
+/** 按难度分类的分层统计 */
+export interface CategoryStat {
+  total: number;
+  pass: number;
+  accuracy: number;
+}
+
 export interface EvalSummary {
   total: number;
   pass: number;
@@ -40,6 +51,11 @@ export interface EvalSummary {
   rateLimited: number;
   accuracy: number;
   avgDurationMs: number;
+  /** 六类分层统计（category -> 该类 total/pass/accuracy） */
+  byCategory: Record<string, CategoryStat>;
+  /** 准确率阈值（P0-2 CI 门禁）；低于阈值 belowThreshold=true */
+  minAccuracy?: number;
+  belowThreshold?: boolean;
   results: EvalCaseResult[];
 }
 
@@ -62,6 +78,8 @@ export function loadEvalCases(path?: string): EvalSuite {
       question: c.question.trim(),
       goldenSql: c.goldenSql.trim(),
       ordered: c.ordered === true,
+      category: typeof c.category === 'string' && c.category ? c.category : 'single_agg',
+      expect: c.expect === 'clarify' || c.expect === 'refuse' ? (c.expect as 'clarify' | 'refuse') : ('result' as const),
     }));
   if (!dataSourceId) throw new Error('评测集缺少 dataSourceId');
   if (cases.length === 0) throw new Error('评测集为空');
@@ -118,6 +136,28 @@ export async function executeGoldenSql(dataSourceId: string, sql: string): Promi
   return { ok: true, rows: res.result.rows };
 }
 
+/** 分层统计：按用例 category 聚合 total/pass/accuracy（纯函数，便于单测） */
+export function computeCategoryStats(results: EvalCaseResult[], cases: EvalCase[]): Record<string, CategoryStat> {
+  const caseById = new Map(cases.map((c) => [c.id, c]));
+  const byCategory: Record<string, CategoryStat> = {};
+  for (const r of results) {
+    const cat = caseById.get(r.caseId)?.category || 'single_agg';
+    if (!byCategory[cat]) byCategory[cat] = { total: 0, pass: 0, accuracy: 0 };
+    byCategory[cat].total++;
+    if (r.status === 'pass') byCategory[cat].pass++;
+  }
+  for (const cat of Object.keys(byCategory)) {
+    const s = byCategory[cat];
+    s.accuracy = s.total > 0 ? s.pass / s.total : 0;
+  }
+  return byCategory;
+}
+
+/** 阈值判定：accuracy 低于 minAccuracy 视为不达标（P0-2 CI 门禁） */
+export function isBelowThreshold(accuracy: number, minAccuracy?: number): boolean {
+  return typeof minAccuracy === 'number' && accuracy < minAccuracy;
+}
+
 export interface RunEvalOptions {
   baseUrl?: string;
   username?: string;
@@ -128,6 +168,8 @@ export interface RunEvalOptions {
   /** 仅运行前 N 条（分批跑，规避每小时配额） */
   limit?: number;
   perCaseTimeoutMs?: number;
+  /** 准确率阈值（0-1）；低于阈值 belowThreshold=true（P0-2 CI 门禁阻断依据） */
+  minAccuracy?: number;
 }
 
 /** 执行评测：逐条走 HTTP 问数链路（真实端到端，含防御层/圈表/执行），统计执行准确率 */
@@ -178,21 +220,39 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
         result.reason = `HTTP ${res.status}`;
       } else {
         const data: any = await res.json();
-        const rows = data?.result?.rows;
-        if (!data?.success || !Array.isArray(rows)) {
-          result.status = 'error';
-          result.reason = data?.error || '响应缺少结果行';
-        } else {
-          result.generatedSql = String(data?.result?.finalSql || data?.executedSql || '');
-          const golden = await executeGoldenSql(dataSourceId, c.goldenSql);
-          if (golden.ok === false) {
-            result.status = 'error';
-            result.reason = `golden SQL 执行失败: ${golden.reason}`;
-          } else if (compareRowSets(rows, golden.rows, c.ordered)) {
+        if (c.expect === 'clarify') {
+          // 需澄清用例：期望返回 needClarification（歧义澄清，不执行 SQL）
+          if (data?.needClarification === true) {
             result.status = 'pass';
           } else {
             result.status = 'fail';
-            result.reason = `结果集不一致（生成 ${rows.length} 行 / golden ${golden.rows.length} 行）`;
+            result.reason = data?.refused === true ? '期望澄清但被拒答' : '期望澄清但直接返回结果';
+          }
+        } else if (c.expect === 'refuse') {
+          // 应拒答用例：期望返回 refused
+          if (data?.refused === true) {
+            result.status = 'pass';
+          } else {
+            result.status = 'fail';
+            result.reason = data?.needClarification === true ? '期望拒答但触发澄清' : '期望拒答但返回了结果';
+          }
+        } else {
+          const rows = data?.result?.rows;
+          if (!data?.success || data?.refused === true || data?.needClarification === true || !Array.isArray(rows)) {
+            result.status = 'error';
+            result.reason = data?.refused === true ? '意外拒答' : data?.needClarification === true ? '意外触发澄清' : (data?.error || '响应缺少结果行');
+          } else {
+            result.generatedSql = String(data?.result?.finalSql || data?.executedSql || '');
+            const golden = await executeGoldenSql(dataSourceId, c.goldenSql);
+            if (golden.ok === false) {
+              result.status = 'error';
+              result.reason = `golden SQL 执行失败: ${golden.reason}`;
+            } else if (compareRowSets(rows, golden.rows, c.ordered)) {
+              result.status = 'pass';
+            } else {
+              result.status = 'fail';
+              result.reason = `结果集不一致（生成 ${rows.length} 行 / golden ${golden.rows.length} 行）`;
+            }
           }
         }
       }
@@ -207,19 +267,34 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
   }
 
   const pass = results.filter((r) => r.status === 'pass').length;
+  // 六类分层统计 + 阈值判定（纯函数，便于单测）
+  const byCategory = computeCategoryStats(results, cases);
+  const accuracy = results.length > 0 ? pass / results.length : 0;
+  const minAccuracy = opts.minAccuracy;
+  const belowThreshold = isBelowThreshold(accuracy, minAccuracy);
   const summary: EvalSummary = {
     total: results.length,
     pass,
     fail: results.filter((r) => r.status === 'fail').length,
     error: results.filter((r) => r.status === 'error').length,
     rateLimited: results.filter((r) => r.status === 'rate-limited').length,
-    accuracy: results.length > 0 ? pass / results.length : 0,
+    accuracy,
     avgDurationMs: results.length > 0 ? Math.round(results.reduce((s, r) => s + r.durationMs, 0) / results.length) : 0,
+    byCategory,
+    minAccuracy,
+    belowThreshold,
     results,
   };
 
   const reportPath = join(HERE, `eval-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   writeFileSync(reportPath, JSON.stringify({ ...summary, dataSourceId, generatedAt: new Date().toISOString() }, null, 2));
   console.log(`[eval] 执行准确率: ${(summary.accuracy * 100).toFixed(1)}%（pass ${pass}/${summary.total}）· 报告: ${reportPath}`);
+  for (const cat of Object.keys(byCategory).sort()) {
+    const s = byCategory[cat];
+    console.log(`[eval]   ${cat.padEnd(12)} ${(s.accuracy * 100).toFixed(1)}%（${s.pass}/${s.total}）`);
+  }
+  if (belowThreshold) {
+    console.error(`[eval] ⚠️ 准确率 ${(accuracy * 100).toFixed(1)}% 低于阈值 ${(Number(minAccuracy) * 100).toFixed(0)}%（P0-2 门禁）`);
+  }
   return summary;
 }
