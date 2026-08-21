@@ -184,8 +184,8 @@ npm run lint         # TypeScript 类型检查
 
 为保证多环境协作时代码始终一致，本项目强制执行以下 Git 工作流：
 
-1. **修改前先拉取**：每次开始代码修改前，先 `git pull origin main` 拉取 GitHub 最新版本，确保基于最新代码开发，避免冲突累积。
-2. **完成后自动提交推送**：代码修改完成并通过验证（`npm run lint` + `npm test`）后，执行 `git add -A` → `git commit`（语义化 message）→ `git push origin main`，使本地改动即时同步到 GitHub。
-3. **版本一致性**：任何时刻本地 `main` 应与 GitHub `origin/main` 保持一致，不得在本地长期积压未提交改动。
+1. **修改前先拉取**：每次开始代码修改前，先 `git pull origin main` 拉取最新版本，确保基于最新代码开发，避免冲突累积。
+2. **完成后自动提交推送**：代码修改完成并通过验证（`npm run lint` + `npm test`）后，执行 `git add -A` → `git commit`（语义化 message）→ 推送**双远程**：`git push origin main` 与 `git push gitee main`，使本地改动即时同步到 GitHub 与 Gitee。
+3. **版本一致性**：任何时刻本地 `main` 应与两个远程（GitHub `origin/main`、Gitee `gitee/main`）保持一致，不得在本地长期积压未提交改动。
 
-> 仓库：`github.com/dgjin/smart-data-analytics`（分支 `main`，凭据经 macOS osxkeychain 缓存可非交互推送；禁止使用 `push --force` 推送 main）。
+> 双远程：`origin` = `github.com/dgjin/smart-data-analytics`（主），`gitee` = `gitee.com/dgjin/smart-data-analytics`（国内镜像备份，私有）。GitHub 走 HTTPS + osxkeychain 凭据缓存，Gitee 走 SSH（公钥已登记，免密）。分支均为主 `main`；禁止 `push --force`。
