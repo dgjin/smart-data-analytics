@@ -329,8 +329,11 @@ GEMINI_API_KEY=your-gemini-key
 | `REDIS_URL` | 状态外置（多实例扩展） | 无（进程内存） |
 | `RATE_LIMIT_MAX` | 全局限流阈值 | `100` |
 | `USER_QUERY_RATE_MAX` | 每用户查询限流 | `20` |
-| `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数 | `3` |
-| `SEMANTIC_CACHE_THRESHOLD` | L2 语义缓存命中阈值（0.5-1.0，误命中代价高宜保守；0.85 为 nomic-embed-text 实测标定值，更换 embedding 模型需重新标定） | `0.85` |
+| `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂问题 3 / 简单问题 1 |
+| `SEMANTIC_CACHE_THRESHOLD` | L2 语义缓存命中阈值（0.5-1.0，误命中代价高宜保守；实测同域近似问题 0.85~0.95 区间会误命中，故默认 0.95，更换 embedding 模型需重新标定） | `0.95` |
+| `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入，P1-9） | `20` |
+| `DS_POOL_MAX` | 数据源连接池上限（显式配置优先于公式 ceil(并发/4)，clamp 3-20） | 公式推导（默认 5） |
+| `APP_POOL_MAX` | 应用元数据库连接池上限（显式配置优先于公式 ceil(并发/2)，clamp 10-50） | 公式推导（默认 10） |
 
 ---
 

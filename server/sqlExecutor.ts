@@ -28,6 +28,23 @@ const MAX_ROWS = 100000; // v0.4.14：500→100000，满足真实记录数输出
 const QUERY_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 
+/**
+ * P1-9 数据源连接池容量公式化（原硬编码 max=3）。
+ * 容量模型：每次问数仅在 SQL 执行阶段持有连接（秒级，QUERY_TIMEOUT_MS 兜底），
+ * 端到端延迟由 LLM 生成主导（数十秒级），故数据源连接并发 ≈ 并发用户数 / 4。
+ * DS_POOL_MAX 显式配置优先；否则按 EXPECTED_CONCURRENT_USERS 推导，clamp 到 [3, 20]
+ * （下限不逊于原硬编码水位，上限防止打爆数据源端 max_connections）。
+ */
+export function dsPoolMax(): number {
+  const raw = process.env.DS_POOL_MAX;
+  if (raw !== undefined && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1) return Math.min(100, Math.floor(n));
+  }
+  const users = Number(process.env.EXPECTED_CONCURRENT_USERS) || 20;
+  return Math.min(20, Math.max(3, Math.ceil(users / 4)));
+}
+
 // 写/DDL/管理类关键字一律拒绝（对剥离注释与字符串后的 SQL 做整词匹配）。
 // 注意词表必须避开合法 SELECT 语法内会出现的词：desc（ORDER BY DESC）、replace/use/set/do/call/check/load/show
 // 等不在此列——这些语句本就无法出现在 SELECT 内部，"只允许 SELECT 开头"一层已拦截。
@@ -387,7 +404,7 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
           user: config?.username || 'postgres',
           password: config?.password || '',
           database: config?.database || undefined,
-          max: 3,
+          max: dsPoolMax(),
           connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
           statement_timeout: QUERY_TIMEOUT_MS,
         }),
@@ -401,7 +418,7 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
           user: config?.username || 'root',
           password: config?.password || '',
           database: config?.database || undefined,
-          connectionLimit: 3,
+          connectionLimit: dsPoolMax(),
           connectTimeout: CONNECT_TIMEOUT_MS,
           multipleStatements: false,
         }),

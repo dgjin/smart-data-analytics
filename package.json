@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "docs:check": "node scripts/checkOpenapi.mjs",
-    "eval": "tsx server/eval/runEval.ts"
+    "eval": "tsx server/eval/runEval.ts",
+    "loadtest": "tsx server/eval/loadTest.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

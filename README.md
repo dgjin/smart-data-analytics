@@ -139,7 +139,9 @@ docker run -d -p 3000:3000 \
 | `DS_SECRET_KEY` | 数据源凭据加密密钥 | 缺省回退 JWT_SECRET |
 | `PORT` / `HOST` | 服务端口 / 绑定地址 | 3000 / 127.0.0.1 |
 | `RATE_LIMIT_MAX` / `USER_QUERY_RATE_MAX` | 全局限流 / 每用户问数配额 | — |
-| `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数 | — |
+| `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂 3 / 简单 1 |
+| `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入） | 20 |
+| `DS_POOL_MAX` / `APP_POOL_MAX` | 数据源池 / 应用库池上限（显式配置优先于公式） | 公式推导（5 / 10） |
 
 ## 目录结构
 

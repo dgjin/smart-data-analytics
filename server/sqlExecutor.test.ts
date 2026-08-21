@@ -2,8 +2,9 @@
  * P0 安全执行层单元测试：SELECT-only、表名白名单、敏感列拒绝、单语句、LIMIT 强制。
  * 仅覆盖纯校验逻辑（validateSelectSql / extractTableRefs），不触碰真实数据库。
  */
-import { describe, it, expect } from 'vitest';
-import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, stripCommentsAndStrings, injectRowFilters, repairTablePrefixes } from './sqlExecutor';
+import { describe, it, expect, afterEach } from 'vitest';
+import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, stripCommentsAndStrings, injectRowFilters, repairTablePrefixes, dsPoolMax } from './sqlExecutor';
+import { appPoolMax } from './db';
 
 const ALLOWED = [
   { name: 'tbl_orders', columns: [{ name: 'id' }, { name: 'amount' }, { name: 'channel' }] },
@@ -362,5 +363,63 @@ describe('PG 方言（postgresql/greenplum）支持', () => {
   it('PG 方言 AST 拦截非 select 语句类型', () => {
     const allowed = new Set(['tbl_orders']);
     expect(checkAstSafety('DELETE FROM tbl_orders', allowed, 'pg').ok).toBe(false);
+  });
+});
+
+describe('dsPoolMax: P1-9 数据源连接池容量公式化', () => {
+  afterEach(() => {
+    delete process.env.DS_POOL_MAX;
+    delete process.env.EXPECTED_CONCURRENT_USERS;
+  });
+
+  it('默认（20 并发用户）= ceil(20/4) = 5，不逊于原硬编码 3', () => {
+    expect(dsPoolMax()).toBe(5);
+  });
+
+  it('公式：容量 ≈ 并发用户数 / 4，clamp 到 [3, 20]', () => {
+    process.env.EXPECTED_CONCURRENT_USERS = '8';
+    expect(dsPoolMax()).toBe(3); // 下限保底
+    process.env.EXPECTED_CONCURRENT_USERS = '40';
+    expect(dsPoolMax()).toBe(10);
+    process.env.EXPECTED_CONCURRENT_USERS = '200';
+    expect(dsPoolMax()).toBe(20); // 上限防打爆数据源
+  });
+
+  it('DS_POOL_MAX 显式配置优先于公式', () => {
+    process.env.EXPECTED_CONCURRENT_USERS = '40';
+    process.env.DS_POOL_MAX = '8';
+    expect(dsPoolMax()).toBe(8);
+  });
+
+  it('非法显式值回退公式；显式值 clamp 到 [1, 100]', () => {
+    process.env.DS_POOL_MAX = 'abc';
+    expect(dsPoolMax()).toBe(5);
+    process.env.DS_POOL_MAX = '500';
+    expect(dsPoolMax()).toBe(100);
+  });
+});
+
+describe('appPoolMax: P1-9 应用库连接池容量公式化', () => {
+  afterEach(() => {
+    delete process.env.APP_POOL_MAX;
+    delete process.env.EXPECTED_CONCURRENT_USERS;
+  });
+
+  it('默认（20 并发用户）= ceil(20/2) = 10，与原硬编码一致', () => {
+    expect(appPoolMax()).toBe(10);
+  });
+
+  it('公式：容量 ≈ 并发用户数 / 2，clamp 到 [10, 50]', () => {
+    process.env.EXPECTED_CONCURRENT_USERS = '10';
+    expect(appPoolMax()).toBe(10); // 下限保底
+    process.env.EXPECTED_CONCURRENT_USERS = '60';
+    expect(appPoolMax()).toBe(30);
+    process.env.EXPECTED_CONCURRENT_USERS = '500';
+    expect(appPoolMax()).toBe(50); // 上限
+  });
+
+  it('APP_POOL_MAX 显式配置优先于公式', () => {
+    process.env.APP_POOL_MAX = '25';
+    expect(appPoolMax()).toBe(25);
   });
 });
