@@ -24,7 +24,7 @@ import { runDrill } from '../drill';
 import { executeSafeSql } from '../sqlExecutor';
 import { saveFeedback } from '../queryFeedback';
 import { recordConversation } from '../conversationHistory';
-import { getCachedQuery, setCachedQuery, cacheKey } from '../queryCache';
+import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from '../queryCache';
 import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from '../queryTrace';
 import { generateQueryPlan, storePlan, consumePlan, QueryPlan } from '../queryPlan';
 import { emitBeforeQuery, emitAfterQuery } from '../queryHooks';
@@ -176,13 +176,23 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         approvedPlan = consumed.plan;
       }
 
-      // P1-6 结果缓存：同数据源相同问题（归一化后）短期内复用成功结果；缓存键含模型变体，避免跨模型串用
+      // P1-6 结果缓存：L1 归一化精确 + L2 embedding 语义（阈值默认 0.85 实测标定，误命中代价高故保守）；
+      // 缓存键含模型变体，避免跨模型串用；refreshCache=true 跳过缓存读（用户对缓存结果的强制刷新入口）
       const ck = cacheKey(dataSourceId, query, cacheVariant);
-      const cached = await getCachedQuery(ck);
+      const skipCacheRead = req.body.refreshCache === true;
+      const cached = skipCacheRead ? null : await getCachedQuery(ck);
       if (cached) {
         writeAudit({ ...auditBase, question: query, status: 'CACHE', executedSql: String(cached.executedSql || ''), rowCount: typeof cached.rowCount === 'number' ? cached.rowCount : -1, durationMs: Date.now() - startedAt });
         emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
         return respond({ ...cached, fromCache: true, executionTimeMs: Date.now() - startedAt });
+      }
+      // L2 语义缓存：同义改写问题复用最近成功结果，命中携带原问题供前端标注「来自相似问题缓存」
+      const semHit = skipCacheRead ? null : await getSemanticCachedQuery(dataSourceId, query, cacheVariant);
+      if (semHit) {
+        const similarity = Number(semHit.similarity.toFixed(4));
+        writeAudit({ ...auditBase, question: query, status: 'CACHE', detail: `L2 语义命中（相似度 ${similarity}）：${semHit.matchedQuestion.slice(0, 120)}`, executedSql: String(semHit.payload?.executedSql || ''), rowCount: typeof semHit.payload?.rowCount === 'number' ? semHit.payload.rowCount : -1, durationMs: Date.now() - startedAt });
+        emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
+        return respond({ ...semHit.payload, fromCache: true, semanticCache: { matchedQuestion: semHit.matchedQuestion, similarity }, executionTimeMs: Date.now() - startedAt });
       }
 
       const live = await runLiveQuery({
@@ -243,7 +253,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
           writeAudit({ ...auditBase, question: query, status: 'SUCCESS', executedSql: live.executedSql, rowCount: live.rowCount, durationMs: Date.now() - startedAt });
           emitAfterQuery(hookCtx, { status: 'SUCCESS', executedSql: live.executedSql, rowCount: live.rowCount, durationMs: Date.now() - startedAt });
           const basePayload = { success: true, result: normalized, defense, dataProvenance: 'live' };
-          await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount });
+          // L1 精确 + L2 语义索引一并写入（含原问题与 embedding，供同义改写命中）
+          await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount }, { dataSourceId, question: query, variant: cacheVariant });
           // 对话历史服务端落库：成功问答 fire-and-forget 落库（历史面板 + 个人 few-shot 自学习），失败不阻断主链路
           recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String((normalized as any).aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
           return respond({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt });

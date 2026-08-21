@@ -33,6 +33,7 @@ import {
   History,
   Download,
   FileText,
+  Zap,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -423,8 +424,9 @@ export const QueryChat: React.FC = () => {
   // M2 计划模式：仅真实连接的数据库型数据源支持（与服务端 canPlan 判定一致）
   const canPlanMode = queryContext !== null && ['mysql', 'postgresql', 'greenplum'].includes(queryContext.dsType || '');
 
-  // Handle NL Query Submission（approvedPlanId：M2 批准计划后携带，服务端校验后按计划执行）
-  const handleSendQuery = async (queryText?: string, approvedPlanId?: string) => {
+  // Handle NL Query Submission（approvedPlanId：M2 批准计划后携带，服务端校验后按计划执行；
+  // options.refreshCache：P1-6 语义缓存命中后用户强制刷新，跳过缓存读取重新走真实链路）
+  const handleSendQuery = async (queryText?: string, approvedPlanId?: string, options?: { refreshCache?: boolean }) => {
     const textToSubmit = queryText || currentQuery;
     if (!textToSubmit.trim() || isQueryLoading || aiSwitchOff) return;
 
@@ -638,6 +640,10 @@ export const QueryChat: React.FC = () => {
           isFallback: Boolean(resData.isFallback),
           dataProvenance: provenance,
           sensitiveFiltered: Number(resData.defense?.sensitiveFiltered) || 0,
+          // P1-6 语义缓存命中标注：展示原问题与相似度，附「重新查询」刷新入口
+          semanticCache: resData.semanticCache && typeof resData.semanticCache.matchedQuestion === 'string'
+            ? { matchedQuestion: resData.semanticCache.matchedQuestion, similarity: Number(resData.semanticCache.similarity) || 0 }
+            : undefined,
           question: textToSubmit,
           traceId: typeof resData.traceId === 'string' ? resData.traceId : undefined,
           dataSourceId: submitDSId,
@@ -663,6 +669,7 @@ export const QueryChat: React.FC = () => {
           ...(approvedPlanId ? { planId: approvedPlanId } : {}),
           ...(deepMode ? { deepAnalysis: true } : {}),
           ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
+          ...(options?.refreshCache ? { refreshCache: true } : {}),
           amountUnit,
         }),
       });
@@ -955,6 +962,25 @@ export const QueryChat: React.FC = () => {
                   <div className="p-2 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-300 text-[11px] flex items-center space-x-1.5">
                     <Lightbulb className="w-3.5 h-3.5 shrink-0" />
                     <span>演示数据：当前数据源不支持真实查询（非 MySQL 直连），以下为 AI 生成的模拟数据，仅供演示。</span>
+                  </div>
+                )}
+
+                {/* P1-6 语义缓存命中提示：来自相似问题缓存，可一键刷新重新走真实查询 */}
+                {!isUser && msg.semanticCache && (
+                  <div className="p-2 rounded-lg bg-sky-950/50 border border-sky-500/40 text-sky-300 text-[11px] flex items-center justify-between gap-2">
+                    <div className="flex items-center space-x-1.5 min-w-0">
+                      <Zap className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate" title={msg.semanticCache.matchedQuestion}>
+                        来自相似问题缓存（原问题：{msg.semanticCache.matchedQuestion}，相似度 {(msg.semanticCache.similarity * 100).toFixed(1)}%）
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => msg.question && handleSendQuery(msg.question, undefined, { refreshCache: true })}
+                      disabled={isQueryLoading}
+                      className="shrink-0 px-2 py-0.5 rounded bg-sky-900/60 hover:bg-sky-800 border border-sky-500/40 text-sky-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      重新查询
+                    </button>
                   </div>
                 )}
 

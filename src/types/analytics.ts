@@ -144,6 +144,8 @@ export interface ChatMessage {
   };
   /** 拒答：问题与当前数据源无关或超出系统能力，如实反馈（无演示数据托底） */
   refused?: boolean;
+  /** P1-6 语义缓存命中：本次结果来自相似问题缓存（附原问题与相似度），用户可一键刷新重查 */
+  semanticCache?: { matchedQuestion: string; similarity: number };
   /** M1 推导留痕：本次问数全链路步骤 trace ID（可按需回放查看每个环节） */
   traceId?: string;
   /** M2 计划模式：待批准的分析计划卡片（批准/取消后禁用操作） */

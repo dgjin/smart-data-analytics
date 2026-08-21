@@ -330,6 +330,7 @@ GEMINI_API_KEY=your-gemini-key
 | `RATE_LIMIT_MAX` | 全局限流阈值 | `100` |
 | `USER_QUERY_RATE_MAX` | 每用户查询限流 | `20` |
 | `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数 | `3` |
+| `SEMANTIC_CACHE_THRESHOLD` | L2 语义缓存命中阈值（0.5-1.0，误命中代价高宜保守；0.85 为 nomic-embed-text 实测标定值，更换 embedding 模型需重新标定） | `0.85` |
 
 ---
 

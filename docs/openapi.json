@@ -179,7 +179,7 @@
       "post": {
         "tags": ["Query"], "operationId": "askNaturalLanguage", "summary": "自然语言问数（SSE 流式；限流；同源同题进行中去重）",
         "description": "Accept: text/event-stream。事件流：stage（阶段进度，sql_ready/executed 附带 sql 先行回显）/trace（推导留痕步骤）/clarify（歧义澄清）/done（终态：答案+数据+SQL+图表建议）/error。非流式 Accept 亦可返回同构 JSON。",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["question"], "properties": { "question": { "type": "string", "maxLength": 500 }, "dataSourceId": { "type": "string" }, "model": { "type": "string" }, "sessionId": { "type": "string" } } } } } },
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["question"], "properties": { "question": { "type": "string", "maxLength": 500 }, "dataSourceId": { "type": "string" }, "model": { "type": "string" }, "sessionId": { "type": "string" }, "refreshCache": { "type": "boolean", "description": "true 时跳过 L1/L2 缓存读取强制重新查询（P1-6 语义缓存命中后的用户刷新入口）" } } } } } },
         "responses": {
           "200": { "description": "SSE 事件流或 JSON 结果" },
           "403": { "$ref": "#/components/responses/Forbidden" },
