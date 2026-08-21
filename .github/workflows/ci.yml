@@ -26,6 +26,8 @@ jobs:
         run: npm run lint
       - name: TypeScript 类型检查（server strict）
         run: npm run lint:server
+      - name: TypeScript 增量 strict 检查（前端 strictNullChecks，P1-10）
+        run: npm run lint:strict
       - name: ESLint
         run: npm run lint:js
       - name: Vitest 单测全量

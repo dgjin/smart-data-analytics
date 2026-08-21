@@ -10,6 +10,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "lint:server": "tsc --noEmit -p tsconfig.server.json",
+    "lint:strict": "tsc --noEmit -p tsconfig.strict.json",
     "lint:js": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",

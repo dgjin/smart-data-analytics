@@ -11,7 +11,7 @@ applyUITheme(getUITheme());
 
 // P2-10 跨 store 解耦：组合根处注入会话能力（api 层不再反向依赖 auth store，消除循环依赖）
 configureApiAuth({
-  getToken: () => useAuthStore.getState().token,
+  getToken: () => useAuthStore.getState().token ?? undefined,
   onUnauthorized: () => useAuthStore.getState().logout(),
   onMustChangePassword: () => useAuthStore.getState().markMustChangePassword(),
 });

@@ -375,6 +375,8 @@ export const useAnalyticsStore = create<AnalyticsState>()(
     })),
 
   // Pin Widgets to Dashboard（默认组件：不良资产宽表 2026-08-31 月末快照核算版真实数据，金额单位亿元）
+  // 显式标注 DashboardWidget[]：strictNullChecks 下各 widget 的 yAxisNames 字面量形状不同，
+  // 推断出的联合类型（可选键 ?: undefined）与 Record<string, string> 不兼容
   dashboardWidgets: [
     {
       id: 'widget-1',
@@ -451,7 +453,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       data: NPA_MONTHLY_RETURN,
       colSpan: 2,
     },
-  ],
+  ] as DashboardWidget[],
 
   pinChartToDashboard: (widget) =>
     set((state) => ({
