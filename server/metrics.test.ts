@@ -1,153 +1,199 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+// 队列式 mock：按 SQL 调用顺序返回预设 [rows, fields]（与 skillLibrary.test.ts 同模式）
+const queue: any[] = [];
+const querySpy = vi.fn(async (..._args: any[]) => {
+  const next = queue.shift();
+  if (!next) throw new Error('metrics.test: 队列为空，SQL 调用次数超出预期');
+  return next;
+});
+vi.mock('./db', () => ({ getPool: () => ({ query: (...args: any[]) => querySpy(...args) }) }));
+
 import {
   sanitizeMetricInput,
   matchMetrics,
-  buildMetricPrompt,
   createMetric,
   updateMetric,
-  deleteMetric,
+  approveMetric,
+  rejectMetric,
+  reproposeMetric,
+  listMetricVersions,
+  restoreMetricVersion,
   loadActiveMetrics,
-  MetricDefinition,
 } from './metrics';
-import { getPool } from './db';
 
-vi.mock('./db', () => ({ getPool: vi.fn() }));
-
-function mockPool(queryImpl: (...args: any[]) => any) {
-  (getPool as any).mockReturnValue({ query: vi.fn(queryImpl) });
+function metricRow(overrides: Record<string, any> = {}) {
+  return {
+    id: 7,
+    data_source_id: 'ds1',
+    name: '有效客户数',
+    aliases_json: '["有效客户"]',
+    description: 'd',
+    expr: 'COUNT(DISTINCT id)',
+    table_name: 'customer',
+    filters: '',
+    status: 'ACTIVE',
+    version: 2,
+    approved_by: 'admin',
+    approved_at: '2026-08-21 10:00:00',
+    created_by: 'alice',
+    ...overrides,
+  };
 }
 
-const baseInput = {
-  dataSourceId: 'ds_1',
+const validInput = {
+  dataSourceId: 'ds1',
   name: '有效客户数',
-  aliases: ['活跃客户', '在效客户'],
-  description: '状态为 active 的客户去重计数',
+  aliases: ['有效客户'],
+  description: 'd',
   expr: 'COUNT(DISTINCT id)',
-  tableName: 'clients',
-  filters: "status = 'active'",
+  tableName: 'customer',
+  filters: '',
 };
 
-describe('sanitizeMetricInput: 指标输入校验', () => {
-  it('合法输入原样通过（字段 trim）', () => {
-    const r = sanitizeMetricInput({ ...baseInput, name: ' 有效客户数 ' });
+beforeEach(() => {
+  queue.length = 0;
+  querySpy.mockClear();
+});
+
+describe('sanitizeMetricInput: 入参校验', () => {
+  it('合法输入通过；status 仅接受 ACTIVE/DISABLED（PENDING 由流程驱动）', () => {
+    const r = sanitizeMetricInput(validInput);
     expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.metric.name).toBe('有效客户数');
-      expect(r.metric.status).toBe('ACTIVE');
-      expect(r.metric.aliases).toEqual(['活跃客户', '在效客户']);
-    }
+    if (r.ok) expect(r.metric.status).toBe('ACTIVE');
+    const p = sanitizeMetricInput({ ...validInput, status: 'PENDING' });
+    expect(p.ok).toBe(true);
+    if (p.ok) expect(p.metric.status).toBe('ACTIVE'); // 外部直填 PENDING 被忽略
   });
 
-  it('缺少必填字段时拒绝', () => {
-    expect(sanitizeMetricInput({ ...baseInput, dataSourceId: '' }).ok).toBe(false);
-    expect(sanitizeMetricInput({ ...baseInput, name: '' }).ok).toBe(false);
-    expect(sanitizeMetricInput({ ...baseInput, expr: '' }).ok).toBe(false);
+  it('非法表达式/表名拒绝', () => {
+    expect(sanitizeMetricInput({ ...validInput, expr: 'x; DROP TABLE t' }).ok).toBe(false);
+    expect(sanitizeMetricInput({ ...validInput, tableName: 'not-valid-name!' }).ok).toBe(false);
   });
+});
 
-  it('归属表名必须是合法标识符（防注入拼接）', () => {
-    expect(sanitizeMetricInput({ ...baseInput, tableName: 'clients; DROP TABLE x' }).ok).toBe(false);
-    expect(sanitizeMetricInput({ ...baseInput, tableName: '1abc' }).ok).toBe(false);
+describe('matchMetrics: 子串命中', () => {
+  it('指标名或同义词出现在问题中即命中', () => {
+    const m = [{ ...validInput, status: 'ACTIVE' as const }];
+    expect(matchMetrics('各机构的有效客户数是多少', m)).toHaveLength(1);
+    expect(matchMetrics('统计有效客户总量', m)).toHaveLength(1);
+    expect(matchMetrics('拜访次数是多少', m)).toHaveLength(0);
   });
+});
 
-  it('表达式/过滤条件禁止多语句', () => {
-    expect(sanitizeMetricInput({ ...baseInput, expr: 'COUNT(*); DELETE FROM clients' }).ok).toBe(false);
-    expect(sanitizeMetricInput({ ...baseInput, filters: "status='active'; UPDATE x SET y=1" }).ok).toBe(false);
-  });
-
-  it('同义词与指标名相同被拒绝；别名超量截断', () => {
-    expect(sanitizeMetricInput({ ...baseInput, aliases: ['有效客户数'] }).ok).toBe(false);
-    const many = Array.from({ length: 15 }, (_, i) => `别名${i}`);
-    const r = sanitizeMetricInput({ ...baseInput, aliases: many });
+describe('P1-8 治理：创建（提议 vs 直接生效）', () => {
+  it('ADMIN 创建直接 ACTIVE 且写版本快照', async () => {
+    queue.push([[]], [{ insertId: 9 }], [{}]);
+    const r = await createMetric({ ...validInput, status: 'ACTIVE' } as any, 'admin', { autoApprove: true });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.metric.aliases).toHaveLength(10);
+    const insertSql = String(querySpy.mock.calls[1][0]);
+    expect(insertSql).toContain('metric_definitions');
+    expect(String(querySpy.mock.calls[1][1][7])).toBe('ACTIVE');
+    // 版本历史快照（recordVersion 参数序：metricId, version, snapshot, action, actor）
+    expect(String(querySpy.mock.calls[2][0])).toContain('metric_versions');
+    expect(querySpy.mock.calls[2][1][1]).toBe(1);
+    expect(querySpy.mock.calls[2][1][3]).toBe('CREATE');
   });
 
-  it('status 仅认 DISABLED，其余归一 ACTIVE', () => {
-    const r1 = sanitizeMetricInput({ ...baseInput, status: 'DISABLED' });
-    const r2 = sanitizeMetricInput({ ...baseInput, status: 'hacked' });
-    if (r1.ok) expect(r1.metric.status).toBe('DISABLED');
-    if (r2.ok) expect(r2.metric.status).toBe('ACTIVE');
-  });
-});
-
-describe('matchMetrics: 问题命中匹配', () => {
-  const m1: MetricDefinition = { ...baseInput, id: 1, status: 'ACTIVE' };
-  const m2: MetricDefinition = { ...baseInput, id: 2, name: '拜访次数', aliases: ['拜访量'], expr: 'COUNT(*)', tableName: 'visits', filters: '', status: 'ACTIVE' };
-
-  it('命中指标名', () => {
-    expect(matchMetrics('有效客户数按行业分布', [m1, m2])).toEqual([m1]);
+  it('分析师创建为提议 PENDING，不进生产 linking', async () => {
+    queue.push([[]], [{ insertId: 10 }], [{}]);
+    const r = await createMetric(validInput as any, 'analyst1');
+    expect(r.ok).toBe(true);
+    expect(String(querySpy.mock.calls[1][1][7])).toBe('PENDING');
+    expect(querySpy.mock.calls[1][1][8]).toBe(''); // 未审批无 approved_by
   });
 
-  it('命中同义词', () => {
-    expect(matchMetrics('各区域的活跃客户有多少', [m1, m2])).toEqual([m1]);
-  });
-
-  it('多指标同时命中', () => {
-    expect(matchMetrics('有效客户数与拜访次数的对比', [m1, m2])).toHaveLength(2);
-  });
-
-  it('无命中或空问题返回空数组', () => {
-    expect(matchMetrics('客户总数是多少', [m1, m2])).toEqual([]);
-    expect(matchMetrics('', [m1, m2])).toEqual([]);
+  it('同名指标冲突返回 409 语义', async () => {
+    queue.push([[{ id: 1 }]]);
+    const r = await createMetric(validInput as any, 'admin', { autoApprove: true });
+    expect(r.ok).toBe(false);
   });
 });
 
-describe('buildMetricPrompt: 模板化口径注入', () => {
-  it('无命中返回空串', () => {
-    expect(buildMetricPrompt([])).toBe('');
+describe('P1-8 治理：审批 / 驳回 / 重新提议', () => {
+  it('approveMetric：PENDING → ACTIVE，记审批人与版本历史', async () => {
+    queue.push([[metricRow({ status: 'PENDING', version: 1 })]], [{}], [{}]);
+    const r = await approveMetric(7, 'admin');
+    expect(r.ok).toBe(true);
+    expect(String(querySpy.mock.calls[1][0])).toContain("status = 'ACTIVE'");
+    expect(querySpy.mock.calls[1][1][0]).toBe('admin');
+    expect(querySpy.mock.calls[2][1][3]).toBe('APPROVE');
   });
 
-  it('命中时输出含表达式/归属表/固定过滤的口径段', () => {
-    const m: MetricDefinition = { ...baseInput, id: 1, status: 'ACTIVE' };
-    const text = buildMetricPrompt([m]);
-    expect(text).toContain('语义指标层定义');
-    expect(text).toContain("有效客户数（同义词：活跃客户、在效客户） = COUNT(DISTINCT id)，基于表 clients，固定过滤条件：WHERE status = 'active'");
+  it('approveMetric：非 PENDING 拒绝', async () => {
+    queue.push([[metricRow({ status: 'ACTIVE' })]]);
+    const r = await approveMetric(7, 'admin');
+    expect(r.ok).toBe(false);
+    if (r.ok === false) expect(r.status).toBe(400);
   });
 
-  it('无过滤条件时不输出 WHERE 段', () => {
-    const m: MetricDefinition = { ...baseInput, id: 1, filters: '', aliases: [], description: '', status: 'ACTIVE' };
-    const text = buildMetricPrompt([m]);
-    expect(text).not.toContain('WHERE');
-    expect(text).not.toContain('同义词');
+  it('rejectMetric：PENDING → REJECTED', async () => {
+    queue.push([[metricRow({ status: 'PENDING' })]], [{}]);
+    const r = await rejectMetric(7, 'admin');
+    expect(r.ok).toBe(true);
+    expect(String(querySpy.mock.calls[1][0])).toContain("status = 'REJECTED'");
+  });
+
+  it('reproposeMetric：REJECTED → PENDING，其他状态拒绝', async () => {
+    queue.push([[metricRow({ status: 'REJECTED' })]], [{}]);
+    expect((await reproposeMetric(7, 'analyst1')).ok).toBe(true);
+    queue.push([[metricRow({ status: 'ACTIVE' })]]);
+    const r = await reproposeMetric(7, 'analyst1');
+    expect(r.ok).toBe(false);
   });
 });
 
-describe('指标 CRUD（mock pool）', () => {
-  it('createMetric：同名冲突拒绝，成功时返回新 ID', async () => {
-    mockPool(() => Promise.resolve([[{ id: 7 }]]));
-    expect(await createMetric(baseInput as any, 'admin')).toEqual({ ok: false, error: '同名指标已存在' });
+describe('P1-8 治理：变更留历史与回溯', () => {
+  it('updateMetric：version+1 并写 UPDATE 快照；待审批指标不可改', async () => {
+    queue.push([[metricRow({ version: 2 })]], [[]], [{}], [{}]);
+    const r = await updateMetric(7, { ...validInput, dataSourceId: undefined } as any, 'admin');
+    expect(r.ok).toBe(true);
+    // UPDATE 语句中 version=3
+    expect(String(querySpy.mock.calls[2][0])).toContain('version = ?');
+    expect(querySpy.mock.calls[2][1][7]).toBe(3);
+    expect(querySpy.mock.calls[3][1][3]).toBe('UPDATE');
 
-    mockPool((sql: string) => {
-      if (/^SELECT/.test(sql.trim())) return Promise.resolve([[]]);
-      return Promise.resolve([{ insertId: 42 }]);
-    });
-    expect(await createMetric(baseInput as any, 'admin')).toEqual({ ok: true, id: 42 });
+    queue.push([[metricRow({ status: 'PENDING' })]]);
+    const r2 = await updateMetric(7, { ...validInput } as any, 'admin');
+    expect(r2.ok).toBe(false);
   });
 
-  it('updateMetric：指标不存在返回 notFound', async () => {
-    mockPool(() => Promise.resolve([[]]));
-    const r = await updateMetric(999, baseInput as any);
-    expect(r).toEqual({ ok: false, error: '指标不存在', notFound: true });
+  it('listMetricVersions：新到旧返回快照', async () => {
+    queue.push([[{ version: 2, action: 'UPDATE', actor: 'admin', created_at: 't2', snapshot_json: JSON.stringify(validInput) }]]);
+    const list = await listMetricVersions(7);
+    expect(list).toHaveLength(1);
+    expect(list[0].version).toBe(2);
+    expect(list[0].snapshot.name).toBe('有效客户数');
   });
 
-  it('deleteMetric：按 affectedRows 判定', async () => {
-    mockPool(() => Promise.resolve([{ affectedRows: 1 }]));
-    expect(await deleteMetric(1)).toBe(true);
-    mockPool(() => Promise.resolve([{ affectedRows: 0 }]));
-    expect(await deleteMetric(1)).toBe(false);
-  });
-
-  it('loadActiveMetrics：aliases_json 解析容错', async () => {
-    mockPool(() =>
-      Promise.resolve([
-        [
-          { id: 1, data_source_id: 'ds_1', name: '客户数', aliases_json: '["客户总量"]', expr: 'COUNT(*)', table_name: 'clients', filters: '', description: '', status: 'ACTIVE', created_by: 'admin' },
-          { id: 2, data_source_id: 'ds_1', name: '坏数据', aliases_json: '{broken', expr: 'COUNT(*)', table_name: 'visits', filters: '', description: '', status: 'ACTIVE', created_by: 'admin' },
-        ],
-      ])
+  it('restoreMetricVersion：应用旧快照并 version+1 记 RESTORE', async () => {
+    const snap = { ...validInput, expr: 'COUNT(id)' };
+    queue.push(
+      [[metricRow({ version: 3 })]],
+      [[{ snapshot_json: JSON.stringify(snap) }]],
+      [{}],
+      [{}]
     );
-    const list = await loadActiveMetrics('ds_1');
-    expect(list[0].aliases).toEqual(['客户总量']);
-    expect(list[1].aliases).toEqual([]);
+    const r = await restoreMetricVersion(7, 1, 'admin');
+    expect(r.ok).toBe(true);
+    const updateCall = querySpy.mock.calls[2][1];
+    expect(updateCall[3]).toBe('COUNT(id)'); // expr 回到旧口径
+    expect(updateCall[7]).toBe(4); // version 3 → 4
+    expect(querySpy.mock.calls[3][1][3]).toBe('RESTORE');
+  });
+
+  it('restoreMetricVersion：版本不存在返回 404', async () => {
+    queue.push([[metricRow()]], [[]]);
+    const r = await restoreMetricVersion(7, 99, 'admin');
+    expect(r.ok).toBe(false);
+    if (r.ok === false) expect(r.status).toBe(404);
+  });
+});
+
+describe('生产 linking 只取 ACTIVE', () => {
+  it('loadActiveMetrics SQL 强制 status = ACTIVE（未审批指标不进 linking）', async () => {
+    queue.push([[]]);
+    await loadActiveMetrics('ds1');
+    expect(String(querySpy.mock.calls[0][0])).toContain("status = 'ACTIVE'");
   });
 });

@@ -11,6 +11,7 @@ import {
   Users,
   FileText,
   Gauge,
+  BookMarked,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -18,6 +19,7 @@ import { UserRole } from '../../types/analytics';
 import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
 import { ReportTemplateManager } from './ReportTemplateManager';
+import { MetricsPanel } from './MetricsPanel';
 
 interface AdminUser {
   id: number;
@@ -45,8 +47,8 @@ const ROLE_BADGE: Record<UserRole, string> = {
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
 
-  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 报告模板（v0.5.0 新增）
-  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'templates'>('users');
+  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 指标治理（P1-8）/ 报告模板（v0.5.0）
+  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'metrics' | 'templates'>('users');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -222,6 +224,17 @@ export const AdminPanel: React.FC = () => {
           >
             <Coins className="w-4 h-4" />
             <span>Token 用量查询</span>
+          </button>
+          <button
+            onClick={() => setSection('metrics')}
+            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+              section === 'metrics'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <BookMarked className="w-4 h-4" />
+            <span>指标治理</span>
           </button>
           <button
             onClick={() => setSection('templates')}
@@ -477,7 +490,10 @@ export const AdminPanel: React.FC = () => {
       {/* ============ 区块三：Token 用量查询（每个用户的 token 消耗） ============ */}
       {section === 'usage' && <LlmUsagePanel />}
 
-      {/* ============ 区块四：报告模板管理（v0.5.0） ============ */}
+      {/* ============ 区块四：指标层治理（P1-8 提议-审批-版本化） ============ */}
+      {section === 'metrics' && <MetricsPanel />}
+
+      {/* ============ 区块五：报告模板管理（v0.5.0） ============ */}
       {section === 'templates' && <ReportTemplateManager />}
     </div>
   );

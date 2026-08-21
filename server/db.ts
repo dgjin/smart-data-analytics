@@ -23,6 +23,22 @@ const dbName = () => process.env.MYSQL_DATABASE || 'smart_analytics';
 const defaultAdminUsername = () => process.env.ADMIN_USERNAME || 'admin';
 const defaultAdminPassword = () => process.env.ADMIN_PASSWORD || 'admin123';
 
+/**
+ * P1-9 应用库连接池容量公式化（原硬编码 connectionLimit=10）。
+ * 应用库承载鉴权/审计/缓存/知识库等随请求发生的短查询（每问数次，毫秒级），
+ * 容量 ≈ 并发用户数 / 2。APP_POOL_MAX 显式配置优先；否则按 EXPECTED_CONCURRENT_USERS
+ * 推导，clamp 到 [10, 50]（下限不逊于原水位）。
+ */
+export function appPoolMax(): number {
+  const raw = process.env.APP_POOL_MAX;
+  if (raw !== undefined && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1) return Math.min(200, Math.floor(n));
+  }
+  const users = Number(process.env.EXPECTED_CONCURRENT_USERS) || 20;
+  return Math.min(50, Math.max(10, Math.ceil(users / 2)));
+}
+
 let pool: mysql.Pool;
 
 export function getPool(): mysql.Pool {
@@ -46,7 +62,7 @@ export async function initSchema(): Promise<void> {
     ...base,
     database,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: appPoolMax(),
     charset: 'utf8mb4',
   });
 
@@ -412,6 +428,41 @@ export async function initSchema(): Promise<void> {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_metric_ds_name (data_source_id, name),
       INDEX idx_metric_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // P1-8 指标层治理：状态机扩展为 PENDING/ACTIVE/REJECTED/DISABLED（提议→审批→生效），
+  // 并加版本号与审批人字段；ENUM MODIFY 与加列均幂等（重复执行无害）
+  await pool.query(
+    "ALTER TABLE metric_definitions MODIFY COLUMN status ENUM('ACTIVE','DISABLED','PENDING','REJECTED') NOT NULL DEFAULT 'PENDING'"
+  );
+  try {
+    await pool.query("ALTER TABLE metric_definitions ADD COLUMN version INT NOT NULL DEFAULT 1 AFTER status");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query("ALTER TABLE metric_definitions ADD COLUMN approved_by VARCHAR(50) NOT NULL DEFAULT '' AFTER version");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query("ALTER TABLE metric_definitions ADD COLUMN approved_at TIMESTAMP NULL DEFAULT NULL AFTER approved_by");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // P1-8 指标版本历史：每次创建/审批生效/变更/回滚留快照，支撑版本回溯与审计
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS metric_versions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      metric_id BIGINT NOT NULL,
+      version INT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      action VARCHAR(20) NOT NULL,
+      actor VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_metric_versions_metric (metric_id, version)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
