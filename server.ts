@@ -33,6 +33,8 @@ import conversationRoutes from './server/routes/conversation';
 import reportRoutes from './server/routes/report';
 import reportTemplateRoutes from './server/routes/reportTemplates';
 import queryReportRoutes from './server/routes/queryReports';
+// P0-4 在线准确率度量看板（北极星指标聚合，仅 ADMIN）
+import opsMetricsRoutes from './server/routes/opsMetrics';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -153,6 +155,8 @@ async function startServer() {
   app.use('/api/report-templates', reportTemplateRoutes);
   // v0.5.0 智能问数报告中心（见 server/routes/queryReports.ts）
   app.use('/api/query-reports', queryReportRoutes);
+  // P0-4 在线准确率度量看板（见 server/routes/opsMetrics.ts）
+  app.use('/api/ops', opsMetricsRoutes);
 
   // Vite development middleware or production static handling
   if (process.env.NODE_ENV !== 'production') {

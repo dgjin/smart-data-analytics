@@ -48,6 +48,13 @@
         "responses": { "200": { "description": "用量聚合" }, "403": { "$ref": "#/components/responses/Forbidden" } }
       }
     },
+    "/api/ops/metrics": {
+      "get": {
+        "tags": ["Ops"], "operationId": "getOpsMetrics", "summary": "P0-4 在线准确率度量看板：北极星指标（点赞/点踩/澄清/拒答/自纠错触发/缓存命中）+ 日/周趋势（仅 ADMIN）",
+        "parameters": [{ "name": "days", "in": "query", "schema": { "type": "integer", "default": 7, "minimum": 1, "maximum": 90 }, "description": "统计天数" }],
+        "responses": { "200": { "description": "北极星指标与日/周趋势" }, "403": { "$ref": "#/components/responses/Forbidden" } }
+      }
+    },
 
     "/api/auth/login": {
       "post": {
