@@ -17,13 +17,25 @@ import {
   Unlock,
   Grid,
   RefreshCw,
+  Gauge,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { useAuthStore } from '../../hooks/useAuthStore';
 import { DynamicChart } from '../charts/DynamicChart';
 import { CHART_THEMES } from '../../utils/chartThemes';
 import { DashboardWidget } from '../../types/analytics';
 import { apiFetch } from '../../api/client';
 import { useDataVersion } from '../../hooks/useDataVersion';
+
+/** P2-14 语义层：语义指标定义（与后端 MetricDefinition 对齐，仅需看板端用到的字段） */
+interface SemanticMetric {
+  id: number;
+  name: string;
+  expr: string;
+  tableName: string;
+  dimensions: string[];
+  status: string;
+}
 
 export const CustomDashboard: React.FC = () => {
   const {
@@ -31,8 +43,13 @@ export const CustomDashboard: React.FC = () => {
     removeDashboardWidget,
     updateDashboardWidget,
     reorderDashboardWidgets,
+    pinChartToDashboard,
+    dataSources,
     setActiveTab,
   } = useAnalyticsStore();
+  const currentUser = useAuthStore((s) => s.user);
+  // P2-14：统一指标查询端点仅 ADMIN/ANALYST 可调（与问数同权限）
+  const canQueryMetric = currentUser?.role === 'ADMIN' || currentUser?.role === 'ANALYST';
 
   const [globalThemeId, setGlobalThemeId] = useState<string>('cyber');
   const [globalAutoContrast, setGlobalAutoContrast] = useState<boolean>(true);
@@ -87,6 +104,109 @@ export const CustomDashboard: React.FC = () => {
     } finally {
       setAutoRefreshing(false);
     }
+  }
+
+  // ---------- P2-14 语义层看板端：语义指标直查（选指标+维度 → 统一查询端点 → 可固化） ----------
+  const dbSources = dataSources.filter((ds) => ['mysql', 'postgresql', 'greenplum'].includes(ds.type));
+  const [metricDsId, setMetricDsId] = useState('');
+  const [metricList, setMetricList] = useState<SemanticMetric[]>([]);
+  const [metricId, setMetricId] = useState<number | ''>('');
+  const [metricDims, setMetricDims] = useState<string[]>([]);
+  const [metricBusy, setMetricBusy] = useState(false);
+  const [metricError, setMetricError] = useState('');
+  const [metricPinned, setMetricPinned] = useState(false);
+  const [metricResult, setMetricResult] = useState<{
+    rows: Record<string, any>[];
+    sql: string;
+    metricName: string;
+    dims: string[];
+  } | null>(null);
+  // 默认跟随看板正在监测的数据源，其次首个库型数据源
+  const effectiveMetricDsId = metricDsId || watchedDsId || dbSources[0]?.id || '';
+
+  useEffect(() => {
+    setMetricList([]);
+    setMetricId('');
+    setMetricDims([]);
+    setMetricResult(null);
+    setMetricError('');
+    if (!effectiveMetricDsId || !canQueryMetric) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/metrics?dataSourceId=${encodeURIComponent(effectiveMetricDsId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const active = (Array.isArray(data.metrics) ? data.metrics : []).filter(
+          (m: SemanticMetric) => m.status === 'ACTIVE'
+        );
+        setMetricList(active);
+      } catch {
+        // 指标列表加载失败静默降级（不影响看板主功能区）
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveMetricDsId, canQueryMetric]);
+
+  const selectedMetric = metricList.find((m) => m.id === metricId) || null;
+
+  async function runMetricQuery(): Promise<void> {
+    if (!selectedMetric) return;
+    setMetricBusy(true);
+    setMetricError('');
+    setMetricResult(null);
+    setMetricPinned(false);
+    try {
+      const res = await apiFetch('/api/metrics/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metricId: selectedMetric.id, dimensions: metricDims, limit: 100 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMetricError(data.error || `查询失败（HTTP ${res.status}）`);
+        return;
+      }
+      setMetricResult({
+        rows: Array.isArray(data.rows) ? data.rows : [],
+        sql: String(data.sql || ''),
+        metricName: selectedMetric.name,
+        dims: metricDims,
+      });
+    } catch (e: any) {
+      setMetricError(e?.message || '网络异常');
+    } finally {
+      setMetricBusy(false);
+    }
+  }
+
+  function pinMetricResult(): void {
+    if (!metricResult || metricResult.rows.length === 0) return;
+    const { rows, sql, metricName, dims } = metricResult;
+    const title = dims.length > 0 ? `${metricName}（按${dims.join('/')}切分）` : metricName;
+    // 带维度结果固化后带 sourceSql，可参与 v0.4.8 数据变化自动重放刷新；
+    // 无维度单值固化为静态快照（重放会改变数据形状，不参与自动更新）
+    if (dims.length > 0) {
+      pinChartToDashboard({
+        title,
+        chartConfig: { type: 'bar', title, xAxisKey: dims[0], yAxisKeys: ['value'], yAxisNames: { value: metricName }, xAxisName: dims[0] },
+        data: rows,
+        dataSourceId: effectiveMetricDsId,
+        sourceSql: sql || undefined,
+      });
+    } else {
+      const v = rows[0]?.value;
+      pinChartToDashboard({
+        title,
+        chartConfig: { type: 'bar', title, xAxisKey: 'value', yAxisKeys: ['value'], yAxisNames: { value: metricName } },
+        data: [{ value: typeof v === 'number' ? v : Number(v) || 0 }],
+        dataSourceId: effectiveMetricDsId,
+      });
+    }
+    setMetricPinned(true);
   }
   const resizeStartRef = useRef<{
     widgetId: string;
@@ -385,6 +505,136 @@ export const CustomDashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* P2-14 语义层看板端：语义指标直查面板（口径与问数/报表共享同一语义层定义） */}
+      {canQueryMetric && dbSources.length > 0 && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-lg">
+          <div className="flex items-center space-x-2 text-xs font-bold text-slate-200">
+            <Gauge className="w-4 h-4 text-cyan-400 shrink-0" />
+            <span>语义指标直查</span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              指标口径来自语义层登记定义（治理审批后生效），与智能问数 / 报表中心共享同一权威口径
+            </span>
+          </div>
+
+          <div className="flex flex-col lg:flex-row lg:items-center gap-2 text-xs">
+            <select
+              value={effectiveMetricDsId}
+              onChange={(e) => setMetricDsId(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
+              title="选择数据源"
+            >
+              {dbSources.map((ds) => (
+                <option key={ds.id} value={ds.id}>{ds.name}</option>
+              ))}
+            </select>
+
+            <select
+              value={metricId}
+              onChange={(e) => {
+                setMetricId(e.target.value ? Number(e.target.value) : '');
+                setMetricDims([]);
+                setMetricResult(null);
+                setMetricError('');
+              }}
+              disabled={metricList.length === 0}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-cyan-500 min-w-[220px]"
+              title="选择已生效的语义指标"
+            >
+              <option value="">{metricList.length === 0 ? '该数据源暂无已生效指标' : '选择语义指标'}</option>
+              {metricList.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}（{m.expr} · 表 {m.tableName}）</option>
+              ))}
+            </select>
+
+            {selectedMetric && selectedMetric.dimensions.length > 0 && (
+              <div className="flex items-center flex-wrap gap-1.5">
+                <span className="text-slate-500 shrink-0">切分维度:</span>
+                {selectedMetric.dimensions.map((d) => {
+                  const checked = metricDims.includes(d);
+                  return (
+                    <label
+                      key={d}
+                      className={`flex items-center space-x-1 px-2 py-1 rounded-lg border cursor-pointer text-[11px] transition-colors ${
+                        checked
+                          ? 'bg-cyan-600/20 border-cyan-500 text-cyan-200'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setMetricDims((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+                        }
+                        className="accent-cyan-500"
+                      />
+                      <span>{d}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              onClick={() => void runMetricQuery()}
+              disabled={!selectedMetric || metricBusy}
+              className="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-semibold shadow transition-all shrink-0"
+            >
+              {metricBusy ? '查询中…' : '查询指标'}
+            </button>
+          </div>
+
+          {metricError && <p className="text-xs text-rose-400">{metricError}</p>}
+
+          {metricResult && (
+            <div className="border border-slate-800 rounded-xl p-3 space-y-2 bg-slate-950/60">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] text-slate-400 truncate">
+                  结果 {metricResult.rows.length} 行{metricResult.dims.length > 0 ? ` · 按 ${metricResult.dims.join(' / ')} 分组` : ''}
+                  {metricResult.sql && <code className="ml-2 text-slate-600">{metricResult.sql}</code>}
+                </span>
+                <button
+                  onClick={pinMetricResult}
+                  disabled={metricPinned || metricResult.rows.length === 0}
+                  className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-[11px] font-semibold transition-colors shrink-0"
+                >
+                  {metricPinned ? '✓ 已固化至看板' : '固化至看板'}
+                </button>
+              </div>
+
+              {metricResult.rows.length === 0 ? (
+                <p className="text-xs text-slate-500 py-2">查询成功但无数据行</p>
+              ) : metricResult.dims.length === 0 ? (
+                <div className="flex items-baseline space-x-2 py-2">
+                  <span className="text-3xl font-extrabold text-cyan-300">
+                    {(() => {
+                      const v = metricResult.rows[0]?.value;
+                      return typeof v === 'number' ? v.toLocaleString('zh-CN') : String(v ?? '-');
+                    })()}
+                  </span>
+                  <span className="text-xs text-slate-400">{metricResult.metricName}</span>
+                </div>
+              ) : (
+                <DynamicChart
+                  config={{
+                    type: 'bar',
+                    title: metricResult.metricName,
+                    xAxisKey: metricResult.dims[0],
+                    yAxisKeys: ['value'],
+                    yAxisNames: { value: metricResult.metricName },
+                    xAxisName: metricResult.dims[0],
+                  }}
+                  data={metricResult.rows}
+                  height={240}
+                  globalThemeId={globalThemeId}
+                  autoOptimizeContrast={globalAutoContrast}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Grid Layout Container */}
       {dashboardWidgets.length > 0 ? (

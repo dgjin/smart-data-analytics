@@ -7,6 +7,11 @@
  * P1-8 指标层治理：提议（PENDING，分析师可发起）→ ADMIN 审批（ACTIVE/REJECTED）→ 生效版本化。
  * 未审批（PENDING/REJECTED）指标不进生产 linking（loadActiveMetrics 仅取 ACTIVE）；
  * 每次创建/审批/变更/回滚均写 metric_versions 快照，变更留历史、可回溯。
+ *
+ * P2-14 语义层独立资产（对齐 dbt Semantic Layer 思路）：指标定义升级为
+ * 「聚合口径 expr + 归属表 + 固定过滤 + 可切分维度 dimensions」的完整语义资产，
+ * 并提供统一指标查询端点（POST /api/metrics/query：按白名单维度生成 GROUP BY 查询并执行），
+ * 供问数（prompt 注入）/报表（口径注入）/看板（指标卡直查）三端共享同一权威口径。
  */
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { getPool } from './db';
@@ -29,6 +34,8 @@ export interface MetricDefinition {
   tableName: string;
   /** 固定过滤条件（WHERE 片段，可为空），如 status = 'active' */
   filters: string;
+  /** P2-14 可切分维度白名单（归属表的列名）：统一指标查询允许按这些列 GROUP BY */
+  dimensions: string[];
   status: MetricStatus;
   /** 生效版本号（每次审批生效/变更/回滚递增） */
   version?: number;
@@ -46,6 +53,10 @@ export function sanitizeMetricInput(input: any): { ok: true; metric: Omit<Metric
   const expr = typeof input?.expr === 'string' ? input.expr.trim() : '';
   const tableName = typeof input?.tableName === 'string' ? input.tableName.trim() : '';
   const filters = typeof input?.filters === 'string' ? input.filters.trim() : '';
+  // P2-14 维度白名单：仅接受合法标识符（防注入），去重，上限 10 个
+  const dimensions = Array.isArray(input?.dimensions)
+    ? [...new Set(input.dimensions.filter((d: any) => typeof d === 'string').map((d: string) => d.trim()).filter(Boolean))] as string[]
+    : [];
   const description = typeof input?.description === 'string' ? input.description.trim().slice(0, 300) : '';
   const aliases = Array.isArray(input?.aliases)
     ? input.aliases.filter((a: any) => typeof a === 'string' && a.trim()).map((a: string) => a.trim().slice(0, 50)).slice(0, 10)
@@ -58,11 +69,14 @@ export function sanitizeMetricInput(input: any): { ok: true; metric: Omit<Metric
   if (!/^[A-Za-z_][\w]*$/.test(tableName)) return { ok: false, error: '归属表名必须是合法标识符' };
   if (filters.length > 300) return { ok: false, error: '固定过滤条件不超过 300 字' };
   if (aliases.some((a: string) => a === name)) return { ok: false, error: '同义词不能与指标名相同' };
+  if (dimensions.length > 10) return { ok: false, error: '可切分维度不超过 10 个' };
+  if (dimensions.some((d) => !/^[A-Za-z_][\w]*$/.test(d))) return { ok: false, error: '维度列名必须是合法标识符' };
+  if (dimensions.some((d) => d.toLowerCase() === tableName.toLowerCase())) return { ok: false, error: '维度不能与归属表同名' };
 
   return {
     ok: true,
     // status 输入仅接受 ACTIVE/DISABLED；PENDING/REJECTED 由治理流程驱动，不接受外部直填
-    metric: { dataSourceId, name, aliases, description, expr, tableName, filters, status: input?.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
+    metric: { dataSourceId, name, aliases, description, expr, tableName, filters, dimensions, status: input?.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
   };
 }
 
@@ -80,16 +94,44 @@ export function matchMetrics(query: string, metrics: MetricDefinition[]): Metric
   });
 }
 
-/** 命中指标的模板化 prompt 段：逐条给出口径，强制阶段一遵循 */
+/** 命中指标的模板化 prompt 段：逐条给出口径，强制阶段一遵循；P2-14 列出可切分维度 */
 export function buildMetricPrompt(hits: MetricDefinition[]): string {
   if (hits.length === 0) return '';
   const lines = hits.map((m) => {
     const filter = m.filters ? `，固定过滤条件：WHERE ${m.filters}` : '';
     const alias = m.aliases.length > 0 ? `（同义词：${m.aliases.join('、')}）` : '';
     const desc = m.description ? `，口径说明：${m.description}` : '';
-    return `- ${m.name}${alias} = ${m.expr}，基于表 ${m.tableName}${filter}${desc}`;
+    const dims = m.dimensions.length > 0 ? `，可切分维度：${m.dimensions.join('、')}` : '';
+    return `- ${m.name}${alias} = ${m.expr}，基于表 ${m.tableName}${filter}${dims}${desc}`;
   });
-  return `【语义指标层定义】（管理员登记的权威口径，问题涉及以下指标时必须严格使用给定的聚合表达式、归属表与固定过滤条件，禁止自行变更口径）:\n${lines.join('\n')}\n\n`;
+  return `【语义指标层定义】（管理员登记的权威口径，问题涉及以下指标时必须严格使用给定的聚合表达式、归属表与固定过滤条件，禁止自行变更口径；如需按维度切分，仅可使用登记的可切分维度列）:\n${lines.join('\n')}\n\n`;
+}
+
+// ---------- P2-14 统一指标查询（语义层查询接口，报表/看板/问数三端共享） ----------
+
+/**
+ * 由指标定义生成「按维度切分」的查询 SQL（不执行，纯函数可单测）。
+ * 安全不变式：tableName/dimensions 均为 sanitize 校验过的合法标识符；请求维度必须在指标登记的
+ * dimensions 白名单内（调用方之外的维度一律拒绝）；filters 为治理审批过的固定片段。
+ */
+export function buildMetricQuerySql(
+  metric: MetricDefinition,
+  reqDims: string[],
+  limit = 100
+): { ok: true; sql: string } | { ok: false; error: string } {
+  if (metric.status !== 'ACTIVE') return { ok: false, error: '指标未生效，不可查询' };
+  const dims = Array.isArray(reqDims) ? reqDims : [];
+  for (const d of dims) {
+    if (!metric.dimensions.includes(d)) {
+      return { ok: false, error: `维度「${d}」不在指标「${metric.name}」的可切分维度白名单内` };
+    }
+  }
+  const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit) || 100));
+  const dimSelect = dims.length > 0 ? `${dims.join(', ')}, ` : '';
+  const where = metric.filters ? ` WHERE ${metric.filters}` : '';
+  const groupBy = dims.length > 0 ? ` GROUP BY ${dims.join(', ')} ORDER BY \`value\` DESC` : '';
+  const sql = `SELECT ${dimSelect}${metric.expr} AS \`value\` FROM ${metric.tableName}${where}${groupBy} LIMIT ${safeLimit}`;
+  return { ok: true, sql };
 }
 
 // ---------- CRUD（routes/metrics.ts 调用） ----------
@@ -102,6 +144,13 @@ function rowToMetric(r: any): MetricDefinition {
   } catch {
     aliases = [];
   }
+  let dimensions: string[];
+  try {
+    const parsed = JSON.parse(String(r.dimensions_json || '[]'));
+    dimensions = Array.isArray(parsed) ? parsed.filter((d: any) => typeof d === 'string') : [];
+  } catch {
+    dimensions = [];
+  }
   return {
     id: Number(r.id),
     dataSourceId: String(r.data_source_id),
@@ -111,6 +160,7 @@ function rowToMetric(r: any): MetricDefinition {
     expr: String(r.expr),
     tableName: String(r.table_name),
     filters: String(r.filters || ''),
+    dimensions,
     status: normalizeStatus(r.status),
     version: Number(r.version || 1),
     approvedBy: String(r.approved_by || ''),
@@ -168,11 +218,11 @@ export async function createMetric(
   const autoApprove = opts?.autoApprove === true;
   const status: MetricStatus = autoApprove ? metric.status : 'PENDING';
   const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO metric_definitions (data_source_id, name, aliases_json, description, expr, table_name, filters, status, version, approved_by, approved_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+    `INSERT INTO metric_definitions (data_source_id, name, aliases_json, description, expr, table_name, filters, dimensions_json, status, version, approved_by, approved_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     [
       metric.dataSourceId, metric.name, JSON.stringify(metric.aliases), metric.description,
-      metric.expr, metric.tableName, metric.filters, status,
+      metric.expr, metric.tableName, metric.filters, JSON.stringify(metric.dimensions || []), status,
       autoApprove ? createdBy : '', autoApprove ? new Date() : null, createdBy,
     ]
   );
@@ -194,8 +244,8 @@ export async function updateMetric(id: number, metric: Omit<MetricDefinition, 'i
   if (dup.length > 0) return { ok: false, error: '同名指标已存在' };
   const nextVersion = (cur.version || 1) + 1;
   await pool.query(
-    `UPDATE metric_definitions SET name = ?, aliases_json = ?, description = ?, expr = ?, table_name = ?, filters = ?, status = ?, version = ? WHERE id = ?`,
-    [metric.name, JSON.stringify(metric.aliases), metric.description, metric.expr, metric.tableName, metric.filters, metric.status, nextVersion, id]
+    `UPDATE metric_definitions SET name = ?, aliases_json = ?, description = ?, expr = ?, table_name = ?, filters = ?, dimensions_json = ?, status = ?, version = ? WHERE id = ?`,
+    [metric.name, JSON.stringify(metric.aliases), metric.description, metric.expr, metric.tableName, metric.filters, JSON.stringify(metric.dimensions || []), metric.status, nextVersion, id]
   );
   await recordVersion(id, nextVersion, { ...metric, dataSourceId: cur.dataSourceId }, 'UPDATE', actor);
   return { ok: true };
@@ -208,7 +258,8 @@ export async function deleteMetric(id: number): Promise<boolean> {
 
 // ---------- P1-8 治理：审批 / 驳回 / 版本历史 / 回溯 ----------
 
-async function findMetricById(id: number): Promise<MetricDefinition | null> {
+/** 按 ID 取指标定义（P2-14 统一查询端点与治理流程共用） */
+export async function findMetricById(id: number): Promise<MetricDefinition | null> {
   const [rows] = await getPool().query<RowDataPacket[]>('SELECT * FROM metric_definitions WHERE id = ? LIMIT 1', [id]);
   return rows.length > 0 ? rowToMetric(rows[0]) : null;
 }
@@ -291,8 +342,8 @@ export async function restoreMetricVersion(id: number, version: number, actor: s
   const status: MetricStatus = cur.status === 'ACTIVE' ? 'ACTIVE' : 'DISABLED';
   const nextVersion = (cur.version || 1) + 1;
   await getPool().query(
-    `UPDATE metric_definitions SET name = ?, aliases_json = ?, description = ?, expr = ?, table_name = ?, filters = ?, status = ?, version = ? WHERE id = ?`,
-    [cleaned.metric.name, JSON.stringify(cleaned.metric.aliases), cleaned.metric.description, cleaned.metric.expr, cleaned.metric.tableName, cleaned.metric.filters, status, nextVersion, id]
+    `UPDATE metric_definitions SET name = ?, aliases_json = ?, description = ?, expr = ?, table_name = ?, filters = ?, dimensions_json = ?, status = ?, version = ? WHERE id = ?`,
+    [cleaned.metric.name, JSON.stringify(cleaned.metric.aliases), cleaned.metric.description, cleaned.metric.expr, cleaned.metric.tableName, cleaned.metric.filters, JSON.stringify(cleaned.metric.dimensions || []), status, nextVersion, id]
   );
   await recordVersion(id, nextVersion, { ...cleaned.metric, status }, 'RESTORE', actor);
   return { ok: true };

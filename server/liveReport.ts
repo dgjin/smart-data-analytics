@@ -9,6 +9,7 @@ import { executeSafeSql } from './sqlExecutor';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
 import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from './liveQuery';
 import { getStateStore, isRedisEnabled } from './stateStore';
+import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
 
 const MAX_REPORT_QUERIES = 4;
 const SAMPLE_ROWS_PER_CHART = 10;
@@ -211,9 +212,20 @@ export async function clearReportPlanStoreForTest(): Promise<void> {
 export async function generateReportPlans(input: Omit<LiveReportInput, 'approvedPlans'>): Promise<
   { ok: true; plan: { reportTitle: string; plans: ReportQueryPlan[] } } | { ok: false; error: string }
 > {
-  const parsed = await generateStage1Plans(input.templateType, input.customPrompt, input.schema, input.guidance, input.dsType, input.amountUnit);
+  const parsed = await generateStage1Plans(input.templateType, input.customPrompt, input.schema, input.guidance, input.dsType, input.amountUnit, input.dataSourceId);
   if (!parsed) return { ok: false, error: '报表查询计划生成失败' };
   return { ok: true, plan: parsed };
+}
+
+/** P2-14 报表端语义层接入：报表主题/额外要求命中登记指标时注入权威口径（与问数同一语义资产），失败降级为空串 */
+async function buildReportMetricPrompt(dataSourceId: string | undefined, templateType: string, customPrompt: string): Promise<string> {
+  if (!dataSourceId) return '';
+  try {
+    const metrics = await loadActiveMetrics(dataSourceId);
+    return buildMetricPrompt(matchMetrics(`${templateType}\n${customPrompt}`, metrics));
+  } catch {
+    return '';
+  }
 }
 
 /** 阶段一：LLM 生成 2-4 条聚合查询计划（含 1 次校验重试） */
@@ -223,12 +235,15 @@ async function generateStage1Plans(
   schema: any[],
   guidance: string,
   dsType?: string,
-  amountUnit?: string
+  amountUnit?: string,
+  dataSourceId?: string
 ): Promise<{ reportTitle: string; plans: ReportQueryPlan[] } | null> {
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = null;
   let lastError = '';
   // v0.5.2 金额单位约定拼在用户消息首位（与问数链路口径一致）
   const unitPrompt = buildAmountUnitPrompt(amountUnit);
+  // P2-14 语义层：命中指标注入权威口径，报表与问数共用同一指标定义
+  const metricPrompt = await buildReportMetricPrompt(dataSourceId, templateType, customPrompt);
   for (let attempt = 0; attempt < 2; attempt++) {
     const userPrompt =
       attempt === 0
@@ -236,7 +251,7 @@ async function generateStage1Plans(
         : `${unitPrompt}报表主题：${templateType}\n额外要求：${customPrompt}\n\n（上次输出未通过校验：${lastError}，请修正后按同一 JSON 契约重新输出。）`;
     let text: string;
     try {
-      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType), userPrompt);
+      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType, metricPrompt), userPrompt);
     } catch {
       return null;
     }
@@ -247,7 +262,7 @@ async function generateStage1Plans(
   return parsed;
 }
 
-function buildReportStage1System(schema: any[], guidance: string, dsType?: string): string {
+function buildReportStage1System(schema: any[], guidance: string, dsType?: string, metricPrompt = ''): string {
   const dialect = dialectPromptOf(dsType);
   return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 ${dialect.label} SELECT 聚合查询。你不生成任何数据，只生成 SQL。
 
@@ -255,7 +270,7 @@ function buildReportStage1System(schema: any[], guidance: string, dsType?: strin
 ${JSON.stringify(schema)}
 
 ${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}
-【强制约束】
+${metricPrompt}【强制约束】
 - 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","purpose"}]}
 - columnNames: 该查询 SQL 输出每一列的中文表头映射 {"列名/别名": "中文名"}，维度列与聚合别名都要覆盖
 - 每条 sql 为单条 SELECT；表名与列名必须逐字来自上述 Schema 的 name 字段，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标用聚合函数并用 AS 起英文/拼音别名
@@ -320,7 +335,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   // 阶段一：生成查询计划（已批准计划直接复用，跳过重新生成）
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = input.approvedPlans ?? null;
   if (!parsed) {
-    parsed = await generateStage1Plans(templateType, customPrompt, schema, guidance, dsType, amountUnit);
+    parsed = await generateStage1Plans(templateType, customPrompt, schema, guidance, dsType, amountUnit, dataSourceId);
   }
   if (!parsed) {
     return { ok: false, error: '查询计划生成失败', executedSqls };

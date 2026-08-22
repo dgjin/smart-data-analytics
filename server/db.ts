@@ -507,6 +507,14 @@ export async function initSchema(): Promise<void> {
     if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // P2-14 语义层升级：可切分维度白名单（对齐 dbt Semantic Layer 的 dimensions 概念）——
+  // 登记该指标允许按哪些列分组切分，统一指标查询端点据此生成 GROUP BY，报表/看板/问数三端共享
+  try {
+    await pool.query("ALTER TABLE metric_definitions ADD COLUMN dimensions_json VARCHAR(600) NOT NULL DEFAULT '[]' AFTER filters");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // P1-8 指标版本历史：每次创建/审批生效/变更/回滚留快照，支撑版本回溯与审计
   await pool.query(`
     CREATE TABLE IF NOT EXISTS metric_versions (

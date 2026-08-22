@@ -20,6 +20,10 @@ import {
   listMetricVersions,
   restoreMetricVersion,
   loadActiveMetrics,
+  buildMetricQuerySql,
+  buildMetricPrompt,
+  findMetricById,
+  MetricDefinition,
 } from './metrics';
 
 function metricRow(overrides: Record<string, any> = {}) {
@@ -49,6 +53,7 @@ const validInput = {
   expr: 'COUNT(DISTINCT id)',
   tableName: 'customer',
   filters: '',
+  dimensions: [] as string[],
 };
 
 beforeEach(() => {
@@ -88,7 +93,8 @@ describe('P1-8 治理：创建（提议 vs 直接生效）', () => {
     expect(r.ok).toBe(true);
     const insertSql = String(querySpy.mock.calls[1][0]);
     expect(insertSql).toContain('metric_definitions');
-    expect(String(querySpy.mock.calls[1][1][7])).toBe('ACTIVE');
+    // INSERT 参数序：…, filters(6), dimensions_json(7), status(8), approved_by(9), approved_at(10), created_by(11)
+    expect(String(querySpy.mock.calls[1][1][8])).toBe('ACTIVE');
     // 版本历史快照（recordVersion 参数序：metricId, version, snapshot, action, actor）
     expect(String(querySpy.mock.calls[2][0])).toContain('metric_versions');
     expect(querySpy.mock.calls[2][1][1]).toBe(1);
@@ -99,8 +105,8 @@ describe('P1-8 治理：创建（提议 vs 直接生效）', () => {
     queue.push([[]], [{ insertId: 10 }], [{}]);
     const r = await createMetric(validInput as any, 'analyst1');
     expect(r.ok).toBe(true);
-    expect(String(querySpy.mock.calls[1][1][7])).toBe('PENDING');
-    expect(querySpy.mock.calls[1][1][8]).toBe(''); // 未审批无 approved_by
+    expect(String(querySpy.mock.calls[1][1][8])).toBe('PENDING');
+    expect(querySpy.mock.calls[1][1][9]).toBe(''); // 未审批无 approved_by
   });
 
   it('同名指标冲突返回 409 语义', async () => {
@@ -148,9 +154,9 @@ describe('P1-8 治理：变更留历史与回溯', () => {
     queue.push([[metricRow({ version: 2 })]], [[]], [{}], [{}]);
     const r = await updateMetric(7, { ...validInput, dataSourceId: undefined } as any, 'admin');
     expect(r.ok).toBe(true);
-    // UPDATE 语句中 version=3
+    // UPDATE 参数序：…, dimensions_json(6), status(7), version(8), id(9)
     expect(String(querySpy.mock.calls[2][0])).toContain('version = ?');
-    expect(querySpy.mock.calls[2][1][7]).toBe(3);
+    expect(querySpy.mock.calls[2][1][8]).toBe(3);
     expect(querySpy.mock.calls[3][1][3]).toBe('UPDATE');
 
     queue.push([[metricRow({ status: 'PENDING' })]]);
@@ -178,7 +184,7 @@ describe('P1-8 治理：变更留历史与回溯', () => {
     expect(r.ok).toBe(true);
     const updateCall = querySpy.mock.calls[2][1];
     expect(updateCall[3]).toBe('COUNT(id)'); // expr 回到旧口径
-    expect(updateCall[7]).toBe(4); // version 3 → 4
+    expect(updateCall[8]).toBe(4); // version 3 → 4
     expect(querySpy.mock.calls[3][1][3]).toBe('RESTORE');
   });
 
@@ -195,5 +201,76 @@ describe('生产 linking 只取 ACTIVE', () => {
     queue.push([[]]);
     await loadActiveMetrics('ds1');
     expect(String(querySpy.mock.calls[0][0])).toContain("status = 'ACTIVE'");
+  });
+});
+
+describe('P2-14 语义层：dimensions 可切分维度白名单', () => {
+  it('sanitize：合法维度通过且去重；缺省为 []', () => {
+    const r = sanitizeMetricInput({ ...validInput, dimensions: ['region', 'region', ' channel '] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.metric.dimensions).toEqual(['region', 'channel']);
+    const d = sanitizeMetricInput(validInput);
+    expect(d.ok).toBe(true);
+    if (d.ok) expect(d.metric.dimensions).toEqual([]);
+  });
+
+  it('sanitize：超 10 个 / 非法标识符 / 与表同名 均拒绝', () => {
+    expect(sanitizeMetricInput({ ...validInput, dimensions: Array.from({ length: 11 }, (_, i) => `d${i}`) }).ok).toBe(false);
+    expect(sanitizeMetricInput({ ...validInput, dimensions: ['1bad'] }).ok).toBe(false);
+    expect(sanitizeMetricInput({ ...validInput, dimensions: ['a;b'] }).ok).toBe(false);
+    expect(sanitizeMetricInput({ ...validInput, dimensions: ['Customer'] }).ok).toBe(false); // 与表同名（大小写不敏感）
+  });
+
+  it('CRUD 透传：创建 INSERT 带 dimensions_json，行解析还原 dimensions', async () => {
+    queue.push([[]], [{ insertId: 11 }], [{}]);
+    const r = await createMetric({ ...validInput, dimensions: ['region'] }, 'admin', { autoApprove: true });
+    expect(r.ok).toBe(true);
+    expect(String(querySpy.mock.calls[1][0])).toContain('dimensions_json');
+    expect(String(querySpy.mock.calls[1][1][7])).toBe('["region"]');
+
+    queue.push([[metricRow({ dimensions_json: '["region","channel"]' })]]);
+    const m = await findMetricById(7);
+    expect(m?.dimensions).toEqual(['region', 'channel']);
+  });
+
+  it('buildMetricPrompt：命中指标列出可切分维度', () => {
+    const m: MetricDefinition[] = [{ ...validInput, dimensions: ['region'], status: 'ACTIVE' }];
+    const prompt = buildMetricPrompt(m);
+    expect(prompt).toContain('可切分维度：region');
+    expect(prompt).toContain('仅可使用登记的可切分维度列');
+  });
+});
+
+describe('P2-14 统一指标查询：buildMetricQuerySql', () => {
+  const active: MetricDefinition = { ...validInput, dimensions: ['region', 'channel'], filters: "status = 'active'", status: 'ACTIVE' };
+
+  it('无维度：单值聚合查询；有维度：GROUP BY + 按值降序', () => {
+    const plain = buildMetricQuerySql(active, []);
+    expect(plain.ok).toBe(true);
+    if (plain.ok) {
+      expect(plain.sql).toBe("SELECT COUNT(DISTINCT id) AS `value` FROM customer WHERE status = 'active' LIMIT 100");
+    }
+    const grouped = buildMetricQuerySql(active, ['region'], 50);
+    expect(grouped.ok).toBe(true);
+    if (grouped.ok) {
+      expect(grouped.sql).toBe("SELECT region, COUNT(DISTINCT id) AS `value` FROM customer WHERE status = 'active' GROUP BY region ORDER BY `value` DESC LIMIT 50");
+    }
+  });
+
+  it('白名单外维度拒绝；非 ACTIVE 指标不可查询', () => {
+    const bad = buildMetricQuerySql(active, ['secret_col']);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toContain('白名单');
+    const pending = buildMetricQuerySql({ ...active, status: 'PENDING' }, []);
+    expect(pending.ok).toBe(false);
+  });
+
+  it('limit 夹取到 [1, 1000]，非数字回退 100', () => {
+    const r1 = buildMetricQuerySql(active, [], 99999);
+    if (r1.ok) expect(r1.sql).toContain('LIMIT 1000');
+    const r2 = buildMetricQuerySql(active, [], 0);
+    if (r2.ok) expect(r2.sql).toContain('LIMIT 100');
+    const r3 = buildMetricQuerySql(active, [], -5);
+    if (r3.ok) expect(r3.sql).toContain('LIMIT 1');
   });
 });
