@@ -26,6 +26,7 @@ import { saveFeedback } from '../queryFeedback';
 import { checkDataSourceAccess } from '../accessControl';
 import { recordConversation } from '../conversationHistory';
 import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from '../queryCache';
+import { maskQueryPayload, maskRows } from '../dlp';
 import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from '../queryTrace';
 import { generateQueryPlan, storePlan, consumePlan, QueryPlan } from '../queryPlan';
 import { emitBeforeQuery, emitAfterQuery } from '../queryHooks';
@@ -191,7 +192,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       if (cached) {
         writeAudit({ ...auditBase, question: query, status: 'CACHE', executedSql: String(cached.executedSql || ''), rowCount: typeof cached.rowCount === 'number' ? cached.rowCount : -1, durationMs: Date.now() - startedAt });
         emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
-        return respond({ ...cached, fromCache: true, executionTimeMs: Date.now() - startedAt });
+        // P2-12 DLP：缓存中为原始数据，响应出口按角色脱敏（ADMIN 豁免）
+        return respond(maskQueryPayload({ ...cached, fromCache: true, executionTimeMs: Date.now() - startedAt }, user));
       }
       // L2 语义缓存：同义改写问题复用最近成功结果，命中携带原问题供前端标注「来自相似问题缓存」
       const semHit = skipCacheRead ? null : await getSemanticCachedQuery(dataSourceId, query, cacheVariant);
@@ -199,7 +201,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         const similarity = Number(semHit.similarity.toFixed(4));
         writeAudit({ ...auditBase, question: query, status: 'CACHE', detail: `L2 语义命中（相似度 ${similarity}）：${semHit.matchedQuestion.slice(0, 120)}`, executedSql: String(semHit.payload?.executedSql || ''), rowCount: typeof semHit.payload?.rowCount === 'number' ? semHit.payload.rowCount : -1, durationMs: Date.now() - startedAt });
         emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
-        return respond({ ...semHit.payload, fromCache: true, semanticCache: { matchedQuestion: semHit.matchedQuestion, similarity }, executionTimeMs: Date.now() - startedAt });
+        return respond(maskQueryPayload({ ...semHit.payload, fromCache: true, semanticCache: { matchedQuestion: semHit.matchedQuestion, similarity }, executionTimeMs: Date.now() - startedAt }, user));
       }
 
       const live = await runLiveQuery({
@@ -264,7 +266,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
           await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount }, { dataSourceId, question: query, variant: cacheVariant });
           // 对话历史服务端落库：成功问答 fire-and-forget 落库（历史面板 + 个人 few-shot 自学习），失败不阻断主链路
           recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String((normalized as any).aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
-          return respond({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt });
+          // P2-12 DLP：缓存已写入原始数据（上方 setCachedQuery），响应出口按角色脱敏
+          return respond(maskQueryPayload({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt }, user));
         }
       }
       // 真实执行链路失败：审计留痕后降级演示模式（可用性优先）
@@ -505,14 +508,17 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
   } else {
     writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'SUCCESS', detail: isSlow ? `${slowPrefix}执行时长 ${durationMs}ms，行数 ${outcome.result.rowCount}` : undefined, executedSql: outcome.result.finalSql, rowCount: outcome.result.rowCount, durationMs });
   }
+  // P2-12 DLP：执行结果按角色脱敏（VIEWER/ANALYST 敏感列掩码，ADMIN 豁免）
+  const dlpOut = maskRows(outcome.result.rows, user);
   return res.json({
     success: true,
     executionTimeMs: Date.now() - startedAt,
-    rows: outcome.result.rows,
+    rows: dlpOut.rows,
     rowCount: outcome.result.rowCount,
     truncated: outcome.result.truncated,
     finalSql: outcome.result.finalSql,
     dataProvenance: 'live',
+    ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
   });
 });
 
@@ -585,13 +591,16 @@ router.post('/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
   }
   // 明细表头中文化：schema 列业务含义映射（下钻为 SELECT *，列名即原始字段名）
   const columnNames = buildColumnNames(outcome.rows, ctx.schema);
+  // P2-12 DLP：钻取明细按角色脱敏
+  const dlpOut = maskRows(outcome.rows, user);
   return res.json({
     success: true,
     executionTimeMs: Date.now() - startedAt,
-    rows: outcome.rows,
+    rows: dlpOut.rows,
     rowCount: outcome.rowCount,
     finalSql: outcome.finalSql,
     columnNames,
+    ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
   });
 });
 

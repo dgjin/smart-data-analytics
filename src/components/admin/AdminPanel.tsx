@@ -21,6 +21,7 @@ import { OpsMetricsPanel } from './OpsMetricsPanel';
 import { ReportTemplateManager } from './ReportTemplateManager';
 import { MetricsPanel } from './MetricsPanel';
 import { AccessRequestsPanel } from './AccessRequestsPanel';
+import { DlpDownloadPanel } from './DlpDownloadPanel';
 
 interface AdminUser {
   id: number;
@@ -549,7 +550,13 @@ export const AdminPanel: React.FC = () => {
       {section === 'metrics' && <MetricsPanel />}
 
       {/* ============ 区块五：数据源权限审批（P2-11 申请-审批-授权） ============ */}
-      {section === 'access' && <AccessRequestsPanel />}
+      {section === 'access' && (
+        <div className="space-y-5">
+          <AccessRequestsPanel />
+          {/* P2-12 DLP 数据导出审批（超阈值下载申请） */}
+          <DlpDownloadPanel />
+        </div>
+      )}
 
       {/* ============ 区块六：报告模板管理（v0.5.0） ============ */}
       {section === 'templates' && <ReportTemplateManager />}

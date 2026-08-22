@@ -139,6 +139,8 @@ export interface ChatMessage {
   dataProvenance?: 'live' | 'simulated';
   /** L7 敏感标记：本次问数被服务端安全策略从 AI 上下文中剔除的敏感列数量（>0 时 UI 展示提示） */
   sensitiveFiltered?: number;
+  /** P2-12 DLP：本次结果被脱敏的敏感数据类型标签（如 ['手机号','身份证']，非空时 UI 展示脱敏徽标） */
+  dlpMaskedLabels?: string[];
   /** P1 反馈闭环：本条 assistant 消息对应的用户原始提问（反馈落库用） */
   question?: string;
   /** P1 反馈闭环：用户对本条回答的评价（已提交后置灰按钮） */

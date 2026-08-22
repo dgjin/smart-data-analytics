@@ -644,6 +644,10 @@ export const QueryChat: React.FC = () => {
           semanticCache: resData.semanticCache && typeof resData.semanticCache.matchedQuestion === 'string'
             ? { matchedQuestion: resData.semanticCache.matchedQuestion, similarity: Number(resData.semanticCache.similarity) || 0 }
             : undefined,
+          // P2-12 DLP：服务端脱敏标记（VIEWER/ANALYST 命中敏感列时返回）
+          dlpMaskedLabels: Array.isArray(resData.dlp?.maskedLabels) && resData.dlp.maskedLabels.length > 0
+            ? resData.dlp.maskedLabels.map(String)
+            : undefined,
           question: textToSubmit,
           traceId: typeof resData.traceId === 'string' ? resData.traceId : undefined,
           dataSourceId: submitDSId,
@@ -981,6 +985,14 @@ export const QueryChat: React.FC = () => {
                     >
                       重新查询
                     </button>
+                  </div>
+                )}
+
+                {/* P2-12 DLP 脱敏提示：结果中敏感字段已按角色策略掩码 */}
+                {!isUser && msg.dlpMaskedLabels && msg.dlpMaskedLabels.length > 0 && (
+                  <div className="p-2 rounded-lg bg-violet-950/50 border border-violet-500/40 text-violet-300 text-[11px] flex items-center space-x-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>DLP 数据防泄漏：结果中的{msg.dlpMaskedLabels.join('、')}已按你的角色权限自动脱敏。</span>
                   </div>
                 )}
 

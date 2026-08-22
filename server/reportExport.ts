@@ -35,6 +35,8 @@ export interface ReportExportData {
   kpiList?: ExportKpi[];
   insights?: ExportInsight[];
   charts?: ExportChart[];
+  /** P2-12 DLP 导出水印文本（服务端路由层注入，前端传入不可信） */
+  exportedBy?: string;
 }
 
 const C = {
@@ -69,6 +71,7 @@ export function normalizeExportData(raw: any): ReportExportData | null {
     summary: clean(raw.summary).slice(0, 2000),
     createdAt: clean(raw.createdAt).slice(0, 40) || new Date().toISOString().split('T')[0],
     templateType: clean(raw.templateType).slice(0, 60),
+    exportedBy: clean(raw.exportedBy).slice(0, 120),
     kpiList: Array.isArray(raw.kpiList)
       ? raw.kpiList.slice(0, 12).filter((k: any) => k && typeof k.label === 'string').map((k: any) => ({
           label: clean(k.label).slice(0, 40),
@@ -99,8 +102,8 @@ export function normalizeExportData(raw: any): ReportExportData | null {
   return data;
 }
 
-function addPageFooter(slide: PptxGenJS.Slide, pageNo: number, total: number) {
-  slide.addText(`智能问数据分析系统 · AI 决策简报`, { x: 0.5, y: 7.08, w: 6, h: 0.3, fontSize: 9, color: C.muted });
+function addPageFooter(slide: PptxGenJS.Slide, pageNo: number, total: number, watermark = '') {
+  slide.addText(`智能问数据分析系统 · AI 决策简报${watermark ? ` · ${watermark}` : ''}`, { x: 0.5, y: 7.08, w: 8.3, h: 0.3, fontSize: 9, color: C.muted });
   slide.addText(`${pageNo} / ${total}`, { x: 8.9, y: 7.08, w: 0.9, h: 0.3, fontSize: 9, color: C.muted, align: 'right' });
 }
 
@@ -127,6 +130,10 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
   }
   cover.addText(`生成日期：${data.createdAt || ''}`, { x: 0.8, y: 4.85, w: 11.7, h: 0.4, fontSize: 13, color: 'CBD5E1' });
   cover.addText('智能问数据分析系统 · 由 AI 大模型基于真实数据源自动生成', { x: 0.8, y: 6.2, w: 11.7, h: 0.4, fontSize: 11, color: '64748B' });
+  // P2-12 DLP 导出水印：封面标注导出人（泄漏可溯源）
+  if (data.exportedBy) {
+    cover.addText(`导出人：${data.exportedBy} · 本文件含访问水印，严禁外传`, { x: 0.8, y: 6.55, w: 11.7, h: 0.35, fontSize: 10, color: '475569' });
+  }
 
   // 2. 高管摘要
   const summary = pptx.addSlide();
@@ -136,7 +143,7 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
   summary.addText(data.summary || '本报告由 AI 基于数据源自动生成，供管理层快速掌握经营全貌。', {
     x: 0.5, y: 1.3, w: 12.3, h: 5.4, fontSize: 15, color: C.text, lineSpacing: 26, valign: 'top',
   });
-  addPageFooter(summary, pageNo, total);
+  addPageFooter(summary, pageNo, total, data.exportedBy || '');
 
   // 3. KPI 指标页
   const kpiSlide = pptx.addSlide();
@@ -163,7 +170,7 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
       }
     });
   }
-  addPageFooter(kpiSlide, pageNo, total);
+  addPageFooter(kpiSlide, pageNo, total, data.exportedBy || '');
 
   // 4. 每图一页（无图则纯文字解读兜底）
   for (const chart of charts) {
@@ -180,7 +187,7 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
     if (chart.commentary) {
       s.addText(chart.commentary, { x: 0.6, y: 5.85, w: 12.1, h: 1.1, fontSize: 13, color: C.text, valign: 'top' });
     }
-    addPageFooter(s, pageNo, total);
+    addPageFooter(s, pageNo, total, data.exportedBy || '');
   }
 
   // 5. 结论与建议（无洞察则跳过）
@@ -199,7 +206,7 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
       if (ins.actionItem) body.push({ text: `  建议：${ins.actionItem}`, options: { fontSize: 11, color: C.indigo, bold: true } });
       s.addText(body, { x: 1.35, y: y + 0.32, w: 11.3, h: Math.max(0.3, rowH - 0.4), valign: 'top' });
     });
-    addPageFooter(s, pageNo, total);
+    addPageFooter(s, pageNo, total, data.exportedBy || '');
   }
 
   const out = await pptx.write({ outputType: 'nodebuffer' });

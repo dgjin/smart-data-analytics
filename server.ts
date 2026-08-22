@@ -27,6 +27,7 @@ import metricRoutes from './server/routes/metrics';
 import skillRoutes from './server/routes/skills';
 import queryContextRoutes from './server/routes/queryContext';
 import accessRequestRoutes from './server/routes/accessRequests';
+import exportRoutes from './server/routes/export';
 import helpRoutes from './server/routes/help';
 // P1-4 路由拆分：问数主链路 / 对话历史 / 报告三条业务线从本文件迁出
 import queryRoutes from './server/routes/query';
@@ -160,6 +161,8 @@ async function startServer() {
   app.use('/api/ops', opsMetricsRoutes);
   // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）
   app.use('/api/access-requests', accessRequestRoutes);
+  // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）
+  app.use('/api/export', exportRoutes);
 
   // Vite development middleware or production static handling
   if (process.env.NODE_ENV !== 'production') {

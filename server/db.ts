@@ -155,6 +155,26 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // P2-12 DLP 下载审批：超阈值 CSV 导出需 ADMIN 审批（一次性授权，导出成功后转 CONSUMED）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS download_requests (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL DEFAULT '',
+      department VARCHAR(100) NOT NULL DEFAULT '',
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      title VARCHAR(200) NOT NULL DEFAULT '',
+      row_count INT NOT NULL DEFAULT 0,
+      status ENUM('PENDING','APPROVED','REJECTED','CONSUMED') NOT NULL DEFAULT 'PENDING',
+      approver VARCHAR(50) NOT NULL DEFAULT '',
+      decide_note VARCHAR(300) NOT NULL DEFAULT '',
+      decided_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_dl_req_status (status, created_at),
+      INDEX idx_dl_req_user (user_id, data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // L6 审计层：智能问数全链路审计（含被拒绝的请求）
   await pool.query(`
     CREATE TABLE IF NOT EXISTS query_audit_log (

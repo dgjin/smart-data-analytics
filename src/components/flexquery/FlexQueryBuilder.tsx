@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { apiFetch } from '../../api/client';
+import { downloadServerCsv } from '../../utils/exportCsv';
 import { DynamicChart } from '../charts/DynamicChart';
 import { DataTable } from '../charts/DataTable';
 import { TableSchema, ChartConfig, ChartType } from '../../types/analytics';
@@ -428,25 +429,17 @@ export const FlexQueryBuilder: React.FC = () => {
   }, [result, dimensions, measures]);
   const pivotAvailable = pivot !== null;
 
-  const handleExportCsv = () => {
+  // P2-12 DLP：导出走服务端统一通道（溯源水印 + 超阈值下载审批）
+  const handleExportCsv = async () => {
     if (!result) return;
-    const cols = displayColumns;
-    const header = cols.map((c) => `"${(columnNames[c] || c).replace(/"/g, '""')}"`).join(',');
-    const lines = displayRows.map((r) =>
-      cols
-        .map((c) => {
-          const v = r[c];
-          return typeof v === 'number' ? String(v) : `"${String(v ?? '').replace(/"/g, '""')}"`;
-        })
-        .join(','),
-    );
-    const blob = new Blob(['\uFEFF' + [header, ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${queryName.trim() || selectedTable || 'flex-query'}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    showToast(`已导出 CSV（${displayRows.length} 行）`);
+    const out = await downloadServerCsv({
+      title: queryName.trim() || selectedTable || 'flex-query',
+      columns: displayColumns,
+      columnLabels: columnNames,
+      rows: displayRows,
+      dataSourceId: activeDataSourceId || undefined,
+    });
+    showToast(out.message);
   };
 
   // ---------- 固化 / 保存 ----------

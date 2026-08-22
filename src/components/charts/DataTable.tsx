@@ -7,6 +7,8 @@ import {
   ArrowUpDown,
   Table as TableIcon,
 } from 'lucide-react';
+import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { downloadServerCsv } from '../../utils/exportCsv';
 
 interface DataTableProps {
   data: Record<string, any>[];
@@ -28,6 +30,10 @@ export const DataTable: React.FC<DataTableProps> = ({
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
+  // P2-12 DLP：服务端导出的结果提示（成功/审批中/失败）
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const activeDataSourceId = useAnalyticsStore((s) => s.activeDataSourceId);
 
   // Auto detect columns if not provided
   const columns = useMemo(() => {
@@ -84,26 +90,20 @@ export const DataTable: React.FC<DataTableProps> = ({
   // 表头显示名：优先中文映射，悬浮提示原始列名
   const columnLabel = (col: string) => columnNames?.[col] || col;
 
-  // CSV Export
-  const exportCSV = () => {
-    if (!data || data.length === 0) return;
-    const headerRow = columns.map((col) => `"${columnLabel(col).replace(/"/g, '""')}"`).join(',');
-    const bodyRows = data.map((row) =>
-      columns
-        .map((col) => {
-          const cell = row[col] ?? '';
-          return `"${String(cell).replace(/"/g, '""')}"`;
-        })
-        .join(',')
-    );
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headerRow, ...bodyRows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${title || 'export_data'}_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // CSV Export（P2-12 DLP：统一走服务端通道，自动嵌入溯源水印；超阈值进下载审批）
+  const exportCSV = async () => {
+    if (!data || data.length === 0 || exporting) return;
+    setExporting(true);
+    setExportMsg(null);
+    const out = await downloadServerCsv({
+      title: title || 'export_data',
+      columns,
+      columnLabels: columnNames,
+      rows: data,
+      dataSourceId: activeDataSourceId || undefined,
+    });
+    setExportMsg(out.message);
+    setExporting(false);
   };
 
   if (!data || data.length === 0) {
@@ -142,16 +142,24 @@ export const DataTable: React.FC<DataTableProps> = ({
             />
           </div>
 
-          {/* Export CSV Button */}
+          {/* Export CSV Button（P2-12：服务端水印导出，超阈值自动进下载审批） */}
           <button
             onClick={exportCSV}
-            className="flex items-center space-x-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium transition-colors"
+            disabled={exporting}
+            className="flex items-center space-x-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
           >
             <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">导出 CSV</span>
+            <span className="hidden sm:inline">{exporting ? '导出中...' : '导出 CSV'}</span>
           </button>
         </div>
       </div>
+
+      {/* P2-12 导出结果提示（含水印说明 / 审批中提示） */}
+      {exportMsg && (
+        <div className="text-[11px] text-slate-400 bg-slate-950/60 border border-slate-800 rounded-lg px-3 py-1.5">
+          {exportMsg}
+        </div>
+      )}
 
       {/* Responsive Table Container */}
       <div className="overflow-x-auto border border-slate-800 rounded-xl">

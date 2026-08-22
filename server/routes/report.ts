@@ -380,9 +380,11 @@ router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddlew
   const data = normalizeExportData(req.body?.report ?? req.body);
   if (!data) {
     writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
-    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告导出参数无效' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告 导出参数无效' });
   }
-
+  // P2-12 DLP 导出水印：服务端注入导出人（覆盖前端传入，防伪造）
+  data.exportedBy = `${user.username}${user.department ? `（${user.department}）` : ''} · ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
+  
   try {
     const buffer = await buildReportPptx(data);
     writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
@@ -415,9 +417,11 @@ router.post('/export-pdf', express.json({ limit: '20mb' }), rateLimiter, authMid
   }
   // 方向白名单（portrait 竖版默认 / landscape 横版）
   const orientation = req.body?.orientation === 'landscape' ? 'landscape' : 'portrait';
+  // P2-12 DLP 导出水印：页脚嵌入导出人（服务端注入，防伪造）
+  const watermark = `导出人: ${user.username}${user.department ? `（${user.department}）` : ''} · ${new Date().toLocaleString('zh-CN', { hour12: false })} · 严禁外传`;
 
   try {
-    const pdf = await runPdfGenerator({ ...data, orientation });
+    const pdf = await runPdfGenerator({ ...data, orientation, watermark });
     writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.pdf'))}`);

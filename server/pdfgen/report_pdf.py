@@ -80,8 +80,8 @@ def styles():
     }
 
 
-def header_footer_factory(page_w, page_h, title_text):
-    """页眉：报告标题（左）+ 系统名（右）；页脚：分隔线 + 页码"""
+def header_footer_factory(page_w, page_h, title_text, watermark=''):
+    """页眉：报告标题（左）+ 系统名（右）；页脚：分隔线 + 页码 + DLP 导出水印"""
     def on_page(canvas, doc):
         canvas.saveState()
         canvas.setFont(FONT, 8)
@@ -93,6 +93,9 @@ def header_footer_factory(page_w, page_h, title_text):
         canvas.line(18 * mm, page_h - 14 * mm, page_w - 18 * mm, page_h - 14 * mm)
         canvas.line(18 * mm, 14 * mm, page_w - 18 * mm, 14 * mm)
         canvas.drawCentredString(page_w / 2, 9 * mm, f'第 {doc.page} 页')
+        # P2-12 DLP 导出水印：页脚右侧（泄漏可溯源）
+        if watermark:
+            canvas.drawRightString(page_w - 18 * mm, 9 * mm, watermark[:80])
         canvas.restoreState()
     return on_page
 
@@ -225,7 +228,7 @@ def build_pdf(data):
         title=str(data.get('title', '分析报告')), author='NL2SQL Pro',
     )
     frame = Frame(margin, 20 * mm, avail_w, page_h - 42 * mm, id='main')
-    doc.addPageTemplates([PageTemplate(id='page', frames=[frame], onPage=header_footer_factory(page_w, page_h, str(data.get('title', ''))))])
+    doc.addPageTemplates([PageTemplate(id='page', frames=[frame], onPage=header_footer_factory(page_w, page_h, str(data.get('title', '')), str(data.get('watermark', ''))))])
 
     story = []
     # 标题区
