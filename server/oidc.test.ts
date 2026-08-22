@@ -73,17 +73,33 @@ describe('oidcConfig / isOidcEnabled: 配置解析', () => {
 });
 
 describe('state 一次性票据', () => {
-  it('创建后可消费一次，二次消费失败', () => {
-    const s = createState();
-    expect(consumeState(s)).toBe(true);
-    expect(consumeState(s)).toBe(false);
+  it('创建后可消费一次，二次消费失败', async () => {
+    const s = await createState();
+    expect(await consumeState(s)).toBe(true);
+    expect(await consumeState(s)).toBe(false);
   });
 
-  it('未知 state 与过期 state 均拒绝；创建时清理过期项', () => {
-    expect(consumeState('nonexistent')).toBe(false);
+  it('未知 state 与过期 state 均拒绝；创建时清理过期项', async () => {
+    expect(await consumeState('nonexistent')).toBe(false);
     const now = Date.now();
-    const expired = createState(now - 700_000);
-    expect(consumeState(expired, now)).toBe(false);
+    const expired = await createState(now - 700_000);
+    expect(await consumeState(expired, now)).toBe(false);
+  });
+
+  it('P2-13 Redis 模式：state 经 StateStore 外置且一次性消费（模拟多实例共享）', async () => {
+    const { setStateStoreForTest, MemoryStateStore } = await import('./stateStore');
+    const shared = new MemoryStateStore(); // 两个“实例”共享同一存储
+    setStateStoreForTest(shared);
+    process.env.REDIS_URL = 'redis://127.0.0.1:6379';
+    try {
+      const s = await createState(); // 实例 A 发起登录
+      expect(await shared.get(`oidc:st:${s}`)).toBe('1');
+      expect(await consumeState(s)).toBe(true); // 实例 B 回调消费
+      expect(await consumeState(s)).toBe(false); // 一次性
+    } finally {
+      delete process.env.REDIS_URL;
+      setStateStoreForTest(null);
+    }
   });
 });
 

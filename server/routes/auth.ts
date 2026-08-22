@@ -118,7 +118,7 @@ router.get('/oidc/callback', rateLimiter, async (req, res) => {
   const code = typeof req.query.code === 'string' ? req.query.code : '';
   const state = typeof req.query.state === 'string' ? req.query.state : '';
   if (!code || !state) return fail('OIDC 回调参数缺失');
-  if (!consumeState(state)) return fail('OIDC state 无效或已过期，请重新登录');
+  if (!(await consumeState(state))) return fail('OIDC state 无效或已过期，请重新登录');
 
   try {
     const accessToken = await exchangeCode(code);

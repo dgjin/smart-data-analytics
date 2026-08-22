@@ -190,6 +190,27 @@ export function setStateStoreForTest(store: StateStore | null): void {
   current = store;
 }
 
+/**
+ * P2-13 进程启动预热：等待 Redis 连接就绪。
+ * ioredis 禁用 offlineQueue（故障快速暴露），但代价是进程启动后连接建立的毫秒级窗口内
+ * 命令立即报错（限流 fail-closed 429 / 缓存全未命中 / OIDC 登录失败）。启动时调用本函数
+ * 预热可消除该冷启动窗口；超时仅返回 false 由调用方告警，不阻断启动（降级路径均安全）。
+ */
+export async function warmStateStore(maxWaitMs = 5000): Promise<boolean> {
+  if (!isRedisEnabled()) return true;
+  const store = getStateStore();
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    try {
+      await store.get('__warm__');
+      return true;
+    } catch {
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+}
+
 /** 当前是否启用 Redis 外置（供健康检查/文档展示） */
 export function isRedisEnabled(): boolean {
   return Boolean(process.env.REDIS_URL && process.env.REDIS_URL.trim());

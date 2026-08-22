@@ -1,7 +1,8 @@
 /**
  * P2-11 OIDC 统一身份认证（授权码流程 + JIT 建号）。
  * 零新依赖：discovery/authorize/token/userinfo 均走全局 fetch；
- * state 为一次性随机串存内存 Map（10 分钟 TTL）防 CSRF。
+ * state 为一次性随机串（10 分钟 TTL）防 CSRF：默认内存 Map；配置 REDIS_URL 后经
+ * StateStore 外置（P2-13 多实例：发起登录与回调可能落在不同实例，state 必须全局可见）。
  * 未配置 OIDC_ISSUER + OIDC_CLIENT_ID 时 isOidcEnabled()=false（登录页不展示 SSO 入口）。
  *
  * 环境变量：
@@ -13,6 +14,7 @@
 import { randomBytes } from 'crypto';
 import { getPool } from './db';
 import { hashPassword } from './passwords';
+import { getStateStore, isRedisEnabled } from './stateStore';
 import type { AuthUser, UserRole } from './auth';
 
 export interface OidcConfig {
@@ -78,18 +80,33 @@ export function resetOidcStateForTest(): void {
 }
 
 // ---- state 一次性票据（防 CSRF，10 分钟 TTL）----
+const STATE_TTL_SEC = 600;
 const stateStore = new Map<string, number>();
+const stateKey = (state: string) => `oidc:st:${state}`;
 
-export function createState(now = Date.now()): string {
+export async function createState(now = Date.now()): Promise<string> {
+  const state = randomBytes(24).toString('base64url');
+  if (isRedisEnabled()) {
+    // 写失败直接抛错：登录发起失败（可重试），优于签发一个无法校验的 state
+    await getStateStore().setEx(stateKey(state), '1', STATE_TTL_SEC);
+    return state;
+  }
   for (const [k, exp] of stateStore) {
     if (exp <= now) stateStore.delete(k);
   }
-  const state = randomBytes(24).toString('base64url');
-  stateStore.set(state, now + 600_000);
+  stateStore.set(state, now + STATE_TTL_SEC * 1000);
   return state;
 }
 
-export function consumeState(state: string, now = Date.now()): boolean {
+export async function consumeState(state: string, now = Date.now()): Promise<boolean> {
+  if (isRedisEnabled()) {
+    try {
+      // GETDEL 原子一次性消费；存储异常按无效 state 处理（fail-closed 拒绝登录，安全方向）
+      return (await getStateStore().getDel(stateKey(state))) !== null;
+    } catch {
+      return false;
+    }
+  }
   const exp = stateStore.get(state);
   if (!exp || exp <= now) return false;
   stateStore.delete(state); // 一次性消费
@@ -105,7 +122,7 @@ export async function buildAuthorizeUrl(): Promise<string> {
     client_id: cfg.clientId,
     redirect_uri: cfg.redirectUri,
     scope: 'openid profile email',
-    state: createState(),
+    state: await createState(),
   });
   return `${ep.authorizationEndpoint}?${params.toString()}`;
 }

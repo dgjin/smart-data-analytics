@@ -12,6 +12,7 @@ dotenv.config({ path: path.join(__dirname, '.env.local') });
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 import { initSchema } from './server/db';
+import { isRedisEnabled, warmStateStore } from './server/stateStore';
 import { authMiddleware, requireRole } from './server/auth';
 import { llmEngineLabel, llmEngineInfo, listAvailableModels } from './server/llmClient';
 import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llmUsage';
@@ -70,6 +71,14 @@ async function startServer() {
 
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
+
+  // P2-13 多实例：启动时预热 Redis 连接（消除 offlineQueue 禁用在连接建立窗口内的
+  // 限流 fail-closed 429 / 缓存全未命中冷启动抖动）；超时仅告警不阻断（降级路径安全）
+  if (isRedisEnabled()) {
+    const warm = await warmStateStore(5000);
+    if (warm) console.log('[stateStore] Redis ready（多实例共享状态已外置）');
+    else console.warn('[stateStore] Redis 预热超时（5s），启动继续——限流将 fail-closed、缓存 fail-open 直至连接恢复');
+  }
 
   // M3 中间表清洗链：启动时先清理一次过期中间表，之后每小时定时清理
   startChainCleanupScheduler();

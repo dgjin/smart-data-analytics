@@ -1,0 +1,44 @@
+# P2-13 多实例部署示例：app × 2（无状态副本）+ Redis（共享状态）+ Nginx（负载均衡）
+# 用法：
+#   docker compose -f docker-compose.multi-instance.yml up -d --build
+#   访问 http://localhost:8080（Nginx 轮询分发到 app1/app2）
+# 说明：本 compose 仅编排应用层；MySQL 请使用既有实例（MYSQL_HOST 指向可达地址，
+#   容器外用 host.docker.internal 回宿主机）。Ollama 同理（OLLAMA_URL）。
+services:
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6379:6379'
+
+  app1: &app
+    build: .
+    environment: &app-env
+      HOST: 0.0.0.0
+      PORT: '3000'
+      JWT_SECRET: ${JWT_SECRET:?必须设置且所有实例一致}
+      MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER:?}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smart_analytics}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      REDIS_URL: redis://redis:6379
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
+    depends_on:
+      - redis
+
+  app2:
+    <<: *app
+    environment: *app-env
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - '8080:80'
+    volumes:
+      - ./deploy/nginx.multi-instance.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app1
+      - app2
