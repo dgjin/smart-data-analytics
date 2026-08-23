@@ -109,6 +109,50 @@ export async function assessComplexity(
   }
 }
 
+// ---------- 清洗步骤 SQL 纠错 ----------
+
+function buildRepairSystem(schema: any[]): string {
+  return `你是一个 SQL 纠错引擎。一条数据清洗 SQL 在源库执行失败，请根据错误信息输出修正后的 SQL。
+
+数据库 Schema（已经过权限与敏感字段过滤）:
+${JSON.stringify(schema)}
+
+【强制约束】
+- 仅输出 JSON：{"sql":"修正后的一条 SELECT 语句"}
+- 表名与列名必须逐字来自上述 Schema 的 name 字段，严禁编造列名、表名或占位符
+- 清洗步骤只能直接查询 Schema 中的真实源表，不能引用其他步骤的结果
+- 若错误是 Unknown column：用 Schema 中同表语义最接近的真实列替换；没有合适列则从 SELECT/GROUP BY 中移除该列
+- 若错误是表不存在：改用 Schema 中语义最接近的真实表
+- 保持原查询用途不变
+
+请只输出纯 JSON，不要包含 markdown 代码块标记或其他说明文字。`;
+}
+
+/**
+ * 清洗步骤失败后的纠错重试（每步最多一次）：模型偶发编造列名/表名
+ *（真实事故：tbl_report_submission_data 上编造 template_id 致 Unknown column），
+ * 带执行错误让模型自纠；输出不合规或与原 SQL 相同则放弃重试。
+ */
+export async function repairChainStepSql(
+  purpose: string,
+  failedSql: string,
+  execError: string,
+  schema: any[]
+): Promise<string | null> {
+  try {
+    const userMsg = `步骤用途：${purpose}\n失败的 SQL：${failedSql.slice(0, 1500)}\n执行错误：${String(execError).slice(0, 300)}\n请输出修正后的 SQL。`;
+    const text = await callLLMJson(buildRepairSystem(schema), userMsg, [], { route: sqlStageRoute() });
+    if (!text) return null;
+    const parsed = safeParseJson(text);
+    const sql = typeof parsed?.sql === 'string' ? parsed.sql.trim() : '';
+    if (!sql || !/^select\b/i.test(sql) || sql.length > 4000) return null;
+    if (sql.replace(/\s+/g, ' ').toLowerCase() === failedSql.replace(/\s+/g, ' ').trim().toLowerCase()) return null;
+    return sql;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- 中间表物化 ----------
 
 /** 列名安全化：仅保留合法标识符（源库结果列名），敏感列（裸名）整体剔除 */
@@ -225,7 +269,21 @@ export async function runAnalysisChain(input: ChainInput): Promise<ChainOutcome>
   for (let i = 0; i < input.assessment.steps.length; i++) {
     const step = input.assessment.steps[i];
     const t0 = Date.now();
-    const exec = await executeSafeSql(input.dataSourceId, step.sql, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS);
+    let exec = await executeSafeSql(input.dataSourceId, step.sql, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS);
+    let healed = false;
+    if (exec.ok !== true) {
+      // 纠错重试一次：模型偶发编造列名/表名，携带执行错误让模型自纠（v0.8.2 计划自愈同款模式）
+      const repaired = await repairChainStepSql(step.purpose, step.sql, exec.reason, input.schema);
+      if (repaired) {
+        const retryExec = await executeSafeSql(input.dataSourceId, repaired, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS);
+        if (retryExec.ok === true) {
+          exec = retryExec;
+          healed = true;
+        } else {
+          exec = { ok: false, reason: `${exec.reason}；纠错重试仍失败：${retryExec.reason}` };
+        }
+      }
+    }
     if (exec.ok !== true) {
       stepSummaries.push({ purpose: step.purpose, sql: step.sql, rowCount: -1, durationMs: Date.now() - t0, ok: false, error: exec.reason });
       input.onTrace?.({
@@ -253,7 +311,7 @@ export async function runAnalysisChain(input: ChainInput): Promise<ChainOutcome>
     stepSummaries.push({ purpose: step.purpose, sql: exec.result.finalSql, rowCount: info.rowCount, durationMs: Date.now() - t0, ok: true, tableName: info.tableName });
     input.onTrace?.({
       stepType: 'intermediate',
-      title: `数据清洗（第 ${i + 1} 步）：${step.purpose}`,
+      title: `数据清洗（第 ${i + 1} 步）：${step.purpose}${healed ? '（纠错自愈）' : ''}`,
       inputSummary: step.purpose,
       sqlText: exec.result.finalSql,
       outputSummary: `落库中间表 ${info.tableName}（${info.rowCount} 行，列：${info.columns.join(', ')}）`,

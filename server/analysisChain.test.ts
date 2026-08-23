@@ -221,6 +221,95 @@ describe('runAnalysisChain', () => {
     expect(traces.some((t) => t.stepType === 'intermediate' && t.status === 'fail')).toBe(true);
     expect(traces.some((t) => t.stepType === 'intermediate' && t.status !== 'fail')).toBe(true);
   });
+
+  it('步骤执行失败后带错误信息纠错重试自愈', async () => {
+    const llmBefore = (callLLMJson as any).mock.calls.length;
+    (executeSafeSql as any)
+      .mockResolvedValueOnce({ ok: false, reason: "SQL 执行失败：Unknown column 'template_id' in 'field list'" })
+      .mockResolvedValueOnce({ ok: true, result: { rows: [{ submission_id: 7, n: 2 }], rowCount: 1, truncated: false, finalSql: 'SELECT submission_id, COUNT(*) n FROM report_submission_data GROUP BY submission_id LIMIT 5000' } });
+    (callLLMJson as any).mockResolvedValueOnce(JSON.stringify({ sql: 'SELECT submission_id, COUNT(*) n FROM report_submission_data GROUP BY submission_id' }));
+    routeMock([
+      { match: /SELECT id, table_name .*analysis_intermediate_tables/, result: () => [[]] },
+      { match: /^CREATE TABLE/i, result: () => [{}] },
+      { match: /^INSERT INTO `ait_/i, result: () => [{}] },
+      { match: /INSERT INTO analysis_intermediate_tables/, result: () => [{}] },
+    ]);
+    const traces: any[] = [];
+    const out = await runAnalysisChain({
+      question: 'q',
+      dataSourceId: 'ds_a',
+      schema: [],
+      sensitiveRemoved: [],
+      assessment: {
+        complexity: 'multi-step',
+        steps: [{ purpose: '按模板聚合填报数据', sql: 'SELECT template_id, COUNT(*) n FROM report_submission_data GROUP BY template_id' }],
+      },
+      userId: 1,
+      traceId: 'tr_x',
+      onTrace: (s) => traces.push(s),
+    });
+    expect(out.tables).toHaveLength(1);
+    expect(out.stepSummaries[0].ok).toBe(true);
+    expect((callLLMJson as any).mock.calls.length).toBe(llmBefore + 1);
+    expect(traces.some((t) => t.title.includes('纠错自愈'))).toBe(true);
+    expect(traces.every((t) => t.status !== 'fail')).toBe(true);
+  });
+
+  it('纠错重试仍失败则合并错误留痕且不阻断后续步骤', async () => {
+    (executeSafeSql as any)
+      .mockResolvedValueOnce({ ok: false, reason: "SQL 执行失败：Unknown column 'x' in 'field list'" })
+      .mockResolvedValueOnce({ ok: false, reason: "SQL 执行失败：Unknown column 'y' in 'field list'" });
+    (callLLMJson as any).mockResolvedValueOnce(JSON.stringify({ sql: 'SELECT y FROM t' }));
+    const traces: any[] = [];
+    const out = await runAnalysisChain({
+      question: 'q',
+      dataSourceId: 'ds_a',
+      schema: [],
+      sensitiveRemoved: [],
+      assessment: {
+        complexity: 'multi-step',
+        steps: [{ purpose: '坏步骤', sql: 'SELECT x FROM t' }],
+      },
+      userId: 1,
+      traceId: 'tr_x',
+      onTrace: (s) => traces.push(s),
+    });
+    expect(out.tables).toHaveLength(0);
+    expect(out.stepSummaries[0].ok).toBe(false);
+    expect(out.stepSummaries[0].error).toContain('纠错重试仍失败');
+    expect(traces.some((t) => t.status === 'fail')).toBe(true);
+  });
+
+  it('纠错输出非法（非 JSON / 非 SELECT / 与原 SQL 相同）时不发起重试执行', async () => {
+    const execBefore = (executeSafeSql as any).mock.calls.length;
+    (executeSafeSql as any).mockResolvedValue({ ok: false, reason: 'Unknown column' });
+    (callLLMJson as any).mockResolvedValueOnce('garbage');
+    const out1 = await runAnalysisChain({
+      question: 'q',
+      dataSourceId: 'ds_a',
+      schema: [],
+      sensitiveRemoved: [],
+      assessment: { complexity: 'multi-step', steps: [{ purpose: 'p', sql: 'SELECT x FROM t' }] },
+      userId: 1,
+      traceId: 'tr_1',
+    });
+    expect(out1.stepSummaries[0].ok).toBe(false);
+    expect((executeSafeSql as any).mock.calls.length).toBe(execBefore + 1);
+    // 与原 SQL 相同的纠错输出也不重试
+    (callLLMJson as any).mockResolvedValueOnce(JSON.stringify({ sql: 'SELECT x FROM t' }));
+    const out2 = await runAnalysisChain({
+      question: 'q',
+      dataSourceId: 'ds_a',
+      schema: [],
+      sensitiveRemoved: [],
+      assessment: { complexity: 'multi-step', steps: [{ purpose: 'p', sql: 'SELECT x FROM t' }] },
+      userId: 1,
+      traceId: 'tr_2',
+    });
+    expect(out2.stepSummaries[0].ok).toBe(false);
+    expect((executeSafeSql as any).mock.calls.length).toBe(execBefore + 2);
+    (executeSafeSql as any).mockReset();
+  });
 });
 
 describe('cleanupExpiredIntermediateTables', () => {
