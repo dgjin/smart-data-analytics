@@ -64,7 +64,7 @@
 - [Ollama](https://ollama.com)（本地 AI 引擎）：
 
 ```bash
-ollama pull deepseek-r1:32b      # 主推理模型（可用 LLM_MODEL 覆盖）
+ollama pull qwen3.8:27b-mlx      # 主推理模型（MLX 优化版；勿用 deepseek-r1 等推理模型，思考链分钟级会导致问数超时）
 ollama pull nomic-embed-text     # embedding 模型（圈表精排用，可选）
 ```
 
@@ -123,7 +123,7 @@ docker run -d -p 3000:3000 \
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | 系统元数据库连接 | 127.0.0.1:3306 / smart_analytics |
-| `LLM_MODEL` | Ollama 推理模型 | deepseek-r1:32b |
+| `LLM_MODEL` | Ollama 主模型（推荐 qwen3.8:27b-mlx；勿用 deepseek-r1 系列推理模型，思考链分钟级会致问数超时） | deepseek-r1:32b |
 | `OLLAMA_URL` | Ollama 服务地址 | http://localhost:11434 |
 | `OLLAMA_TIMEOUT_MS` | LLM 推理超时（毫秒） | 180000 |
 | `EMBED_MODEL` | embedding 模型 | nomic-embed-text |
