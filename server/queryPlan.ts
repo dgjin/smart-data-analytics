@@ -156,10 +156,26 @@ ${JSON.stringify(schema)}
 请只输出纯 JSON，不要包含 markdown 代码块标记或其他说明文字。`;
 }
 
-/** 调用 LLM 生成分析计划；失败抛错由调用方处理 */
+/** 调用 LLM 生成分析计划；首次输出未过结构校验时纠偏重试一次，仍失败抛错由调用方处理 */
 export async function generateQueryPlan(question: string, schema: any[]): Promise<QueryPlan> {
-  const text = await callLLMJson(buildPlanSystem(schema), question);
+  const system = buildPlanSystem(schema);
+  const text = await callLLMJson(system, question);
   const plan = parseQueryPlan(text, question);
-  if (!plan) throw new Error('计划生成结果未通过结构校验');
-  return plan;
+  if (plan) return plan;
+  // 模型偶发输出偏移（非 JSON / 缺字段）：记录原文片段便于诊断，纠偏重试一次自愈
+  console.error('[Plan] invalid structure, raw output head:', text.slice(0, 300));
+  const retryText = await callLLMJson(system, question, [
+    { role: 'assistant', content: text.slice(0, 2000) },
+    {
+      role: 'user',
+      // 纯文字描述契约、不给可照抄的字面示例（防小模型拷贝示例充当输出）
+      content: '上一次输出不符合契约。请重新只输出一个纯 JSON 对象，不要 markdown 标记与任何额外文字，必填字段：understanding（非空中文字符串，你对问题的理解）、steps（至少 1 步的数组，每步必须含非空中文 title，可选 type/description/sql）、relatedTables（必须来自 Schema 的表名数组）、complexity（simple 或 multi-step）。',
+    },
+  ]);
+  const retryPlan = parseQueryPlan(retryText, question);
+  if (!retryPlan) {
+    console.error('[Plan] retry invalid, raw output head:', retryText.slice(0, 300));
+    throw new Error('计划生成结果未通过结构校验');
+  }
+  return retryPlan;
 }

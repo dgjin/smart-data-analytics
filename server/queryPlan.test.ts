@@ -130,8 +130,25 @@ describe('generateQueryPlan', () => {
     expect(plan.question).toBe('各部门销售额');
   });
 
-  it('LLM 输出非法时抛错', async () => {
-    (callLLMJson as any).mockResolvedValueOnce('garbage');
+  it('LLM 输出非法且纠偏重试仍非法时抛错', async () => {
+    (callLLMJson as any).mockResolvedValue('garbage');
     await expect(generateQueryPlan('q', [])).rejects.toThrow(/结构校验/);
+    (callLLMJson as any).mockReset();
+  });
+
+  it('首次输出非法时纠偏重试自愈（第二次合规则返回计划）', async () => {
+    const before = (callLLMJson as any).mock.calls.length;
+    (callLLMJson as any)
+      .mockResolvedValueOnce('garbage')
+      .mockResolvedValueOnce(JSON.stringify({
+        understanding: 'u',
+        steps: [{ type: 'aggregate', title: '聚合', description: 'd' }],
+        relatedTables: ['t1'],
+        complexity: 'simple',
+      }));
+    const plan = await generateQueryPlan('各部门销售额', []);
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.question).toBe('各部门销售额');
+    expect((callLLMJson as any).mock.calls.length).toBe(before + 2);
   });
 });
