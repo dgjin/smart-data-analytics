@@ -67,6 +67,17 @@ describe('compareRowSets', () => {
     expect(compareRowSets([{ v: 0.1 + 0.2 }], [{ v: 0.3 }])).toBe(true);
   });
 
+  it('金额容差：ROUND(x,2) 与全精度 golden 等价；口径差异不误放', () => {
+    // 系统常用 ROUND(SUM(x),2) 写法 → 与全精度 golden 差在半分钱内，判一致
+    expect(compareRowSets([{ v: 419538967830.73 }], [{ v: 419538967830.726625 }])).toBe(true);
+    // 超过半分钱的差异判不一致（口径错误差异以千万计，此处验证容差边界）
+    expect(compareRowSets([{ v: 100.01 }], [{ v: 100 }])).toBe(false);
+    // 锁错快照期级别的差异必须判 fail
+    expect(compareRowSets([{ v: 6754900374804.33 }], [{ v: 6756457114688.569613 }])).toBe(false);
+    // 多列行内排序 + 数值容差混合
+    expect(compareRowSets([{ a: '金融', v: 12.344 }], [{ b: 12.34, c: '金融' }])).toBe(true);
+  });
+
   it('非数组一律不等价', () => {
     expect(compareRowSets(null as any, [])).toBe(false);
     expect(compareRowSets([], undefined as any)).toBe(false);

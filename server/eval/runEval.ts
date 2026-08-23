@@ -1,5 +1,6 @@
 /**
- * 评测 CLI 入口：npm run eval [-- --limit 5 | --case c01,c07 | --base-url http://... | --min-accuracy 85]
+ * 评测 CLI 入口：npm run eval [-- --limit 5 | --case c01,c07 | --file server/eval/evalCases.jichuang.json | --base-url http://... | --min-accuracy 85]
+ * --file：指定评测集文件（默认 server/eval/evalCases.json），宽表评测集走独立文件
  * --min-accuracy：准确率阈值（0-100 百分比或 0-1 小数），低于阈值以非零码退出（P0-2 CI 门禁阻断依据）
  */
 import dotenv from 'dotenv';
@@ -14,11 +15,12 @@ dotenv.config({ path: join(ROOT, '.env.local') });
 dotenv.config({ path: join(ROOT, '.env') });
 
 function parseArgs(argv: string[]) {
-  const opts: { limit?: number; caseIds?: string[]; baseUrl?: string; minAccuracy?: number } = {};
+  const opts: { limit?: number; caseIds?: string[]; baseUrl?: string; minAccuracy?: number; casesFile?: string } = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') opts.limit = Number(argv[++i]) || undefined;
     else if (a === '--case') opts.caseIds = String(argv[++i] || '').split(',').filter(Boolean);
+    else if (a === '--file') opts.casesFile = argv[++i];
     else if (a === '--base-url') opts.baseUrl = argv[++i];
     else if (a === '--min-accuracy') {
       const v = Number(argv[++i]);

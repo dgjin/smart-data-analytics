@@ -103,20 +103,51 @@ export function normalizeRow(row: any): string {
 }
 
 /**
+ * 单元格等值判定：数值按容差比较，非数值按归一化字符串等值。
+ * 容差取 max(0.005, 相对 1e-9)：吸收系统常用的 ROUND(x,2) 金额写法与全精度 golden 的差（半分钱内），
+ * 而口径错误（锁错快照期/漏版本过滤）造成的差异以千万计，远超容差，不会被误判通过。
+ */
+export function cellsEqual(a: any, b: any): boolean {
+  const sa = a === null || a === undefined ? '' : String(a).trim();
+  const sb = b === null || b === undefined ? '' : String(b).trim();
+  const na = Number(sa);
+  const nb = Number(sb);
+  if (sa !== '' && sb !== '' && Number.isFinite(na) && Number.isFinite(nb)) {
+    return Math.abs(na - nb) <= Math.max(0.005, Math.abs(nb) * 1e-9);
+  }
+  return normalizeCell(a) === normalizeCell(b);
+}
+
+/** 行规范化：排序键（6 位小数字符串元组，用于多重集对齐）+ 同序原始取值（用于容差比较） */
+function canonRow(row: any): { key: string; raws: any[] } {
+  if (!row || typeof row !== 'object') return { key: normalizeCell(row), raws: [row] };
+  const pairs = Object.keys(row)
+    .map((k) => ({ norm: normalizeCell(row[k]), raw: row[k] }))
+    .sort((x, y) => (x.norm < y.norm ? -1 : x.norm > y.norm ? 1 : 0));
+  return { key: JSON.stringify(pairs.map((p) => p.norm)), raws: pairs.map((p) => p.raw) };
+}
+
+/**
  * 结果集等价比较（关系语义）：
- * - 默认无序多重集比较（排序后逐行比对）
+ * - 默认无序多重集比较（按排序键对齐后逐行容差比较）
  * - ordered=true 时按行序比较（行内取值仍排序，容忍列序差异）
+ * - 数值单元格按 cellsEqual 容差比较（吸收 ROUND(x,2) 写法差）
  */
 export function compareRowSets(a: any[], b: any[], ordered = false): boolean {
   if (!Array.isArray(a) || !Array.isArray(b)) return false;
   if (a.length !== b.length) return false;
-  const na = a.map(normalizeRow);
-  const nb = b.map(normalizeRow);
+  const na = a.map(canonRow);
+  const nb = b.map(canonRow);
   if (!ordered) {
-    na.sort();
-    nb.sort();
+    const byKey = (x: { key: string }, y: { key: string }) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0);
+    na.sort(byKey);
+    nb.sort(byKey);
   }
-  return na.every((v, i) => v === nb[i]);
+  return na.every((ra, i) => {
+    const rb = nb[i];
+    if (ra.raws.length !== rb.raws.length) return false;
+    return ra.raws.every((v, j) => cellsEqual(v, rb.raws[j]));
+  });
 }
 
 /** 从 SQL 中提取引用的表名（golden SQL 执行时的白名单，来源可信故从宽） */
@@ -163,6 +194,8 @@ export interface RunEvalOptions {
   username?: string;
   password?: string;
   dataSourceId?: string;
+  /** 评测集文件路径（默认 evalCases.json）；宽表等其他数据源的评测集以独立文件存放，经 --file 指定 */
+  casesFile?: string;
   /** 仅运行指定用例（逗号分隔 id） */
   caseIds?: string[];
   /** 仅运行前 N 条（分批跑，规避每小时配额） */
@@ -179,7 +212,7 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
   const password = opts.password || process.env.EVAL_PASS || 'admin123';
   const timeoutMs = opts.perCaseTimeoutMs || 10 * 60 * 1000;
 
-  const suite = loadEvalCases();
+  const suite = loadEvalCases(opts.casesFile);
   const dataSourceId = opts.dataSourceId || suite.dataSourceId;
   let cases = suite.cases;
   if (opts.caseIds && opts.caseIds.length > 0) {
@@ -244,7 +277,8 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
             result.status = 'error';
             result.reason = data?.refused === true ? '意外拒答' : data?.needClarification === true ? '意外触发澄清' : (data?.error || '响应缺少结果行');
           } else {
-            result.generatedSql = String(data?.result?.finalSql || data?.executedSql || '');
+            // 响应体 SQL 字段：result.finalSql（执行层）→ result.generatedSQL（NL2SQL 链路）→ 顶层 executedSql
+            result.generatedSql = String(data?.result?.finalSql || data?.result?.generatedSQL || data?.executedSql || '');
             const golden = await executeGoldenSql(dataSourceId, c.goldenSql);
             if (golden.ok === false) {
               result.status = 'error';

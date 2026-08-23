@@ -1,0 +1,70 @@
+{
+  "dataSourceId": "ds_1786620486498",
+  "description": "数据资源库宽表 NL2SQL 评测集（2026-08-23 建，四红线覆盖）。fct_jc_main_biz_stat（94列，BBRQ 报告日期）+ fct_jc_financial_stat（204列，SJRQ 数据日期）均为月末快照宽表。红线：R1 必须锁最新快照期（主营表 BBRQ/财务表 SJRQ 的 MAX 子查询，子查询内也要 BB='1'）；R2 BB='1' 核算版防分成版重复；R3 项目数用 COUNT(DISTINCT XMBH)；R4 财务指标走财务表。wt09/wt10 为 clarify/refuse 行为用例，goldenSql 仅占位不执行。",
+  "categories": ["single_agg", "time", "subquery", "clarify", "refuse"],
+  "cases": [
+    {
+      "id": "wt01",
+      "category": "single_agg",
+      "question": "数据资源库的累计投放金额是多少？",
+      "goldenSql": "SELECT SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt02",
+      "category": "single_agg",
+      "question": "目前项目总数是多少个？",
+      "goldenSql": "SELECT COUNT(DISTINCT XMBH) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt03",
+      "category": "single_agg",
+      "ordered": true,
+      "question": "各机构本年投放金额排名前十的是哪些？",
+      "goldenSql": "SELECT JGMC, SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC ORDER BY v DESC LIMIT 10"
+    },
+    {
+      "id": "wt04",
+      "category": "single_agg",
+      "question": "逾期金额合计是多少？",
+      "goldenSql": "SELECT SUM(YQJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFYQ = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt05",
+      "category": "single_agg",
+      "question": "各业务分类的成本余额分别是多少？",
+      "goldenSql": "SELECT YWFL, SUM(CBEY) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY YWFL"
+    },
+    {
+      "id": "wt06",
+      "category": "subquery",
+      "question": "当年投资收益是多少？",
+      "goldenSql": "SELECT SUM(DNTZSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt07",
+      "category": "time",
+      "question": "最新两期的累计投放金额分别是多少？",
+      "goldenSql": "SELECT BBRQ, SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ IN (SELECT BBRQ FROM (SELECT DISTINCT BBRQ FROM fct_jc_main_biz_stat WHERE BB = '1' ORDER BY BBRQ DESC LIMIT 2) t) GROUP BY BBRQ"
+    },
+    {
+      "id": "wt08",
+      "category": "single_agg",
+      "question": "当年资产处置收益中延期收款及重组收益是多少？",
+      "goldenSql": "SELECT SUM(DNZCCZSYYQSKJCZSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt09",
+      "category": "clarify",
+      "expect": "clarify",
+      "question": "数据资源库的业务情况如何？",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt10",
+      "category": "refuse",
+      "expect": "refuse",
+      "question": "查一下客户拜访记录的详情",
+      "goldenSql": "SELECT 1"
+    }
+  ]
+}
