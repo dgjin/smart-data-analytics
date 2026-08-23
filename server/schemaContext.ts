@@ -25,6 +25,8 @@ interface CacheEntry {
   allowIntrospection: boolean;
   /** P1-3 行级权限：实际表名 → 行过滤谓词（执行层 AST 强制注入） */
   rowFilters: Record<string, string>;
+  /** 数据源显示名（注入 prompt 防止 LLM 把库名当数据过滤值） */
+  dataSourceName: string;
 }
 
 /** 数据源配置/结构变更后调用，使缓存失效（跨实例：Redis 模式下 deleteByPrefix 广播清理） */
@@ -46,6 +48,8 @@ export interface SchemaContext {
   allowIntrospection: boolean;
   /** P1-3 行级权限（实际表名 → 谓词）；演示模式恒空 */
   rowFilters: Record<string, string>;
+  /** 数据源显示名；演示模式为空串 */
+  dataSourceName: string;
 }
 
 function parseJson(v: any, fallback: any) {
@@ -68,6 +72,7 @@ function fromClientSchema(clientSchema: unknown): SchemaContext {
     sensitiveRemoved: filtered.removed,
     allowIntrospection: false,
     rowFilters: {},
+    dataSourceName: '',
   };
 }
 
@@ -89,6 +94,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
         sensitiveRemoved: cached.sensitiveRemoved,
         allowIntrospection: cached.allowIntrospection,
         rowFilters: cached.rowFilters,
+        dataSourceName: cached.dataSourceName || '',
       };
     } catch {
       // 缓存体损坏视为未命中，走查库重建
@@ -97,7 +103,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
 
   try {
     const [rows] = await getPool().query(
-      'SELECT schema_json, scope_json, status, type, allow_introspection FROM data_sources WHERE id = ?',
+      'SELECT name, schema_json, scope_json, status, type, allow_introspection FROM data_sources WHERE id = ?',
       [dataSourceId]
     );
     const ds = (rows as any[])[0];
@@ -113,6 +119,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       sensitiveRemoved: filtered.removed,
       allowIntrospection: Number(ds.allow_introspection) === 1,
       rowFilters: rowFiltersByTableName(scoped, parseJson(ds.scope_json, null)),
+      dataSourceName: String(ds.name || ''),
     };
     await getStateStore().setEx(cacheKey, JSON.stringify(entry), CACHE_TTL_SEC);
     return {
@@ -123,6 +130,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       sensitiveRemoved: entry.sensitiveRemoved,
       allowIntrospection: entry.allowIntrospection,
       rowFilters: entry.rowFilters,
+      dataSourceName: entry.dataSourceName,
     };
   } catch (err) {
     console.warn('[Schema] load datasource schema failed, fallback to client schema:', err);

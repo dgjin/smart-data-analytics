@@ -210,6 +210,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         schema: effectiveSchema,
         guidance: schemaGuidance,
         dataSourceId,
+        dataSourceName: ctx.dataSourceName,
         dsType: ctx.dsType || undefined,
         sensitiveRemoved: ctx.sensitiveRemoved,
         rowFilters: ctx.rowFilters,
