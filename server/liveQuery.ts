@@ -661,6 +661,10 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   // 注意：assessment.complexity 的语义是「是否需要中间清洗链」，不等于 SQL 结构复杂度，不能单独作分档依据。
   const isComplexQuery = assessment.complexity === 'multi-step' || promptSchema.length >= 2;
   const candidateCount = selfCorrectCandidates(isComplexQuery);
+  // 阶段一模型分档：简单单表问题走配置的快速模型路由（flash），复杂/多表问题强制主模型。
+  // 实测快速模型在多表 JOIN 时易漏 COUNT(DISTINCT) 造成重复计数，且同源多候选多数表决无法纠正系统性偏差，
+  // 故复杂问题以口径正确性优先（P1-7 多候选择优仍保留）；未配置 LLM_SQL_* 时 sqlStageRoute() 返回 undefined 全程主模型。
+  const stage1Route = isComplexQuery ? undefined : sqlStageRoute();
 
   // 阶段一 + 执行，失败时把原因回喂 LLM 重试一次
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -678,14 +682,14 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     const texts: string[] = [];
     if (attempt === 0) {
       try {
-        texts.push(await callLLMJson(stage1System, candidatePrompt(basePrompt, 0, 1), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() }));
+        texts.push(await callLLMJson(stage1System, candidatePrompt(basePrompt, 0, 1), [...fewShotHistory, ...budgetedHistory], { route: stage1Route }));
       } catch (err: any) {
         return { ok: false, error: `LLM 调用失败：${String(err?.message || err).slice(0, 200)}` };
       }
     } else {
       const settled = await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() })
+          callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: stage1Route })
         )
       );
       for (const r of settled) {
@@ -728,7 +732,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
                 stage1System,
                 `${query}\n\n【数据自省结果】${formatIntrospectionRows(introExec.result.rows)}\n请基于上述真实取值确定过滤条件，直接输出最终 SQL 的 JSON 契约（禁止再输出 needClarification 或 needIntrospection）`,
                 [...fewShotHistory, ...budgetedHistory],
-                { route: sqlStageRoute() }
+                { route: stage1Route }
               );
               const fp = parseStage1(finalText);
               if (fp) plans.push(fp);
@@ -749,7 +753,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     if (attempt === 0 && candidateCount > 1 && plans.length > 0 && !introspected) {
       const supplement = await Promise.allSettled(
         Array.from({ length: candidateCount - 1 }, (_, i) =>
-          callLLMJson(stage1System, candidatePrompt(basePrompt, i + 1, candidateCount), [...fewShotHistory, ...budgetedHistory], { route: sqlStageRoute() })
+          callLLMJson(stage1System, candidatePrompt(basePrompt, i + 1, candidateCount), [...fewShotHistory, ...budgetedHistory], { route: stage1Route })
         )
       );
       for (const r of supplement) {

@@ -223,7 +223,7 @@ describe('P2-14 语义层：dimensions 可切分维度白名单', () => {
 
   it('CRUD 透传：创建 INSERT 带 dimensions_json，行解析还原 dimensions', async () => {
     queue.push([[]], [{ insertId: 11 }], [{}]);
-    const r = await createMetric({ ...validInput, dimensions: ['region'] }, 'admin', { autoApprove: true });
+    const r = await createMetric({ ...validInput, dimensions: ['region'] } as any, 'admin', { autoApprove: true });
     expect(r.ok).toBe(true);
     expect(String(querySpy.mock.calls[1][0])).toContain('dimensions_json');
     expect(String(querySpy.mock.calls[1][1][7])).toBe('["region"]');
@@ -260,7 +260,7 @@ describe('P2-14 统一指标查询：buildMetricQuerySql', () => {
   it('白名单外维度拒绝；非 ACTIVE 指标不可查询', () => {
     const bad = buildMetricQuerySql(active, ['secret_col']);
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.error).toContain('白名单');
+    if (!bad.ok) expect((bad as { ok: false; error: string }).error).toContain('白名单');
     const pending = buildMetricQuerySql({ ...active, status: 'PENDING' }, []);
     expect(pending.ok).toBe(false);
   });

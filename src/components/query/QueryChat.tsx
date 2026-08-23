@@ -585,7 +585,9 @@ export const QueryChat: React.FC = () => {
     }
 
     const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => controller.abort(), 200_000);
+    // 前端超时须容纳后端链路最坏预算（阶段一重试 + 多候选 + 执行 + 阶段二解读），
+    // 否则后端降级兜底结果尚未返回就被前端中止，用户看不到任何结果
+    const timeoutTimer = setTimeout(() => controller.abort(), 300_000);
 
     // 统一消费响应体（JSON 与 SSE 终端事件同构）
     const consumeResponse = (resData: any) => {
@@ -701,7 +703,7 @@ export const QueryChat: React.FC = () => {
         id: `msg-err-${Date.now()}`,
         role: 'assistant',
         content: isTimeout
-          ? '查询超时：本地模型推理时间过长，请稍后重试或换用更小的模型。'
+          ? '查询超时：模型推理时间过长，请稍后重试；如频繁出现可在系统管理中切换更快的模型。'
           : `查询过程出现异常: ${err.message || '请检查网络或配置'}`,
         timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
         error: err.message,
