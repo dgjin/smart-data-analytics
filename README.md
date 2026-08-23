@@ -84,7 +84,9 @@ cp .env.example .env.local       # 按实际环境修改
 ### 启动
 
 ```bash
-npm run dev          # 开发模式（tsx 直跑，前端 Vite 内嵌）
+./start.sh           # 一键启动：自动拉起 MySQL + Ollama + 应用服务，自检通过后打开浏览器
+                     #（macOS 也可在 Finder 双击「启动应用.command」）
+npm run dev          # 或手动开发模式（tsx 直跑，前端 Vite 内嵌）
 # 打开 http://127.0.0.1:3000
 ```
 
