@@ -1,0 +1,277 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1640" width="1200" height="1640">
+  <style>text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "SimHei", sans-serif; }</style>
+  <defs>
+    <marker id="ab" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="ag" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="ap" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="agray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="ao" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+  </defs>
+  <rect width="1200" height="1640" fill="#ffffff"/>
+  <text x="40" y="36" font-size="20" font-weight="700" fill="#111827">智能问数分析系统 · 完整系统架构图</text>
+  <text x="40" y="56" font-size="12" fill="#6b7280">v0.5.3 · NL2SQL Pro · React 19 + Vite + Express 4 + 三引擎 AI · 54 测试文件 / 569 用例 · 2026-08-21</text>
+  <rect x="36" y="72" width="1128" height="56" rx="10" fill="#f0f9ff" stroke="#bae6fd" stroke-width="1.5"/>
+  <text x="52" y="92" font-size="13" font-weight="600" fill="#0c4a6e">客户端 / 用户终端</text>
+  <text x="52" y="110" font-size="11" fill="#6b7280">Web 浏览器 · HTTP + SSE · JWT Token · localStorage 偏好持久化（主题 / 金额单位 / 侧边栏 / 模型选择）</text>
+  <text x="900" y="110" font-size="11" fill="#0c4a6e" text-anchor="middle">→ http://127.0.0.1:3000 · Docker 容器（生产）</text>
+  <line x1="600" y1="128" x2="600" y2="152" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="36" y="156" width="1128" height="290" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="176" font-size="13" font-weight="600" fill="#374151">前端应用层（React 19 + Vite + TypeScript + Tailwind CSS 4 + Zustand + Recharts + motion）</text>
+  <rect x="48" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="179" y="208" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">智能问数 QueryChat</text>
+  <text x="179" y="226" font-size="10.5" fill="#6b7280" text-anchor="middle">SSE 流式 · 推导回放 AnalysisTracePanel</text>
+  <text x="179" y="240" font-size="10.5" fill="#6b7280" text-anchor="middle">计划/报告/深度分析 · 模型下拉</text>
+  <rect x="326" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="457" y="208" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">灵活查询 FlexQueryBuilder</text>
+  <text x="457" y="226" font-size="10.5" fill="#6b7280" text-anchor="middle">拖拽构建 · 多表 JOIN · 透视/CSV</text>
+  <text x="457" y="240" font-size="10.5" fill="#6b7280" text-anchor="middle">全屏 · 固化看板 · 查询历史</text>
+  <rect x="604" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="735" y="208" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">可视化决策报表</text>
+  <text x="735" y="226" font-size="10.5" fill="#6b7280" text-anchor="middle">ExecutiveReportCard · 同环比对比</text>
+  <text x="735" y="240" font-size="10.5" fill="#6b7280" text-anchor="middle">下钻 DrillModal · 批注 ChartComment</text>
+  <rect x="882" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="1013" y="208" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">问数报告中心</text>
+  <text x="1013" y="226" font-size="10.5" fill="#6b7280" text-anchor="middle">QueryReportCenter · 报告列表</text>
+  <text x="1013" y="240" font-size="10.5" fill="#6b7280" text-anchor="middle">详情复用 · PDF/PPT 导出</text>
+  <rect x="48" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="179" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">决策数据看板</text>
+  <text x="179" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">CustomDashboard · 图表固化</text>
+  <text x="179" y="312" font-size="10.5" fill="#ea580c" text-anchor="middle">DataVersionWatcher 60s 自主更新</text>
+  <rect x="326" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="457" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">数据源与 Schema 管理</text>
+  <text x="457" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">DataSourceManager · SchemaViewer</text>
+  <text x="457" y="312" font-size="10.5" fill="#6b7280" text-anchor="middle">DataLineageView · 行级权限</text>
+  <rect x="604" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="735" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">知识 · 技能 · 样例</text>
+  <text x="735" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">KnowledgeBasePanel · SkillLibraryModal</text>
+  <text x="735" y="312" font-size="10.5" fill="#6b7280" text-anchor="middle">ExternalKnowledgeCard · SqlExamples</text>
+  <rect x="882" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="1013" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">系统管理 + 报告模板</text>
+  <text x="1013" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">AdminPanel · LlmUsagePanel</text>
+  <text x="1013" y="312" font-size="10.5" fill="#6b7280" text-anchor="middle">ReportTemplateManager · HelpModal</text>
+  <rect x="48" y="330" width="1096" height="36" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="353" font-size="11" fill="#6b7280" text-anchor="middle">Hooks（useAnalyticsStore · useAuthStore · useEngineInfo · useDataVersion） · Utils（sseStream · queryResultNormalizer · flexQueryBuilder） · Types（analytics.ts AppTab） · lazy 懒加载</text>
+  <rect x="48" y="374" width="1096" height="32" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="395" font-size="11" fill="#6b7280" text-anchor="middle">ChatHistoryPanel · SQLPreviewModal · ChartCustomizer · KPIStats · DataTable · DynamicChart（9 种图表） · Login/ForceChangePassword · Header/Sidebar</text>
+  <rect x="48" y="414" width="1096" height="24" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1"/>
+  <text x="596" y="430" font-size="10.5" fill="#115e59" text-anchor="middle">Vite Dev Server 中间件一体化（开发 tsx 直跑 · 生产 esbuild 打包 dist/server.cjs）</text>
+  <line x1="600" y1="446" x2="600" y2="472" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="36" y="476" width="1128" height="68" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="52" y="496" font-size="13" font-weight="600" fill="#9a3412">API 安全网关（Express 中间件链）</text>
+  <rect x="48" y="504" width="160" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="128" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L1 输入防护</text>
+  <rect x="216" y="504" width="150" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="291" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L2 RBAC 鉴权</text>
+  <rect x="374" y="504" width="190" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="469" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L3 Scope/敏感列/行级权限</text>
+  <rect x="572" y="504" width="160" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="652" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L4 SELECT-only</text>
+  <rect x="740" y="504" width="170" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="825" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L5 限流（速率+配额+并发）</text>
+  <rect x="918" y="504" width="180" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="1008" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L6 审计落账（八态）</text>
+  <text x="600" y="540" font-size="10" fill="#9a3412" text-anchor="middle">requestLogger · 安全响应头（HSTS/CSP） · 生产 JWT_SECRET fail-fast · 默认回环 127.0.0.1</text>
+  <line x1="600" y1="544" x2="600" y2="570" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="36" y="574" width="1128" height="400" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="594" font-size="13" font-weight="600" fill="#374151">业务逻辑层（Express 4 · server/ 目录 · 19 个路由模块 + 核心服务）</text>
+  <rect x="48" y="604" width="350" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="223" y="626" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">问数编排引擎 liveQuery.ts</text>
+  <text x="223" y="644" font-size="10.5" fill="#6b7280" text-anchor="middle">双阶段流水线 · SSE 流式进度 · 四契约</text>
+  <text x="223" y="658" font-size="10.5" fill="#6b7280" text-anchor="middle">计划模式 · 报告模式 · 金额单位 · 专家角色</text>
+  <rect x="410" y="604" width="350" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="585" y="626" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">报表双阶段编排 liveReport.ts</text>
+  <text x="585" y="644" font-size="10.5" fill="#6b7280" text-anchor="middle">查询计划 → 真实执行 → 摘要撰写 · 报告计划</text>
+  <text x="585" y="658" font-size="10.5" fill="#6b7280" text-anchor="middle">金额单位口径对齐 · 数据变化自动重生成</text>
+  <rect x="772" y="604" width="372" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="958" y="626" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">导出服务</text>
+  <text x="958" y="644" font-size="10.5" fill="#6b7280" text-anchor="middle">pptxgenjs → PPTX（封面/KPI/图表/结论）</text>
+  <text x="958" y="658" font-size="10.5" fill="#6b7280" text-anchor="middle">ReportLab → PDF（矢量排版 · stdin JSON 管道）</text>
+  <rect x="48" y="676" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="178" y="696" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表 schemaLinking.ts</text>
+  <text x="178" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排</text>
+  <text x="178" y="726" font-size="10.5" fill="#6b7280" text-anchor="middle">selectRelevantTablesAsync</text>
+  <rect x="320" y="676" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="450" y="696" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Schema 上下文 schemaContext.ts</text>
+  <text x="450" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">Scope 白名单 · 敏感列过滤</text>
+  <text x="450" y="726" font-size="10.5" fill="#6b7280" text-anchor="middle">5min 缓存 · 方言感知</text>
+  <rect x="592" y="676" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="722" y="696" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">SQL 执行层 sqlExecutor.ts</text>
+  <text x="722" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">SELECT-only · node-sql-parser AST</text>
+  <text x="722" y="726" font-size="10.5" fill="#6b7280" text-anchor="middle">行级权限注入 · 超时 10s</text>
+  <rect x="864" y="676" width="280" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1004" y="696" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">分析链 analysisChain.ts</text>
+  <text x="1004" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">复杂度评估 · 启发式预门控</text>
+  <text x="1004" y="726" font-size="10.5" fill="#6b7280" text-anchor="middle">中间表 ait_* 物化 · TTL 24h</text>
+  <rect x="48" y="742" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="178" y="762" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">知识库 knowledgeBase.ts</text>
+  <text x="178" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">切块+embedding+混合检索</text>
+  <text x="178" y="792" font-size="10.5" fill="#6b7280" text-anchor="middle">token 预算 · 口径/指南槽位</text>
+  <rect x="320" y="742" width="260" height="56" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="450" y="762" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">外部知识库 externalKnowledge.ts</text>
+  <text x="450" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">POST 检索 · Bearer 认证</text>
+  <text x="450" y="792" font-size="10.5" fill="#6b7280" text-anchor="middle">AES-256-GCM · 四容器容错</text>
+  <rect x="592" y="742" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="722" y="762" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">反馈闭环 queryFeedback.ts</text>
+  <text x="722" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">点赞 → auto_train 沉淀</text>
+  <text x="722" y="792" font-size="10.5" fill="#6b7280" text-anchor="middle">点踩 → 反面教材注入</text>
+  <rect x="864" y="742" width="280" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1004" y="762" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">对话历史 conversationHistory.ts</text>
+  <text x="1004" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">服务端落库 · 跨设备共享</text>
+  <text x="1004" y="792" font-size="10.5" fill="#6b7280" text-anchor="middle">个人 few-shot · 数据源隔离</text>
+  <rect x="48" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="148" y="828" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">语义缓存 queryCache.ts</text>
+  <text x="148" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">等价归一化 · 10min</text>
+  <text x="148" y="858" font-size="10.5" fill="#6b7280" text-anchor="middle">模型/单位缓存键隔离</text>
+  <rect x="260" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="360" y="828" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">语义指标 metrics.ts</text>
+  <text x="360" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">同义词匹配 · 口径注入</text>
+  <text x="360" y="858" font-size="10.5" fill="#6b7280" text-anchor="middle">filters 固定过滤</text>
+  <rect x="472" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="572" y="828" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">技能库 skillLibrary.ts</text>
+  <text x="572" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">系统/个人 · 分享审核流</text>
+  <text x="572" y="858" font-size="10.5" fill="#6b7280" text-anchor="middle">占位符模板注入</text>
+  <rect x="684" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="784" y="828" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">数据版本 dataVersion.ts</text>
+  <text x="784" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">指纹 sha1 · 10s 缓存</text>
+  <text x="784" y="858" font-size="10.5" fill="#ea580c" text-anchor="middle">自主更新触发 (v0.4.8+)</text>
+  <rect x="896" y="808" width="248" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1020" y="828" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">推导留痕 queryTrace.ts</text>
+  <text x="1020" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">全链路步骤埋点</text>
+  <text x="1020" y="858" font-size="10.5" fill="#6b7280" text-anchor="middle">traceId 回放 · 本人/ADMIN</text>
+  <rect x="48" y="874" width="260" height="48" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="178" y="893" font-size="11.5" font-weight="500" fill="#374151" text-anchor="middle">queryPlan.ts 计划模式</text>
+  <text x="178" y="910" font-size="10" fill="#6b7280" text-anchor="middle">planId 10min 消费 · 一次性 · 409</text>
+  <rect x="320" y="874" width="260" height="48" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="450" y="893" font-size="11.5" font-weight="500" fill="#374151" text-anchor="middle">promptBudget.ts Token 预算</text>
+  <text x="450" y="910" font-size="10" fill="#6b7280" text-anchor="middle">知识 1200 · 历史 token 截断</text>
+  <rect x="592" y="874" width="260" height="48" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="722" y="893" font-size="11.5" font-weight="500" fill="#374151" text-anchor="middle">expertPersona.ts 专家角色</text>
+  <text x="722" y="910" font-size="10" fill="#6b7280" text-anchor="middle">财务/客户/风险/不良 → 金融分析师</text>
+  <rect x="864" y="874" width="280" height="48" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="1004" y="893" font-size="11.5" font-weight="500" fill="#374151" text-anchor="middle">drill.ts 图表下钻</text>
+  <text x="1004" y="910" font-size="10" fill="#6b7280" text-anchor="middle">AST 提取 FROM/JOIN/WHERE → SELECT *</text>
+  <rect x="48" y="930" width="1096" height="32" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="950" font-size="10.5" fill="#6b7280" text-anchor="middle">auth.ts · db.ts · passwords.ts · secretsCrypto.ts · rateLimiter.ts · auditLog.ts · requestLogger.ts · scope.ts · schemaGuidance.ts · queryGuard.ts · queryHooks.ts · llmUsage.ts · seedData.ts · simulatedQuery.ts · simulatedReport.ts</text>
+  <line x1="400" y1="974" x2="400" y2="1000" stroke="#9333ea" stroke-width="1.5" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <line x1="800" y1="974" x2="800" y2="1000" stroke="#9333ea" stroke-width="1.5" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <text x="410" y="990" font-size="10.5" fill="#9333ea">LLM 调用 / 向量</text>
+  <rect x="36" y="1004" width="1128" height="120" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="1024" font-size="13" font-weight="600" fill="#374151">AI 引擎层（llmClient.ts · 引擎选择：用户自选 > AI_ENGINE > 密钥自动 > Ollama）</text>
+  <rect x="48" y="1034" width="210" height="76" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="153" y="1056" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">通义千问 Qwen</text>
+  <text x="153" y="1074" font-size="10.5" fill="#6b7280" text-anchor="middle">百炼兼容端点 · qwen3.8-max</text>
+  <text x="153" y="1088" font-size="10.5" fill="#6b7280" text-anchor="middle">Coding Plan 专属端点</text>
+  <text x="153" y="1102" font-size="10.5" fill="#6b7280" text-anchor="middle">embedding: text-embedding-v4</text>
+  <rect x="270" y="1034" width="210" height="76" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+  <text x="375" y="1056" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Ollama 本地</text>
+  <text x="375" y="1074" font-size="10.5" fill="#6b7280" text-anchor="middle">SQL: qwen3.8:27b / r1:32b</text>
+  <text x="375" y="1088" font-size="10.5" fill="#6b7280" text-anchor="middle">解读: deepseek-r1:8b</text>
+  <text x="375" y="1102" font-size="10.5" fill="#6b7280" text-anchor="middle">keep_alive=30m · 300s 超时</text>
+  <rect x="492" y="1034" width="160" height="76" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="572" y="1056" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Gemini API</text>
+  <text x="572" y="1074" font-size="10.5" fill="#6b7280" text-anchor="middle">备用引擎</text>
+  <rect x="664" y="1034" width="200" height="76" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="764" y="1056" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Embedding 向量</text>
+  <text x="764" y="1074" font-size="10.5" fill="#6b7280" text-anchor="middle">nomic-embed-text（本地）</text>
+  <text x="764" y="1088" font-size="10.5" fill="#6b7280" text-anchor="middle">短 TTL 缓存 10min/256 条</text>
+  <text x="764" y="1102" font-size="10.5" fill="#6b7280" text-anchor="middle">圈表 + 知识检索复用</text>
+  <rect x="876" y="1034" width="268" height="76" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="1010" y="1056" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Python ReportLab 子进程</text>
+  <text x="1010" y="1074" font-size="10.5" fill="#6b7280" text-anchor="middle">spawn python3 · stdin JSON 管道</text>
+  <text x="1010" y="1088" font-size="10.5" fill="#6b7280" text-anchor="middle">stdout PDF · 60s 超时 SIGKILL</text>
+  <text x="1010" y="1102" font-size="10.5" fill="#6b7280" text-anchor="middle">A4 竖/横版 · CID 中文字体</text>
+  <line x1="300" y1="1124" x2="300" y2="1156" stroke="#16a34a" stroke-width="1.5" marker-start="url(#ag)" marker-end="url(#ag)"/>
+  <line x1="600" y1="1124" x2="600" y2="1156" stroke="#16a34a" stroke-width="1.5" marker-start="url(#ag)" marker-end="url(#ag)"/>
+  <line x1="900" y1="1124" x2="900" y2="1156" stroke="#16a34a" stroke-width="1.5" marker-start="url(#ag)" marker-end="url(#ag)"/>
+  <text x="310" y="1148" font-size="10.5" fill="#16a34a">元数据/留痕</text>
+  <text x="610" y="1148" font-size="10.5" fill="#16a34a">真实 SQL</text>
+  <text x="910" y="1148" font-size="10.5" fill="#16a34a">状态/外部</text>
+  <rect x="36" y="1160" width="1128" height="200" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="1180" font-size="13" font-weight="600" fill="#374151">数据与存储层</text>
+  <path d="M 48,1196 A 115,10 0 0 1 278,1196 L 278,1280 A 115,10 0 0 1 48,1280 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="163" cy="1196" rx="115" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="163" y="1222" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">应用库 MySQL smart_analytics</text>
+  <text x="163" y="1238" font-size="10" fill="#6b7280" text-anchor="middle">users/datasources/scope</text>
+  <text x="163" y="1252" font-size="10" fill="#6b7280" text-anchor="middle">knowledge_chunks/sql_examples</text>
+  <text x="163" y="1266" font-size="10" fill="#6b7280" text-anchor="middle">metrics/skills/audit_log</text>
+  <text x="163" y="1280" font-size="10" fill="#6b7280" text-anchor="middle">query_trace/conversation_history</text>
+  <text x="163" y="1294" font-size="10" fill="#6b7280" text-anchor="middle">report_templates/query_reports</text>
+  <text x="163" y="1308" font-size="10" fill="#6b7280" text-anchor="middle">external_kb_sources/ait_*</text>
+  <path d="M 330,1196 A 110,10 0 0 1 550,1196 L 550,1280 A 110,10 0 0 1 330,1280 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="440" cy="1196" rx="110" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="440" y="1222" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">用户源数据库</text>
+  <text x="440" y="1238" font-size="10" fill="#6b7280" text-anchor="middle">MySQL 8 / PostgreSQL / Greenplum</text>
+  <text x="440" y="1252" font-size="10" fill="#6b7280" text-anchor="middle">业务宽表 127万行 (94列)</text>
+  <text x="440" y="1266" font-size="10" fill="#6b7280" text-anchor="middle">财务宽表 1139万行 (204列)</text>
+  <text x="440" y="1280" font-size="10" fill="#6b7280" text-anchor="middle">20个月末快照</text>
+  <text x="440" y="1294" font-size="10" fill="#6b7280" text-anchor="middle">CSV / API / JSON</text>
+  <path d="M 610,1196 A 80,10 0 0 1 770,1196 L 770,1280 A 80,10 0 0 1 610,1280 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="690" cy="1196" rx="80" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="690" y="1222" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Redis / StateStore</text>
+  <text x="690" y="1238" font-size="10" fill="#6b7280" text-anchor="middle">限流计数 / 配额</text>
+  <text x="690" y="1252" font-size="10" fill="#6b7280" text-anchor="middle">并发槽位互斥</text>
+  <text x="690" y="1266" font-size="10" fill="#6b7280" text-anchor="middle">planId 消费</text>
+  <text x="690" y="1280" font-size="10" fill="#6b7280" text-anchor="middle">多实例状态同步</text>
+  <text x="690" y="1294" font-size="10" fill="#6b7280" text-anchor="middle">未配 → 进程内</text>
+  <path d="M 820,1196 A 100,10 0 0 1 1020,1196 L 1020,1280 A 100,10 0 0 1 820,1280 Z" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <ellipse cx="920" cy="1196" rx="100" ry="10" fill="#ede9fe" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="920" y="1222" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">外部知识库服务</text>
+  <text x="920" y="1238" font-size="10" fill="#6b7280" text-anchor="middle">Dify / RAGFlow</text>
+  <text x="920" y="1252" font-size="10" fill="#6b7280" text-anchor="middle">自建 RAG 网关</text>
+  <text x="920" y="1266" font-size="10" fill="#6b7280" text-anchor="middle">POST {query, topK}</text>
+  <text x="920" y="1280" font-size="10" fill="#6b7280" text-anchor="middle">Bearer Token 认证</text>
+  <text x="920" y="1294" font-size="10" fill="#6b7280" text-anchor="middle">四容器响应容错</text>
+  <rect x="1060" y="1196" width="92" height="100" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.2"/>
+  <text x="1106" y="1218" font-size="11" font-weight="600" fill="#111827" text-anchor="middle">评测集</text>
+  <text x="1106" y="1234" font-size="10" fill="#6b7280" text-anchor="middle">server/eval</text>
+  <text x="1106" y="1248" font-size="10" fill="#6b7280" text-anchor="middle">19 用例</text>
+  <text x="1106" y="1262" font-size="10" fill="#6b7280" text-anchor="middle">差评回流</text>
+  <text x="1106" y="1276" font-size="10" fill="#6b7280" text-anchor="middle">evalCases</text>
+  <text x="1106" y="1290" font-size="10" fill="#6b7280" text-anchor="middle">.json</text>
+  <line x1="600" y1="1360" x2="600" y2="1386" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#agray)"/>
+  <rect x="36" y="1390" width="1128" height="130" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="1410" font-size="13" font-weight="600" fill="#374151">基础设施 / 部署</text>
+  <rect x="48" y="1420" width="200" height="86" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="148" y="1440" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Node.js 运行时</text>
+  <text x="148" y="1458" font-size="10.5" fill="#6b7280" text-anchor="middle">tsx 开发 · esbuild 打包</text>
+  <text x="148" y="1472" font-size="10.5" fill="#6b7280" text-anchor="middle">dist/server.cjs 生产产物</text>
+  <text x="148" y="1486" font-size="10.5" fill="#6b7280" text-anchor="middle">PORT 3000 · HOST 127.0.0.1</text>
+  <text x="148" y="1500" font-size="10.5" fill="#6b7280" text-anchor="middle">Vite dev 中间件一体化</text>
+  <rect x="260" y="1420" width="200" height="86" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="360" y="1440" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Docker 容器</text>
+  <text x="360" y="1458" font-size="10.5" fill="#6b7280" text-anchor="middle">多阶段构建 · 非 root</text>
+  <text x="360" y="1472" font-size="10.5" fill="#6b7280" text-anchor="middle">HEALTHCHECK 探活</text>
+  <text x="360" y="1486" font-size="10.5" fill="#6b7280" text-anchor="middle">HOST=0.0.0.0 固定</text>
+  <text x="360" y="1500" font-size="10.5" fill="#6b7280" text-anchor="middle">JWT_SECRET fail-fast</text>
+  <rect x="472" y="1420" width="200" height="86" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="572" y="1440" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">测试体系</text>
+  <text x="572" y="1458" font-size="10.5" fill="#6b7280" text-anchor="middle">Vitest 54 文件 569 用例</text>
+  <text x="572" y="1472" font-size="10.5" fill="#6b7280" text-anchor="middle">tsc 双配置 0 错误</text>
+  <text x="572" y="1486" font-size="10.5" fill="#6b7280" text-anchor="middle">Playwright E2E</text>
+  <text x="572" y="1500" font-size="10.5" fill="#6b7280" text-anchor="middle">eslint + 每次全量回归</text>
+  <rect x="684" y="1420" width="200" height="86" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="784" y="1440" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Git 双远程</text>
+  <text x="784" y="1458" font-size="10.5" fill="#6b7280" text-anchor="middle">origin: GitHub (HTTPS)</text>
+  <text x="784" y="1472" font-size="10.5" fill="#6b7280" text-anchor="middle">gitee: Gitee (SSH)</text>
+  <text x="784" y="1486" font-size="10.5" fill="#6b7280" text-anchor="middle">main 分支 · 禁止 force</text>
+  <text x="784" y="1500" font-size="10.5" fill="#6b7280" text-anchor="middle">修改前 pull · 完成后双推</text>
+  <rect x="896" y="1420" width="256" height="86" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="1024" y="1440" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">文档即产品</text>
+  <text x="1024" y="1458" font-size="10.5" fill="#6b7280" text-anchor="middle">系统功能说明书（单一事实源）</text>
+  <text x="1024" y="1472" font-size="10.5" fill="#6b7280" text-anchor="middle">系统内帮助实时读取</text>
+  <text x="1024" y="1486" font-size="10.5" fill="#6b7280" text-anchor="middle">变更记录 v0.1→v0.5.3 共 27 版</text>
+  <text x="1024" y="1500" font-size="10.5" fill="#6b7280" text-anchor="middle">OpenAPI · 培训 PPT · 宣讲材料</text>
+  <text x="52" y="1560" font-size="12" font-weight="600" fill="#374151">图例</text>
+  <line x1="52" y1="1578" x2="82" y2="1578" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="90" y="1582" font-size="10.5" fill="#6b7280">主流程 / 请求</text>
+  <line x1="180" y1="1578" x2="210" y2="1578" stroke="#16a34a" stroke-width="1.5" marker-end="url(#ag)"/>
+  <text x="218" y="1582" font-size="10.5" fill="#6b7280">数据读写</text>
+  <line x1="290" y1="1578" x2="320" y2="1578" stroke="#9333ea" stroke-width="1.5" marker-end="url(#ap)"/>
+  <text x="328" y="1582" font-size="10.5" fill="#6b7280">LLM 调用 / 向量</text>
+  <line x1="430" y1="1578" x2="460" y2="1578" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#agray)"/>
+  <text x="468" y="1582" font-size="10.5" fill="#6b7280">基础设施</text>
+  <line x1="540" y1="1578" x2="570" y2="1578" stroke="#ea580c" stroke-width="1.5" marker-end="url(#ao)"/>
+  <text x="578" y="1582" font-size="10.5" fill="#6b7280">v0.4.x+ 新增能力</text>
+  <text x="52" y="1602" font-size="10.5" fill="#9ca3af">架构分层：客户端 → 前端应用层 → API 安全网关（6 层纵深防御） → 业务逻辑层（19 路由 + 25 核心服务） → AI 引擎层（三引擎 + Python 子进程） → 数据与存储层（4 源 + 评测集） → 基础设施</text>
+  <text x="52" y="1616" font-size="10.5" fill="#9ca3af">v0.5.3 新增模块：灵活查询 · 问数报告中心 · 报告模板管理 · 数据变化自主更新 · 外部知识库 · 对话历史 · 个人 few-shot · 拒答契约 · 金额单位 · 规则化降级 · ReportLab PDF · 下钻 · 同/环比 · 多表 JOIN · 慢查询审计 · a11y</text>
+</svg>

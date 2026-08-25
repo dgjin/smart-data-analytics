@@ -1,104 +1,176 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 1170" width="960" height="1170">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 1440" width="1040" height="1440">
   <style>text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "SimHei", sans-serif; }</style>
   <defs>
-    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
-    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
-    <marker id="arrow-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
-    <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
-    <marker id="arrow-gray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="ab" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="ag" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="ap" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="ar" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#dc2626"/></marker>
+    <marker id="agray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="ao" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
   </defs>
-  <rect width="960" height="1170" fill="#ffffff"/>
-  <text x="40" y="44" font-size="18" font-weight="600" fill="#111827">智能问数 · 详细推导过程（NL2SQL 双阶段流水线）</text>
-  <text x="40" y="66" font-size="12" fill="#6b7280">v0.3.7 · 同题实测 105s→68s · 重复提问命中结果缓存秒回 · 全链路 query_trace 留痕</text>
-  <rect x="360" y="84" width="240" height="42" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="480.0" y="110.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">用户自然语言提问</text>
-  <line x1="480" y1="126" x2="480" y2="148" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <rect x="310" y="152" width="340" height="46" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480.0" y="171.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">输入清洗与安全校验</text>
-  <text x="480.0" y="188.0" font-size="11" fill="#6b7280" text-anchor="middle">L1 注入过滤 · 500 字截断 · L2 RBAC · L5 限流（20次/时）</text>
-  <line x1="480" y1="198" x2="480" y2="222" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <polygon points="480,225 605,258 480,291 355,258" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480" y="263" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">结果缓存命中？</text>
-  <line x1="605" y1="258" x2="672" y2="258" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
-  <text x="618" y="250" font-size="11" fill="#16a34a">命中</text>
-  <rect x="676" y="236" width="250" height="44" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
-  <text x="801.0" y="263.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">秒回：复用成功结果 ≤10ms</text>
-  <line x1="480" y1="291" x2="480" y2="316" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="492" y="308" font-size="11" fill="#6b7280">未命中</text>
-  <rect x="310" y="320" width="340" height="46" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480.0" y="339.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表</text>
-  <text x="480.0" y="356.0" font-size="11" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排 · 问题向量缓存复用</text>
-  <line x1="480" y1="366" x2="480" y2="392" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <line x1="206" y1="400" x2="766" y2="400" stroke="#2563eb" stroke-width="1.5"/>
-  <text x="494" y="390" font-size="11" fill="#2563eb">Promise.all 并行上下文构建（各自失败不阻断）</text>
-  <line x1="480" y1="396" x2="480" y2="400" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <line x1="206" y1="400" x2="206" y2="420" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <line x1="486" y1="400" x2="486" y2="420" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <line x1="766" y1="400" x2="766" y2="420" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <rect x="76" y="424" width="260" height="56" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="206.0" y="448.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Few-shot 样例</text>
-  <text x="206.0" y="465.0" font-size="11" fill="#6b7280" text-anchor="middle">DAIL-SQL 双维度：问题相似 + 表重叠</text>
-  <rect x="356" y="424" width="260" height="56" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="486.0" y="448.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">知识库 RAG</text>
-  <text x="486.0" y="465.0" font-size="11" fill="#6b7280" text-anchor="middle">业务口径片段 · TOP4 · token 预算截断</text>
-  <rect x="636" y="424" width="260" height="56" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="766.0" y="448.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">语义指标层</text>
-  <text x="766.0" y="465.0" font-size="11" fill="#6b7280" text-anchor="middle">指标名/同义词命中 · 权威口径模板注入</text>
-  <line x1="206" y1="480" x2="206" y2="502" stroke="#2563eb" stroke-width="1.5"/>
-  <line x1="486" y1="480" x2="486" y2="502" stroke="#2563eb" stroke-width="1.5"/>
-  <line x1="766" y1="480" x2="766" y2="502" stroke="#2563eb" stroke-width="1.5"/>
-  <line x1="206" y1="502" x2="766" y2="502" stroke="#2563eb" stroke-width="1.5"/>
-  <line x1="480" y1="502" x2="480" y2="526" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <polygon points="480,528 610,562 480,596 350,562" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480" y="567" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">清洗信号 / 深度分析？</text>
-  <line x1="480" y1="596" x2="480" y2="634" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="492" y="620" font-size="11" fill="#6b7280">无信号：直接判 simple（省 ~7s）</text>
-  <line x1="350" y1="562" x2="308" y2="562" stroke="#9333ea" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-  <text x="314" y="554" font-size="11" fill="#9333ea">有信号</text>
-  <rect x="56" y="540" width="252" height="44" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
-  <text x="182.0" y="558.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">LLM 复杂度评估 → 清洗链</text>
-  <text x="182.0" y="575.0" font-size="11" fill="#6b7280" text-anchor="middle">最多 3 步 · 中间表 ait_* 落库</text>
-  <path d="M 182,584 L 182,616 L 360,616 L 360,634" stroke="#9333ea" stroke-width="1.5" fill="none" marker-end="url(#arrow-purple)"/>
-  <rect x="320" y="638" width="320" height="46" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480.0" y="657.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">阶段一：LLM 生成 SQL</text>
-  <text x="480.0" y="674.0" font-size="11" fill="#6b7280" text-anchor="middle">专家角色路由 · 计划模式 · 歧义澄清 · 多候选择优</text>
-  <line x1="480" y1="684" x2="480" y2="708" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <polygon points="480,710 615,744 480,778 345,744" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480" y="749" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">白名单校验并执行成功？</text>
-  <line x1="345" y1="744" x2="308" y2="744" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arrow-red)"/>
-  <text x="312" y="736" font-size="11" fill="#dc2626">失败</text>
-  <rect x="56" y="722" width="252" height="44" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
-  <text x="182.0" y="740.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">自纠错重试</text>
-  <text x="182.0" y="757.0" font-size="11" fill="#6b7280" text-anchor="middle">错误信息回喂 LLM 重新生成（≤2 次）</text>
-  <path d="M 140,722 L 140,661 L 316,661" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#arrow-red)"/>
-  <text x="152" y="654" font-size="11" fill="#dc2626">重试</text>
-  <line x1="480" y1="778" x2="480" y2="802" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="492" y="796" font-size="11" fill="#6b7280">成功</text>
-  <polygon points="480,805 600,838 480,871 360,838" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480" y="843" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">空结果集？</text>
-  <line x1="600" y1="838" x2="672" y2="838" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
-  <text x="622" y="830" font-size="11" fill="#16a34a">是</text>
-  <rect x="676" y="816" width="250" height="44" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
-  <text x="801.0" y="843.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">直接返回真实结论（跳过阶段二）</text>
-  <line x1="480" y1="871" x2="480" y2="896" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="492" y="890" font-size="11" fill="#6b7280">非空</text>
-  <rect x="290" y="900" width="380" height="46" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480.0" y="919.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">阶段二：数据解读</text>
-  <text x="480.0" y="936.0" font-size="11" fill="#6b7280" text-anchor="middle">行统计 + 样本回喂 LLM · 快速模型路由（qwen3.7-flash）</text>
-  <line x1="480" y1="946" x2="480" y2="972" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <rect x="260" y="976" width="440" height="46" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="480.0" y="995.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">输出组装与持久化</text>
-  <text x="480.0" y="1012.0" font-size="11" fill="#6b7280" text-anchor="middle">图表 / KPI / 洞察 / 追问 · 写结果缓存 · query_trace 留痕</text>
-  <line x1="480" y1="1022" x2="480" y2="1048" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <rect x="330" y="1052" width="300" height="42" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
-  <text x="480.0" y="1078.0" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">前端渲染：图表 / 明细 / 步骤回放</text>
-  <line x1="40" y1="1130" x2="70" y2="1130" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="78" y="1134" font-size="11.5" fill="#6b7280">主推导流程</text>
-  <line x1="172" y1="1130" x2="202" y2="1130" stroke="#16a34a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
-  <text x="210" y="1134" font-size="11.5" fill="#6b7280">短路返回</text>
-  <line x1="292" y1="1130" x2="322" y2="1130" stroke="#9333ea" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
-  <text x="330" y="1134" font-size="11.5" fill="#6b7280">清洗链 / LLM</text>
-  <line x1="472" y1="1130" x2="502" y2="1130" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrow-red)"/>
-  <text x="510" y="1134" font-size="11.5" fill="#6b7280">自纠错重试</text>
-  <text x="920" y="1134" font-size="11" fill="#9ca3af" text-anchor="end">决策菱形 = 分支点 · 每步均旁路落库 query_trace 供时间线回放</text>
+  <rect width="1040" height="1440" fill="#ffffff"/>
+  <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数 · 详细推导过程（NL2SQL 双阶段流水线）</text>
+  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.5.3 · 同题实测 105s→68s · 重复提问命中缓存秒回 · 全链路 query_trace 留痕 · 拒答/澄清/自省四契约</text>
+  <rect x="360" y="72" width="280" height="42" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="500" y="93" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">用户自然语言提问</text>
+  <line x1="500" y1="114" x2="500" y2="140" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="300" y="144" width="400" height="48" rx="8" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="500" y="160" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">输入防护与安全校验</text>
+  <text x="500" y="178" font-size="11" fill="#6b7280" text-anchor="middle">L1 注入过滤 · 500字截断 · L2 RBAC · L5 限流（速率+配额+并发互斥）</text>
+  <line x1="500" y1="192" x2="500" y2="218" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="340" y="222" width="320" height="38" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.5"/>
+  <text x="500" y="241" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">生命周期钩子 emitBeforeQuery · trace 记录开始</text>
+  <line x1="500" y1="260" x2="500" y2="286" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="300" y="290" width="400" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="306" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Schema 上下文加载</text>
+  <text x="500" y="324" font-size="11" fill="#6b7280" text-anchor="middle">落库 schema → scope 白名单 → 敏感列过滤 → 5min 缓存</text>
+  <line x1="500" y1="338" x2="500" y2="361" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <polygon points="500,363 625,396 500,429 375,396" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="401" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">语义缓存命中？</text>
+  <line x1="628" y1="396" x2="702" y2="396" stroke="#16a34a" stroke-width="1.5" marker-end="url(#ag)"/>
+  <text x="636" y="388" font-size="11" fill="#16a34a">命中</text>
+  <rect x="706" y="374" width="250" height="44" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="831" y="396" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">秒回：复用成功结果（CACHE）</text>
+  <line x1="500" y1="432" x2="500" y2="458" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="512" y="450" font-size="11" fill="#6b7280">未命中</text>
+  <rect x="300" y="462" width="400" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="478" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表（Schema Linking）</text>
+  <text x="500" y="496" font-size="11" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排 · 问题向量缓存复用 · 降级纯关键词</text>
+  <line x1="500" y1="510" x2="500" y2="538" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <line x1="106" y1="542" x2="894" y2="542" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="500" y="534" font-size="11" fill="#2563eb" text-anchor="middle">Promise.all 并行上下文构建（六路并发，各自失败降级不阻断）</text>
+  <line x1="500" y1="538" x2="500" y2="542" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="126" y1="542" x2="126" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="44" y="564" width="164" height="72" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="126" y="586" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Few-shot 样例</text>
+  <text x="126" y="602" font-size="10.5" fill="#6b7280" text-anchor="middle">团队库 top-3 · DAIL-SQL</text>
+  <text x="126" y="616" font-size="10.5" fill="#9333ea" text-anchor="middle">个人沉淀（v0.4.0+）</text>
+  <line x1="286" y1="542" x2="286" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="204" y="564" width="164" height="72" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="286" y="586" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">本地知识库 RAG</text>
+  <text x="286" y="602" font-size="10.5" fill="#6b7280" text-anchor="middle">TOP4 · token 预算截断</text>
+  <text x="286" y="616" font-size="10.5" fill="#6b7280" text-anchor="middle">口径/指南保留槽位</text>
+  <line x1="446" y1="542" x2="446" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="364" y="564" width="164" height="72" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="446" y="586" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">外部知识库 RAG</text>
+  <text x="446" y="602" font-size="10.5" fill="#6b7280" text-anchor="middle">Dify/RAGFlow/自建</text>
+  <text x="446" y="616" font-size="10.5" fill="#9333ea" text-anchor="middle">独立 1200 token · 降级空</text>
+  <line x1="606" y1="542" x2="606" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="524" y="564" width="164" height="72" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="606" y="586" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">语义指标层</text>
+  <text x="606" y="602" font-size="10.5" fill="#6b7280" text-anchor="middle">指标名/同义词命中</text>
+  <text x="606" y="616" font-size="10.5" fill="#6b7280" text-anchor="middle">权威口径模板 · filters</text>
+  <line x1="766" y1="542" x2="766" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="684" y="564" width="164" height="72" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="766" y="586" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">点踩反例</text>
+  <text x="766" y="602" font-size="10.5" fill="#6b7280" text-anchor="middle">反面教材注入</text>
+  <text x="766" y="616" font-size="10.5" fill="#9333ea" text-anchor="middle">避免重复同类错误</text>
+  <line x1="926" y1="542" x2="926" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="844" y="564" width="164" height="72" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="926" y="586" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">金额单位约定</text>
+  <text x="926" y="602" font-size="10.5" fill="#6b7280" text-anchor="middle">亿/百万/万/元</text>
+  <text x="926" y="616" font-size="10.5" fill="#9333ea" text-anchor="middle">SQL 除法 + ROUND(2)</text>
+  <line x1="126" y1="636" x2="126" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="286" y1="636" x2="286" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="446" y1="636" x2="446" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="606" y1="636" x2="606" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="766" y1="636" x2="766" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="926" y1="636" x2="926" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="126" y1="660" x2="926" y2="660" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="500" y1="660" x2="500" y2="683" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="620" y="640" width="280" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="760" y="660" font-size="10.5" fill="#6b7280" text-anchor="middle">trace: 知识片段 N 字 · 外部 N 源 · few-shot N 组 · 反例 N 组</text>
+  <polygon points="500,685 620,718 500,751 380,718" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="723" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">清洗信号 / 深度分析？</text>
+  <line x1="377" y1="718" x2="336" y2="718" stroke="#9333ea" stroke-width="1.5" marker-end="url(#ap)"/>
+  <text x="342" y="710" font-size="11" fill="#9333ea">有信号</text>
+  <rect x="80" y="696" width="252" height="44" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="206" y="710" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">LLM 复杂度评估 → 清洗链</text>
+  <text x="206" y="728" font-size="10.5" fill="#6b7280" text-anchor="middle">最多 3 步 · 中间表 ait_* 物化应用库</text>
+  <path d="M 206,740 L 206,776 L 380,776 L 380,792" stroke="#9333ea" stroke-width="1.5" fill="none" marker-end="url(#ap)"/>
+  <line x1="500" y1="754" x2="500" y2="790" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="512" y="775" font-size="11" fill="#6b7280">无信号：直接判 simple（省 ~7s）</text>
+  <rect x="300" y="794" width="400" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="810" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">阶段一：LLM 生成 SQL（专家角色 · 用户自选模型优先）</text>
+  <text x="500" y="828" font-size="11" fill="#6b7280" text-anchor="middle">金额单位约定注入首位 · few-shot 消息对 · 多候选择优投票</text>
+  <line x1="500" y1="842" x2="500" y2="870" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="500" y="864" font-size="11.5" fill="#374151" text-anchor="middle" font-weight="600">阶段一输出四契约（仅首次首候选接受澄清/拒答/自省）</text>
+  <rect x="36" y="880" width="200" height="50" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="136" y="900" font-size="12.5" font-weight="600" fill="#dc2626" text-anchor="middle">拒答 refuse</text>
+  <text x="136" y="916" font-size="10" fill="#6b7280" text-anchor="middle">Schema 无语义相近表/字段</text>
+  <text x="136" y="928" font-size="10" fill="#6b7280" text-anchor="middle">v0.4.7+ · 如实反馈不托底</text>
+  <rect x="256" y="880" width="200" height="50" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="356" y="900" font-size="12.5" font-weight="600" fill="#92400e" text-anchor="middle">歧义澄清 clarify</text>
+  <text x="356" y="916" font-size="10" fill="#6b7280" text-anchor="middle">多候选字段 → 用户确认</text>
+  <text x="356" y="928" font-size="10" fill="#6b7280" text-anchor="middle">2-4 选项 · 改写后重提交</text>
+  <rect x="476" y="880" width="200" height="50" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+  <text x="576" y="900" font-size="12.5" font-weight="600" fill="#115e59" text-anchor="middle">数据自省 introspect</text>
+  <text x="576" y="916" font-size="10" fill="#6b7280" text-anchor="middle">探查 SQL → 取值回喂</text>
+  <text x="576" y="928" font-size="10" fill="#6b7280" text-anchor="middle">仅一轮 · 防递归</text>
+  <rect x="696" y="880" width="200" height="50" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="796" y="900" font-size="12.5" font-weight="600" fill="#1e40af" text-anchor="middle">直接生成 SQL</text>
+  <text x="796" y="916" font-size="10" fill="#6b7280" text-anchor="middle">JSON 契约: sql + 图表配置</text>
+  <text x="796" y="928" font-size="10" fill="#6b7280" text-anchor="middle">thoughtProcess · columnNames</text>
+  <line x1="350" y1="870" x2="136" y2="876" stroke="#dc2626" stroke-width="1.5" marker-end="url(#ar)"/>
+  <line x1="430" y1="870" x2="356" y2="876" stroke="#92400e" stroke-width="1.5"/>
+  <line x1="560" y1="870" x2="576" y2="876" stroke="#115e59" stroke-width="1.5"/>
+  <line x1="650" y1="870" x2="796" y2="876" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <path d="M 136,930 L 136,960 L 40,960" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3" fill="none"/>
+  <rect x="36" y="948" width="100" height="24" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1"/>
+  <text x="86" y="964" font-size="10.5" fill="#dc2626" text-anchor="middle">审计 REFUSED → 返回</text>
+  <path d="M 356,930 L 356,962 L 280,962" stroke="#92400e" stroke-width="1.5" stroke-dasharray="5,3" fill="none"/>
+  <rect x="256" y="948" width="110" height="24" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
+  <text x="311" y="964" font-size="10.5" fill="#92400e" text-anchor="middle">审计 CLARIFY → 前端</text>
+  <path d="M 576,930 L 576,940 L 246,940 L 246,818 L 298,818" stroke="#115e59" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#ag)"/>
+  <text x="350" y="936" font-size="10" fill="#115e59">取值回喂</text>
+  <line x1="796" y1="930" x2="796" y2="970" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="796" y1="970" x2="500" y2="970" stroke="#2563eb" stroke-width="1.5"/>
+  <line x1="500" y1="970" x2="500" y2="996" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="280" y="1000" width="440" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="1020" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">安全执行层 executeSafeSql</text>
+  <text x="500" y="1038" font-size="11" fill="#6b7280" text-anchor="middle">SELECT-only 白名单 · node-sql-parser AST 双校验 · 行级权限 AST 强制注入（fail-closed） · ait_* 改应用库执行</text>
+  <line x1="500" y1="1056" x2="500" y2="1082" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <polygon points="500,1083 620,1116 500,1149 380,1116" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="1121" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">校验并执行成功？</text>
+  <line x1="377" y1="1116" x2="336" y2="1116" stroke="#dc2626" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="342" y="1108" font-size="11" fill="#dc2626">失败</text>
+  <rect x="80" y="1094" width="252" height="44" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="206" y="1108" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">自纠错重试</text>
+  <text x="206" y="1126" font-size="11" fill="#6b7280" text-anchor="middle">错误信息回喂 LLM · 多候选择优（≤2 次）</text>
+  <path d="M 140,1094 L 140,1016 L 280,1016" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3" fill="none" marker-end="url(#ar)"/>
+  <text x="152" y="1008" font-size="10.5" fill="#dc2626">重试</text>
+  <line x1="500" y1="1152" x2="500" y2="1178" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="512" y="1170" font-size="11" fill="#6b7280">成功</text>
+  <polygon points="500,1179 615,1212 500,1245 385,1212" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="1217" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">空结果集？</text>
+  <line x1="618" y1="1212" x2="702" y2="1212" stroke="#16a34a" stroke-width="1.5" marker-end="url(#ag)"/>
+  <text x="626" y="1204" font-size="11" fill="#16a34a">是</text>
+  <rect x="706" y="1190" width="250" height="44" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <text x="831" y="1212" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">直接返回真实结论（跳过阶段二）</text>
+  <line x1="500" y1="1248" x2="500" y2="1274" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="512" y="1266" font-size="11" fill="#6b7280">非空</text>
+  <rect x="260" y="1278" width="480" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="1298" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">阶段二：数据解读（专家角色 · 快速模型路由）</text>
+  <text x="500" y="1316" font-size="11" fill="#6b7280" text-anchor="middle">行统计 + 样本（前 15 行）回喂 LLM · 生成 aiExplanation / keyInsights / kpiMetrics</text>
+  <text x="500" y="1330" font-size="11" fill="#ea580c" text-anchor="middle">LLM 失败/空 → buildFallbackAnalysis 规则化降级（基于真实列统计）</text>
+  <rect x="760" y="1290" width="200" height="32" rx="6" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.2"/>
+  <text x="860" y="1310" font-size="10.5" fill="#ea580c" text-anchor="middle">v0.4.6+ 规则化降级解读</text>
+  <line x1="760" y1="1306" x2="740" y2="1306" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#ao)"/>
+  <line x1="500" y1="1334" x2="500" y2="1362" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="220" y="1366" width="560" height="44" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="500" y="1380" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">输出组装与持久化</text>
+  <text x="500" y="1398" font-size="11" fill="#6b7280" text-anchor="middle">图表 / KPI / 洞察 / 追问 · 写结果缓存 · query_trace 全链路留痕 · 对话历史落库 · 审计落账</text>
+  <path d="M 780,1388 L 1020,1388 L 1020,93 L 640,93" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,4" fill="none" marker-end="url(#ap)"/>
+  <text x="1028" y="750" font-size="10.5" fill="#9333ea" transform="rotate(-90 1028 750)" text-anchor="middle">点赞→auto_train 沉淀 · 点踩→反例注入 · 反馈闭环</text>
+  <line x1="40" y1="1410" x2="70" y2="1410" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="78" y="1414" font-size="11" fill="#6b7280">主推导流程</text>
+  <line x1="158" y1="1410" x2="188" y2="1410" stroke="#16a34a" stroke-width="1.5" marker-end="url(#ag)"/>
+  <text x="196" y="1414" font-size="11" fill="#6b7280">短路返回</text>
+  <line x1="266" y1="1410" x2="296" y2="1410" stroke="#9333ea" stroke-width="1.5" marker-end="url(#ap)"/>
+  <text x="304" y="1414" font-size="11" fill="#6b7280">LLM / 清洗链 / 反馈闭环</text>
+  <line x1="454" y1="1410" x2="484" y2="1410" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ar)"/>
+  <text x="492" y="1414" font-size="11" fill="#6b7280">自纠错重试</text>
+  <line x1="582" y1="1410" x2="612" y2="1410" stroke="#ea580c" stroke-width="1.5" marker-end="url(#ao)"/>
+  <text x="620" y="1414" font-size="11" fill="#6b7280">规则化降级</text>
+  <text x="970" y="1414" font-size="10" fill="#9ca3af" text-anchor="end">每步旁路落库 query_trace 供时间线回放</text>
 </svg>
