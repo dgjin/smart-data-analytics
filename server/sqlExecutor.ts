@@ -1,8 +1,9 @@
 /**
  * P0 核心改造：SQL 安全执行层。
  * LLM 生成的 SQL 必须通过本层校验后才允许对真实数据源执行：
- * SELECT-only、表名白名单（scope+敏感过滤后的 Schema）、敏感列拒绝、
+ * SELECT-only、表名白名单（scope+ 敏感过滤后的 Schema）、敏感列拒绝、
  * 单语句、强制 LIMIT、执行超时、结果行数截断。
+ * P0-2: 新增可选自愈入口——校验失败时可调用 LLM 纠偏重试一次，统一审计出口。
  * 数据源连接按 dataSourceId 建池缓存；配置变更后由路由侧 invalidateExecutorPool 失效。
  */
 import mysql from 'mysql2/promise';
@@ -11,6 +12,7 @@ import pg from 'pg';
 import sqlParserPkg from 'node-sql-parser';
 import { getPool } from './db';
 import { decryptSecret } from './secretsCrypto';
+import { callLLMJson } from './llmClient';
 
 const { Parser: SqlAstParser } = sqlParserPkg;
 
@@ -22,6 +24,13 @@ export function dialectOfDsType(dsType: string): SqlDialect | null {
   if (dsType === 'mysql') return 'mysql';
   if (dsType === 'postgresql' || dsType === 'greenplum') return 'pg';
   return null;
+}
+
+// 复用 liveQuery 的方言规则逻辑（简单版，仅 MySQL）
+function dialectPromptOf(dsType?: string): { label: string; rules: string } {
+  if (dsType === 'greenplum') return { label: 'Greenplum（PostgreSQL 兼容方言）', rules: '- 方言要点：分页仅支持 LIMIT n OFFSET m；标识符用双引号；日期用 EXTRACT/date_trunc；空值用 COALESCE；字符串拼接用 ||；分组聚合用 STRING_AGG' };
+  if (dsType === 'postgresql') return { label: 'PostgreSQL', rules: '- 方言要点：分页仅支持 LIMIT n OFFSET m；标识符用双引号；日期用 EXTRACT/date_trunc；空值用 COALESCE；字符串拼接用 ||；分组聚合用 STRING_AGG' };
+  return { label: 'MySQL', rules: '' };
 }
 
 const MAX_ROWS = 100000; // v0.4.14：500→100000，满足真实记录数输出，保留兜底防 OOM
