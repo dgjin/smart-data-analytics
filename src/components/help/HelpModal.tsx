@@ -1,7 +1,8 @@
 /**
- * 系统帮助弹窗：实时读取 docs/系统功能说明书.md（GET /api/help/manual）并渲染。
+ * 系统帮助弹窗：实时读取 docs/用户使用指南.md（GET /api/help/manual）并渲染。
+ * 帮助面向终端用户回答「系统怎么用」（服务端在指南缺失时回退功能说明书）。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
- * 不引入第三方 markdown 依赖，保证与说明书文件始终一致（单一事实源）。
+ * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
 import React, { useEffect, useState } from 'react';
 import { X, BookOpen, RefreshCw, FileText } from 'lucide-react';
@@ -247,11 +248,11 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     try {
       const res = await apiFetch('/api/help/manual');
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '加载说明书失败');
+      if (!res.ok) throw new Error(data.error || '加载使用指南失败');
       setMarkdown(data.markdown || '');
       setUpdatedAt(data.updatedAt || null);
     } catch (err: any) {
-      setError(err.message || '加载说明书失败');
+      setError(err.message || '加载使用指南失败');
     } finally {
       setLoading(false);
     }
@@ -283,7 +284,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <BookOpen className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h2 className="text-sm font-semibold text-slate-100">系统功能说明书</h2>
+              <h2 className="text-sm font-semibold text-slate-100">使用指南</h2>
               <p className="text-[11px] text-slate-500">
                 {updatedAt ? `文档更新于 ${new Date(updatedAt).toLocaleString('zh-CN')}` : '实时读取最新文档'}
               </p>
@@ -312,7 +313,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           {loading && !markdown && (
             <div className="flex flex-col items-center justify-center py-16 text-slate-500">
               <RefreshCw className="w-6 h-6 animate-spin mb-3" />
-              <p className="text-xs">正在加载功能说明书…</p>
+              <p className="text-xs">正在加载使用指南…</p>
             </div>
           )}
           {error && (
@@ -332,7 +333,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
         {/* 底部 */}
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
-          <span>本文档为系统功能单一事实源，随功能更新同步维护</span>
+          <span>面向使用者的操作指南，随功能更新同步维护</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"

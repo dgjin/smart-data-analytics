@@ -183,10 +183,10 @@ export const Header: React.FC = () => {
           {themeMode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        {/* 帮助：打开系统功能说明书 */}
+        {/* 帮助：打开用户使用指南 */}
         <button
           onClick={() => setHelpOpen(true)}
-          title="帮助 · 系统功能说明书"
+          title="帮助 · 使用指南"
           className="p-2 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
         >
           <HelpCircle className="w-4 h-4" />
