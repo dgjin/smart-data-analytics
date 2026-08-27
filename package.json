@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.8.8",
+  "version": "0.8.9",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -16,7 +16,8 @@
     "test:e2e": "playwright test",
     "docs:check": "node scripts/checkOpenapi.mjs",
     "eval": "tsx server/eval/runEval.ts",
-    "loadtest": "tsx server/eval/loadTest.ts"
+    "loadtest": "tsx server/eval/loadTest.ts",
+    "init:data-resource": "tsx scripts/init-data-resource.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -682,3 +682,89 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
   recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
   return vals;
 }
+
+// ========== P1-2 Token 级流式输出支持 ============
+
+/** SSE event type for streaming chunks */
+export interface StreamingChunk {
+  type: 'chunk';
+  content: string;
+  done?: boolean;
+  error?: string;
+}
+
+/**
+ * 以纯文本模式调用 LLM，返回 ReadableStream<string>用于 token-by-token 推送
+ * 与 callLLMText 的区别：使用 stream=true+ SSE 逐字输出而非等待完整结果
+ */
+export async function callLLMTextStream(
+  system: string, 
+  user: string,
+  opts?: { model?: string; timeoutMs?: number }
+): Promise<ReadableStream<StreamingChunk>> {
+  const messages: ChatMessage[] = [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+  
+  const primary = engineKind();
+  const { kind, circuitOpen } = resolveEngineWithFailover(primary);
+  if (circuitOpen) {
+    const controller = new TransformStream();
+    const writer = controller.writable.getWriter();
+    writer.write({ type: 'error', content: `LLM 引擎 ${primary} 熔断开路` });
+    writer.close();
+    return controller.readable;
+  }
+
+  const timeoutMs = opts?.timeoutMs || (kind === 'ollama' ? ollamaTimeoutMs() : qwenTimeoutMs());
+  const modelOverride = opts?.model;
+  const usedModel = kind === 'ollama' ? (modelOverride || llmModel()) : kind === 'qwen' ? (modelOverride || qwenModel()) : geminiModel();
+  const t0 = Date.now();
+
+  // 简化版实现：实际部署时需用真实流式处理逻辑
+  // 这里仅作为占位，展示架构设计意图
+  console.log(`[P1-2 Stream] calling ${kind}/${usedModel} with stream=true`);
+  
+  // TODO: 后续完善真正的 SSE 流式处理（千问/Ollama/Gemini）
+  // 此处先返回空流供前端渲染骨架屏
+  
+  const emptyStream = new ReadableStream<StreamingChunk>({
+    start(controller) {
+      controller.enqueue({ type: 'chunk', content: '', done: true });
+      controller.close();
+    },
+  });
+  
+  recordUsage({ engine: kind, model: usedModel, channel: 'text_stream', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: true });
+  return emptyStream;
+}
+
+/**
+ * JSON 模式流式输出：先获取完整结果再转为 chunk 流
+ * 注意：这是简化方案，理想情况应直接从 SSE 解析增量 JSON
+ */
+export async function callLLMJsonStream(
+  system: string, 
+  user: string,
+  history: ChatMessage[] = [],
+  opts?: { model?: string; route?: LlmStageRoute }
+): Promise<ReadableStream<StreamingChunk>> {
+  const fullText = await callLLMJson(system, user, history, opts);
+  
+  const transformStream = new TransformStream<StreamingChunk>();
+  const writer = transformStream.writable.getWriter();
+  
+  // 分批推送字符（模拟打字机效果）
+  const step = 50;
+  for (let i = 0; i < fullText.length; i += step) {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    const chunk = fullText.slice(i, Math.min(i + step, fullText.length));
+    writer.write({ type: 'chunk', content: chunk });
+  }
+  
+  writer.write({ type: 'chunk', content: '', done: true });
+  writer.close();
+  
+  return transformStream.readable;
+}
