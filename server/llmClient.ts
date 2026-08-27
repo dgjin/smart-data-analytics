@@ -709,12 +709,15 @@ export async function callLLMTextStream(
   
   const primary = engineKind();
   const { kind, circuitOpen } = resolveEngineWithFailover(primary);
+  
+  // 创建 TransformStream 用于构建流式输出
+  const transformStream = new TransformStream<StreamingChunk>();
+  const writer = transformStream.writable.getWriter();
+
   if (circuitOpen) {
-    const controller = new TransformStream();
-    const writer = controller.writable.getWriter();
     writer.write({ type: 'error', content: `LLM 引擎 ${primary} 熔断开路` });
     writer.close();
-    return controller.readable;
+    return transformStream.readable;
   }
 
   const timeoutMs = opts?.timeoutMs || (kind === 'ollama' ? ollamaTimeoutMs() : qwenTimeoutMs());
@@ -722,22 +725,211 @@ export async function callLLMTextStream(
   const usedModel = kind === 'ollama' ? (modelOverride || llmModel()) : kind === 'qwen' ? (modelOverride || qwenModel()) : geminiModel();
   const t0 = Date.now();
 
-  // 简化版实现：实际部署时需用真实流式处理逻辑
-  // 这里仅作为占位，展示架构设计意图
-  console.log(`[P1-2 Stream] calling ${kind}/${usedModel} with stream=true`);
-  
-  // TODO: 后续完善真正的 SSE 流式处理（千问/Ollama/Gemini）
-  // 此处先返回空流供前端渲染骨架屏
-  
-  const emptyStream = new ReadableStream<StreamingChunk>({
-    start(controller) {
-      controller.enqueue({ type: 'chunk', content: '', done: true });
-      controller.close();
-    },
-  });
-  
-  recordUsage({ engine: kind, model: usedModel, channel: 'text_stream', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: true });
-  return emptyStream;
+  // 统一 AbortController 处理超时
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    if (kind === 'qwen') {
+      // ========== 千问百炼 API 流式处理 ==========
+      const res = await fetch(`${qwenUrl()}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.QWEN_API_KEY || ''}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: usedModel,
+          messages,
+          stream: true,  // ← 启用流式输出
+          response_format: { type: 'json_object' },  // P0-1 结构化输出约束
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw makeLlmError(`Qwen API error: ${res.status} ${errorText}`, { status: res.status });
+      }
+
+      // 解析 SSE 流
+      const textDecoder = new TextDecoder();
+      const reader = (res.body as any).getReader();
+      
+      let fullContent = '';
+      
+      while (true) {
+        const { done: doneReading, value } = await reader.read();
+        if (doneReading) break;
+        
+        if (value) {
+          const chunkStr = textDecoder.decode(value, { stream: true });
+          // SSE 格式：data: {...}\n\n
+          const lines = chunkStr.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data:')) {
+              try {
+                const jsonStr = line.slice(5).trim();
+                if (jsonStr === '[DONE]') {
+                  writer.write({ type: 'chunk', content: '', done: true });
+                  break;
+                }
+                
+                const parsed = JSON.parse(jsonStr);
+                const choices = parsed.choices || [];
+                
+                if (choices.length > 0) {
+                  const delta = choices[0].delta || {};
+                  const content = delta.content || '';
+                  
+                  if (content) {
+                    fullContent += content;
+                    // 直接推送原始 token（打字机效果）
+                    writer.write({ type: 'chunk', content });
+                  }
+                }
+              } catch (e) {
+                // 忽略解析错误（可能是截断的 JSON）
+              }
+            }
+          }
+        }
+      }
+
+      recordUsage({ 
+        engine: kind, 
+        model: usedModel, 
+        channel: 'text_stream', 
+        promptTokens: 0, 
+        completionTokens: 0, 
+        durationMs: Date.now() - t0, 
+        ok: true 
+      });
+      
+    } else if (kind === 'ollama') {
+      // ========== Ollama API 流式处理 ==========
+      const res = await fetch(`${ollamaUrl()}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: usedModel,
+          messages,
+          stream: true,  // ← 启用流式输出
+          keep_alive: '30m',
+          format: 'json',  // P0-1 结构化输出约束
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        throw makeLlmError(`Ollama API error: ${res.status} ${errorText}`, { status: res.status });
+      }
+
+      // 解析 SSE 流
+      const textDecoder = new TextDecoder();
+      const reader = (res.body as any).getReader();
+      
+      let fullContent = '';
+      
+      while (true) {
+        const { done: doneReading, value } = await reader.read();
+        if (doneReading) break;
+        
+        if (value) {
+          const chunkStr = textDecoder.decode(value, { stream: true });
+          const lines = chunkStr.split('\n');
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const parsed = JSON.parse(line);
+                
+                // Ollama SSE 格式：{ "message": { "content": "xxx" }, "done": false }
+                if (parsed.message?.content) {
+                  const content = parsed.message.content;
+                  fullContent += content;
+                  // 直接推送原始 token（打字机效果）
+                  writer.write({ type: 'chunk', content });
+                }
+                
+                if (parsed.done) {
+                  writer.write({ type: 'chunk', content: '', done: true });
+                }
+              } catch (e) {
+                // 忽略解析错误
+              }
+            }
+          }
+        }
+      }
+
+      recordUsage({ 
+        engine: kind, 
+        model: usedModel, 
+        channel: 'text_stream', 
+        promptTokens: 0, 
+        completionTokens: 0, 
+        durationMs: Date.now() - t0, 
+        ok: true 
+      });
+      
+    } else if (kind === 'gemini') {
+      // ========== Gemini API 流式处理 ==========
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      
+      const response = await ai.models.streamGenerateContent({
+        model: usedModel,
+        contents: [{ role: 'user', parts: [{ text: system + '\n\n' + user }] }],
+      });
+
+      let fullContent = '';
+      
+      // 订阅 Stream 事件
+      for await (const item of response) {
+        if (item.text) {
+          const content = item.text;
+          fullContent += content;
+          writer.write({ type: 'chunk', content });
+        }
+        
+        // 检查是否有结束标志
+        if (item.candidates?.[0]?.finishReason) {
+          writer.write({ type: 'chunk', content: '', done: true });
+          break;
+        }
+      }
+
+      recordUsage({ 
+        engine: kind, 
+        model: usedModel, 
+        channel: 'text_stream', 
+        promptTokens: 0, 
+        completionTokens: 0, 
+        durationMs: Date.now() - t0, 
+        ok: true 
+      });
+    }
+    
+    // 正常完成时确保关闭 writer
+    if (!writer.closed) {
+      await writer.close();
+    }
+    
+  } catch (err) {
+    clearTimeout(timer);
+    writer.write({ type: 'error', content: err instanceof Error ? err.message : 'Unknown error' });
+    writer.close();
+    recordUsage({ engine: kind, model: usedModel, channel: 'text_stream', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: false });
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    writer.releaseLock();
+  }
+
+  return transformStream.readable;
 }
 
 /**

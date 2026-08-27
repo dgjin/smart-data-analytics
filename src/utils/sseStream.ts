@@ -26,6 +26,8 @@ export interface SseStreamHandlers {
   onStage?: (label: string, stage: string, info?: Record<string, any>) => void;
   /** M1 推导留痕步骤事件（追加步骤器） */
   onTrace?: (step: any) => void;
+  /** P1-2 Token 级流式输出：LLM 生成内容逐字推送（打字机效果） */
+  onChunk?: (content: string) => void;
   /** 终端事件（done / clarify / refuse），payload 与非流式 JSON 响应同构 */
   onTerminal?: (event: 'done' | 'clarify' | 'refuse', data: any) => void;
 }
@@ -35,26 +37,59 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  
+  // P1-2 流式内容累积
+  let streamContentBuffer = '';
+  
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    
     buffer += decoder.decode(value, { stream: true });
     const parts = buffer.split('\n\n');
     buffer = parts.pop() || '';
+    
     for (const part of parts) {
       let eventName = 'message';
       let dataStr = '';
+      
       for (const line of part.split('\n')) {
         if (line.startsWith('event:')) eventName = line.slice(6).trim();
         else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
       }
+      
       if (!dataStr) continue;
+      
+      // P1-2 检查是否是流式 chunk 事件（直接推送文本内容）
+      if (eventName === 'chunk') {
+        try {
+          const chunkData = JSON.parse(dataStr);
+          if (chunkData.type === 'chunk' && chunkData.content) {
+            streamContentBuffer += chunkData.content;
+            // 实时推送给前端渲染（打字机效果）
+            handlers.onChunk?.(chunkData.content);
+          }
+          
+          if (chunkData.done) {
+            console.log('[P1-2 Stream] Content stream done, total:', streamContentBuffer.length);
+          }
+          
+          if (chunkData.error) {
+            console.error('[P1-2 Stream] Error:', chunkData.error);
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+        continue;
+      }
+      
       let data: any;
       try {
         data = JSON.parse(dataStr);
       } catch {
         continue;
       }
+      
       if (eventName === 'stage') {
         const stage = String(data?.stage || '');
         const { stage: _stage, ...info } = data || {};

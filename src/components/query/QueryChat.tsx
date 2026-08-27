@@ -103,6 +103,10 @@ export const QueryChat: React.FC = () => {
   const [streamProgress, setStreamProgress] = useState<string | null>(null);
   // P2-1 SQL 先行回显：sql_ready/executed 阶段携带的 SQL，长等待期提前展示
   const [streamPreviewSql, setStreamPreviewSql] = useState<string | null>(null);
+  // P1-2 Token 级流式输出：LLM 生成内容的增量缓冲区（打字机效果）
+  const [streamingContent, setStreamingContent] = useState<string>('');
+  // 当前查询是否正在接收流式内容
+  const [isReceivingStream, setIsReceivingStream] = useState<boolean>(false);
   // M1 推导留痕：SSE trace 事件实时追加的步骤链（查询中展示步骤器）
   const [liveTraceSteps, setLiveTraceSteps] = useState<TraceStepInfo[]>([]);
   // M2 计划模式：「先制定计划」开关（localStorage 持久化）；已批准/取消的计划卡片 id 置灰
@@ -683,6 +687,7 @@ export const QueryChat: React.FC = () => {
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('text/event-stream') && response.body) {
         // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑（P1-6 拆分至 utils/sseStream）
+        // P1-2 Token 级流式输出：实时接收 LLM 生成内容的逐字推送
         await readSseStream(response, {
           onStage: (label, _stage, info) => {
             setStreamProgress(label);
@@ -690,7 +695,36 @@ export const QueryChat: React.FC = () => {
           },
           // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
           onTrace: (step) => setLiveTraceSteps((prev) => [...prev.slice(-7), step as TraceStepInfo]),
-          onTerminal: (_event, data) => consumeResponse(data),
+          // P1-2 流式内容增量渲染
+          onChunk: (content) => {
+            setIsReceivingStream(true);
+            setStreamingContent((prev) => prev + content);
+            
+            // 动态更新当前聊天消息的流式内容
+            const messages = chatMessages;
+            if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+              // 找到最后一个 assistant 消息并更新其内容
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.content = streamingContent + content;
+              // 触发 React 更新（通过修改一个标记字段）
+              addChatMessage({ ...lastMsg });
+            } else {
+              // 如果没有 assistant 消息，创建一个
+              addChatMessage({
+                id: `msg-ai-stream-${Date.now()}`,
+                role: 'assistant',
+                content: content,
+                timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+                dataSourceId: submitDSId,
+              });
+            }
+          },
+          onTerminal: (_event, data) => {
+            setIsReceivingStream(false);
+            // 清理临时状态
+            setStreamingContent('');
+            consumeResponse(data);
+          },
         });
       } else {
         // 非流式（演示模式或早期校验错误）：保持原 JSON 链路
