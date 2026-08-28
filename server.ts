@@ -21,7 +21,8 @@ import { requestLogger } from './server/requestLogger';
 import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
 import datasourceRoutes from './server/routes/datasources';
-import knowledgeRoutes from './server/routes/knowledge';
+// P3-1 知识库管理路由（新增）
+import knowledgeManageRoutes from './server/routes/knowledge';
 import externalKnowledgeRoutes from './server/routes/externalKnowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
@@ -145,6 +146,8 @@ async function startServer() {
   app.use('/api/auth', authRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/datasources', datasourceRoutes);
+  // P3-1 知识库管理路由（新增）
+  app.use('/api/knowledge', knowledgeManageRoutes);
   // Legacy alias: /api/datasource/test-connection -> /api/datasources/test-connection
   app.use('/api/datasource', datasourceRoutes);
   app.use('/api/knowledge', knowledgeRoutes);

@@ -74,6 +74,60 @@ export interface DataSource {
   lastSyncedAt: string;
 }
 
+// ============ 业务知识库相关类型 ============
+
+/** 知识条目结构 */
+export interface KnowledgeBaseItem {
+  id: string;        // 唯一标识符（如 kb_001）
+  title: string;     // 标题
+  content: string;   // Markdown 格式的完整内容
+  tags: string[];    // 标签数组
+  category: string;  // 分类
+  createdAt?: string; // 创建时间（用于备份版本追踪）
+  updatedAt?: string; // 更新时间
+}
+
+/** 知识库导出格式（包含元数据和版本信息） */
+export interface KnowledgeExportFormat {
+  version: string;           // 导出版本号
+  exportedAt: string;        // 导出时间戳
+  exportBy: string;          // 导出者用户名
+  systemVersion: string;     // 系统版本号
+  dataResourceInfo: {
+    dataSourceId: string;
+    dataSourceName: string;
+    tables: string[];
+    knowledgeCount: number;
+  };
+  knowledgeBase: KnowledgeBaseItem[];
+}
+
+/** 知识库导入请求参数 */
+export interface KnowledgeImportRequest {
+  file: File;              // JSON 文件对象
+  mergeStrategy: 'replace' | 'append' | 'skip'; // 冲突处理策略：替换/追加/跳过
+  dryRun?: boolean;        // 是否仅预检不实际导入
+}
+
+/** 知识库导入结果 */
+export interface KnowledgeImportResult {
+  success: boolean;
+  importedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors?: Array<{
+    itemId: string;
+    message: string;
+    severity: 'error' | 'warning';
+  }>;
+  summary: {
+    totalItems: number;
+    newItems: number;
+    updatedItems: number;
+    conflictItems: number;
+  };
+}
+
 export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'radar' | 'scatter' | 'treemap' | 'heatmap' | 'kpi' | 'table';
 
 export interface ChartConfig {

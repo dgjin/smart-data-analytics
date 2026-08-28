@@ -59,7 +59,7 @@ export const FCT_JC_MAIN_BIZ_STAT_SCHEMA: TableSchema = {
     { name: 'XMBH_COUNT', type: 'number', description: '项目数（去重计数）', isMetric: true },
     { name: 'BBRQ', type: 'date', description: '报告日期（月末快照）', isDimension: true, isPartition: true },
     { name: 'SJRQ', type: 'date', description: '数据日期（财务表专用）', isDimension: true, isPartition: true },
-    { name: 'BB', type: 'category', description: '版本标识（'1'=核算版，防重复）', isDimension: true, isFilter: true },
+    { name: 'BB', type: 'category', description: "版本标识（'1'=核算版，防重复）", isDimension: true, isFilter: true },
   ],
 };
 
@@ -79,7 +79,7 @@ export const FCT_JC_FINANCIAL_STAT_SCHEMA: TableSchema = {
     { name: 'DNTZSY', type: 'number', description: '当年投资收益 (元)', isMetric: true },
     { name: 'LZNZSY', type: 'number', description: '累计投资收益 (元)', isMetric: true },
     { name: 'SJRQ', type: 'date', description: '数据日期（月末）', isDimension: true, isPartition: true },
-    { name: 'BB', type: 'category', description: '版本标识（'1'=核算版）', isDimension: true, isFilter: true },
+    { name: 'BB', type: 'category', description: "版本标识（'1'=核算版）", isDimension: true, isFilter: true },
   ],
 };
 
