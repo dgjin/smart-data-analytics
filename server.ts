@@ -150,7 +150,6 @@ async function startServer() {
   app.use('/api/knowledge', knowledgeManageRoutes);
   // Legacy alias: /api/datasource/test-connection -> /api/datasources/test-connection
   app.use('/api/datasource', datasourceRoutes);
-  app.use('/api/knowledge', knowledgeRoutes);
   // 外部知识库接入（接口配置仅 ADMIN；问数链路自动检索注入）
   app.use('/api/knowledge-external', externalKnowledgeRoutes);
   app.use('/api/metrics', metricRoutes);

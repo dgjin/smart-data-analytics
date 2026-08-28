@@ -185,11 +185,11 @@ export const DATA_RESOURCE_KNOWLEDGE_BASE = [
 ## 二、版本标识 BB 字段深度解析
 
 ### BB 字段的业务含义
-```sql
+[SQL]
 BB = '1'  -- 核算版（正式数据，唯一可信源）
 BB = '2'  -- 分成版（中间版本，仅用于机构维度分析，不可汇总）
 BB = '0'  -- 草稿版（未审核，禁止参与任何统计）
-```
+[/SQL]
 
 ### 为什么必须过滤 BB='1'？
 分成版数据的分摊逻辑：
@@ -215,7 +215,7 @@ BB = '0'  -- 草稿版（未审核，禁止参与任何统计）
 3. **完整性**：包含截至该月末的所有历史沉淀信息
 
 ### 正确获取最新数据的方法
-```sql
+[SQL]
 -- ✅ 推荐：子查询锁定 MAX 快照期
 SELECT * FROM fct_jc_main_biz_stat 
 WHERE BB = '1' 
@@ -226,14 +226,14 @@ SELECT * FROM fct_jc_main_biz_stat
 WHERE BB = '1' AND BBRQ >= '2026-07-01'
 
 -- 原因：月度间可能存在空档期（如节假日导致报告延迟），会漏掉真实最新月份或包含非月末数据
-```
+[/SQL]
 
 ---
 
 ## 四、关键指标口径规范
 
 ### 1. 项目数统计（五红线 R3）
-```sql
+[SQL]
 -- ✅ 正确：去重计数
 SELECT COUNT(DISTINCT XMBH) AS project_count FROM fct_jc_main_biz_stat WHERE BB = '1'
 
@@ -241,7 +241,7 @@ SELECT COUNT(DISTINCT XMBH) AS project_count FROM fct_jc_main_biz_stat WHERE BB 
 SELECT COUNT(XMBH) FROM fct_jc_main_biz_stat WHERE BB = '1'
 
 -- 原因：同一项目编号可能在多张明细表中有对应记录（如多次投放），直接计数会重复
-```
+[/SQL]
 
 ### 2. 长龄业务判定（SFCL 字段）
 **定义**：最早授信日期距当前宽表月份 ≥ 60 个月（5 年）
@@ -252,7 +252,7 @@ SELECT COUNT(XMBH) FROM fct_jc_main_biz_stat WHERE BB = '1'
 - 通常作为绩效考核关键指标
 
 **查询示例**：
-```sql
+[SQL]
 SELECT 
   JGMC,
   COUNT(*) AS long_age_count,
@@ -261,7 +261,7 @@ FROM fct_jc_main_biz_stat
 WHERE SFCL = '是' AND BB = '1'
 GROUP BY JGMC
 ORDER BY ratio DESC
-```
+[/SQL]
 
 ### 3. 逾期业务判定（SFYQ 字段）
 **定义**：超过合同约定还款期限未收回
@@ -276,7 +276,7 @@ ORDER BY ratio DESC
 ## 五、时间序列查询陷阱
 
 ### 常见错误场景
-```sql
+[SQL]
 -- ❌ 陷阱 1：混用两个日期字段
 SELECT SUM(b.BNTFJE), SUM(f.DNTZSY)
 FROM fct_jc_main_biz_stat b
@@ -292,7 +292,7 @@ SELECT BBRQ, SUM(BNTFJE)
 FROM fct_jc_main_biz_stat 
 WHERE BB = '1'
 GROUP BY BBRQ
-```
+[/SQL]
 
 ---
 
@@ -331,7 +331,7 @@ GROUP BY BBRQ
 **典型场景**：用户提问"数据资源库的累计投放金额是多少？"（隐含最新一期）
 
 #### 错误写法
-```sql
+[SQL]
 -- ❌ 遗漏子查询
 SELECT SUM(LJTFJE) FROM fct_jc_main_biz_stat WHERE BB = '1'
 -- 结果：跨月累加，金额虚高（把过去 12 个月的数据都加了）
@@ -340,10 +340,10 @@ SELECT SUM(LJTFJE) FROM fct_jc_main_biz_stat WHERE BB = '1'
 SELECT SUM(LJTFJE) FROM fct_jc_main_biz_stat 
 WHERE BB = '1' AND BBRQ > '2026-01-01'
 -- 结果：包含多个非月末时点数据，统计口径混乱
-```
+[/SQL]
 
 #### 正确写法
-```sql
+[SQL]
 -- ✅ 标准模板
 SELECT SUM(LJTFJE) AS total_amount
 FROM fct_jc_main_biz_stat 
@@ -353,7 +353,7 @@ WHERE BB = '1'
     FROM fct_jc_main_biz_stat 
     WHERE BB = '1'
   )
-```
+[/SQL]
 
 **技术原理**：
 - 子查询先确定最新月末 BBRQ（如 '2026-08-31'）
@@ -365,7 +365,7 @@ WHERE BB = '1'
 ### 🔴 R2: 核算版过滤
 
 #### 为什么分成版不能汇总？
-```
+[/SQL]
 项目 XM2023001：实际投放 1 亿元
 
 分成版记录：
@@ -373,10 +373,10 @@ WHERE BB = '1'
 - 华南分公司：5000 万
 - 华北分公司：3000 万
 合计：1.4 亿元（虚增 40%）
-```
+[/SQL]
 
 #### 错误示例
-```sql
+[SQL]
 -- ❌ 遗漏 BB 过滤
 SELECT JGMC, SUM(BNTFJE)
 FROM fct_jc_main_biz_stat
@@ -386,17 +386,17 @@ GROUP BY JGMC
 -- ❌ 错误过滤条件
 SELECT SUM(LJTFJE) FROM fct_jc_main_biz_stat WHERE BB != '1'
 -- 结果：统计的是分成版数据，金额虚高
-```
+[/SQL]
 
 #### 正确做法
-```sql
+[SQL]
 -- ✅ 所有查询必带 BB='1'
 SELECT JGMC, SUM(BNTFJE) AS annual_put
 FROM fct_jc_main_biz_stat
 WHERE BB = '1'
 GROUP BY JGMC
 ORDER BY annual_put DESC
-```
+[/SQL]
 
 ---
 
@@ -409,7 +409,7 @@ ORDER BY annual_put DESC
 3. 历史沿革中的调整记录
 
 #### 错误写法
-```sql
+[SQL]
 -- ❌ 直接计数
 SELECT COUNT(XMBH) AS project_count
 FROM fct_jc_main_biz_stat WHERE BB = '1'
@@ -418,10 +418,10 @@ FROM fct_jc_main_biz_stat WHERE BB = '1'
 -- ❌ 忽略 DISTINCT
 SELECT COUNT(*) FROM fct_jc_main_biz_stat WHERE BB = '1'
 -- 结果：完全错误的统计口径
-```
+[/SQL]
 
 #### 正确写法
-```sql
+[SQL]
 -- ✅ 去重计数
 SELECT COUNT(DISTINCT XMBH) AS unique_project_count
 FROM fct_jc_main_biz_stat WHERE BB = '1'
@@ -431,7 +431,7 @@ SELECT JGMC, COUNT(DISTINCT XMBH) AS proj_count
 FROM fct_jc_main_biz_stat
 WHERE BB = '1'
 GROUP BY JGMC
-```
+[/SQL]
 
 ---
 
@@ -444,7 +444,7 @@ GROUP BY JGMC
 | fct_jc_financial_stat | 财务收益核算 | DNTZSY/LZNZSY | 财务核算精确值 |
 
 #### 错误用法
-```sql
+[SQL]
 -- ❌ 从业务表查询投资收益
 SELECT SUM(LJTFJE) FROM fct_jc_main_biz_stat
 -- 这是投放金额，不是投资收益！
@@ -452,10 +452,10 @@ SELECT SUM(LJTFJE) FROM fct_jc_main_biz_stat
 -- ❌ 混淆概念
 SELECT LJTFJE AS investment_income FROM fct_jc_main_biz_stat
 -- 字段含义错误
-```
+[/SQL]
 
 #### 正确做法
-```sql
+[SQL]
 -- ✅ 投资收益必须查财务表
 SELECT 
   KM_YJFL,
@@ -465,22 +465,22 @@ FROM fct_jc_financial_stat
 WHERE BB = '1'
   AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')
 GROUP BY KM_YJFL
-```
+[/SQL]
 
 ---
 
 ## 📋 查询最佳实践清单
 
 ### ✅ 必做项
-- [ ] 所有查询添加 `WHERE BB = '1'`
-- [ ] 最新数据用 `MAX()` 子查询锁定快照期
-- [ ] 项目数用 `COUNT(DISTINCT XMBH)`
+- [ ] 所有查询添加 【WHERE BB = '1'】
+- [ ] 最新数据用 【MAX()】 子查询锁定快照期
+- [ ] 项目数用 【COUNT(DISTINCT XMBH)】
 - [ ] 财务指标查询财务宽表
 - [ ] 不要混用 BBRQ 和 SJRQ 字段
 
 ### ❌ 禁止项
-- [ ] 不使用 `COUNT(*)` 或 `COUNT(列名)` 统计项目数
-- [ ] 不忽略 `BB` 过滤条件
+- [ ] 不使用 【COUNT(*)】 或 【COUNT(列名)】 统计项目数
+- [ ] 不忽略 【BB】 过滤条件
 - [ ] 不从业务表查询投资收益
 - [ ] 不使用日期范围查询代替 MAX 子查询
 - [ ] 不进行跨表 BBRQ/SJRQ 直接 JOIN
@@ -614,7 +614,7 @@ A: LJTFJE 是"累计投放金额"（成本投入），投资收益是"DNTZSY"（
   - **禁止用于任何正式统计**
 
 #### 版本选择指南
-```sql
+[SQL]
 -- ✅ 官方报表/监管报送/对外披露
 WHERE BB = '1'
 
@@ -626,7 +626,7 @@ ORDER BY SUM(BNTFJE) DESC
 -- ❌ 绝对禁止
 WHERE BB != '1'  -- 统计分成版数据
 WHERE BB = '0'   -- 使用草稿版数据
-```
+[/SQL]
 
 ---
 
@@ -651,7 +651,7 @@ WHERE BB = '0'   -- 使用草稿版数据
   - 可能与 BBRQ 相差 1-3 天（遇周末顺延）
 
 #### 日期混合使用禁忌
-```sql
+[SQL]
 -- ❌ 错误：混用两个日期字段
 SELECT b.JGMC, b.BNTFJE, f.DNTZSY
 FROM fct_jc_main_biz_stat b
@@ -674,7 +674,7 @@ latest_financial AS (
 SELECT b.JGMC, b.annual_put, f.income
 FROM latest_business b
 LEFT JOIN latest_financial f ON b.JGMC = f.JGMC
-```
+[/SQL]
 
 ---
 
@@ -699,14 +699,14 @@ LEFT JOIN latest_financial f ON b.JGMC = f.JGMC
 ### 1. 累计投放金额统计（最新一期）
 **用户提问**："数据资源库的累计投放金额是多少？"
 **SQL 模板**：
-```sql
+[SQL]
 SELECT 
   SUM(LJTFJE) AS total_investment,
   ROUND(SUM(LJTFJE) / 100000000, 2) AS total_investment_hundred_million
 FROM fct_jc_main_biz_stat
 WHERE BB = '1'
   AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')
-```
+[/SQL]
 **关键约束**：四红线 R1+R2，必须用 MAX 子查询 +BB='1'
 
 ---
@@ -714,7 +714,7 @@ WHERE BB = '1'
 ### 2. 本年投放金额分析
 **用户提问**："今年各分公司的本年投放金额排名？"
 **SQL 模板**：
-```sql
+[SQL]
 SELECT 
   JGMC,
   SUM(BNTFJE) AS current_year_investment,
@@ -726,7 +726,7 @@ WHERE BB = '1'
 GROUP BY JGMC
 ORDER BY current_year_investment DESC
 LIMIT 10
-```
+[/SQL]
 **输出**：机构名称、本年投放金额、占比百分比
 
 ---
@@ -734,7 +734,7 @@ LIMIT 10
 ### 3. 投资收益分析
 **用户提问**："今年的投资收益情况如何？"
 **SQL 模板**：
-```sql
+[SQL]
 SELECT 
   KM_YJFL AS 收益大类，
   SUM(DNTZSY) AS current_year_income,
@@ -745,7 +745,7 @@ WHERE BB = '1'
   AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')
 GROUP BY KM_YJFL
 ORDER BY current_year_income DESC
-```
+[/SQL]
 **关键约束**：四红线 R4，收益数据必须查财务表
 
 ---
@@ -755,7 +755,7 @@ ORDER BY current_year_income DESC
 ### 4. 逾期风险排查
 **用户提问**："目前有多少逾期金额？哪些机构逾期最严重？"
 **SQL 模板**：
-```sql
+[SQL]
 WITH overdue_summary AS (
   SELECT 
     SUM(CASE WHEN SFYQ = true THEN YQJE ELSE 0 END) AS total_overdue_amount,
@@ -788,7 +788,7 @@ WHERE fs.BB = '1' AND fs.BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHER
 GROUP BY os.total_overdue_amount, os.overdue_project_count, os.total_overdue_amount / SUM(fs.LJTFJE), ob.*
 ORDER BY ob.org_overdue_amount DESC
 LIMIT 20
-```
+[/SQL]
 **输出**：总逾期金额、逾期项目数、逾期率、各机构逾期排名
 
 ---
@@ -796,7 +796,7 @@ LIMIT 20
 ### 5. 长龄化率分析
 **用户提问**："长龄业务占比多少？哪些机构需要重点关注？"
 **SQL 模板**：
-```sql
+[SQL]
 WITH age_summary AS (
   SELECT 
     COUNT(*) FILTER(WHERE SFCL = true) AS long_age_count,
@@ -826,7 +826,7 @@ CROSS JOIN age_by_org jab
 WHERE jab.org_long_age_ratio > 0.3
 ORDER BY jab.org_long_age_ratio DESC
 LIMIT 15
-```
+[/SQL]
 **阈值建议**：
 - 长龄化率 > 30%：需重点监控
 - 长龄化率 > 40%：严重老化，启动专项处置
@@ -836,7 +836,7 @@ LIMIT 15
 ### 6. 成本回收率分析
 **用户提问**："我们的成本回收情况怎么样？"
 **SQL 模板**：
-```sql
+[SQL]
 SELECT 
   SUM(LJTFJE) - SUM(CBEY) AS total_recovered,
   SUM(LJTFJE) AS total_invested,
@@ -845,7 +845,7 @@ SELECT
 FROM fct_jc_main_biz_stat
 WHERE BB = '1'
   AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')
-```
+[/SQL]
 **业务解读**：
 - (累计投放 - 成本余额) / 累计投放 = 回收率
 - 回收率越低，说明风险敞口越大
@@ -857,7 +857,7 @@ WHERE BB = '1'
 ### 7. 月度投放趋势
 **用户提问**："最近几个月的投放趋势如何？"
 **SQL 模板**：
-```sql
+[SQL]
 SELECT 
   TO_CHAR(TO_DATE(BBRQ, 'YYYY-MM-DD'), 'YYYY-MM') AS report_month,
   SUM(BNTFJE) AS monthly_investment,
@@ -873,7 +873,7 @@ WHERE BB = '1'
 GROUP BY BBRQ
 ORDER BY BBRQ DESC
 LIMIT 7
-```
+[/SQL]
 **注意**：逐月独立统计，不跨月累加
 
 ---
@@ -881,7 +881,7 @@ LIMIT 7
 ### 8. 业务结构变化
 **用户提问**："各类业务的占比变化情况？"
 **SQL 模板**：
-```sql
+[SQL]
 WITH current_period AS (
   SELECT 
     YWFL,
@@ -916,7 +916,7 @@ SELECT
 FROM current_period cp
 JOIN prev_period pp ON cp.YWFL = pp.YWFL
 ORDER BY cp.amount_ratio DESC
-```
+[/SQL]
 **输出**：各业务分类的项目数和金额占比，以及与上月对比
 
 ---
@@ -926,7 +926,7 @@ ORDER BY cp.amount_ratio DESC
 ### 9. 机构业绩排名
 **用户提问**："哪个分公司业绩最好？"
 **SQL 模板**：
-```sql
+[SQL]
 WITH org_stats AS (
   SELECT 
     JGMC,
@@ -955,7 +955,7 @@ SELECT
 FROM org_stats
 ORDER BY total_investment DESC
 LIMIT 10
-```
+[/SQL]
 **多维度排名**：按总金额、本年金额、逾期最低 3 种排名
 
 ---
@@ -963,7 +963,7 @@ LIMIT 10
 ### 10. 同环比增长分析
 **用户提问**："本月比去年好还是差？"
 **SQL 模板**：
-```sql
+[SQL]
 WITH compare_periods AS (
   SELECT 
     'current' AS period_type,
@@ -995,7 +995,7 @@ SELECT
     4
   ) AS yoy_growth_rate
 FROM compare_periods
-```
+[/SQL]
 **输出**：同比增速（今年 vs 去年同月）
 
 ---
@@ -1004,8 +1004,8 @@ FROM compare_periods
 
 ### 四红线贯穿所有分析
 1. ✅ **R1**: 所有"最新"查询都用 MAX 子查询
-2. ✅ **R2**: 所有查询必带`WHERE BB = '1'`
-3. ✅ **R3**: 项目数统计必用`COUNT(DISTINCT XMBH)`
+2. ✅ **R2**: 所有查询必带【WHERE BB = '1'】
+3. ✅ **R3**: 项目数统计必用【COUNT(DISTINCT XMBH)】
 4. ✅ **R4**: 投资收益必查财务宽表
 
 ### 分析框架建议
@@ -1054,7 +1054,7 @@ FROM compare_periods
 - "全年的投资收益总额？"
 
 **技术说明**：
-```sql
+[SQL]
 -- ✅ 机构对比可以使用分成版（更细粒度）
 SELECT JGMC, SUM(BNTFJE)
 FROM fct_jc_main_biz_stat
@@ -1066,7 +1066,7 @@ ORDER BY SUM(BNTFJE) DESC
 SELECT SUM(BNTFJE)
 FROM fct_jc_main_biz_stat
 WHERE BB = '1'  -- 只用这一个版本
-```
+[/SQL]
 
 ---
 
@@ -1078,7 +1078,7 @@ WHERE BB = '1'  -- 只用这一个版本
 3. **历史调整**：后期修改导致原记录拆分或合并
 
 **正确处理**：
-```sql
+[SQL]
 -- ✅ 统计项目数必须去重
 SELECT COUNT(DISTINCT XMBH) FROM fct_jc_main_biz_stat WHERE BB = '1'
 
@@ -1087,7 +1087,7 @@ SELECT XMBH, BBRQ, LJTFJE
 FROM fct_jc_main_biz_stat
 WHERE BB = '1'
 ORDER BY XMBH, BBRQ
-```
+[/SQL]
 
 ---
 
@@ -1110,7 +1110,7 @@ ORDER BY XMBH, BBRQ
 ## Q5: 环比/同比怎么算？
 
 **环比（MoM）**：本月 vs 上月
-```sql
+[SQL]
 WITH monthly_data AS (
   SELECT 
     BBRQ,
@@ -1131,10 +1131,10 @@ SELECT
     4
   ) AS mom_growth_rate
 FROM monthly_data
-```
+[/SQL]
 
 **同比（YoY）**：本月 vs 去年同月
-```sql
+[SQL]
 WITH compare AS (
   SELECT 
     'current' AS period_type,
@@ -1166,7 +1166,7 @@ SELECT
     4
   ) AS yoy_growth_rate
 FROM compare
-```
+[/SQL]
 
 ---
 
@@ -1199,7 +1199,7 @@ FROM compare
 4. **Post-processing**：校验生成的 SQL 是否能实际执行
 
 **典型 Prompt 优化**：
-```
+[/SQL]
 你是不动产资产经营 NL2SQL 专家。请严格基于以下 Schema 生成 SQL：
 [完整字段列表]
 
@@ -1212,7 +1212,7 @@ FROM compare
 错误示例（禁止）：
 - SELECT customer_name ... (customer_name 不存在)
 - SELECT profit_margin ... (profit_margin 不是真实字段)
-```
+[/SQL]
 
 ---
 
@@ -1229,45 +1229,6 @@ FROM compare
 `,
     tags: ['FAQ', '边界场景', '幻觉防御', '最佳实践'],
     category: '常见问题',
-  },
-];  - 可能与 BBRQ 相差 1-3 天（遇周末顺延）
-
-#### 日期混合使用禁忌
-```sql
--- ❌ 错误：混用两个日期字段
-SELECT b.JGMC, b.BNTFJE, f.DNTZSY
-FROM fct_jc_main_biz_stat b
-JOIN fct_jc_financial_stat f ON b.BBRQ = f.SJRQ
--- 问题：两个日期口径不一致，匹配结果无业务意义
-
--- ✅ 正确：分别查询后关联
-WITH latest_business AS (
-  SELECT JGMC, SUM(BNTFJE) AS annual_put
-  FROM fct_jc_main_biz_stat
-  WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')
-  GROUP BY JGMC
-),
-latest_financial AS (
-  SELECT JGMC, SUM(DNTZSY) AS income
-  FROM fct_jc_financial_stat
-  WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')
-  GROUP BY JGMC
-)
-SELECT b.JGMC, b.annual_put, f.income
-FROM latest_business b
-LEFT JOIN latest_financial f ON b.JGMC = f.JGMC
-```
-
----
-
-## 📚 参考手册
-
-- **四红线规则**：见 kb_002《四红线规则与最佳实践》
-- **SQL 查询模板**：见 evalCases.jichuang.json 评测集
-- **技能模板**：见 Data Resource Skills（8 个高频分析方法）
-`,
-    tags: ['术语', '字典', '业务概念', '指标口径'],
-    category: '业务术语',
   },
 ];
 

@@ -310,6 +310,28 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // P3-1 业务知识库完整版：存储完整知识条目（标题、内容、标签、分类）供前端展示和导入导出
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS knowledge_base_entries (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      entry_id VARCHAR(64) NOT NULL UNIQUE,          -- 唯一标识符（如 kb_001）
+      data_source_id VARCHAR(64) NOT NULL,           -- 关联数据源 ID
+      title VARCHAR(500) NOT NULL DEFAULT '',        -- 标题
+      content MEDIUMTEXT NOT NULL,                   -- Markdown 格式的完整内容
+      tags JSON NOT NULL DEFAULT '[]',               -- 标签数组
+      category VARCHAR(100) NOT NULL DEFAULT '',     -- 分类名称
+      version VARCHAR(20) NOT NULL DEFAULT '1.0',    -- 版本号
+      is_preset TINYINT(1) NOT NULL DEFAULT 0,       -- 是否为预置条目（不可编辑）
+      created_by VARCHAR(50) NOT NULL DEFAULT '',    -- 创建者
+      updated_by VARCHAR(50) NOT NULL DEFAULT '',    -- 更新者
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_entries_ds (data_source_id),
+      INDEX idx_entries_id (entry_id),
+      INDEX idx_entries_category (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // P2-A 技能库：用户维护个人技能并可分享至系统库（管理员审核）；系统默认库由管理员维护
   await pool.query(`
     CREATE TABLE IF NOT EXISTS skill_library (
