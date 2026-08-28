@@ -185,6 +185,21 @@ async function startServer() {
   // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）
   app.use('/api/export', exportRoutes);
 
+  // API 兜底 404：所有未匹配的 /api/* 请求（任意方法）统一返回 JSON，
+  // 避免 Express 默认 404 HTML 页面导致前端 res.json() 抛出 "Unexpected token '<', <!DOCTYPE..."
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found' });
+  });
+
+  // 全局错误兜底：任何路由/中间件抛出的异常统一返回 JSON（含 body 解析失败等），
+  // 避免 Express 默认错误处理返回 HTML 错误页
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (res.headersSent) return;
+    const status = Number(err?.status) || Number(err?.statusCode) || 500;
+    console.error('[Fatal] unhandled route error:', err?.message || err);
+    res.status(status).json({ error: err?.message || '服务器内部错误' });
+  });
+
   // Vite development middleware or production static handling
   if (!isProd) {
     const vite = await createViteServer({
@@ -195,11 +210,8 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    // SPA fallback：必须在所有 API 路由之后注册，未匹配的 API 返回 404 JSON，其余路径回退 index.html
-    app.get('*', (req, res) => {
-      if (req.path.startsWith('/api/')) {
-        return res.status(404).json({ error: 'API endpoint not found' });
-      }
+    // SPA fallback：必须在所有 API 路由之后注册（/api 404 已在上文处理），其余路径回退 index.html
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

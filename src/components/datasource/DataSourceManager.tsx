@@ -382,7 +382,15 @@ export const DataSourceManager: React.FC = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(password ? { password } : {}),
     });
-    const data = await res.json();
+    // 容错解析：服务端异常时可能返回 HTML 错误页（而非 JSON），直接 res.json() 会抛出
+    // "Unexpected token '<', <!DOCTYPE..." 掩盖真实错误，这里先读文本再尝试解析
+    const rawText = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`服务端返回非 JSON 响应（HTTP ${res.status}）：${rawText.slice(0, 200)}`);
+    }
     if (!res.ok || !data.success) throw new Error(data.error || '同步失败');
     return data.dataSource as DataSource;
   };
