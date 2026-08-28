@@ -5,6 +5,7 @@ import './index.css';
 import {applyUITheme, getUITheme} from './utils/uiTheme';
 import { configureApiAuth } from './api/client';
 import { useAuthStore } from './hooks/useAuthStore';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // 与 index.html 内联脚本一致地应用持久化主题（兜底，保证组件读取到正确状态）
 applyUITheme(getUITheme());
@@ -18,6 +19,8 @@ configureApiAuth({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 );

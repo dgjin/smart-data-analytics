@@ -44,6 +44,7 @@ export const SchemaViewer: React.FC<SchemaViewerProps> = ({ table }) => {
   };
 
   const { icon: TypeIcon, label: typeLabel, color: typeColor } = getTableTypeInfo();
+  const tableType = table.tableType;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -56,7 +57,7 @@ export const SchemaViewer: React.FC<SchemaViewerProps> = ({ table }) => {
             <span className="font-mono text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
               {table.name}
             </span>
-            {type && type !== 'TABLE' && (
+            {tableType && tableType !== 'TABLE' && (
               <span className={`font-mono text-[10px] px-2 py-0.5 rounded border ${typeColor.replace('text-', 'border-').replace('/400', '/30')} ${typeColor}`}>
                 {typeLabel}
               </span>
