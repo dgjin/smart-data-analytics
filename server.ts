@@ -60,7 +60,9 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
   // Default to loopback-only for local development safety; set HOST=0.0.0.0 to expose.
   const HOST = process.env.HOST || '127.0.0.1';
-  const isProd = process.env.NODE_ENV === 'production';
+  // 生产模式判定：显式 NODE_ENV=production，或直接运行打包产物（node dist/server.cjs，__dirname 位于 dist）
+  // —— 避免直接启动构建产物时误入 Vite dev server 分支
+  const isProd = process.env.NODE_ENV === 'production' || path.basename(__dirname) === 'dist';
 
   // P0 生产安全检查：关键密钥缺失直接拒绝启动（fail-fast），
   // 防止 JWT 落到 dev 默认密钥被伪造 token（数据源凭据加密缺省时也依赖 JWT_SECRET）。
@@ -109,29 +111,6 @@ async function startServer() {
       );
     }
     
-    next();
-  });
-  
-  // ✅ 新增：静态资源服务（Vite 构建输出）
-  app.use(express.static(path.join(__dirname, 'dist'), {
-    setHeaders: (res) => {
-      // 确保 CSS/JS 文件不被 CSP 阻止
-      const contentType = res.getHeader('Content-Type') || '';
-      if (contentType.includes('text/css')) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      } else if (contentType.includes('application/javascript') || contentType.includes('module')) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      }
-    },
-  }));
-  
-  // ✅ 新增：404 处理 - SPA 路由支持
-  app.get('*', (req, res, next) => {
-    // 如果是 API 请求且不存在，返回 404
-    if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ error: 'API endpoint not found' });
-    }
-    // 否则返回 index.html（由 Express.static 处理）
     next();
   });
 
@@ -207,7 +186,7 @@ async function startServer() {
   app.use('/api/export', exportRoutes);
 
   // Vite development middleware or production static handling
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -216,7 +195,11 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    // SPA fallback：必须在所有 API 路由之后注册，未匹配的 API 返回 404 JSON，其余路径回退 index.html
+    app.get('*', (req, res) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API endpoint not found' });
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

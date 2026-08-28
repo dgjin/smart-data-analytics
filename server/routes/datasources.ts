@@ -198,11 +198,13 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
     // 2) 通过 attnum 精确匹配列注释，避免 ordinal_position 与 attnum 错位（删列后有空洞）
     // 3) 不依赖 format() 函数，PostgreSQL / Greenplum 一套 SQL 通用
     // 4) 对表、视图、物化视图、外部表的列注释均有效
+    // 注意：主键检测仍走 information_schema（已验证 Greenplum 兼容），
+    //      避免 pg_index.indkey 的 ANY() 解包在部分 Greenplum 版本上报错
     const colQuery = `
       SELECT c.relname AS "tableName",
              a.attname AS name,
              format_type(a.atttypid, NULL) AS "dataType",
-             CASE WHEN pk.attname IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
+             CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
              d.description AS comment,
              CASE WHEN a.atttypmod > 0 AND t.typname IN ('varchar', 'bpchar')
                   THEN a.atttypmod - 4 ELSE NULL END AS "maxLength"
@@ -212,11 +214,14 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
       JOIN pg_type t ON t.oid = a.atttypid
       LEFT JOIN pg_description d ON d.objoid = a.attrelid AND d.objsubid = a.attnum
       LEFT JOIN (
-        SELECT i.indrelid, a2.attname
-        FROM pg_index i
-        JOIN pg_attribute a2 ON a2.attrelid = i.indrelid AND a2.attnum = ANY(i.indkey)
-        WHERE i.indisprimary
-      ) pk ON pk.indrelid = c.oid AND pk.attname = a.attname
+        SELECT kcu.table_name, kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON kcu.constraint_name = tc.constraint_name
+         AND kcu.table_schema = tc.table_schema
+         AND kcu.table_name = tc.table_name
+        WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+      ) pk ON pk.table_name = c.relname AND pk.column_name = a.attname
       WHERE n.nspname = $1
         AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
         AND a.attnum > 0
