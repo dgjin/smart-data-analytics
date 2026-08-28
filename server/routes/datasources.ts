@@ -156,7 +156,7 @@ async function extractMysqlSchema(config: any) {
 // 真实连接 PostgreSQL / Greenplum 并提取全部表与列结构。
 // 表清单走 pg_catalog（reltuples 行数估算、obj_description 表注释）；
 // 列走 information_schema.columns + col_description 列注释 + PRIMARY KEY 子查询。
-async function extractPgSchema(config: any) {
+async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
   const client = new pg.Client({
     host: config?.host || '127.0.0.1',
     port: Number(config?.port) || 5432,
@@ -178,7 +178,28 @@ async function extractPgSchema(config: any) {
        ORDER BY c.relname LIMIT 500`,
       [schema]
     );
-    const { rows: colRows } = await client.query(
+    
+    // Greenplum 不兼容 format(ident, ident)，改用 string concatenation ||
+    const useGreenplumQuery = type === 'greenplum';
+    const colQuery = useGreenplumQuery ?
+      `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
+              CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
+              col_description((col.table_schema || '.' || col.table_name)::regclass, col.ordinal_position) AS comment,
+              col.character_maximum_length AS "maxLength"
+       FROM information_schema.columns col
+       LEFT JOIN (
+         SELECT kcu.table_schema, kcu.table_name, kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON kcu.constraint_name = tc.constraint_name
+          AND kcu.table_schema = tc.table_schema
+          AND kcu.table_name = tc.table_name
+         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
+       ) pk ON pk.table_schema = col.table_schema
+          AND pk.table_name = col.table_name
+          AND pk.column_name = col.column_name
+       WHERE col.table_schema = $1
+       ORDER BY col.table_name, col.ordinal_position` :
       `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
               CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
               col_description(format('%I.%I', col.table_schema, col.table_name)::regclass, col.ordinal_position) AS comment,
@@ -196,9 +217,9 @@ async function extractPgSchema(config: any) {
           AND pk.table_name = col.table_name
           AND pk.column_name = col.column_name
        WHERE col.table_schema = $1
-       ORDER BY col.table_name, col.ordinal_position`,
-      [schema]
-    );
+       ORDER BY col.table_name, col.ordinal_position`;
+       
+    const { rows: colRows } = await client.query(colQuery, [schema]);
     return assembleTables(tableRows, colRows, mapPgType);
   } finally {
     await client.end().catch(() => undefined);
@@ -207,7 +228,12 @@ async function extractPgSchema(config: any) {
 
 /** 按数据源类型分派真实 Schema 提取 */
 async function extractDbSchema(type: string, config: any) {
-  return type === 'mysql' ? extractMysqlSchema(config) : extractPgSchema(config);
+  return type === 'mysql' ? extractMysqlSchema(config) : extractPgSchema(type as 'postgresql' | 'greenplum', config);
+}
+
+/** 判断是否为 PostgreSQL / Greenplum */
+function isPostgresLike(type: string): boolean {
+  return type === 'postgresql' || type === 'greenplum';
 }
 
 function safeJson(text: any, fallback: any) {
