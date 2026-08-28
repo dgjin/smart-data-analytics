@@ -12,25 +12,10 @@
  */
 
 import { DataSource, TableSchema } from '../src/types/analytics';
+import evalCasesJichuang from './eval/evalCases.jichuang.json' with { type: 'json' };
 
 // ============ 数据源配置 ============
 export const DATA_RESOURCE_DS_ID = 'ds_1786620486498';
-
-export const DATA_RESOURCE_DS: DataSource = {
-  id: DATA_RESOURCE_DS_ID,
-  name: '数据资源库',
-  type: 'mysql',
-  status: 'connected',
-  config: {
-    host: process.env.DATA_RESOURCE_HOST || '10.10.60.105',
-    port: parseInt(process.env.DATA_RESOURCE_PORT || '3306'),
-    database: process.env.DATA_RESOURCE_DB || 'data_resource_db',
-    username: process.env.DATA_RESOURCE_USER || 'bi_reader',
-    password: process.env.DATA_RESOURCE_PASS || '', // 实际部署时需通过环境变量注入
-  },
-  tables: [FCT_JC_MAIN_BIZ_STAT_SCHEMA, FCT_JC_FINANCIAL_STAT_SCHEMA],
-  lastSyncedAt: new Date().toISOString(),
-};
 
 // ============ 表 Schema 定义 ============
 
@@ -81,6 +66,24 @@ export const FCT_JC_FINANCIAL_STAT_SCHEMA: TableSchema = {
     { name: 'SJRQ', type: 'date', description: '数据日期（月末）', isDimension: true, isPartition: true },
     { name: 'BB', type: 'category', description: "版本标识（'1'=核算版）", isDimension: true, isFilter: true },
   ],
+};
+
+// ============ 数据源配置（依赖上方 Schema，必须在其后声明） ============
+
+export const DATA_RESOURCE_DS: DataSource = {
+  id: DATA_RESOURCE_DS_ID,
+  name: '数据资源库',
+  type: 'mysql',
+  status: 'connected',
+  config: {
+    host: process.env.DATA_RESOURCE_HOST || '10.10.60.105',
+    port: parseInt(process.env.DATA_RESOURCE_PORT || '3306'),
+    database: process.env.DATA_RESOURCE_DB || 'data_resource_db',
+    username: process.env.DATA_RESOURCE_USER || 'bi_reader',
+    password: process.env.DATA_RESOURCE_PASS || '', // 实际部署时需通过环境变量注入
+  },
+  tables: [FCT_JC_MAIN_BIZ_STAT_SCHEMA, FCT_JC_FINANCIAL_STAT_SCHEMA],
+  lastSyncedAt: new Date().toISOString(),
 };
 
 // ============ 样本数据（用于 Schema 发现演示） ============
@@ -1295,7 +1298,7 @@ export const DATA_RESOURCE_SKILLS = [
 
 // ============ 评测集（复用现有评测集） ============
 
-export const DATA_RESOURCE_EVALUATION_CASES = require('./eval/evalCases.jichuang.json');
+export const DATA_RESOURCE_EVALUATION_CASES = evalCasesJichuang;
 
 // ============ 导出用于初始化 ============
 
