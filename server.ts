@@ -88,18 +88,50 @@ async function startServer() {
   // M4 报告导出 body 含图表 base64 PNG，单独放宽（该路由自带 20mb 解析器），其余接口维持 2mb
   app.use((req, res, next) => (req.path === '/api/report/export' ? next() : jsonParser2mb(req, res, next)));
 
-  // P0 安全响应头（等价 helmet 核心项，零依赖）；CSP 仅生产启用（Vite dev/HMR 依赖内联脚本）
+  // P0 安全响应头（等价 helmet 核心项，零依赖）；CSP 仅生产启用
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    
     if (isProd) {
+      // 生产环境 CSP - 允许内联脚本和 eval（需要运行时动态注入）
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'"
+      );
+    } else {
+      // 开发环境 CSP - 更宽松，允许 HMR 和内联脚本
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*; font-src 'self';"
       );
     }
+    
+    next();
+  });
+  
+  // ✅ 新增：静态资源服务（Vite 构建输出）
+  app.use(express.static(path.join(__dirname, 'dist'), {
+    setHeaders: (res) => {
+      // 确保 CSS/JS 文件不被 CSP 阻止
+      const contentType = res.getHeader('Content-Type') || '';
+      if (contentType.includes('text/css')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (contentType.includes('application/javascript') || contentType.includes('module')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
+  
+  // ✅ 新增：404 处理 - SPA 路由支持
+  app.get('*', (req, res, next) => {
+    // 如果是 API 请求且不存在，返回 404
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    // 否则返回 index.html（由 Express.static 处理）
     next();
   });
 
