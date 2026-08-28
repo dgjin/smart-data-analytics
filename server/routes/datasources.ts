@@ -171,46 +171,37 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
     const schema = String(config?.schema || 'public').trim() || 'public';
     
     // PostgreSQL / Greenplum 兼容的表结构提取
-    // relkind 包括：r(普通表), p(分区表), v(视图), m(物化视图), f(外部表), S(序列)
-    // Greenplum 常见的外部表和视图也需要包含
+    // relkind: r(普通表), p(分区表), v(视图), m(物化视图), f(外部表)
     const { rows: tableRows } = await client.query(
       `SELECT c.relname AS name, 
-              GREATEST(COALESCE(c.reltuples, 0), 0)::bigint AS "rowCount",
+              COALESCE(c.reltuples, 0)::bigint AS "rowCount",
               obj_description(c.oid, 'pg_class') AS comment,
               CASE 
-                WHEN c.relkind = 'r' THEN 'TABLE'
-                WHEN c.relkind = 'p' THEN 'PARTITIONED_TABLE'
-                WHEN c.relkind = 'v' THEN 'VIEW'
-                WHEN c.relkind = 'm' THEN 'MATERIALIZED_VIEW'
-                WHEN c.relkind = 'f' THEN 'FOREIGN_TABLE'
-                WHEN c.relkind = 'S' THEN 'SEQUENCE'
-                ELSE c.relkind::text
+                WHEN c.relkind IN ('r', 'p', 'f') THEN 'TABLE'
+                WHEN c.relkind IN ('v') THEN 'VIEW'
+                WHEN c.relkind IN ('m') THEN 'MATERIALIZED_VIEW'
+                ELSE 'UNKNOWN'
               END AS "tableType"
        FROM pg_class c
        JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
-         AND NOT EXISTS (
-           SELECT 1 FROM pg_depend d 
-           JOIN pg_class rc ON rc.oid = d.refobjid 
-           WHERE d.objid = c.oid AND d.classid = 'pg_class'::regclass AND rc.relkind = 'S'
-         )
+       WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+         AND NOT pg_is_other_temp_schema(n.oid)
        ORDER BY c.relname LIMIT 500`,
       [schema]
     );
     
+    console.log(`[Schema Extract] Found ${tableRows.length} objects in schema "${schema}"`);
+    
     // Greenplum 不兼容 format(ident, ident)，改用 string concatenation ||
     const useGreenplumQuery = type === 'greenplum';
     
-    // 只提取表、分区表和外部表的列（跳过视图、物化视图、序列）
-    const tableTypeFilter = useGreenplumQuery ? "relkind IN ('r', 'p', 'f')" : "relkind IN ('r', 'p', 'f')";
-    
+    // 简化版列查询 - 直接查询所有列，让 assembleTables 处理过滤
     const colQuery = useGreenplumQuery ?
       `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
               CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
               col_description((col.table_schema || '.' || col.table_name)::regclass, col.ordinal_position) AS comment,
               col.character_maximum_length AS "maxLength"
        FROM information_schema.columns col
-       JOIN pg_class c ON c.relname = col.table_name AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1)
        LEFT JOIN (
          SELECT kcu.table_schema, kcu.table_name, kcu.column_name
          FROM information_schema.table_constraints tc
@@ -223,14 +214,12 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
           AND pk.table_name = col.table_name
           AND pk.column_name = col.column_name
        WHERE col.table_schema = $1
-         AND EXISTS (SELECT 1 FROM pg_class WHERE relname = col.table_name AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1) AND relkind IN ('r', 'p', 'f'))
        ORDER BY col.table_name, col.ordinal_position` :
       `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
               CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
               col_description(format('%I.%I', col.table_schema, col.table_name)::regclass, col.ordinal_position) AS comment,
               col.character_maximum_length AS "maxLength"
        FROM information_schema.columns col
-       JOIN pg_class c ON c.relname = col.table_name AND c.relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1)
        LEFT JOIN (
          SELECT kcu.table_schema, kcu.table_name, kcu.column_name
          FROM information_schema.table_constraints tc
@@ -243,10 +232,10 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
           AND pk.table_name = col.table_name
           AND pk.column_name = col.column_name
        WHERE col.table_schema = $1
-         AND EXISTS (SELECT 1 FROM pg_class WHERE relname = col.table_name AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $1) AND relkind IN ('r', 'p', 'f'))
        ORDER BY col.table_name, col.ordinal_position`;
        
     const { rows: colRows } = await client.query(colQuery, [schema]);
+    console.log(`[Schema Extract] Extracted ${colRows.length} columns`);
     return assembleTables(tableRows, colRows, mapPgType);
   } finally {
     await client.end().catch(() => undefined);
