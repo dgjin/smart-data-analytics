@@ -79,6 +79,8 @@ export const DataSourceManager: React.FC = () => {
   const [isTesting, setIsTesting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  // 新增：PostgreSQL / Greenplum 的 schema 配置
+  const [config, setConfig] = useState<any>({});
   // 指标/维度维护弹窗状态
   const [metaDs, setMetaDs] = useState<DataSource | null>(null);
   // 问数范围配置弹窗状态
@@ -121,7 +123,14 @@ export const DataSourceManager: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: dsType,
-          config: { host, port, database, username, password },
+          config: { 
+            host, 
+            port, 
+            database, 
+            username, 
+            password,
+            schema: dsType === 'postgresql' || dsType === 'greenplum' ? (config?.schema || 'public') : undefined,
+          },
         }),
       });
 
@@ -202,7 +211,14 @@ export const DataSourceManager: React.FC = () => {
         body: JSON.stringify({
           name: dsName.trim(),
           type: dsType,
-          config: { host, port, database, username, password },
+          config: { 
+            host, 
+            port, 
+            database, 
+            username, 
+            password,
+            schema: dsType === 'postgresql' || dsType === 'greenplum' ? (config?.schema || 'public') : undefined,
+          },
           tables: placeholderTables,
         }),
       });
@@ -563,6 +579,20 @@ export const DataSourceManager: React.FC = () => {
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
               />
             </div>
+
+            {/* 新增：schema 配置（PostgreSQL / Greenplum） */}
+            {(dsType === 'postgresql' || dsType === 'greenplum') && (
+              <div className="space-y-1">
+                <label className="text-slate-300 font-medium">Schema 名称:</label>
+                <input
+                  type="text"
+                  placeholder="public 或自定义 schema（如 pmart_res）"
+                  value={config?.schema || ''}
+                  onChange={(e) => setConfig({ ...config, schema: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            )}
 
             <div className="space-y-1">
               <label className="text-slate-300 font-medium">端口 (Port):</label>
