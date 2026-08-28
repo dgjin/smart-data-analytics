@@ -9,6 +9,9 @@ import {
   Key,
   Layers,
   Sparkles,
+  Eye,
+  Database,
+  Box,
 } from 'lucide-react';
 
 interface SchemaViewerProps {
@@ -16,24 +19,55 @@ interface SchemaViewerProps {
 }
 
 export const SchemaViewer: React.FC<SchemaViewerProps> = ({ table }) => {
+  // 根据 tableType 选择图标和标签
+  const getTableTypeInfo = () => {
+    const type = table.tableType;
+    if (!type || type === 'TABLE') {
+      return { icon: TableIcon, label: '普通表', color: 'text-indigo-400' };
+    }
+    if (type === 'VIEW') {
+      return { icon: Eye, label: '视图', color: 'text-purple-400' };
+    }
+    if (type === 'MATERIALIZED_VIEW') {
+      return { icon: Database, label: '物化视图', color: 'text-pink-400' };
+    }
+    if (type === 'FOREIGN_TABLE') {
+      return { icon: Box, label: '外部表', color: 'text-emerald-400' };
+    }
+    if (type === 'SEQUENCE') {
+      return { icon: Hash, label: '序列', color: 'text-amber-400' };
+    }
+    if (type === 'PARTITIONED_TABLE') {
+      return { icon: Layers, label: '分区表', color: 'text-blue-400' };
+    }
+    return { icon: TableIcon, label: type, color: 'text-slate-400' };
+  };
+
+  const { icon: TypeIcon, label: typeLabel, color: typeColor } = getTableTypeInfo();
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
       {/* Table Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
-            <TableIcon className="w-4 h-4 text-indigo-400" />
+            <TypeIcon className={`w-4 h-4 ${typeColor}`} />
             <h3 className="font-bold text-slate-100 text-sm">{table.displayName}</h3>
             <span className="font-mono text-xs text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
               {table.name}
             </span>
+            {type && type !== 'TABLE' && (
+              <span className={`font-mono text-[10px] px-2 py-0.5 rounded border ${typeColor.replace('text-', 'border-').replace('/400', '/30')} ${typeColor}`}>
+                {typeLabel}
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400">{table.description}</p>
         </div>
 
         <div className="flex items-center space-x-2 text-xs font-mono text-slate-300 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 shrink-0">
           <Layers className="w-3.5 h-3.5 text-cyan-400" />
-          <span>总记录行数: {table.rowCount.toLocaleString()} 行</span>
+          <span>总记录行数：{table.rowCount.toLocaleString()} 行</span>
         </div>
       </div>
 

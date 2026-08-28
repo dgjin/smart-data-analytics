@@ -34,6 +34,8 @@ export interface TableSchema {
   columns: ColumnSchema[];
   /** 表级业务口径说明（管理员登记，注入问数/报表 prompt 约束口径，P2） */
   businessNote?: string;
+  /** PostgreSQL/Greenplum 对象类型：TABLE, VIEW, MATERIALIZED_VIEW, FOREIGN_TABLE, SEQUENCE 等 */
+  tableType?: 'TABLE' | 'VIEW' | 'MATERIALIZED_VIEW' | 'FOREIGN_TABLE' | 'SEQUENCE' | 'PARTITIONED_TABLE' | 'UNKNOWN';
 }
 
 /**

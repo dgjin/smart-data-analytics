@@ -116,6 +116,7 @@ function assembleTables(tableRows: any[], colRows: any[], mapType: (dataType: st
     description: t.comment || `数据表 ${t.name}`,
     rowCount: Number(t.rowCount || 0),
     columns: colsByTable.get(t.name) || [],
+    tableType: (t as any).tableType || undefined,
   }));
 }
 
