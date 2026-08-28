@@ -9,11 +9,10 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { authMiddleware } from '../auth';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// CommonJS 兼容方式获取 __dirname
+const __dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename);
 
 // 按优先级排列：用户使用指南（面向操作）优先，功能说明书（面向规格）兜底
 const MANUAL_FILENAMES = ['用户使用指南.md', '系统功能说明书.md'];

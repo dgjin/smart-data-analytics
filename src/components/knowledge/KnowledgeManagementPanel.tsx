@@ -4,7 +4,7 @@
 
 import React, { useState } from 'react';
 import { Download, Upload, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
-import apiFetch from '../utils/apiFetch';
+import apiFetch from '../../utils/apiFetch';
 
 export const KnowledgeManagementPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);

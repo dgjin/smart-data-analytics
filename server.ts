@@ -1,11 +1,10 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// CommonJS 兼容方式获取 __dirname
+const __dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename);
 
 // Load .env.local / .env before reading any process.env values
 dotenv.config({ path: path.join(__dirname, '.env.local') });

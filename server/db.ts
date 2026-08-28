@@ -318,7 +318,7 @@ export async function initSchema(): Promise<void> {
       data_source_id VARCHAR(64) NOT NULL,           -- 关联数据源 ID
       title VARCHAR(500) NOT NULL DEFAULT '',        -- 标题
       content MEDIUMTEXT NOT NULL,                   -- Markdown 格式的完整内容
-      tags JSON NOT NULL DEFAULT '[]',               -- 标签数组
+      tags JSON NOT NULL,                            -- 标签数组
       category VARCHAR(100) NOT NULL DEFAULT '',     -- 分类名称
       version VARCHAR(20) NOT NULL DEFAULT '1.0',    -- 版本号
       is_preset TINYINT(1) NOT NULL DEFAULT 0,       -- 是否为预置条目（不可编辑）

@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { authMiddleware, requireRole } from '../auth';
-import { DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_DS_ID } from './seedDataResources';
+import { DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_DS_ID } from '../seedDataResources';
 import { exportKnowledgeBase, parseImportFile, executeKnowledgeImport } from '../knowledgeBaseTools';
 import { readFileSync } from 'fs';
 
