@@ -193,50 +193,38 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
     
     console.log(`[Schema Extract] Found ${tableRows.length} objects in schema "${schema}"`);
     
-    // Greenplum 不兼容 format(ident, ident)，改用 string concatenation ||
-    const useGreenplumQuery = type === 'greenplum';
-    
-    // 简化版列查询 - 直接查询所有列，让 assembleTables 处理过滤
-    const colQuery = useGreenplumQuery ?
-      `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
-              CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
-              col_description((col.table_schema || '.' || col.table_name)::regclass, col.ordinal_position) AS comment,
-              col.character_maximum_length AS "maxLength"
-       FROM information_schema.columns col
-       LEFT JOIN (
-         SELECT kcu.table_schema, kcu.table_name, kcu.column_name
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage kcu
-           ON kcu.constraint_name = tc.constraint_name
-          AND kcu.table_schema = tc.table_schema
-          AND kcu.table_name = tc.table_name
-         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
-       ) pk ON pk.table_schema = col.table_schema
-          AND pk.table_name = col.table_name
-          AND pk.column_name = col.column_name
-       WHERE col.table_schema = $1
-       ORDER BY col.table_name, col.ordinal_position` :
-      `SELECT col.table_name AS "tableName", col.column_name AS name, col.data_type AS "dataType",
-              CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
-              col_description(format('%I.%I', col.table_schema, col.table_name)::regclass, col.ordinal_position) AS comment,
-              col.character_maximum_length AS "maxLength"
-       FROM information_schema.columns col
-       LEFT JOIN (
-         SELECT kcu.table_schema, kcu.table_name, kcu.column_name
-         FROM information_schema.table_constraints tc
-         JOIN information_schema.key_column_usage kcu
-           ON kcu.constraint_name = tc.constraint_name
-          AND kcu.table_schema = tc.table_schema
-          AND kcu.table_name = tc.table_name
-         WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_schema = $1
-       ) pk ON pk.table_schema = col.table_schema
-          AND pk.table_name = col.table_name
-          AND pk.column_name = col.column_name
-       WHERE col.table_schema = $1
-       ORDER BY col.table_name, col.ordinal_position`;
+    // 列查询统一走 pg_catalog（pg_attribute + pg_description）：
+    // 1) 避免 col_description + ::regclass 名称解析失败（大写/特殊字符表名）导致注释为 NULL
+    // 2) 通过 attnum 精确匹配列注释，避免 ordinal_position 与 attnum 错位（删列后有空洞）
+    // 3) 不依赖 format() 函数，PostgreSQL / Greenplum 一套 SQL 通用
+    // 4) 对表、视图、物化视图、外部表的列注释均有效
+    const colQuery = `
+      SELECT c.relname AS "tableName",
+             a.attname AS name,
+             format_type(a.atttypid, NULL) AS "dataType",
+             CASE WHEN pk.attname IS NOT NULL THEN 'PRI' ELSE '' END AS "columnKey",
+             d.description AS comment,
+             CASE WHEN a.atttypmod > 0 AND t.typname IN ('varchar', 'bpchar')
+                  THEN a.atttypmod - 4 ELSE NULL END AS "maxLength"
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_type t ON t.oid = a.atttypid
+      LEFT JOIN pg_description d ON d.objoid = a.attrelid AND d.objsubid = a.attnum
+      LEFT JOIN (
+        SELECT i.indrelid, a2.attname
+        FROM pg_index i
+        JOIN pg_attribute a2 ON a2.attrelid = i.indrelid AND a2.attnum = ANY(i.indkey)
+        WHERE i.indisprimary
+      ) pk ON pk.indrelid = c.oid AND pk.attname = a.attname
+      WHERE n.nspname = $1
+        AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+      ORDER BY c.relname, a.attnum`;
        
     const { rows: colRows } = await client.query(colQuery, [schema]);
-    console.log(`[Schema Extract] Extracted ${colRows.length} columns`);
+    console.log(`[Schema Extract] Extracted ${colRows.length} columns, ${colRows.filter((r: any) => r.comment).length} with comments`);
     return assembleTables(tableRows, colRows, mapPgType);
   } finally {
     await client.end().catch(() => undefined);
