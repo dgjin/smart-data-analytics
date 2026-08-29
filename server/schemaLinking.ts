@@ -8,7 +8,7 @@
  * 召回遗漏不会导致合法 SQL 被误杀。
  */
 import { bigramOverlap } from './queryFeedback';
-import { callEmbedding } from './llmClient';
+import { callEmbedding, callEmbeddingBatch } from './llmClient';
 
 /** prompt 中注入的最大表数（超过该数量的 schema 才触发圈定） */
 export const MAX_TABLES_IN_PROMPT = 8;
@@ -94,26 +94,37 @@ function cosineSim(a: number[], b: number[]): number {
 const tableEmbeddingCache = new Map<string, number[]>();
 const TABLE_EMBEDDING_CACHE_MAX = 400;
 
-async function embedTable(table: any): Promise<number[] | null> {
+function tableEmbeddingKey(table: any): { key: string; digest: string } | null {
   const digest = tableDigest(table);
   if (!digest.trim()) return null;
-  const key = `${String(table?.name || '')}::${digest.slice(0, 200)}`;
-  const hit = tableEmbeddingCache.get(key);
-  if (hit) return hit;
+  return { key: `${String(table?.name || '')}::${digest.slice(0, 200)}`, digest };
+}
+
+function tableCacheSet(key: string, vec: number[]): void {
+  if (tableEmbeddingCache.size >= TABLE_EMBEDDING_CACHE_MAX) {
+    const oldest = tableEmbeddingCache.keys().next().value;
+    if (oldest !== undefined) tableEmbeddingCache.delete(oldest);
+  }
+  tableEmbeddingCache.set(key, vec);
+}
+
+/** P2-2 批量预填候选表向量（一次请求多段文本，替代逐表调用）；失败静默降级纯关键词打分 */
+async function prefillTableEmbeddings(tables: any[]): Promise<void> {
+  const misses: { key: string; digest: string }[] = [];
+  for (const t of tables) {
+    const k = tableEmbeddingKey(t);
+    if (k && !tableEmbeddingCache.has(k.key)) misses.push(k);
+  }
+  if (misses.length === 0) return;
   try {
-    const vec = await callEmbedding(digest, 'document');
-    if (Array.isArray(vec) && vec.length > 0) {
-      if (tableEmbeddingCache.size >= TABLE_EMBEDDING_CACHE_MAX) {
-        const oldest = tableEmbeddingCache.keys().next().value;
-        if (oldest !== undefined) tableEmbeddingCache.delete(oldest);
-      }
-      tableEmbeddingCache.set(key, vec);
-      return vec;
-    }
+    const vecs = await callEmbeddingBatch(misses.map((m) => m.digest), 'document');
+    misses.forEach((m, i) => {
+      const v = vecs[i];
+      if (Array.isArray(v) && v.length > 0) tableCacheSet(m.key, v);
+    });
   } catch {
     // embedding 不可用，降级纯关键词打分
   }
-  return null;
 }
 
 /**
@@ -144,13 +155,14 @@ export async function selectRelevantTablesAsync(
   }
   if (!qVec) return pickByKeyword(tables, candidates, maxTables);
 
-  const finalScored = await Promise.all(
-    candidates.map(async (c) => {
-      const tVec = await embedTable(c.t);
-      const sim = tVec ? Math.max(0, cosineSim(qVec as number[], tVec)) : 0;
-      return { ...c, score: c.kw + sim * 12 };
-    })
-  );
+  // P2-2 批量预填候选表向量（一次批量请求），随后同步读缓存打分
+  await prefillTableEmbeddings(candidates.map((c) => c.t));
+  const finalScored = candidates.map((c) => {
+    const k = tableEmbeddingKey(c.t);
+    const tVec = k ? tableEmbeddingCache.get(k.key) || null : null;
+    const sim = tVec ? Math.max(0, cosineSim(qVec as number[], tVec)) : 0;
+    return { ...c, score: c.kw + sim * 12 };
+  });
   finalScored.sort((a, b) => b.score - a.score || a.idx - b.idx);
   const picked = new Set(finalScored.slice(0, maxTables).map((s) => s.idx));
   return tables.filter((_, idx) => picked.has(idx));
@@ -257,26 +269,37 @@ export function pruneWideTableColumns(
 const columnEmbeddingCache = new Map<string, number[]>();
 const COLUMN_EMBEDDING_CACHE_MAX = 2000;
 
-async function embedColumn(tableName: string, col: any): Promise<number[] | null> {
+function columnEmbeddingKey(tableName: string, col: any): { key: string; digest: string } | null {
   const digest = `${String(col?.name || '')} ${String(col?.description || '')}`.trim();
   if (!digest) return null;
-  const key = `${tableName}::${digest.slice(0, 120)}`;
-  const hit = columnEmbeddingCache.get(key);
-  if (hit) return hit;
+  return { key: `${tableName}::${digest.slice(0, 120)}`, digest };
+}
+
+function columnCacheSet(key: string, vec: number[]): void {
+  if (columnEmbeddingCache.size >= COLUMN_EMBEDDING_CACHE_MAX) {
+    const oldest = columnEmbeddingCache.keys().next().value;
+    if (oldest !== undefined) columnEmbeddingCache.delete(oldest);
+  }
+  columnEmbeddingCache.set(key, vec);
+}
+
+/** P2-2 批量预填候选列向量（跨宽表合并为一次批量请求）；失败静默降级纯关键词打分 */
+async function prefillColumnEmbeddings(items: { tableName: string; col: any }[]): Promise<void> {
+  const misses: { key: string; digest: string }[] = [];
+  for (const it of items) {
+    const k = columnEmbeddingKey(it.tableName, it.col);
+    if (k && !columnEmbeddingCache.has(k.key)) misses.push(k);
+  }
+  if (misses.length === 0) return;
   try {
-    const vec = await callEmbedding(digest, 'document');
-    if (Array.isArray(vec) && vec.length > 0) {
-      if (columnEmbeddingCache.size >= COLUMN_EMBEDDING_CACHE_MAX) {
-        const oldest = columnEmbeddingCache.keys().next().value;
-        if (oldest !== undefined) columnEmbeddingCache.delete(oldest);
-      }
-      columnEmbeddingCache.set(key, vec);
-      return vec;
-    }
+    const vecs = await callEmbeddingBatch(misses.map((m) => m.digest), 'document');
+    misses.forEach((m, i) => {
+      const v = vecs[i];
+      if (Array.isArray(v) && v.length > 0) columnCacheSet(m.key, v);
+    });
   } catch {
     // embedding 不可用，降级纯关键词打分
   }
-  return null;
 }
 
 /**
@@ -303,31 +326,38 @@ export async function pruneWideTableColumnsAsync(
   }
   if (!qVec) return pruneWideTableColumns(list, q, forceColumnsByTable, maxColumns);
 
-  const pruned: ColumnPruneStat[] = [];
-  const out = await Promise.all(
-    list.map(async (t) => {
-      const cols = Array.isArray(t?.columns) ? t.columns : [];
-      if (cols.length <= WIDE_TABLE_COLUMN_THRESHOLD) return t;
-      const tableName = String(t?.name || '');
-      const forced = new Set((forceColumnsByTable[tableName] || []).map((c) => c.toLowerCase()));
-      // 关键词粗排候选（控制 embedding 调用量），强制保留列直接入桶
-      const coarse = cols.map((c: any, idx: number) => ({ c, idx, kw: columnScore(c, q), force: forced.has(String(c?.name || '').toLowerCase()) || c?.isPrimaryKey === true }));
-      const candidates = [...coarse].sort((a, b) => b.kw - a.kw || a.idx - b.idx).slice(0, maxColumns * COLUMN_COARSE_FACTOR);
-      const refined = await Promise.all(
-        candidates.map(async (cd) => {
-          const cVec = await embedColumn(tableName, cd.c);
-          const sim = cVec ? Math.max(0, cosineSim(qVec as number[], cVec)) : 0;
-          return { ...cd, score: cd.kw + sim * 8 };
-        })
-      );
-      const topPicked = new Set(
-        [...refined].sort((a, b) => b.score - a.score || a.idx - b.idx).slice(0, maxColumns).map((s) => s.idx)
-      );
-      for (const cd of coarse) if (cd.force) topPicked.add(cd.idx);
-      const keptCols = cols.filter((_: any, idx: number) => topPicked.has(idx));
-      pruned.push({ table: tableName, before: cols.length, after: keptCols.length });
-      return { ...t, columns: keptCols };
-    })
+  // 先算各宽表粗排候选，跨表合并候选列后一次批量预填向量（P2-2，替代逐列调用）
+  const perTable = list.map((t) => {
+    const cols = Array.isArray(t?.columns) ? t.columns : [];
+    if (cols.length <= WIDE_TABLE_COLUMN_THRESHOLD) return { t, wide: false as const };
+    const tableName = String(t?.name || '');
+    const forced = new Set((forceColumnsByTable[tableName] || []).map((c) => c.toLowerCase()));
+    // 关键词粗排候选（控制 embedding 调用量），强制保留列直接入桶
+    const coarse = cols.map((c: any, idx: number) => ({ c, idx, kw: columnScore(c, q), force: forced.has(String(c?.name || '').toLowerCase()) || c?.isPrimaryKey === true }));
+    const candidates = [...coarse].sort((a, b) => b.kw - a.kw || a.idx - b.idx).slice(0, maxColumns * COLUMN_COARSE_FACTOR);
+    return { t, wide: true as const, cols, tableName, coarse, candidates };
+  });
+  await prefillColumnEmbeddings(
+    perTable.flatMap((p) => (p.wide ? p.candidates.map((cd) => ({ tableName: p.tableName, col: cd.c })) : []))
   );
+
+  const pruned: ColumnPruneStat[] = [];
+  const out = perTable.map((p) => {
+    if (!p.wide) return p.t;
+    const { cols, tableName, coarse, candidates } = p;
+    const refined = candidates.map((cd) => {
+      const k = columnEmbeddingKey(tableName, cd.c);
+      const cVec = k ? columnEmbeddingCache.get(k.key) || null : null;
+      const sim = cVec ? Math.max(0, cosineSim(qVec as number[], cVec)) : 0;
+      return { ...cd, score: cd.kw + sim * 8 };
+    });
+    const topPicked = new Set(
+      [...refined].sort((a, b) => b.score - a.score || a.idx - b.idx).slice(0, maxColumns).map((s) => s.idx)
+    );
+    for (const cd of coarse) if (cd.force) topPicked.add(cd.idx);
+    const keptCols = cols.filter((_: any, idx: number) => topPicked.has(idx));
+    pruned.push({ table: tableName, before: cols.length, after: keptCols.length });
+    return { ...p.t, columns: keptCols };
+  });
   return { tables: out, pruned };
 }

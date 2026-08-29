@@ -6,7 +6,7 @@
  * 保证功能可用且不阻断问数主链路。
  */
 import { getPool } from './db';
-import { callEmbedding } from './llmClient';
+import { callEmbedding, callEmbeddingBatch } from './llmClient';
 import { bigramOverlap } from './queryFeedback';
 
 export const CHUNK_SIZE = 400;
@@ -157,16 +157,16 @@ export async function saveKnowledgeDoc(
   if (chunks.length === 0) return { docId, chunkCount: 0 };
 
   const pool = getPool();
-  for (const chunk of chunks) {
-    let embedding: number[] | null;
-    try {
-      embedding = await callEmbedding(`${title}\n${chunk}`, 'document');
-    } catch {
-      embedding = null;
-    }
+  // P2-2 批量化：全部块一次请求多段文本（往返次数由 N 降至 ceil(N/batchSize)）；整体失败降级为全 null（关键词检索保底）
+  const embeddings = await callEmbeddingBatch(
+    chunks.map((c) => `${title}\n${c}`),
+    'document'
+  ).catch(() => chunks.map(() => null));
+  for (let i = 0; i < chunks.length; i++) {
+    const embedding = embeddings[i] ?? null;
     await pool.query(
       'INSERT INTO knowledge_base (doc_id, data_source_id, title, chunk_text, embedding_json, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-      [docId, dataSourceId.slice(0, 64), title.slice(0, 200), chunk, embedding ? JSON.stringify(embedding) : null, createdBy.slice(0, 50)]
+      [docId, dataSourceId.slice(0, 64), title.slice(0, 200), chunks[i], embedding ? JSON.stringify(embedding) : null, createdBy.slice(0, 50)]
     );
   }
   return { docId, chunkCount: chunks.length };

@@ -15,7 +15,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 import { initSchema } from './server/db';
 import { isRedisEnabled, warmStateStore } from './server/stateStore';
 import { authMiddleware, requireRole } from './server/auth';
-import { llmEngineLabel, llmEngineInfo, listAvailableModels } from './server/llmClient';
+import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthChecks } from './server/llmClient';
 import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llmUsage';
 import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/analysisChain';
 import { requestLogger } from './server/requestLogger';
@@ -95,6 +95,8 @@ async function startServer() {
   // v0.9.2 长任务队列（改进计划 2-1）：注册处理器 + 启动内置 worker（含孤儿任务恢复）
   registerBuiltinTaskHandlers();
   startTaskWorker();
+  // v0.9.3 LLM 多后端（改进计划 2-2）：Ollama 后端池健康检查（摘除节点自动恢复接入）
+  startOllamaHealthChecks();
 
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });

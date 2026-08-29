@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 // mock 数据库与 embedding：编辑链路只验证 docId 复用与切块入库次数
 const querySpy = vi.fn(async (..._args: any[]) => [{ affectedRows: 1 }, []]);
 vi.mock('./db', () => ({ getPool: () => ({ query: (...args: any[]) => querySpy(...args) }) }));
-vi.mock('./llmClient', () => ({ callEmbedding: vi.fn(async () => { throw new Error('无 embedding 模型'); }) }));
+vi.mock('./llmClient', () => ({
+  callEmbedding: vi.fn(async () => { throw new Error('无 embedding 模型'); }),
+  callEmbeddingBatch: vi.fn(async () => { throw new Error('无 embedding 模型'); }),
+}));
 
 import { saveKnowledgeDoc } from './knowledgeBase';
 

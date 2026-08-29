@@ -25,6 +25,133 @@ export interface ChatMessage {
 const llmModel = () => overrideModel('ollama') || process.env.LLM_MODEL || 'deepseek-r1:32b';
 const ollamaUrl = () => process.env.OLLAMA_URL || 'http://localhost:11434';
 const ollamaTimeoutMs = () => Number(process.env.OLLAMA_TIMEOUT_MS) || 180_000;
+
+// ---------- P2-2 Ollama 多后端路由：OLLAMA_URLS=host1,host2 最少并发 + 健康检查剔除 ----------
+export interface OllamaBackend {
+  url: string;
+  /** 在途请求数（最少并发路由依据） */
+  inflight: number;
+  /** 熔断摘除截止时间戳（0=健康）；失败即摘除，由健康检查恢复 */
+  downUntil: number;
+}
+let ollamaPool: OllamaBackend[] | null = null;
+
+/** 解析后端列表：OLLAMA_URLS（逗号分隔，去重）优先，缺省回退 OLLAMA_URL 单后端 */
+function ollamaBackendUrls(): string[] {
+  const multi = String(process.env.OLLAMA_URLS || '')
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  if (multi.length > 0) return [...new Set(multi)];
+  return [String(ollamaUrl()).replace(/\/+$/, '')];
+}
+
+function ollamaBackends(): OllamaBackend[] {
+  const urls = ollamaBackendUrls();
+  // 配置变更时重建池（摘除状态随配置一起重置）
+  if (!ollamaPool || ollamaPool.map((b) => b.url).join('|') !== urls.join('|')) {
+    ollamaPool = urls.map((url) => ({ url, inflight: 0, downUntil: 0 }));
+  }
+  return ollamaPool;
+}
+
+/** 后端摘除冷却期：失败摘除后由健康检查探测恢复；未启动健康检查时到期自动半开 */
+const OLLAMA_BACKEND_COOLDOWN_MS = 15_000;
+
+/** 最少并发路由：健康（含冷却到期半开）且未被排除的节点中取 inflight 最小者；
+ * 全部被摘除/排除时取最早恢复的节点兜底（尽力服务，不主动拒绝）。 */
+export function pickOllamaBackend(exclude?: Set<string>): OllamaBackend | undefined {
+  const now = Date.now();
+  const pool = ollamaBackends().filter((b) => !exclude?.has(b.url));
+  if (pool.length === 0) return undefined;
+  const healthy = pool.filter((b) => b.downUntil <= now);
+  const candidates = healthy.length > 0 ? healthy : [...pool].sort((a, b) => a.downUntil - b.downUntil);
+  return candidates.reduce((min, b) => (b.inflight < min.inflight ? b : min));
+}
+
+function reportOllamaSuccess(url: string): void {
+  const b = ollamaBackends().find((x) => x.url === url);
+  if (b) b.downUntil = 0;
+}
+
+function reportOllamaFailure(url: string): void {
+  const b = ollamaBackends().find((x) => x.url === url);
+  if (!b) return;
+  b.downUntil = Date.now() + OLLAMA_BACKEND_COOLDOWN_MS;
+  if (ollamaBackends().length > 1) {
+    console.warn(`[LLM] Ollama 后端 ${url} 调用失败，已摘除（待健康检查恢复）`);
+  }
+}
+
+/** 多后端执行包装：最少并发选取 → 失败记账摘除 → 自动在次优健康后端重试（单后端直接抛出交由外层重试） */
+async function withOllamaBackend<T>(fn: (baseUrl: string) => Promise<T>): Promise<T> {
+  const tried = new Set<string>();
+  let lastErr: any;
+  while (true) {
+    const b = pickOllamaBackend(tried);
+    if (!b) break;
+    b.inflight++;
+    try {
+      const r = await fn(b.url);
+      reportOllamaSuccess(b.url);
+      return r;
+    } catch (err) {
+      reportOllamaFailure(b.url);
+      tried.add(b.url);
+      lastErr = err;
+      if (ollamaBackends().length <= 1) break;
+    } finally {
+      b.inflight--;
+    }
+  }
+  throw lastErr;
+}
+
+/** 单后端健康探测（GET /api/tags，3s 超时） */
+export async function probeOllamaBackend(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3_000);
+    const res = await fetch(`${url}/api/tags`, { signal: controller.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+let ollamaHealthTimer: ReturnType<typeof setInterval> | null = null;
+/** 后台健康检查：周期探测被摘除的后端，恢复即重新接入（unref 不阻塞进程退出） */
+export function startOllamaHealthChecks(intervalMs = 10_000): void {
+  if (ollamaHealthTimer) return;
+  ollamaHealthTimer = setInterval(() => {
+    const now = Date.now();
+    for (const b of ollamaBackends()) {
+      if (b.downUntil <= now) continue;
+      void probeOllamaBackend(b.url).then((ok) => {
+        if (ok) {
+          b.downUntil = 0;
+          console.warn(`[LLM] Ollama 后端 ${b.url} 健康检查通过，恢复接入`);
+        }
+      });
+    }
+  }, intervalMs);
+  (ollamaHealthTimer as any)?.unref?.();
+}
+
+/** 供测试/诊断读取后端状态快照 */
+export function getOllamaBackendStates(): OllamaBackend[] {
+  return ollamaBackends().map((b) => ({ ...b }));
+}
+
+/** 测试用：重置后端池与健康检查定时器 */
+export function resetOllamaBackendsForTest(): void {
+  ollamaPool = null;
+  if (ollamaHealthTimer) {
+    clearInterval(ollamaHealthTimer);
+    ollamaHealthTimer = null;
+  }
+}
 // 通义千问（百炼 OpenAI 兼容协议）；Coding Plan（sk-sp-）需将 QWEN_URL 指向
 // https://coding.dashscope.aliyuncs.com/v1，普通按量 Key 用默认端点即可
 const qwenUrl = () => process.env.QWEN_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -226,7 +353,10 @@ export function llmEngineLabel(): string {
   const kind = engineKind();
   if (kind === 'gemini') return 'Gemini API';
   if (kind === 'qwen') return `Qwen ${qwenModel()}`;
-  return `Ollama ${llmModel()} @ ${ollamaUrl()}`;
+  const backends = getOllamaBackendStates();
+  return backends.length > 1
+    ? `Ollama ${llmModel()} @ ${backends.length} 节点`
+    : `Ollama ${llmModel()} @ ${ollamaUrl()}`;
 }
 
 export interface LlmEngineInfo {
@@ -278,12 +408,13 @@ export async function listAvailableModels(): Promise<ModelOption[]> {
   const defModel = def === 'qwen' ? (process.env.QWEN_MODEL || 'qwen3.8-max') : def === 'gemini' ? GEMINI_MODEL : process.env.LLM_MODEL || 'deepseek-r1:32b';
   const opts: ModelOption[] = [];
 
-  // Ollama 本地已安装模型（3s 超时，不可达时仅列配置模型）
+  // Ollama 本地已安装模型（3s 超时，不可达时仅列配置模型；P2-2 多后端取当前最优节点）
   let ollamaModels: string[] = [];
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3_000);
-    const res = await fetch(`${ollamaUrl()}/api/tags`, { signal: controller.signal });
+    const base = pickOllamaBackend()?.url || ollamaUrl();
+    const res = await fetch(`${base}/api/tags`, { signal: controller.signal });
     clearTimeout(timer);
     if (res.ok) {
       const json: any = await res.json();
@@ -374,19 +505,22 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverr
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const res = await fetch(`${ollamaUrl()}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: modelOverride || llmModel(),
-        messages,
-        stream: false,
-        // 模型常驻 30 分钟，避免连续问答间卸载/重载开销
-        keep_alive: '30m',
-        ...(formatJson ? { format: 'json' } : {}),
-      }),
-    });
+    // P2-2 多后端：最少并发选取节点，失败自动换次优节点重试
+    const res = await withOllamaBackend((base) =>
+      fetch(`${base}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: modelOverride || llmModel(),
+          messages,
+          stream: false,
+          // 模型常驻 30 分钟，避免连续问答间卸载/重载开销
+          keep_alive: '30m',
+          ...(formatJson ? { format: 'json' } : {}),
+        }),
+      })
+    );
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -650,12 +784,14 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
     try {
-      const res = await fetch(`${ollamaUrl()}/api/embeddings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({ model: embedModel(), prompt: input, keep_alive: '30m' }),
-      });
+      const res = await withOllamaBackend((base) =>
+        fetch(`${base}/api/embeddings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({ model: embedModel(), prompt: input, keep_alive: '30m' }),
+        })
+      );
       if (!res.ok) throw new Error(`Ollama embedding error: ${res.status}`);
       const json: any = await res.json();
       const emb = json.embedding;
@@ -681,6 +817,151 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
   embedCacheSet(cacheKey, vals);
   recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
   return vals;
+}
+
+// ========== P2-2 embedding 批量化（知识库导入/列裁剪一次请求多段文本） ==========
+
+/** 单批最大文本数（EMBED_BATCH_SIZE 可配，上限 64 防单请求过大） */
+const embedBatchSize = () => {
+  const n = Number(process.env.EMBED_BATCH_SIZE);
+  return Number.isFinite(n) && n >= 1 ? Math.min(64, Math.floor(n)) : 16;
+};
+
+/** Ollama 批量 embedding：/api/embed 原生支持 input 数组；老版本 404/400 时回退逐条 /api/embeddings */
+async function ollamaEmbeddingBatch(inputs: string[]): Promise<(number[] | null)[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await withOllamaBackend((base) =>
+      fetch(`${base}/api/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ model: embedModel(), input: inputs, keep_alive: '30m' }),
+      })
+    );
+    if (!res.ok) {
+      // 老版本 Ollama 无 /api/embed：逐条回退（诚实降级，不丢文本）
+      if (res.status === 404 || res.status === 400 || res.status === 405) {
+        const out: (number[] | null)[] = [];
+        for (const input of inputs) {
+          try {
+            const r = await withOllamaBackend((base) =>
+              fetch(`${base}/api/embeddings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({ model: embedModel(), prompt: input, keep_alive: '30m' }),
+              })
+            );
+            if (!r.ok) throw new Error(`Ollama embedding error: ${r.status}`);
+            const j: any = await r.json();
+            out.push(Array.isArray(j?.embedding) && j.embedding.length > 0 ? j.embedding : null);
+          } catch {
+            out.push(null);
+          }
+        }
+        return out;
+      }
+      throw new Error(`Ollama batch embedding error: ${res.status}`);
+    }
+    const json: any = await res.json();
+    const embs = json?.embeddings;
+    if (!Array.isArray(embs)) throw new Error('Ollama 批量返回缺少 embeddings');
+    return inputs.map((_, i) => (Array.isArray(embs[i]) && embs[i].length > 0 ? embs[i] : null));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Qwen 批量 embedding：OpenAI 兼容协议 input 数组原生支持（按 index 归位防乱序） */
+async function qwenEmbeddingBatch(inputs: string[]): Promise<(number[] | null)[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch(`${qwenUrl()}/embeddings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.QWEN_API_KEY || ''}`,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({ model: qwenEmbedModel(), input: inputs }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Qwen batch embedding error: ${res.status} ${errText}`);
+    }
+    const json: any = await res.json();
+    const data: any[] = Array.isArray(json?.data) ? json.data : [];
+    const out: (number[] | null)[] = new Array(inputs.length).fill(null);
+    data.forEach((d: any, i: number) => {
+      const idx = Number.isInteger(d?.index) ? d.index : i;
+      if (idx >= 0 && idx < inputs.length && Array.isArray(d?.embedding) && d.embedding.length > 0) {
+        out[idx] = d.embedding;
+      }
+    });
+    return out;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 批量文本 → 向量：与 callEmbedding 相同的截断/角色前缀/缓存规则，返回与输入等长数组（失败项为 null）。
+ * 缓存命中不进网络；未命中部分按 EMBED_BATCH_SIZE 分批一次请求多段文本，
+ * 知识库导入/宽表列裁剪等场景的 embedding 往返次数由 N 降至 ceil(N/batchSize)。
+ */
+export async function callEmbeddingBatch(texts: string[], role?: 'query' | 'document'): Promise<(number[] | null)[]> {
+  const kind = engineKind();
+  const results: (number[] | null)[] = new Array(texts.length).fill(null);
+  const misses: { idx: number; input: string; cacheKey: string }[] = [];
+  texts.forEach((t, idx) => {
+    let input = String(t || '').slice(0, 2000);
+    if (!input.trim()) return; // 空输入保持 null（与单条版抛错由调用方降级等效）
+    if (role && embedModel().startsWith('nomic')) {
+      input = `${role === 'query' ? 'search_query' : 'search_document'}: ${input}`;
+    }
+    const cacheKey = `${kind}|${role || ''}|${input}`;
+    const hit = embedCacheGet(cacheKey);
+    if (hit) results[idx] = hit;
+    else misses.push({ idx, input, cacheKey });
+  });
+
+  const batchSize = embedBatchSize();
+  const embedModelName = kind === 'qwen' ? qwenEmbedModel() : kind === 'ollama' ? embedModel() : 'gemini-embedding-001';
+  for (let i = 0; i < misses.length; i += batchSize) {
+    const slice = misses.slice(i, i + batchSize);
+    const t0 = Date.now();
+    let vecs: (number[] | null)[];
+    if (kind === 'ollama') {
+      vecs = await ollamaEmbeddingBatch(slice.map((m) => m.input));
+    } else if (kind === 'qwen') {
+      vecs = await qwenEmbeddingBatch(slice.map((m) => m.input));
+    } else {
+      // Gemini：SDK 批量接口契约随版本变动，逐条并发（缓存与返回契约不变）
+      vecs = await Promise.all(
+        slice.map(async (m) => {
+          try {
+            return await callEmbedding(m.input);
+          } catch {
+            return null;
+          }
+        })
+      );
+    }
+    slice.forEach((m, j) => {
+      const v = vecs[j];
+      if (Array.isArray(v) && v.length > 0) {
+        embedCacheSet(m.cacheKey, v);
+        results[m.idx] = v;
+      }
+    });
+    if (kind !== 'gemini') {
+      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: vecs.some(Boolean) });
+    }
+  }
+  return results;
 }
 
 // ========== P1-2 Token 级流式输出支持 ============
@@ -808,19 +1089,21 @@ export async function callLLMTextStream(
       });
       
     } else if (kind === 'ollama') {
-      // ========== Ollama API 流式处理 ==========
-      const res = await fetch(`${ollamaUrl()}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: usedModel,
-          messages,
-          stream: true,  // ← 启用流式输出
-          keep_alive: '30m',
-          format: 'json',  // P0-1 结构化输出约束
-        }),
-      });
+      // ========== Ollama API 流式处理（P2-2 多后端：仅初始连接参与故障转移，流式读取不包裹） ==========
+      const res = await withOllamaBackend((base) =>
+        fetch(`${base}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: usedModel,
+            messages,
+            stream: true,  // ← 启用流式输出
+            keep_alive: '30m',
+            format: 'json',  // P0-1 结构化输出约束
+          }),
+        })
+      );
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
