@@ -610,6 +610,32 @@ export async function initSchema(): Promise<void> {
   // v0.9.2 长任务队列表（改进计划 2-1）：报告生成/问数报告/PDF 导出异步执行
   await ensureTaskTable(pool);
 
+  // v0.9.8 知识库漂移检测（改进计划 3-3）：低基数维度列取值快照 + 漂移事件
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kb_drift_watch (
+      data_source_id VARCHAR(64) NOT NULL,
+      table_name VARCHAR(128) NOT NULL,
+      column_name VARCHAR(128) NOT NULL,
+      values_json MEDIUMTEXT NULL,
+      snapshot_at TIMESTAMP NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (data_source_id, table_name, column_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kb_drift_events (
+      id VARCHAR(48) PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      table_name VARCHAR(128) NOT NULL,
+      column_name VARCHAR(128) NOT NULL,
+      added_json MEDIUMTEXT NULL,
+      removed_json MEDIUMTEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+      detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_drift_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // 4. Seed default admin when users table is empty（首登强制改密）
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');
   if (Number(userRows[0]?.cnt) === 0) {

@@ -40,12 +40,14 @@ import reportTemplateRoutes from './server/routes/reportTemplates';
 import queryReportRoutes from './server/routes/queryReports';
 // P0-4 在线准确率度量看板（北极星指标聚合，仅 ADMIN）
 import opsMetricsRoutes from './server/routes/opsMetrics';
+import opsDriftRoutes from './server/routes/opsDrift';
 // v0.9.2 异步任务队列（改进计划 2-1）
 import taskRoutes from './server/routes/tasks';
 import { startTaskWorker } from './server/taskQueue';
 import { registerBuiltinTaskHandlers } from './server/taskHandlers';
 // P2-5 SSE 断线续传：重放缓冲周期清扫（改进计划 2-5）
 import { startSseReplaySweeper } from './server/sseReplayBuffer';
+import { startDriftSweeper } from './server/driftDetector';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -101,6 +103,7 @@ async function startServer() {
   startOllamaHealthChecks();
   // P2-5 SSE 断线续传：重放缓冲周期清扫（终态 TTL 10 分钟 / 进行中 30 分钟）
   startSseReplaySweeper();
+  startDriftSweeper();
 
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });
@@ -202,6 +205,8 @@ async function startServer() {
   app.use('/api/query-reports', queryReportRoutes);
   // P0-4 在线准确率度量看板（见 server/routes/opsMetrics.ts）
   app.use('/api/ops', opsMetricsRoutes);
+  // P3-3 知识库漂移检测（见 server/routes/opsDrift.ts）
+  app.use('/api/ops', opsDriftRoutes);
   // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）
   app.use('/api/access-requests', accessRequestRoutes);
   // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）

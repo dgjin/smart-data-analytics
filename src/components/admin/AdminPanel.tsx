@@ -18,6 +18,7 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import { UserRole } from '../../types/analytics';
 import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
+import { DriftAlertPanel } from './DriftAlertPanel';
 import { ReportTemplateManager } from './ReportTemplateManager';
 import { MetricsPanel } from './MetricsPanel';
 import { AccessRequestsPanel } from './AccessRequestsPanel';
@@ -541,7 +542,13 @@ export const AdminPanel: React.FC = () => {
       )}
 
       {/* ============ 区块二：质量看板（P0-4 北极星指标） ============ */}
-      {section === 'quality' && <OpsMetricsPanel />}
+      {section === 'quality' && (
+        <div className="space-y-5">
+          {/* P3-3 知识库漂移提醒（枚举值快照比对） */}
+          <DriftAlertPanel />
+          <OpsMetricsPanel />
+        </div>
+      )}
 
       {/* ============ 区块三：Token 用量查询（每个用户的 token 消耗） ============ */}
       {section === 'usage' && <LlmUsagePanel />}

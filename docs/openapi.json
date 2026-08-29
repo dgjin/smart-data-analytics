@@ -210,6 +210,176 @@
         }
       }
     },
+    "/api/ops/drift": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "listDriftEvents",
+        "summary": "P3-3 知识库漂移事件列表（OPEN 优先、按时间倒序）+ 观察列总数（仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "漂移事件列表与观察列总数"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/drift/scan": {
+      "post": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "scanDrift",
+        "summary": "P3-3 手动触发漂移扫描（body.dataSourceId 可选；缺省扫全部数据库型数据源）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dataSourceId": {
+                    "type": "string",
+                    "description": "可选，指定单数据源扫描"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "扫描汇总（watched/discovered/scanned/newEvents/skippedHighCardinality）"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/drift/watch": {
+      "post": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "addDriftWatch",
+        "summary": "P3-3 登记观察列（数据源×表×列，幂等；标识符仅允许字母数字下划线）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dataSourceId",
+                  "tableName",
+                  "columnName"
+                ],
+                "properties": {
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "tableName": {
+                    "type": "string"
+                  },
+                  "columnName": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "登记成功"
+          },
+          "400": {
+            "description": "参数非法"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "removeDriftWatch",
+        "summary": "P3-3 移除观察列",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dataSourceId",
+                  "tableName",
+                  "columnName"
+                ],
+                "properties": {
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "tableName": {
+                    "type": "string"
+                  },
+                  "columnName": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "移除成功"
+          },
+          "404": {
+            "description": "观察列不存在"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/drift/{id}/ack": {
+      "post": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "ackDriftEvent",
+        "summary": "P3-3 确认漂移事件（OPEN → ACKED）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "事件 ID（drift_ 前缀）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "确认成功"
+          },
+          "404": {
+            "description": "事件不存在或已确认"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
