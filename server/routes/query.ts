@@ -30,6 +30,7 @@ import { maskQueryPayload, maskRows } from '../dlp';
 import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from '../queryTrace';
 import { generateQueryPlan, storePlan, consumePlan, QueryPlan } from '../queryPlan';
 import { emitBeforeQuery, emitAfterQuery } from '../queryHooks';
+import { appendQueryEvent, getEventsAfter, getTraceOwner, isTerminal, isTerminalEvent, subscribeTrace, BufferedSseEvent } from '../sseReplayBuffer';
 import { generateFallbackQueryResult } from '../../serverFallbacks';
 import { normalizeQueryResult } from '../../src/utils/queryResultNormalizer';
 
@@ -109,9 +110,17 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
 
   // P2-7 SSE：客户端请求流式时，live 链路按阶段推送事件（早期校验错误仍返 JSON，前端按 Content-Type 区分）
   const streamMode = req.body.stream === true;
+  // M1 推导留痕：每次问数生成唯一 traceId，全链路步骤旁路落库，响应携带供前端回放。
+  // P2-5：声明提前到 sseSend 之前（SSE 事件入重放缓冲以 traceId 为键，块作用域要求先声明）
+  const traceId = newTraceId();
   let sseStarted = false;
   const sseSend = (event: string, data: any) => {
     if (!streamMode || res.writableEnded) return;
+    // P2-5 断线续传：事件先入重放缓冲（分配单调递增序号作为 SSE id），再写流。
+    // 客户端断开后 res.write 静默失败不阻断 LLM 链路，事件仍入缓冲，
+    // 客户端可凭 traceId + 已收序号经 GET /stream-replay 续传，不重新执行 SQL。
+    const payload = JSON.stringify(data);
+    const seq = appendQueryEvent(traceId, user.id, event, payload);
     if (!sseStarted) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -121,7 +130,11 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       });
       sseStarted = true;
     }
-    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    try {
+      res.write(`id: ${seq}\nevent: ${event}\ndata: ${payload}\n\n`);
+    } catch {
+      // 客户端已断开：事件已入重放缓冲，链路继续执行
+    }
   };
   const respond = (payload: any, event = 'done') => {
     if (streamMode) {
@@ -164,8 +177,6 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
 
     // P0 双阶段真实执行：对落库的数据库型数据源启用（mysql/postgresql/greenplum，LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
     const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
-    // M1 推导留痕：每次问数生成唯一 traceId，全链路步骤旁路落库，响应携带供前端回放
-    const traceId = newTraceId();
     const traceMeta: TraceMeta = { userId: user.id, username: user.username, dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '', question: query };
     if (canRunLive) {
       // M2 计划模式：携带已批准 planId 时校验有效性（过期/越权/问题不匹配 → 409 提示重新制定）
@@ -220,7 +231,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         amountUnit,
         userId: user.id,
         traceId,
-        onStage: streamMode ? (stage, info) => sseSend('stage', { stage, ...(info || {}) }) : undefined,
+        // P2-5：stage 事件携带 traceId，前端收到首个阶段事件即可记录续传锚点
+        onStage: streamMode ? (stage, info) => sseSend('stage', { stage, traceId, ...(info || {}) }) : undefined,
         // M1 推导留痕：旁路落库 + 流式模式下实时推送步骤详情（前端步骤器展示）
         onTrace: (step) => {
           void recordTraceStep(traceId, traceMeta, step);
@@ -352,6 +364,70 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   } finally {
     await releaseQuerySlot(user.id, slotToken);
   }
+});
+
+// 3a-0. P2-5 SSE 断线续传（Last-Event-ID 语义）：重连按 traceId 回放已完成阶段，不重新执行 SQL。
+// 缓冲未命中（已过期 / 多实例部署落在无缓冲节点）返回 404，由前端降级为完整重试。
+router.get('/stream-replay/:traceId', authMiddleware, async (req, res) => {
+  const user = req.user!;
+  const traceId = String(req.params.traceId || '');
+  if (!/^tr_[A-Za-z0-9_]{6,40}$/.test(traceId)) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'traceId 不合法' });
+  }
+  const owner = getTraceOwner(traceId);
+  if (owner === null) {
+    return res.status(404).json({ code: ERROR_CODES.NOT_FOUND, error: '流式会话不存在或已过期，请重新发起查询' });
+  }
+  if (owner !== user.id && user.role !== 'ADMIN') {
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '无权续传他人的查询会话' });
+  }
+  // Last-Event-ID 头（SSE 标准语义）与 ?after= 查询参数双支持（fetch 重试无法自动带头）
+  const after = Math.max(0, Number(req.headers['last-event-id'] ?? req.query.after) || 0);
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(':ok\n\n');
+
+  let lastSent = after;
+  let ended = false;
+  const finish = (unsubscribe?: () => void, timer?: ReturnType<typeof setTimeout>) => {
+    if (ended) return;
+    ended = true;
+    unsubscribe?.();
+    if (timer) clearTimeout(timer);
+    try { res.end(); } catch { /* 已断开 */ }
+  };
+  // 返回 true 表示写入的是终态事件；seq 去重保证回放/订阅竞态下不重不漏
+  const writeEvent = (e: BufferedSseEvent): boolean => {
+    if (e.seq <= lastSent) return isTerminalEvent(e.event);
+    lastSent = e.seq;
+    try {
+      res.write(`id: ${e.seq}\nevent: ${e.event}\ndata: ${e.data}\n\n`);
+    } catch {
+      // 客户端再次断开：由 req close 监听统一清理
+    }
+    return isTerminalEvent(e.event);
+  };
+
+  // 先回放存量（断线期间已完成的事件即时补齐）
+  for (const e of getEventsAfter(traceId, after)?.events ?? []) writeEvent(e);
+  if (isTerminal(traceId)) { finish(); return; }
+
+  // 未终态：订阅增量推送，直到终态到达或 5 分钟兜底超时
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const unsubscribe = subscribeTrace(traceId, (e) => {
+    if (writeEvent(e)) finish(unsubscribe, timer);
+  });
+  // 订阅挂上后补一次漏（回放与订阅之间可能到达的新事件）
+  for (const e of getEventsAfter(traceId, lastSent)?.events ?? []) writeEvent(e);
+  if (isTerminal(traceId)) { finish(unsubscribe); return; }
+  timer = setTimeout(() => finish(unsubscribe), 5 * 60 * 1000);
+  timer.unref?.();
+  req.on('close', () => finish(unsubscribe, timer));
 });
 
 // 3a-1. M1 推导过程回放：按 traceId 返回一次问数的全链路步骤（仅本人或管理员可查）

@@ -832,6 +832,36 @@
         }
       }
     },
+    "/api/query/stream-replay/{traceId}": {
+      "parameters": [
+        {
+          "name": "traceId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "Query"
+        ],
+        "operationId": "streamReplay",
+        "summary": "SSE 断线续传：按 Last-Event-ID（或 ?after=）回放已缓冲的问数事件，不重新执行 SQL",
+        "responses": {
+          "200": {
+            "description": "text/event-stream 事件流（回放存量后挂接增量推送直至终态）"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/query/plan": {
       "post": {
         "tags": [

@@ -676,71 +676,113 @@ export const QueryChat: React.FC = () => {
       }
     };
 
-    try {
-      const response = await apiFetch('/api/query/natural-language', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          query: textToSubmit,
-          dataSourceId: activeDataSourceId,
-          schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
-          history,
-          stream: true,
-          ...(approvedPlanId ? { planId: approvedPlanId } : {}),
-          ...(deepMode ? { deepAnalysis: true } : {}),
-          ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
-          ...(options?.refreshCache ? { refreshCache: true } : {}),
-          amountUnit,
-        }),
-      });
+    // P2-5 SSE 断线续传：记录已收事件序号（SSE id）与 traceId；
+    // 网络中断后凭 traceId + 序号走 GET /stream-replay 续传，已完成阶段即时回放、不重新执行 SQL
+    let lastSeq = 0;
+    let sawTerminal = false;
+    let resumeTraceId = '';
 
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('text/event-stream') && response.body) {
-        // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑（P1-6 拆分至 utils/sseStream）
-        // P1-2 Token 级流式输出：实时接收 LLM 生成内容的逐字推送
-        await readSseStream(response, {
-          onStage: (label, _stage, info) => {
-            setStreamProgress(label);
-            if (typeof info?.sql === 'string' && info.sql.trim()) setStreamPreviewSql(info.sql);
-          },
-          // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
-          onTrace: (step) => setLiveTraceSteps((prev) => [...prev.slice(-7), step as TraceStepInfo]),
-          // P1-2 流式内容增量渲染
-          onChunk: (content) => {
-            setIsReceivingStream(true);
-            setStreamingContent((prev) => prev + content);
-            
-            // 动态更新当前聊天消息的流式内容
-            const messages = chatMessages;
-            if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
-              // 找到最后一个 assistant 消息并更新其内容
-              const lastMsg = messages[messages.length - 1];
-              lastMsg.content = streamingContent + content;
-              // 触发 React 更新（通过修改一个标记字段）
-              addChatMessage({ ...lastMsg });
-            } else {
-              // 如果没有 assistant 消息，创建一个
-              addChatMessage({
-                id: `msg-ai-stream-${Date.now()}`,
-                role: 'assistant',
-                content: content,
-                timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-                dataSourceId: submitDSId,
+    try {
+      // attempt 0 = 原始问数请求；1-2 = 断线续传（最多 2 次，间隔 1s，期间服务端链路继续执行）
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const response = attempt === 0
+            ? await apiFetch('/api/query/natural-language', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({
+                  query: textToSubmit,
+                  dataSourceId: activeDataSourceId,
+                  schema: activeDS ? applyDataScope(activeDS.tables, activeDS.scope) : [],
+                  history,
+                  stream: true,
+                  ...(approvedPlanId ? { planId: approvedPlanId } : {}),
+                  ...(deepMode ? { deepAnalysis: true } : {}),
+                  ...(selectedModelPayload ? { model: selectedModelPayload } : {}),
+                  ...(options?.refreshCache ? { refreshCache: true } : {}),
+                  amountUnit,
+                }),
+              })
+            : await apiFetch(`/api/query/stream-replay/${encodeURIComponent(resumeTraceId)}?after=${lastSeq}`, {
+                signal: controller.signal,
               });
+
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('text/event-stream') && response.body) {
+            // P2-7 流式链路：阶段事件实时更新进度，终端事件复用同一消费逻辑（P1-6 拆分至 utils/sseStream）
+            // P1-2 Token 级流式输出：实时接收 LLM 生成内容的逐字推送
+            await readSseStream(response, {
+              // P2-5 断线续传：记录服务端事件序号作为续传游标
+              onEventId: (id) => {
+                const n = Number(id);
+                if (Number.isFinite(n) && n > 0) lastSeq = n;
+              },
+              onStage: (label, _stage, info) => {
+                // P2-5：首个 stage 事件即携带 traceId，记录为续传锚点
+                if (typeof info?.traceId === 'string') resumeTraceId = info.traceId;
+                setStreamProgress(label);
+                if (typeof info?.sql === 'string' && info.sql.trim()) setStreamPreviewSql(info.sql);
+              },
+              // M1 推导留痕：服务端每步旁路落库同时推送，前端实时追加步骤器
+              onTrace: (step) => setLiveTraceSteps((prev) => [...prev.slice(-7), step as TraceStepInfo]),
+              // P1-2 流式内容增量渲染
+              onChunk: (content) => {
+                setIsReceivingStream(true);
+                setStreamingContent((prev) => prev + content);
+                
+                // 动态更新当前聊天消息的流式内容
+                const messages = chatMessages;
+                if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+                  // 找到最后一个 assistant 消息并更新其内容
+                  const lastMsg = messages[messages.length - 1];
+                  lastMsg.content = streamingContent + content;
+                  // 触发 React 更新（通过修改一个标记字段）
+                  addChatMessage({ ...lastMsg });
+                } else {
+                  // 如果没有 assistant 消息，创建一个
+                  addChatMessage({
+                    id: `msg-ai-stream-${Date.now()}`,
+                    role: 'assistant',
+                    content: content,
+                    timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+                    dataSourceId: submitDSId,
+                  });
+                }
+              },
+              onTerminal: (_event, data) => {
+                sawTerminal = true;
+                setIsReceivingStream(false);
+                // 清理临时状态
+                setStreamingContent('');
+                consumeResponse(data);
+              },
+            });
+          } else {
+            // 非流式（演示模式或早期校验错误 / 续传会话已过期）：保持原 JSON 链路
+            const resData = await response.json();
+            // 续传请求返回错误（404 会话过期 / 403 越权）：不再重试，直接呈现服务端错误
+            if (attempt > 0 && !response.ok) {
+              const err = new Error(resData.error || '断线续传失败') as Error & { sseTerminal?: boolean };
+              err.sseTerminal = true;
+              throw err;
             }
-          },
-          onTerminal: (_event, data) => {
-            setIsReceivingStream(false);
-            // 清理临时状态
-            setStreamingContent('');
-            consumeResponse(data);
-          },
-        });
-      } else {
-        // 非流式（演示模式或早期校验错误）：保持原 JSON 链路
-        const resData = await response.json();
-        consumeResponse(resData);
+            consumeResponse(resData);
+          }
+          break;
+        } catch (streamErr: any) {
+          // P2-5 续传判定：仅「网络层中断」且已拿到续传锚点时才重试；
+          // 用户主动停止/超时（AbortError）、业务终态错误（sseTerminal）、已达重试上限均不重试
+          const canResume = !sawTerminal
+            && streamErr?.name !== 'AbortError'
+            && streamErr?.sseTerminal !== true
+            && resumeTraceId.length > 0
+            && attempt < 2
+            && !controller.signal.aborted;
+          if (!canResume) throw streamErr;
+          setStreamProgress('网络中断，正在自动续传（已完成阶段即时回放，不重复执行）…');
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
     } catch (err: any) {
       const isTimeout = err?.name === 'AbortError';

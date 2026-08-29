@@ -30,6 +30,8 @@ export interface SseStreamHandlers {
   onChunk?: (content: string) => void;
   /** 终端事件（done / clarify / refuse），payload 与非流式 JSON 响应同构 */
   onTerminal?: (event: 'done' | 'clarify' | 'refuse', data: any) => void;
+  /** P2-5 断线续传：每个事件的服务端序号（SSE id 字段），调用方记录最后已收序号用于断点续传 */
+  onEventId?: (id: string) => void;
 }
 
 /** 消费 SSE 响应体：逐块解码、按空行分段、event:/data: 行解析后分发回调 */
@@ -52,12 +54,15 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
     for (const part of parts) {
       let eventName = 'message';
       let dataStr = '';
+      let eventId = '';
       
       for (const line of part.split('\n')) {
         if (line.startsWith('event:')) eventName = line.slice(6).trim();
         else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+        else if (line.startsWith('id:')) eventId = line.slice(3).trim();
       }
       
+      if (eventId) handlers.onEventId?.(eventId);
       if (!dataStr) continue;
       
       // P1-2 检查是否是流式 chunk 事件（直接推送文本内容）
@@ -99,7 +104,11 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
       } else if (eventName === 'done' || eventName === 'clarify' || eventName === 'refuse') {
         handlers.onTerminal?.(eventName, data);
       } else if (eventName === 'error') {
-        throw new Error(String(data?.error || '查询失败'));
+        // P2-5：error 属终态事件——挂 sseTerminal 标记供调用方区分「业务终态错误」与
+        // 「网络中断」，后者才允许断线续传（终态错误直接呈现，不重试）
+        const err = new Error(String(data?.error || '查询失败')) as Error & { sseTerminal?: boolean };
+        err.sseTerminal = true;
+        throw err;
       }
     }
   }

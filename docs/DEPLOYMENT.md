@@ -554,12 +554,30 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+
+        # P2-5 SSE 流式问数必需（v0.9.6+）：关闭响应缓冲，阶段事件才能实时到达浏览器；
+        # 读超时放宽到 600s（问数链路含 LLM 推理，最长阶段间隔可达分钟级）
+        proxy_buffering off;
+        proxy_read_timeout 600s;
     }
 }
 EOF
 sudo ln -s /etc/nginx/sites-available/smart-data-analytics /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+> **SSE 断线续传与网关要求（v0.9.6+）**
+>
+> 问数流式链路（`POST /api/query/natural-language` + `stream:true`）依赖以下网关行为，缺失会导致体验降级：
+>
+> | 配置 | 作用 | 缺失后果 |
+> |------|------|----------|
+> | `proxy_buffering off;` | SSE 事件实时下发（应用已自带 `X-Accel-Buffering: no`，Nginx 层再显式关闭一次） | 阶段进度「卡住不动」，最终一次性涌出 |
+> | `proxy_read_timeout 600s;` | 容忍 LLM 推理的长间隙 | 网关 60s 默认超时主动断开长连接，触发前端续传兜底 |
+> | 多实例部署时开启**粘性会话**（如 `ip_hash;` 或 cookie 亲和） | 断线续传（`GET /api/query/stream-replay/:traceId`）的事件重放缓冲在**原实例**进程内 | 重连落到其他实例返回 404，前端自动降级为完整重新提问（SQL 会重新执行） |
+>
+> 补充说明：断线续传缓冲为进程内实现（终态事件保留 10 分钟），单实例部署无需任何额外配置；
+> 多实例部署的完整网关示例见 `deploy/nginx.multi-instance.conf` 与《多实例部署指南》。
 
 ---
 

@@ -48,6 +48,7 @@ export const STATE_WHITELIST: WhitelistEntry[] = [
   { file: 'server/llmClient.ts', name: 'embedCache', category: 'local-accel', reason: 'embedding 文本向量缓存（带 TTL）；未命中仅多一次远程调用' },
   { file: 'server/schemaLinking.ts', name: 'tableEmbeddingCache', category: 'local-accel', reason: '表摘要向量缓存（key 含内容指纹，schema 编辑自动失效）；未命中仅多一次 embedding 调用' },
   { file: 'server/schemaLinking.ts', name: 'columnEmbeddingCache', category: 'local-accel', reason: '列摘要向量缓存（key 含内容指纹）；未命中仅多一次 embedding 调用' },
+  { file: 'server/sseReplayBuffer.ts', name: 'buffers', category: 'local-accel', reason: 'SSE 断线续传重放缓冲（终态 TTL 10 分钟）；多实例重连落异节点时 404 降级完整重试，正确性不依赖共享' },
   // ---- registry：代码级注册表（启动时注册，无运行态跨请求语义）----
   { file: 'server/taskQueue.ts', name: 'handlers', category: 'registry', reason: '任务处理器注册表：进程启动时注册同一批 handler，各实例内容一致' },
   // ---- statestore-impl：StateStore 内存实现本体（接口层已支持 Redis 外置）----

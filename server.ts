@@ -44,6 +44,8 @@ import opsMetricsRoutes from './server/routes/opsMetrics';
 import taskRoutes from './server/routes/tasks';
 import { startTaskWorker } from './server/taskQueue';
 import { registerBuiltinTaskHandlers } from './server/taskHandlers';
+// P2-5 SSE 断线续传：重放缓冲周期清扫（改进计划 2-5）
+import { startSseReplaySweeper } from './server/sseReplayBuffer';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -97,6 +99,8 @@ async function startServer() {
   startTaskWorker();
   // v0.9.3 LLM 多后端（改进计划 2-2）：Ollama 后端池健康检查（摘除节点自动恢复接入）
   startOllamaHealthChecks();
+  // P2-5 SSE 断线续传：重放缓冲周期清扫（终态 TTL 10 分钟 / 进行中 30 分钟）
+  startSseReplaySweeper();
 
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });
