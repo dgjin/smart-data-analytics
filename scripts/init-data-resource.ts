@@ -22,7 +22,7 @@ import { createPool } from 'mysql2/promise';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { DATA_RESOURCE_DS, FCT_JC_MAIN_BIZ_STAT_SCHEMA, FCT_JC_FINANCIAL_STAT_SCHEMA, SAMPLE_FCT_JC_MAIN_BIZ_DATA, SAMPLE_FCT_JC_FINANCIAL_DATA, DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_SKILLS, DATA_RESOURCE_EVALUATION_CASES } from './seedDataResources';
+import { DATA_RESOURCE_DS, FCT_JC_MAIN_BIZ_STAT_SCHEMA, FCT_JC_FINANCIAL_STAT_SCHEMA, SAMPLE_FCT_JC_MAIN_BIZ_DATA, SAMPLE_FCT_JC_FINANCIAL_DATA, DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_SKILLS, DATA_RESOURCE_EVALUATION_CASES } from '../server/seedDataResources';
 
 // ========== 配置 ==========
 const __filename = fileURLToPath(import.meta.url);

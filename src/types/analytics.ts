@@ -23,6 +23,10 @@ export interface ColumnSchema {
   isMetric?: boolean;
   isDimension?: boolean;
   isPrimaryKey?: boolean;
+  /** 快照分区键（如月末快照日期列）：锁定最新快照期查询时优先使用该列 */
+  isPartition?: boolean;
+  /** 强制过滤列（如核算版 BB='1'）：所有查询必须带该列过滤条件 */
+  isFilter?: boolean;
 }
 
 export interface TableSchema {
@@ -57,6 +61,8 @@ export interface DataSource {
     port?: number;
     database?: string;
     username?: string;
+    /** 连接密码：仅服务端使用，接口下发前端前必须剔除 */
+    password?: string;
     url?: string;
     fileName?: string;
     fileSize?: string;

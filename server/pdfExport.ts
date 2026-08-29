@@ -11,9 +11,12 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-// CommonJS 兼容方式获取 __dirname
-const __dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename);
+// 双环境获取模块目录：开发（tsx/ESM）用 import.meta.url；
+// 打包（esbuild --format=cjs）时 esbuild 自动将 import.meta.url 降级为 __filename 的 file URL，两种形态都正确。
+// 注意：不能用 `typeof __dirname !== 'undefined' ? __dirname : ...` 的 const 自引用写法（TDZ 直接抛 ReferenceError）。
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** 脚本路径候选：开发（server/pdfgen/）与打包（dist/ 上一级项目根）双环境 */
 const PDF_SCRIPT_CANDIDATES = [

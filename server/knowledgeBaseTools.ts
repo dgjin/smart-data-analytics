@@ -3,7 +3,7 @@
  * 功能：支持知识条目的 JSON 格式导出/导入，包含完整的元数据和版本信息
  */
 
-import { KnowledgeBaseItem, KnowledgeExportFormat, KnowledgeImportResult } from '../../src/types/analytics';
+import { KnowledgeBaseItem, KnowledgeExportFormat, KnowledgeImportResult } from '../src/types/analytics';
 
 /**
  * 导出指定数据源的知识库内容为 JSON 文件

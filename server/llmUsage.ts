@@ -4,7 +4,7 @@
  */
 import { getPool } from './db';
 
-export type LlmChannel = 'json' | 'text' | 'embedding';
+export type LlmChannel = 'json' | 'text' | 'text_stream' | 'embedding';
 
 export interface LlmUsageEntry {
   engine: string;

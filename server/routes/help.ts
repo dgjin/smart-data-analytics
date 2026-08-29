@@ -9,10 +9,12 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { authMiddleware } from '../auth';
 
-// CommonJS 兼容方式获取 __dirname
-const __dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename);
+// 双环境获取模块目录：开发（tsx/ESM）用 import.meta.url；打包 CJS 时 esbuild 自动降级为 __filename 的 file URL。
+// 不能用 `typeof __dirname !== 'undefined' ? ...` 的 const 自引用写法（TDZ ReferenceError）。
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 按优先级排列：用户使用指南（面向操作）优先，功能说明书（面向规格）兜底
 const MANUAL_FILENAMES = ['用户使用指南.md', '系统功能说明书.md'];

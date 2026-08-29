@@ -327,7 +327,8 @@ export const FlexQueryBuilder: React.FC = () => {
   // ---------- 执行 ----------
   const runQuery = async (sqlOverride?: string, dsIdOverride?: string) => {
     const sql = sqlOverride ?? (built?.ok ? built.sql : null);
-    if (!sql) return setExecError(built && !built.ok ? built.error : '请先选择数据表并拖入维度/指标');
+    // 注意：基线 tsconfig 未启 strictNullChecks，布尔判别式 !built.ok 无法窄化联合类型，须用 === false 显式比较
+    if (!sql) return setExecError(built && built.ok === false ? built.error : '请先选择数据表并拖入维度/指标');
     const dsId = dsIdOverride ?? activeDataSourceId;
     if (!dsId) return setExecError('请先选择数据源');
     setExecuting(true);
@@ -1134,7 +1135,7 @@ export const FlexQueryBuilder: React.FC = () => {
               </button>
               {sqlOpen ? (
                 <code className="block mt-1 text-[11px] text-emerald-300 font-mono break-all whitespace-pre-wrap">
-                  {built?.ok ? built.sql : built?.error || '选择数据表并拖入字段后自动生成'}
+                  {built?.ok === true ? built.sql : (built?.ok === false ? built.error : '选择数据表并拖入字段后自动生成')}
                 </code>
               ) : (
                 <code
@@ -1142,7 +1143,7 @@ export const FlexQueryBuilder: React.FC = () => {
                     built?.ok ? 'text-slate-500' : 'text-rose-400'
                   }`}
                 >
-                  {built?.ok ? built.sql : built?.error || '选择数据表并拖入字段后自动生成'}
+                  {built?.ok === true ? built.sql : (built?.ok === false ? built.error : '选择数据表并拖入字段后自动生成')}
                 </code>
               )}
             </div>
@@ -1292,7 +1293,7 @@ export const FlexQueryBuilder: React.FC = () => {
                                   <td key={ck} className="px-2.5 py-1.5 text-right text-slate-300 font-mono whitespace-nowrap">
                                     {typeof v === 'number'
                                       ? v.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-                                      : v ?? '-'}
+                                      : v == null ? '-' : String(v)}
                                   </td>
                                 );
                               })}

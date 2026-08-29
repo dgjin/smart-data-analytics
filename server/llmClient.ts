@@ -685,9 +685,9 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
 
 // ========== P1-2 Token 级流式输出支持 ============
 
-/** SSE event type for streaming chunks */
+/** SSE event type for streaming chunks（error 帧用于流式过程异常通知前端） */
 export interface StreamingChunk {
-  type: 'chunk';
+  type: 'chunk' | 'error';
   content: string;
   done?: boolean;
   error?: string;
@@ -880,7 +880,7 @@ export async function callLLMTextStream(
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       
-      const response = await ai.models.streamGenerateContent({
+      const response = await ai.models.generateContentStream({
         model: usedModel,
         contents: [{ role: 'user', parts: [{ text: system + '\n\n' + user }] }],
       });

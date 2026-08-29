@@ -1,10 +1,12 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
-// CommonJS 兼容方式获取 __dirname
-const __dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(__filename);
+// 双环境获取模块目录：开发（tsx/ESM）用 import.meta.url；打包 CJS 时 esbuild 自动降级为 __filename 的 file URL。
+// 不能用 `typeof __dirname !== 'undefined' ? ...` 的 const 自引用写法（TDZ ReferenceError）。
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Load .env.local / .env before reading any process.env values
 dotenv.config({ path: path.join(__dirname, '.env.local') });

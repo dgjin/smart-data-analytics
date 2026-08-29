@@ -5,6 +5,8 @@ import {defineConfig} from 'vitest/config';
 
 export default defineConfig(() => {
   return {
+    // 资产路径基准（顶层配置项，不可放 build 内）
+    base: '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
@@ -21,10 +23,6 @@ export default defineConfig(() => {
       headers: {
         'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:;",
       },
-    },
-    build: {
-      // 确保资产路径正确
-      base: '/',
     },
     // vitest 排除 Playwright E2E 用例（由 npm run test:e2e 单独运行）
     test: {

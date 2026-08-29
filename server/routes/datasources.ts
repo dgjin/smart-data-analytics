@@ -239,14 +239,11 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
 /** 按数据源类型分派真实 Schema 提取 */
 async function extractDbSchema(type: string, config: any) {
   // Greenplum 和 PostgreSQL 需要类型区分以选择正确的 SQL 语法
-  const dbType = type === 'mysql' ? 'mysql' : (type as 'postgresql' | 'greenplum');
-  
   if (type === 'mysql') {
     return extractMysqlSchema(config);
-  } else {
-    // PostgreSQL / Greenplum
-    return extractPgSchema(dbType, config);
   }
+  // PostgreSQL / Greenplum
+  return extractPgSchema(type as 'postgresql' | 'greenplum', config);
 }
 
 /** 判断是否为 PostgreSQL / Greenplum */

@@ -32,7 +32,7 @@ export async function getPresetKnowledgeByDataSource(
 ): Promise<KnowledgeBaseItem[]> {
   const conn = await getPool().getConnection();
   try {
-    const [rows] = await conn.query<KnowledgeBaseItem[]>(
+    const [rows] = await conn.query(
       `SELECT entry_id AS id, title, content, tags, category, created_at AS createdAt, updated_at AS updatedAt 
        FROM knowledge_base_entries 
        WHERE data_source_id = ? AND is_preset = 1 
@@ -134,12 +134,12 @@ export async function updateKnowledgeEntry(
   updatedBy: string
 ): Promise<boolean> {
   // 检查是否为预置条目（禁止修改）
-  const [presets] = await getPool().query<{ is_preset: number }[]>(
+  const [presets] = await getPool().query(
     'SELECT is_preset FROM knowledge_base_entries WHERE entry_id = ?',
     [entryId]
   );
   
-  if (Array.isArray(presets) && presets.length > 0 && presets[0].is_preset === 1) {
+  if (Array.isArray(presets) && presets.length > 0 && (presets as any[])[0].is_preset === 1) {
     throw new Error(`无法修改预置知识条目：${entryId}`);
   }
   
@@ -174,7 +174,7 @@ export async function updateKnowledgeEntry(
   values.push(entryId);
   
   const [result] = await getPool().query(sql, values);
-  return result.affectedRows > 0;
+  return (result as any).affectedRows > 0;
 }
 
 /**
@@ -182,12 +182,12 @@ export async function updateKnowledgeEntry(
  * @param entryId 唯一标识符
  */
 export async function deleteKnowledgeEntry(entryId: string): Promise<boolean> {
-  const [presets] = await getPool().query<{ is_preset: number }[]>(
+  const [presets] = await getPool().query(
     'SELECT is_preset FROM knowledge_base_entries WHERE entry_id = ?',
     [entryId]
   );
   
-  if (Array.isArray(presets) && presets.length > 0 && presets[0].is_preset === 1) {
+  if (Array.isArray(presets) && presets.length > 0 && (presets as any[])[0].is_preset === 1) {
     throw new Error(`无法删除预置知识条目：${entryId}`);
   }
   
@@ -196,7 +196,7 @@ export async function deleteKnowledgeEntry(entryId: string): Promise<boolean> {
     [entryId]
   );
   
-  return result.affectedRows > 0;
+  return (result as any).affectedRows > 0;
 }
 
 /**
