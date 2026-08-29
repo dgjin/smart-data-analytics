@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.9.3",
+  "version": "0.9.4",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "docs:check": "node scripts/checkOpenapi.mjs",
+    "state:check": "tsx scripts/check-stateless.ts",
     "eval": "tsx server/eval/runEval.ts",
     "loadtest": "tsx server/eval/loadTest.ts",
     "init:data-resource": "tsx scripts/init-data-resource.ts",

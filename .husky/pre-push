@@ -6,19 +6,22 @@ set -e
 
 echo "[pre-push] 质量门禁检查开始..."
 
-echo "[pre-push] 1/5 tsc 主 tsconfig"
+echo "[pre-push] 1/6 tsc 主 tsconfig"
 npm run lint --silent
 
-echo "[pre-push] 2/5 tsc server strict"
+echo "[pre-push] 2/6 tsc server strict"
 npm run lint:server --silent
 
-echo "[pre-push] 3/5 tsc 前端 strictNullChecks"
+echo "[pre-push] 3/6 tsc 前端 strictNullChecks"
 npm run lint:strict --silent
 
-echo "[pre-push] 4/5 OpenAPI 同步校验"
+echo "[pre-push] 4/6 OpenAPI 同步校验"
 npm run docs:check --silent
 
-echo "[pre-push] 5/5 vitest 全量单测"
+echo "[pre-push] 5/6 进程内状态巡检（P2-3）"
+npm run state:check --silent
+
+echo "[pre-push] 6/6 vitest 全量单测"
 npm test --silent
 
 echo "[pre-push] 质量门禁全部通过，允许推送"

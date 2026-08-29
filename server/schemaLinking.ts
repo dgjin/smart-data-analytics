@@ -7,6 +7,7 @@
  * 注意：仅影响阶段一 prompt 的 schema 范围，安全白名单（executeSafeSql）始终使用全量 schema，
  * 召回遗漏不会导致合法 SQL 被误杀。
  */
+import { createHash } from 'node:crypto';
 import { bigramOverlap } from './queryFeedback';
 import { callEmbedding, callEmbeddingBatch } from './llmClient';
 
@@ -94,10 +95,20 @@ function cosineSim(a: number[], b: number[]): number {
 const tableEmbeddingCache = new Map<string, number[]>();
 const TABLE_EMBEDDING_CACHE_MAX = 400;
 
+/**
+ * P2-3 缓存键内容指纹：sha1 前 16 位（沿用 dataVersion 约定）。
+ * 向量是 digest 文本的纯函数，key=hash(digest) 即内容寻址——编辑数据源 schema（表/列描述等
+ * digest 覆盖内容）后指纹变化、旧向量不再命中并随 LRU 淘汰，实现「编辑后自动失效」；
+ * 内容不变则稳定命中，不会因数据更新等其他因素过度失效。
+ */
+function contentVersion(text: string): string {
+  return createHash('sha1').update(text).digest('hex').slice(0, 16);
+}
+
 function tableEmbeddingKey(table: any): { key: string; digest: string } | null {
   const digest = tableDigest(table);
   if (!digest.trim()) return null;
-  return { key: `${String(table?.name || '')}::${digest.slice(0, 200)}`, digest };
+  return { key: `${String(table?.name || '')}::${contentVersion(digest)}`, digest };
 }
 
 function tableCacheSet(key: string, vec: number[]): void {
@@ -272,7 +283,7 @@ const COLUMN_EMBEDDING_CACHE_MAX = 2000;
 function columnEmbeddingKey(tableName: string, col: any): { key: string; digest: string } | null {
   const digest = `${String(col?.name || '')} ${String(col?.description || '')}`.trim();
   if (!digest) return null;
-  return { key: `${tableName}::${digest.slice(0, 120)}`, digest };
+  return { key: `${tableName}::${contentVersion(digest)}`, digest };
 }
 
 function columnCacheSet(key: string, vec: number[]): void {
@@ -281,6 +292,12 @@ function columnCacheSet(key: string, vec: number[]): void {
     if (oldest !== undefined) columnEmbeddingCache.delete(oldest);
   }
   columnEmbeddingCache.set(key, vec);
+}
+
+/** 仅供测试：清空表/列 embedding 缓存 */
+export function clearSchemaLinkingCachesForTest(): void {
+  tableEmbeddingCache.clear();
+  columnEmbeddingCache.clear();
 }
 
 /** P2-2 批量预填候选列向量（跨宽表合并为一次批量请求）；失败静默降级纯关键词打分 */

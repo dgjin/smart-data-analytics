@@ -32,6 +32,8 @@ jobs:
         run: npm run lint:js
       - name: OpenAPI 同步校验（代码路由与 docs/openapi.json 一致性）
         run: npm run docs:check
+      - name: 进程内状态巡检（P2-3，白名单外新增模块级可变存储拦截）
+        run: npm run state:check
       - name: Vitest 单测全量
         run: npm test
 
