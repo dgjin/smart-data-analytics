@@ -137,10 +137,12 @@ export const Sidebar: React.FC = () => {
         <div className="p-2 flex justify-center">
           <button
             onClick={toggleCollapsed}
-            title="展开侧边栏"
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            className="group relative p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
           >
             <PanelLeftOpen className="w-4 h-4" />
+            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 hidden group-hover:block whitespace-nowrap rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 shadow-xl">
+              展开侧边栏
+            </span>
           </button>
         </div>
         <div className="p-2 space-y-1.5">
@@ -151,24 +153,39 @@ export const Sidebar: React.FC = () => {
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                title={`${item.label}${item.badge ? ` · ${item.badge}` : ''}`}
-                className={`w-full flex justify-center p-2.5 rounded-xl transition-all ${
+                className={`group relative w-full flex justify-center p-2.5 rounded-xl transition-all ${
                   isActive
                     ? 'bg-indigo-600/15 border border-indigo-500/30 text-indigo-300'
                     : 'hover:bg-slate-800/80 text-slate-400 border border-transparent'
                 }`}
               >
                 <Icon className="w-4 h-4" />
+                {/* 收缩态悬停提示：绝对定位浮层，纯 CSS 触发，不影响布局 */}
+                <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 hidden group-hover:block whitespace-nowrap rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-left shadow-xl">
+                  <span className="flex items-center space-x-1.5">
+                    <span className="text-xs font-semibold text-slate-100">{item.label}</span>
+                    {item.badge && (
+                      <span className="text-[10px] font-medium px-1 py-px rounded bg-indigo-500/20 text-indigo-300">
+                        {item.badge}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block mt-0.5 text-[10px] text-slate-400">{item.sublabel}</span>
+                </span>
               </button>
             );
           })}
         </div>
         <div className="flex-1" />
         <div className="p-2 border-t border-slate-800/80 flex justify-center">
-          <div
-            className={`w-2 h-2 rounded-full ${engine ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`}
-            title={engine ? `${engine.label} 引擎运行中` : 'AI 引擎运行中'}
-          />
+          <div className="group relative flex justify-center p-1">
+            <div
+              className={`w-2 h-2 rounded-full ${engine ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`}
+            />
+            <span className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-1 z-50 hidden group-hover:block whitespace-nowrap rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-200 shadow-xl">
+              {engine ? `${engine.label} 引擎运行中` : 'AI 引擎运行中'}
+            </span>
+          </div>
         </div>
       </aside>
     );
