@@ -51,6 +51,8 @@ jobs:
       - run: npm ci
       - name: 评测集结构校验（≥100 条 + 六类分层覆盖）
         run: npx tsx server/eval/checkEvalSet.ts --min-count 100
+      - name: 宽表评测集结构校验（≥50 条 + multi_dim 六类分层，P3-2）
+        run: npx tsx server/eval/checkEvalSet.ts --file server/eval/evalCases.jichuang.json --min-count 50 --require single_agg,multi_dim,subquery,time,clarify,refuse
       - name: prompt 变更触发全量评测提醒
         env:
           EVENT_BEFORE: ${{ github.event.before }}

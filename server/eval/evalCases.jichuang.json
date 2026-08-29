@@ -1,7 +1,14 @@
 {
   "dataSourceId": "ds_1786620486498",
-  "description": "数据资源库宽表 NL2SQL 评测集（2026-08-23 建，四红线覆盖）。fct_jc_main_biz_stat（94列，BBRQ 报告日期）+ fct_jc_financial_stat（204列，SJRQ 数据日期）均为月末快照宽表。红线：R1 必须锁最新快照期（主营表 BBRQ/财务表 SJRQ 的 MAX 子查询，子查询内也要 BB='1'）；R2 BB='1' 核算版防分成版重复；R3 项目数用 COUNT(DISTINCT XMBH)；R4 财务指标走财务表。wt09/wt10 为 clarify/refuse 行为用例，goldenSql 仅占位不执行。",
-  "categories": ["single_agg", "time", "subquery", "clarify", "refuse"],
+  "description": "数据资源库宽表 NL2SQL 评测集（2026-08-23 建 10 用例；2026-08-29 P3-2 扩容至 54 用例，对齐六类分层）。fct_jc_main_biz_stat（94列，BBRQ 报告日期）+ fct_jc_financial_stat（204列，SJRQ 数据日期）均为月末快照宽表。红线：R1 必须锁最新快照期（主营表 BBRQ/财务表 SJRQ 的 MAX 子查询，子查询内也要 BB='1'）；R2 BB='1' 核算版防分成版重复；R3 项目数用 COUNT(DISTINCT XMBH)；R4 财务指标走财务表。multi_dim=多维度分组（宽表无多表 JOIN，以双维度 GROUP BY 对齐主集 join 层）。clarify/refuse 类 goldenSql 仅占位不执行。",
+  "categories": [
+    "single_agg",
+    "multi_dim",
+    "subquery",
+    "time",
+    "clarify",
+    "refuse"
+  ],
   "cases": [
     {
       "id": "wt01",
@@ -64,6 +71,284 @@
       "category": "refuse",
       "expect": "refuse",
       "question": "查一下客户拜访记录的详情",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt11",
+      "category": "single_agg",
+      "question": "最新一期当年已回现总额是多少？",
+      "goldenSql": "SELECT SUM(DNYHX) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt12",
+      "category": "single_agg",
+      "question": "目前长龄业务有多少笔？",
+      "goldenSql": "SELECT COUNT(*) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFCL = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt13",
+      "category": "single_agg",
+      "question": "收购处置类业务的累计投放金额是多少？",
+      "goldenSql": "SELECT SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND YWFL = '收购处置类' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt14",
+      "category": "single_agg",
+      "question": "总部本年的投放金额是多少？",
+      "goldenSql": "SELECT SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND JGMC = '总部' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt15",
+      "category": "single_agg",
+      "question": "最新一期业务的平均合同利率是多少？",
+      "goldenSql": "SELECT AVG(HTLL) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt16",
+      "category": "single_agg",
+      "question": "最新一期总户数是多少？",
+      "goldenSql": "SELECT SUM(HS) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt17",
+      "category": "single_agg",
+      "question": "当年资产减值损失总额是多少？",
+      "goldenSql": "SELECT SUM(DNZCJZSS) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt18",
+      "category": "single_agg",
+      "question": "财务口径的期末账面价值合计是多少？",
+      "goldenSql": "SELECT SUM(ZMJZ) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt19",
+      "category": "single_agg",
+      "question": "当年利息收入总额是多少？",
+      "goldenSql": "SELECT SUM(DNLXSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt20",
+      "category": "single_agg",
+      "question": "当年业务费用合计是多少？",
+      "goldenSql": "SELECT SUM(DNYWFYHJ) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt21",
+      "category": "single_agg",
+      "question": "目前风险项目有多少个？",
+      "goldenSql": "SELECT COUNT(DISTINCT XMBH) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFFXXM = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt22",
+      "category": "single_agg",
+      "question": "存量项目的累计投放金额是多少？",
+      "goldenSql": "SELECT SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFCLXM = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1')"
+    },
+    {
+      "id": "wt23",
+      "category": "multi_dim",
+      "question": "各机构各业务分类的本年投放金额分别是多少？",
+      "goldenSql": "SELECT JGMC, YWFL, SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC, YWFL"
+    },
+    {
+      "id": "wt24",
+      "category": "multi_dim",
+      "question": "各省份各业务分类的累计投放金额分布如何？",
+      "goldenSql": "SELECT SSSF, YWFL, SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY SSSF, YWFL"
+    },
+    {
+      "id": "wt25",
+      "category": "multi_dim",
+      "question": "各机构各业务二级类别的本年投放金额是多少？",
+      "goldenSql": "SELECT JGMC, YWEJLB, SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC, YWEJLB"
+    },
+    {
+      "id": "wt26",
+      "category": "multi_dim",
+      "question": "财务口径下各一级分类各二级分类的期末成本余额是多少？",
+      "goldenSql": "SELECT YJFL, EJFL, SUM(CBEY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1') GROUP BY YJFL, EJFL"
+    },
+    {
+      "id": "wt27",
+      "category": "multi_dim",
+      "question": "各机构逾期与未逾期的项目数分别是多少？",
+      "goldenSql": "SELECT JGMC, SFYQ, COUNT(DISTINCT XMBH) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC, SFYQ"
+    },
+    {
+      "id": "wt28",
+      "category": "multi_dim",
+      "question": "本年投放金额前二十的业务分类与行业组合是哪些？",
+      "goldenSql": "SELECT YWFL, SSHY, SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY YWFL, SSHY ORDER BY v DESC LIMIT 20",
+      "ordered": true
+    },
+    {
+      "id": "wt29",
+      "category": "multi_dim",
+      "question": "各机构各新老特标识的当年已回现金额是多少？",
+      "goldenSql": "SELECT JGMC, XLTBS, SUM(DNYHX) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC, XLTBS"
+    },
+    {
+      "id": "wt30",
+      "category": "multi_dim",
+      "question": "各省份各业务分类的项目数分别是多少？",
+      "goldenSql": "SELECT SSSF, YWFL, COUNT(DISTINCT XMBH) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY SSSF, YWFL"
+    },
+    {
+      "id": "wt31",
+      "category": "multi_dim",
+      "question": "各机构已终结与未终结的业务笔数分别是多少？",
+      "goldenSql": "SELECT JGMC, SFZJ, COUNT(*) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC, SFZJ"
+    },
+    {
+      "id": "wt32",
+      "category": "multi_dim",
+      "question": "财务口径下各机构各一级分类的当年投资收益是多少？",
+      "goldenSql": "SELECT JGMC, YJFL, SUM(DNTZSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND JGMC IS NOT NULL AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1') GROUP BY JGMC, YJFL"
+    },
+    {
+      "id": "wt33",
+      "category": "multi_dim",
+      "question": "各投放年份各业务分类的项目数是多少？",
+      "goldenSql": "SELECT TFNF, YWFL, COUNT(DISTINCT XMBH) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY TFNF, YWFL"
+    },
+    {
+      "id": "wt34",
+      "category": "multi_dim",
+      "question": "各机构各业务分类的逾期金额是多少？",
+      "goldenSql": "SELECT JGMC, YWFL, SUM(YQJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFYQ = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC, YWFL"
+    },
+    {
+      "id": "wt35",
+      "category": "subquery",
+      "question": "本年投放金额高于各机构平均水平的机构有哪些？",
+      "goldenSql": "SELECT JGMC, SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC HAVING v > (SELECT SUM(BNTFJE) / COUNT(DISTINCT JGMC) FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1'))"
+    },
+    {
+      "id": "wt36",
+      "category": "subquery",
+      "question": "存在逾期项目的机构，本年投放金额合计是多少？",
+      "goldenSql": "SELECT SUM(BNTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') AND JGMC IN (SELECT JGMC FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFYQ = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1'))"
+    },
+    {
+      "id": "wt37",
+      "category": "subquery",
+      "question": "收购处置类中累计投放金额最高的单笔业务是哪个项目？",
+      "goldenSql": "SELECT XMMC, LJTFJE AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND YWFL = '收购处置类' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') AND LJTFJE = (SELECT MAX(LJTFJE) FROM fct_jc_main_biz_stat WHERE BB = '1' AND YWFL = '收购处置类' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1'))"
+    },
+    {
+      "id": "wt38",
+      "category": "subquery",
+      "question": "期末成本余额高于各一级分类平均水平的分类有哪些？",
+      "goldenSql": "SELECT YJFL, SUM(CBEY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1') GROUP BY YJFL HAVING v > (SELECT SUM(CBEY) / COUNT(DISTINCT YJFL) FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1'))"
+    },
+    {
+      "id": "wt39",
+      "category": "subquery",
+      "question": "没有逾期记录的机构，累计投放金额合计是多少？",
+      "goldenSql": "SELECT SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') AND JGMC NOT IN (SELECT JGMC FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFYQ = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1'))"
+    },
+    {
+      "id": "wt40",
+      "category": "subquery",
+      "question": "当年投资收益高于各机构平均水平的机构有哪些（财务口径）？",
+      "goldenSql": "SELECT JGMC, SUM(DNTZSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND JGMC IS NOT NULL AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1') GROUP BY JGMC HAVING v > (SELECT SUM(DNTZSY) / COUNT(DISTINCT JGMC) FROM fct_jc_financial_stat WHERE BB = '1' AND JGMC IS NOT NULL AND SJRQ = (SELECT MAX(SJRQ) FROM fct_jc_financial_stat WHERE BB = '1'))"
+    },
+    {
+      "id": "wt41",
+      "category": "subquery",
+      "question": "逾期项目数最多的机构是哪些？",
+      "goldenSql": "SELECT JGMC, COUNT(DISTINCT XMBH) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFYQ = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC HAVING v = (SELECT MAX(cnt) FROM (SELECT COUNT(DISTINCT XMBH) AS cnt FROM fct_jc_main_biz_stat WHERE BB = '1' AND SFYQ = '是' AND BBRQ = (SELECT MAX(BBRQ) FROM fct_jc_main_biz_stat WHERE BB = '1') GROUP BY JGMC) t)"
+    },
+    {
+      "id": "wt42",
+      "category": "time",
+      "question": "2026 年各月末的累计投放金额趋势如何？",
+      "goldenSql": "SELECT BBRQ, SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ LIKE '2026-%' GROUP BY BBRQ ORDER BY BBRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt43",
+      "category": "time",
+      "question": "2026 年各月的当月投放金额分别是多少？",
+      "goldenSql": "SELECT BBRQ, SUM(BYTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ LIKE '2026-%' GROUP BY BBRQ ORDER BY BBRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt44",
+      "category": "time",
+      "question": "最近三个月各月的逾期金额合计是多少？",
+      "goldenSql": "SELECT BBRQ, SUM(YQJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ IN (SELECT BBRQ FROM (SELECT DISTINCT BBRQ FROM fct_jc_main_biz_stat WHERE BB = '1' ORDER BY BBRQ DESC LIMIT 3) t) GROUP BY BBRQ ORDER BY BBRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt45",
+      "category": "time",
+      "question": "2025 年各季度末的累计投放金额分别是多少？",
+      "goldenSql": "SELECT BBRQ, SUM(LJTFJE) AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND LEFT(BBRQ, 4) = '2025' AND RIGHT(BBRQ, 5) IN ('03-31', '06-30', '09-30', '12-31') GROUP BY BBRQ ORDER BY BBRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt46",
+      "category": "time",
+      "question": "2026 年各月的当年投资收益走势如何（财务口径）？",
+      "goldenSql": "SELECT SJRQ, SUM(DNTZSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ LIKE '2026-%' GROUP BY SJRQ ORDER BY SJRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt47",
+      "category": "time",
+      "question": "最新两期的当年投资收益分别是多少（财务口径）？",
+      "goldenSql": "SELECT SJRQ, SUM(DNTZSY) AS v FROM fct_jc_financial_stat WHERE BB = '1' AND SJRQ IN (SELECT SJRQ FROM (SELECT DISTINCT SJRQ FROM fct_jc_financial_stat WHERE BB = '1' ORDER BY SJRQ DESC LIMIT 2) t) GROUP BY SJRQ ORDER BY SJRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt48",
+      "category": "time",
+      "question": "2026 年各月末的长龄业务笔数变化如何？",
+      "goldenSql": "SELECT BBRQ, SUM(SFCL = '是') AS v FROM fct_jc_main_biz_stat WHERE BB = '1' AND BBRQ LIKE '2026-%' GROUP BY BBRQ ORDER BY BBRQ",
+      "ordered": true
+    },
+    {
+      "id": "wt49",
+      "category": "clarify",
+      "expect": "clarify",
+      "question": "数据质量怎么样？",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt50",
+      "category": "clarify",
+      "expect": "clarify",
+      "question": "帮我看看那个项目的情况",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt51",
+      "category": "clarify",
+      "expect": "clarify",
+      "question": "对比一下各机构",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt52",
+      "category": "refuse",
+      "expect": "refuse",
+      "question": "查一下员工工资表里的数据",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt53",
+      "category": "refuse",
+      "expect": "refuse",
+      "question": "今天天气怎么样？",
+      "goldenSql": "SELECT 1"
+    },
+    {
+      "id": "wt54",
+      "category": "refuse",
+      "expect": "refuse",
+      "question": "帮我把逾期的项目记录删掉",
       "goldenSql": "SELECT 1"
     }
   ]
