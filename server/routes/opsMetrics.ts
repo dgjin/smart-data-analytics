@@ -69,6 +69,8 @@ export interface WeeklyTrendPoint {
   clarifyRate: number | null;
   refuseRate: number | null;
   upRate: number | null;
+  /** P3-1 四率周报补齐：点踩率 = DOWN / (UP+DOWN)；无反馈时为 null */
+  downRate: number | null;
   selfCorrectRate: number | null;
 }
 
@@ -219,6 +221,7 @@ export function toWeeklyTrend(daily: DailyTrendPoint[]): WeeklyTrendPoint[] {
       clarifyRate: total > 0 ? sum((p) => p.clarify) / total : null,
       refuseRate: total > 0 ? sum((p) => p.refused) / total : null,
       upRate: fb > 0 ? sum((p) => p.up) / fb : null,
+      downRate: fb > 0 ? sum((p) => p.down) / fb : null,
       selfCorrectRate: traces > 0 ? sum((p) => p.selfCorrected) / traces : null,
     });
   }
@@ -230,9 +233,13 @@ export function toWeeklyTrend(daily: DailyTrendPoint[]): WeeklyTrendPoint[] {
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
 
-// GET /api/ops/metrics?days=7 —— 北极星指标 + 日/周趋势（仅 ADMIN）
+// GET /api/ops/metrics?days=7&dataSourceId= —— 北极星指标 + 日/周趋势（仅 ADMIN）
+// P3-1：dataSourceId 可选过滤（四率按数据源下钻；空=全部数据源汇总）
 router.get('/metrics', async (req, res) => {
   const days = Math.min(90, Math.max(1, Number(req.query.days) || 7));
+  const dataSourceId = typeof req.query.dataSourceId === 'string' ? req.query.dataSourceId.trim() : '';
+  const dsFilter = dataSourceId ? ' AND data_source_id = ?' : '';
+  const dsParams = (base: unknown[]): unknown[] => (dataSourceId ? [...base, dataSourceId] : base);
   const since = new Date();
   since.setHours(0, 0, 0, 0);
   since.setDate(since.getDate() - (days - 1));
@@ -243,17 +250,17 @@ router.get('/metrics', async (req, res) => {
     const [auditRowsRaw] = await pool.query(
       `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date, status AS bucket, COUNT(*) AS cnt
        FROM query_audit_log
-       WHERE endpoint = 'query' AND created_at >= ?
+       WHERE endpoint = 'query' AND created_at >= ?${dsFilter}
        GROUP BY date, status`,
-      [since]
+      dsParams([since])
     );
     // 反馈按日 × UP/DOWN
     const [feedbackRowsRaw] = await pool.query(
       `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date, verdict AS bucket, COUNT(*) AS cnt
        FROM query_feedback
-       WHERE created_at >= ?
+       WHERE created_at >= ?${dsFilter}
        GROUP BY date, verdict`,
-      [since]
+      dsParams([since])
     );
     // 自纠错触发：同一 trace 出现 ≥2 次 SQL 生成视为触发重试/多候选择优
     const [traceRowsRaw] = await pool.query(
@@ -261,16 +268,16 @@ router.get('/metrics', async (req, res) => {
        FROM (
          SELECT trace_id, DATE_FORMAT(MIN(created_at), '%Y-%m-%d') AS date, COUNT(*) AS gen_cnt
          FROM query_trace
-         WHERE step_type = 'sql_gen' AND created_at >= ?
+         WHERE step_type = 'sql_gen' AND created_at >= ?${dsFilter}
          GROUP BY trace_id
        ) t
        GROUP BY t.date`,
-      [since]
+      dsParams([since])
     );
     // 平均端到端耗时（问数主链路）
     const [avgRows] = await pool.query(
-      `SELECT AVG(duration_ms) AS avgMs FROM query_audit_log WHERE endpoint = 'query' AND created_at >= ?`,
-      [since]
+      `SELECT AVG(duration_ms) AS avgMs FROM query_audit_log WHERE endpoint = 'query' AND created_at >= ?${dsFilter}`,
+      dsParams([since])
     );
 
     const toCountRows = (rows: any): DailyCountRow[] =>
@@ -288,7 +295,7 @@ router.get('/metrics', async (req, res) => {
     const daily = buildDailyTrend(auditRows, feedbackRows, traceRows, days);
     const weekly = toWeeklyTrend(daily);
 
-    return res.json({ success: true, days, northStar, daily, weekly });
+    return res.json({ success: true, days, dataSourceId: dataSourceId || null, northStar, daily, weekly });
   } catch (err: any) {
     console.error('[OpsMetrics] 聚合失败:', err?.message || err);
     return res.status(500).json({ error: '运维指标获取失败' });

@@ -22,6 +22,7 @@ import {
   Legend,
 } from 'recharts';
 import { apiFetch } from '../../api/client';
+import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 
 /** 对齐 server/routes/opsMetrics.ts */
 interface NorthStarMetrics {
@@ -69,6 +70,8 @@ interface WeeklyTrendPoint {
   clarifyRate: number | null;
   refuseRate: number | null;
   upRate: number | null;
+  /** P3-1：点踩率（四率周报） */
+  downRate: number | null;
   selfCorrectRate: number | null;
 }
 
@@ -108,6 +111,9 @@ const KpiCard: React.FC<KpiCardProps> = ({ icon, label, value, sub, tone }) => (
 export const OpsMetricsPanel: React.FC = () => {
   const [days, setDays] = useState(7);
   const [trendMode, setTrendMode] = useState<'day' | 'week'>('day');
+  // P3-1：数据源下钻筛选（空=全部数据源汇总）
+  const [dsFilter, setDsFilter] = useState('');
+  const dataSources = useAnalyticsStore((s) => s.dataSources);
   const [northStar, setNorthStar] = useState<NorthStarMetrics | null>(null);
   const [daily, setDaily] = useState<DailyTrendPoint[]>([]);
   const [weekly, setWeekly] = useState<WeeklyTrendPoint[]>([]);
@@ -118,7 +124,7 @@ export const OpsMetricsPanel: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/ops/metrics?days=${days}`);
+      const res = await apiFetch(`/api/ops/metrics?days=${days}${dsFilter ? `&dataSourceId=${encodeURIComponent(dsFilter)}` : ''}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '指标获取失败');
       setNorthStar(data.northStar);
@@ -129,7 +135,7 @@ export const OpsMetricsPanel: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [days]);
+  }, [days, dsFilter]);
 
   useEffect(() => {
     // 延迟到 effect 外执行，避免 effect 体内同步 setState（react-hooks/set-state-in-effect）
@@ -138,18 +144,20 @@ export const OpsMetricsPanel: React.FC = () => {
   }, [loadMetrics]);
 
   // 趋势图数据：日模式由计数换算比率，周模式直接用后端聚合比率
-  const chartData = useMemo(() => {
+  type ChartRow = Record<string, string | number | null>;
+  const chartData = useMemo<ChartRow[]>(() => {
     const toRate = (part: number, total: number): number | null => (total > 0 ? Number(((part / total) * 100).toFixed(1)) : null);
     if (trendMode === 'week') {
-      return weekly.map((w) => ({
+      // P3-1 四率周报：点踩率/自省触发率/拒答率/澄清率 按周趋势（企业级改进 3-1 验收口径）
+      return weekly.map((w): ChartRow => ({
         label: `${w.week.slice(5)} 周`,
-        成功应答率: w.successRate === null ? null : Number((w.successRate * 100).toFixed(1)),
-        缓存命中率: w.cacheHitRate === null ? null : Number((w.cacheHitRate * 100).toFixed(1)),
-        澄清率: w.clarifyRate === null ? null : Number((w.clarifyRate * 100).toFixed(1)),
+        点踩率: w.downRate === null ? null : Number((w.downRate * 100).toFixed(1)),
+        自省触发率: w.selfCorrectRate === null ? null : Number((w.selfCorrectRate * 100).toFixed(1)),
         拒答率: w.refuseRate === null ? null : Number((w.refuseRate * 100).toFixed(1)),
+        澄清率: w.clarifyRate === null ? null : Number((w.clarifyRate * 100).toFixed(1)),
       }));
     }
-    return daily.map((p) => ({
+    return daily.map((p): ChartRow => ({
       label: p.date.slice(5),
       成功应答率: toRate(p.success + p.cache, p.total),
       缓存命中率: toRate(p.cache, p.total),
@@ -194,6 +202,18 @@ export const OpsMetricsPanel: React.FC = () => {
           ))}
         </div>
         <div className="flex items-center space-x-2">
+          {/* P3-1 数据源下钻：四率趋势可按单数据源查看 */}
+          <select
+            value={dsFilter}
+            onChange={(e) => setDsFilter(e.target.value)}
+            title="按数据源筛选指标（默认全部数据源汇总）"
+            className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[200px]"
+          >
+            <option value="">全部数据源</option>
+            {dataSources.map((ds) => (
+              <option key={ds.id} value={ds.id}>{ds.name}</option>
+            ))}
+          </select>
           <div className="flex items-center space-x-1 bg-slate-950 border border-slate-700 rounded-xl p-0.5">
             {(['day', 'week'] as const).map((m) => (
               <button
@@ -312,7 +332,7 @@ export const OpsMetricsPanel: React.FC = () => {
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl p-4">
         <div className="flex items-center space-x-2 px-1 pb-3 text-xs font-bold text-slate-300">
           <Activity className="w-4 h-4 text-indigo-400" />
-          <span>质量趋势（{trendMode === 'day' ? '按天' : '按周'}，单位：%）</span>
+          <span>质量趋势（{trendMode === 'day' ? '按天' : '按周 · 四率'}，单位：%）</span>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -326,10 +346,21 @@ export const OpsMetricsPanel: React.FC = () => {
                 formatter={(value: any) => (value === null || value === undefined ? '—' : `${value}%`)}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="成功应答率" stroke="#34d399" strokeWidth={2} dot={false} connectNulls />
-              <Line type="monotone" dataKey="缓存命中率" stroke="#38bdf8" strokeWidth={2} dot={false} connectNulls />
-              <Line type="monotone" dataKey="澄清率" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls />
-              <Line type="monotone" dataKey="拒答率" stroke="#fb7185" strokeWidth={2} dot={false} connectNulls />
+              {trendMode === 'week' ? (
+                <>
+                  <Line type="monotone" dataKey="点踩率" stroke="#fb7185" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="自省触发率" stroke="#818cf8" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="拒答率" stroke="#f472b6" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="澄清率" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls />
+                </>
+              ) : (
+                <>
+                  <Line type="monotone" dataKey="成功应答率" stroke="#34d399" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="缓存命中率" stroke="#38bdf8" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="澄清率" stroke="#fbbf24" strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="拒答率" stroke="#fb7185" strokeWidth={2} dot={false} connectNulls />
+                </>
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>

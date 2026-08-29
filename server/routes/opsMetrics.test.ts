@@ -97,6 +97,7 @@ describe('toWeeklyTrend', () => {
     // 上一周：success+cache=2/2=1
     expect(weekly[0].successRate).toBeCloseTo(1);
     expect(weekly[0].upRate).toBeCloseTo(0.5);
+    expect(weekly[0].downRate).toBeCloseTo(0.5); // P3-1：点踩率 = DOWN/(UP+DOWN)
     expect(weekly[0].selfCorrectRate).toBeCloseTo(0.5);
     // 本周：success+cache=6/10=0.6，clarify=2/10=0.2，refuse=2/10=0.2
     expect(weekly[1].total).toBe(10);
@@ -104,6 +105,7 @@ describe('toWeeklyTrend', () => {
     expect(weekly[1].clarifyRate).toBeCloseTo(0.2);
     expect(weekly[1].refuseRate).toBeCloseTo(0.2);
     expect(weekly[1].upRate).toBeCloseTo(0.75);
+    expect(weekly[1].downRate).toBeCloseTo(0.25); // P3-1
     expect(weekly[1].selfCorrectRate).toBeCloseTo(1 / 8);
   });
 
@@ -113,5 +115,6 @@ describe('toWeeklyTrend', () => {
     ]);
     expect(weekly[0].successRate).toBeNull();
     expect(weekly[0].upRate).toBeNull();
+    expect(weekly[0].downRate).toBeNull(); // P3-1
   });
 });
