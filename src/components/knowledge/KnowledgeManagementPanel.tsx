@@ -1,50 +1,59 @@
 /**
  * P3-1 知识库管理面板（导入/导出功能）
+ * 操作 knowledge_base 表中的真实知识文档：导出为 JSON 备份 / 从备份恢复（切块入库）。
  */
 
 import React, { useState } from 'react';
 import { Download, Upload, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import apiFetch from '../../utils/apiFetch';
 
-export const KnowledgeManagementPanel: React.FC = () => {
+interface Props {
+  /** 目标数据源 ID（问数页当前选中的数据源） */
+  dataSourceId?: string;
+}
+
+export const KnowledgeManagementPanel: React.FC<Props> = ({ dataSourceId }) => {
   const [isLoading, setIsLoading] = useState(false);
+  const [mergeStrategy, setMergeStrategy] = useState<'skip' | 'overwrite' | 'append'>('skip');
+  const [dryRun, setDryRun] = useState(false);
   const [importStatus, setImportStatus] = useState<{
     type: 'success' | 'error' | 'warning' | null;
     message: string;
     details?: any;
   } | null>(null);
 
-  // 导出功能
+  // 导出功能：下载当前数据源全部知识文档的 JSON 备份
   const handleExport = async () => {
+    if (!dataSourceId) {
+      setImportStatus({ type: 'error', message: '未选择数据源，无法导出' });
+      return;
+    }
     try {
       setIsLoading(true);
-      
-      const response = await fetch('/api/knowledge/export', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      
+      setImportStatus(null);
+
+      const response = await apiFetch(`/api/knowledge/export?dataSourceId=${encodeURIComponent(dataSourceId)}`);
+
       if (!response.ok) {
-        throw new Error('导出失败');
+        const d = await response.json().catch(() => ({}));
+        throw new Error((d as any).error || '导出失败');
       }
-      
+
       // 触发浏览器下载
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      
-      // 生成文件名：knowledge-base-数据资源库-日期.json
+
       const dateStr = new Date().toISOString().split('T')[0];
-      link.download = `knowledge-base-data-resource-${dateStr}.json`;
-      
+      link.download = `knowledge-docs-${dataSourceId}-${dateStr}.json`;
+
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       window.URL.revokeObjectURL(url);
-      
+
       setImportStatus({
         type: 'success',
         message: '知识库导出成功！文件已下载',
@@ -59,7 +68,7 @@ export const KnowledgeManagementPanel: React.FC = () => {
     }
   };
 
-  // 导入功能
+  // 导入功能：读取 JSON 备份文件，POST JSON body 到服务端切块入库
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -68,30 +77,38 @@ export const KnowledgeManagementPanel: React.FC = () => {
       setIsLoading(true);
       setImportStatus(null);
 
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('mergeStrategy', 'append'); // 默认追加模式
-      formData.append('dryRun', 'false');
+      const text = await file.text();
+      let fileData: any;
+      try {
+        fileData = JSON.parse(text);
+      } catch {
+        throw new Error('文件不是有效的 JSON，请选择知识库导出文件');
+      }
 
       const response = await apiFetch('/api/knowledge/import', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileData,
+          dataSourceId,
+          mergeStrategy,
+          dryRun,
+        }),
       });
 
       const result = await response.json();
 
-      if (result.success) {
-        setImportStatus({
-          type: 'success',
-          message: `导入完成！新增${result.importedCount}条，跳过${result.skippedCount}条`,
-          details: result.summary,
-        });
-      } else {
-        setImportStatus({
-          type: 'error',
-          message: result.error || '导入失败',
-        });
+      if (!response.ok) {
+        throw new Error(result.error || '导入失败');
       }
+
+      setImportStatus({
+        type: result.success ? 'success' : 'warning',
+        message: result.dryRun
+          ? `预检完成（未写入）：将新增 ${result.importedCount} 篇，覆盖更新 ${result.updatedCount} 篇，跳过 ${result.skippedCount} 篇`
+          : `导入完成！新增 ${result.importedCount} 篇，覆盖更新 ${result.updatedCount} 篇，跳过 ${result.skippedCount} 篇`,
+        details: result.summary,
+      });
     } catch (err: any) {
       setImportStatus({
         type: 'error',
@@ -134,10 +151,10 @@ export const KnowledgeManagementPanel: React.FC = () => {
               <p className="font-medium">{importStatus.message}</p>
               {importStatus.details && (
                 <ul className="mt-2 text-sm list-disc list-inside">
-                  <li>总条目数：{importStatus.details.totalItems}</li>
-                  <li>新入库：{importStatus.details.newItems}</li>
-                  <li>已更新：{importStatus.details.updatedItems}</li>
-                  <li>冲突跳过：{importStatus.details.conflictItems}</li>
+                  <li>文件知识文档数：{importStatus.details.totalDocs}</li>
+                  <li>其中新文档：{importStatus.details.newDocs}</li>
+                  <li>与现有知识同名冲突：{importStatus.details.conflictDocs}</li>
+                  {importStatus.details.invalidDocs > 0 && <li>无效条目（缺标题/内容）：{importStatus.details.invalidDocs}</li>}
                 </ul>
               )}
             </div>
@@ -149,15 +166,15 @@ export const KnowledgeManagementPanel: React.FC = () => {
       <div className="mb-6">
         <h4 className="text-lg font-medium mb-2">导出知识库</h4>
         <p className="text-gray-600 dark:text-gray-400 text-sm mb-3">
-          将当前知识库完整备份为 JSON 文件，包含所有知识条目的标题、内容、标签和分类信息
+          将当前数据源已登记的全部知识文档（含完整原文）备份为 JSON 文件
         </p>
         <button
           onClick={handleExport}
-          disabled={isLoading}
+          disabled={isLoading || !dataSourceId}
           className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="mr-2 h-4 w-4" />
-          {isLoading ? '导出中...' : '导出知识库'}
+          {isLoading ? '处理中...' : '导出知识库'}
         </button>
       </div>
 
@@ -165,23 +182,47 @@ export const KnowledgeManagementPanel: React.FC = () => {
       <div>
         <h4 className="text-lg font-medium mb-2">导入知识库</h4>
         <p className="text-gray-600 dark:text-gray-400 text-sm mb-3">
-          从 JSON 文件恢复知识库数据，支持三种冲突处理策略：追加/替换/跳过
+          从 JSON 备份文件恢复知识文档到当前数据源，导入后自动切块并生成检索向量
         </p>
-        
+
+        {/* 冲突策略与预检 */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+          <select
+            value={mergeStrategy}
+            onChange={(e) => setMergeStrategy(e.target.value as any)}
+            disabled={isLoading}
+            className="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-blue-500"
+          >
+            <option value="skip">跳过：保留现有知识，忽略同名条目</option>
+            <option value="overwrite">覆盖：用文件内容替换现有同名知识</option>
+            <option value="append">新增：同名也照常导入（产生重复条目）</option>
+          </select>
+          <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={dryRun}
+              onChange={(e) => setDryRun(e.target.checked)}
+              disabled={isLoading}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>仅预检（Dry Run）</span>
+          </label>
+        </div>
+
         <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center">
           <input
             type="file"
             accept=".json,application/json"
             onChange={handleFileSelect}
-            disabled={isLoading}
+            disabled={isLoading || !dataSourceId}
             className="hidden"
             id="kb-file-upload"
           />
-          
+
           <label
             htmlFor="kb-file-upload"
             className={`cursor-pointer flex flex-col items-center ${
-              isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'
+              isLoading || !dataSourceId ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'
             }`}
           >
             <Upload className="h-12 w-12 text-gray-400 mb-3" />
@@ -189,7 +230,7 @@ export const KnowledgeManagementPanel: React.FC = () => {
               点击或拖拽 JSON 文件到此处
             </span>
             <span className="text-xs text-gray-500 dark:text-gray-500">
-              支持格式：.json（最大 10MB）
+              支持格式：知识库导出 JSON（最大 10MB）
             </span>
           </label>
         </div>
@@ -198,11 +239,12 @@ export const KnowledgeManagementPanel: React.FC = () => {
         <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg text-sm">
           <h5 className="font-medium mb-2">导入说明：</h5>
           <ul className="list-disc list-inside space-y-1 text-gray-600 dark:text-gray-300">
-            <li>确保文件格式正确（包含 version、exportedAt、knowledgeBase 字段）</li>
-            <li>追加模式：自动添加新条目，跳过 ID 冲突的条目</li>
-            <li>替换模式：用导入数据覆盖相同 ID 的现有条目</li>
-            <li>跳过模式：遇到 ID 冲突时保留原条目不做修改</li>
-            <li>导入前建议先导出数据进行备份</li>
+            <li>冲突按「同名知识文档」判定（当前数据源范围内）</li>
+            <li>跳过模式：同名条目保留现有内容，不做修改</li>
+            <li>覆盖模式：删除现有同名知识，用文件内容重新切块入库</li>
+            <li>新增模式：同名也照常导入，列表中会出现重复标题</li>
+            <li>建议先勾选「仅预检」确认变更范围，再取消勾选执行真实导入</li>
+            <li>导入前建议先导出当前知识库进行备份</li>
           </ul>
         </div>
       </div>

@@ -1832,7 +1832,7 @@ export const QueryChat: React.FC = () => {
               </button>
             </div>
             <div className="p-6">
-              <KnowledgeManagementPanel />
+              <KnowledgeManagementPanel dataSourceId={activeDataSourceId} />
             </div>
             <div className="sticky bottom-0 bg-gray-50 dark:bg-gray-900 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
               <button

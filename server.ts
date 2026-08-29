@@ -87,8 +87,14 @@ async function startServer() {
   cleanupExpiredIntermediateTables().catch((err) => console.warn('[Chain] 启动清理失败:', err?.message || err));
 
   const jsonParser2mb = express.json({ limit: '2mb' });
-  // M4 报告导出 body 含图表 base64 PNG，单独放宽（该路由自带 20mb 解析器），其余接口维持 2mb
-  app.use((req, res, next) => (req.path === '/api/report/export' ? next() : jsonParser2mb(req, res, next)));
+  const jsonParser10mb = express.json({ limit: '10mb' });
+  // M4 报告导出 body 含图表 base64 PNG，单独放宽（该路由自带 20mb 解析器），其余接口维持 2mb；
+  // 知识库导入 body 为整份 JSON 备份文件（含全部知识文档原文），单独放宽至 10mb
+  app.use((req, res, next) => {
+    if (req.path === '/api/report/export') return next();
+    if (req.path === '/api/knowledge/import') return jsonParser10mb(req, res, next);
+    return jsonParser2mb(req, res, next);
+  });
 
   // P0 安全响应头（等价 helmet 核心项，零依赖）；CSP 仅生产启用
   app.use((_req, res, next) => {
