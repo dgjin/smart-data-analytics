@@ -1,0 +1,24 @@
+#!/bin/sh
+# 企业级门禁（改进计划 Phase 1-1）：推送前本地强制质量检查，红灯代码不允许进入远程。
+# 快速档：tsc 三档 + OpenAPI 同步 + vitest 单测（不含 E2E，E2E 由 CI 承担）。
+# 紧急跳过仅限：git push --no-verify（CI 仍会拦截，务必慎用）。
+set -e
+
+echo "[pre-push] 质量门禁检查开始..."
+
+echo "[pre-push] 1/5 tsc 主 tsconfig"
+npm run lint --silent
+
+echo "[pre-push] 2/5 tsc server strict"
+npm run lint:server --silent
+
+echo "[pre-push] 3/5 tsc 前端 strictNullChecks"
+npm run lint:strict --silent
+
+echo "[pre-push] 4/5 OpenAPI 同步校验"
+npm run docs:check --silent
+
+echo "[pre-push] 5/5 vitest 全量单测"
+npm test --silent
+
+echo "[pre-push] 质量门禁全部通过，允许推送"

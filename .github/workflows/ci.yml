@@ -30,6 +30,8 @@ jobs:
         run: npm run lint:strict
       - name: ESLint
         run: npm run lint:js
+      - name: OpenAPI 同步校验（代码路由与 docs/openapi.json 一致性）
+        run: npm run docs:check
       - name: Vitest 单测全量
         run: npm test
 

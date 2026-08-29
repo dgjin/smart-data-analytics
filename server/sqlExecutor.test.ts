@@ -149,6 +149,38 @@ describe('validateSelectSql: 表名白名单', () => {
   });
 });
 
+describe('validateSelectSql: PG 方言双引号标识符（v0.9.1 回归）', () => {
+  const PG_ALLOWED = [{ name: 'sales_performance', columns: [{ name: 'date' }, { name: 'revenue' }] }];
+
+  it('PG：双引号表名/列名的合法查询放行（双引号是标识符而非字符串）', () => {
+    const r = validateSelectSql(
+      'SELECT "date", SUM("revenue") AS "sum_revenue" FROM "sales_performance" GROUP BY "date" ORDER BY "sum_revenue" DESC LIMIT 100',
+      PG_ALLOWED,
+      [],
+      'pg',
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('PG：stripCommentsAndStrings 保留双引号标识符、仍剥单引号字符串', () => {
+    const out = stripCommentsAndStrings('SELECT "c" FROM "t" WHERE "c" = \'delete\'', 'pg');
+    expect(out).toContain('"t"');
+    expect(out).toContain("''");
+  });
+
+  it('PG：双引号包裹的范围外表仍被拒绝', () => {
+    const r = validateSelectSql('SELECT * FROM "other_table"', PG_ALLOWED, [], 'pg');
+    expect(r.ok).toBe(false);
+  });
+
+  it('MySQL：双引号仍按字符串字面量剥除（非 ANSI_QUOTES 默认模式不变）', () => {
+    const out = stripCommentsAndStrings('SELECT a FROM tbl_orders WHERE a = "x"', 'mysql');
+    expect(out).not.toContain('"x"');
+    const r = validateSelectSql('SELECT channel FROM tbl_orders WHERE channel = "delete"', ALLOWED);
+    expect(r.ok).toBe(true);
+  });
+});
+
 describe('repairTablePrefixes: LLM 臆加表前缀纠偏', () => {
   const WIDE = [{ name: 'fct_jc_main_biz_stat', columns: [{ name: 'JGMC' }] }];
 

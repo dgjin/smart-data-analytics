@@ -68,14 +68,19 @@ export const FORBIDDEN_KEYWORD_RE = FORBIDDEN_PATTERN;
 // 所有使用处必须用 x.ok !== true / x.ok === false 的显式比较（同 queryGuard 的先例）。
 export type SqlSafetyResult = { ok: true; sql: string; astFallback?: boolean } | { ok: false; reason: string };
 
-/** 剥离单行/块注释与字符串字面量，避免注释或字符串中的关键字干扰结构校验 */
-export function stripCommentsAndStrings(sql: string): string {
-  return sql
+/**
+ * 剥离单行/块注释与字符串字面量，避免注释或字符串中的关键字干扰结构校验。
+ * dialect='pg' 时保留双引号段：PostgreSQL/Greenplum 双引号是标识符（表名/列名），
+ * 若当字符串字面量剥掉，表引用提取会丢失 FROM 目标，导致合法 PG SQL 被误拦（v0.9.1 修复）。
+ */
+export function stripCommentsAndStrings(sql: string, dialect: SqlDialect = 'mysql'): string {
+  const out = sql
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/--[^\n]*/g, ' ')
     .replace(/#[^\n]*/g, ' ')
-    .replace(/'(?:[^'\\]|\\.|'')*'/g, "''")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+    .replace(/'(?:[^'\\]|\\.|'')*'/g, "''");
+  // MySQL 默认模式下双引号等同字符串字面量（非 ANSI_QUOTES），剥掉防关键字干扰
+  return dialect === 'pg' ? out : out.replace(/"(?:[^"\\]|\\.)*"/g, '""');
 }
 
 function cleanIdent(raw: string): string {
@@ -178,7 +183,7 @@ export function validateSelectSql(
     return { ok: false, reason: 'SQL 为空或格式无效' };
   }
   const rawSql = repairTablePrefixes(rawSqlInput, allowedTables);
-  const stripped = stripCommentsAndStrings(rawSql).trim().replace(/\s+/g, ' ');
+  const stripped = stripCommentsAndStrings(rawSql, dialect).trim().replace(/\s+/g, ' ');
   // 结构安全校验基于 stripped（字符串已置空，防字面量内关键字干扰）；
   // 但最终 SQL 必须保留字符串字面量值（如 WHERE region = '合肥市'），
   // 只剥注释（否则空白归一后行尾注释会吞掉追加的 LIMIT）
@@ -275,7 +280,7 @@ export function injectRowFilters(
   }
   if (Object.keys(lower).length === 0) return { ok: true, sql };
 
-  const stripped = stripCommentsAndStrings(sql);
+  const stripped = stripCommentsAndStrings(sql, dialect);
   const refs = extractTableRefs(stripped.replace(/;+\s*$/, ''));
   if (!refs.some((r) => lower[r])) return { ok: true, sql };
 

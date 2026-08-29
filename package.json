@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.9.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -17,7 +17,8 @@
     "docs:check": "node scripts/checkOpenapi.mjs",
     "eval": "tsx server/eval/runEval.ts",
     "loadtest": "tsx server/eval/loadTest.ts",
-    "init:data-resource": "tsx scripts/init-data-resource.ts"
+    "init:data-resource": "tsx scripts/init-data-resource.ts",
+    "prepare": "husky"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -55,6 +56,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.9.0",
+    "husky": "^9.1.7",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

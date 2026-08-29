@@ -519,6 +519,7 @@ export const FlexQueryBuilder: React.FC = () => {
         <div className="flex items-center space-x-2 shrink-0">
           <Database className="w-4 h-4 text-indigo-400" />
           <select
+            data-testid="flexquery-datasource-select"
             value={activeDataSourceId}
             onChange={(e) => setActiveDataSource(e.target.value)}
             className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500"
@@ -559,6 +560,7 @@ export const FlexQueryBuilder: React.FC = () => {
             {/* v0.4.13：选表与搜索并排，充分利用全宽 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <select
+                data-testid="flexquery-table-select"
                 value={selectedTable}
                 onChange={(e) => {
                   setSelectedTable(e.target.value);
