@@ -269,13 +269,13 @@ export async function runAnalysisChain(input: ChainInput): Promise<ChainOutcome>
   for (let i = 0; i < input.assessment.steps.length; i++) {
     const step = input.assessment.steps[i];
     const t0 = Date.now();
-    let exec = await executeSafeSql(input.dataSourceId, step.sql, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS);
+    let exec = await executeSafeSql(input.dataSourceId, step.sql, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS, {}, 'chain');
     let healed = false;
     if (exec.ok !== true) {
       // 纠错重试一次：模型偶发编造列名/表名，携带执行错误让模型自纠（v0.8.2 计划自愈同款模式）
       const repaired = await repairChainStepSql(step.purpose, step.sql, exec.reason, input.schema);
       if (repaired) {
-        const retryExec = await executeSafeSql(input.dataSourceId, repaired, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS);
+        const retryExec = await executeSafeSql(input.dataSourceId, repaired, input.schema, input.sensitiveRemoved, CHAIN_MAX_ROWS, {}, 'chain');
         if (retryExec.ok === true) {
           exec = retryExec;
           healed = true;

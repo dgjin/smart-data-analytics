@@ -5,7 +5,7 @@
  * 阶段二：全部真实 rows 摘要回喂 LLM 生成高管摘要、洞察、KPI 与各图解读。
  */
 import { callLLMJson } from './llmClient';
-import { executeSafeSql } from './sqlExecutor';
+import { executeSafeSql, QueryScenario } from './sqlExecutor';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
 import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from './liveQuery';
 import { getStateStore, isRedisEnabled } from './stateStore';
@@ -106,6 +106,8 @@ export interface LiveReportInput {
   approvedPlans?: { reportTitle: string; plans: ReportQueryPlan[] };
   /** v0.5.2 金额单位（亿元/百万元/万元/元）：与问数口径一致，注入阶段一 SQL 换算约定 */
   amountUnit?: string;
+  /** P2-4 查询场景：同步报表链路默认 chain；异步报告/导出任务由 taskHandlers 传 export（独立连接池配额与超时档位） */
+  scenario?: QueryScenario;
 }
 
 export type LiveReportOutcome =
@@ -346,7 +348,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   const chartDigests: string[] = [];
   let totalRows = 0;
   for (const plan of parsed.plans) {
-    const outcome = await executeSafeSql(dataSourceId, plan.sql, schema, sensitiveRemoved, 500, rowFilters || {});
+    const outcome = await executeSafeSql(dataSourceId, plan.sql, schema, sensitiveRemoved, 500, rowFilters || {}, input.scenario ?? 'chain');
     if (outcome.ok !== true) {
       console.warn(`[LiveReport] 查询失败已跳过: ${outcome.reason} | sql: ${plan.sql.slice(0, 200)}`);
       continue;

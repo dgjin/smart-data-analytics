@@ -162,7 +162,7 @@ export function extractTableNames(sql: string): string[] {
 /** 执行 golden SQL（经安全执行层，与问数链路同口径） */
 export async function executeGoldenSql(dataSourceId: string, sql: string): Promise<{ ok: true; rows: any[] } | { ok: false; reason: string }> {
   const tables = extractTableNames(sql).map((name) => ({ name }));
-  const res = await executeSafeSql(dataSourceId, sql, tables);
+  const res = await executeSafeSql(dataSourceId, sql, tables, [], undefined, {}, 'chain');
   if (res.ok === false) return { ok: false, reason: res.reason };
   return { ok: true, rows: res.result.rows };
 }

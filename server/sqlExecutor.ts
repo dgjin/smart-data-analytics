@@ -4,7 +4,9 @@
  * SELECT-only、表名白名单（scope+ 敏感过滤后的 Schema）、敏感列拒绝、
  * 单语句、强制 LIMIT、执行超时、结果行数截断。
  * P0-2: 新增可选自愈入口——校验失败时可调用 LLM 纠偏重试一次，统一审计出口。
- * 数据源连接按 dataSourceId 建池缓存；配置变更后由路由侧 invalidateExecutorPool 失效。
+ * 数据源连接按 dataSourceId+场景 分级建池缓存；配置变更后由路由侧 invalidateExecutorPool 失效。
+ * P2-4: 连接池分级 + 场景超时——交互问数/分析链/导出任务独立配额与超时档位，
+ * 大导出占满自身配额时交互问数不排队。
  */
 import mysql from 'mysql2/promise';
 import pg from 'pg';
@@ -34,7 +36,6 @@ function dialectPromptOf(dsType?: string): { label: string; rules: string } {
 }
 
 const MAX_ROWS = 100000; // v0.4.14：500→100000，满足真实记录数输出，保留兜底防 OOM
-const QUERY_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 
 /**
@@ -52,6 +53,66 @@ export function dsPoolMax(): number {
   }
   const users = Number(process.env.EXPECTED_CONCURRENT_USERS) || 20;
   return Math.min(20, Math.max(3, Math.ceil(users / 4)));
+}
+
+/**
+ * P2-4 查询场景分级：连接池配额与执行超时按场景独立配置。
+ * - interactive：交互问数/下钻/指标预览（用户在线等待，默认超时 15s）
+ * - chain：分析链/报表生成等多 SQL 链路（默认超时 120s，配额减半）
+ * - export：异步报告/导出类后台任务（默认超时 60s，配额最小，占满不挤占交互）
+ */
+export type QueryScenario = 'interactive' | 'chain' | 'export';
+
+function envPositiveInt(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+}
+
+/**
+ * 场景化连接池配额：DS_POOL_MAX=10 时恰为 交互10 / 分析链5 / 导出2（改进计划 2-4 基准）。
+ * 显式 env 优先：DS_POOL_INTERACTIVE / DS_POOL_CHAIN / DS_POOL_EXPORT（clamp 到 [1, 100]）。
+ */
+export function dsPoolScenarioMax(scenario: QueryScenario): number {
+  const base = dsPoolMax();
+  const explicit =
+    scenario === 'chain'
+      ? envPositiveInt('DS_POOL_CHAIN')
+      : scenario === 'export'
+        ? envPositiveInt('DS_POOL_EXPORT')
+        : envPositiveInt('DS_POOL_INTERACTIVE');
+  if (explicit !== null) return Math.min(100, explicit);
+  if (scenario === 'chain') return Math.max(2, Math.ceil(base / 2));
+  if (scenario === 'export') return Math.max(1, Math.floor(base / 5));
+  return base;
+}
+
+/**
+ * 场景化执行超时（毫秒）：交互 15s / 分析链 120s / 导出 60s。
+ * 显式 env 优先：QUERY_TIMEOUT_INTERACTIVE_MS / QUERY_TIMEOUT_CHAIN_MS / QUERY_TIMEOUT_EXPORT_MS。
+ */
+export function scenarioTimeoutMs(scenario: QueryScenario): number {
+  const explicit =
+    scenario === 'chain'
+      ? envPositiveInt('QUERY_TIMEOUT_CHAIN_MS')
+      : scenario === 'export'
+        ? envPositiveInt('QUERY_TIMEOUT_EXPORT_MS')
+        : envPositiveInt('QUERY_TIMEOUT_INTERACTIVE_MS');
+  if (explicit !== null) return explicit;
+  if (scenario === 'chain') return 120_000;
+  if (scenario === 'export') return 60_000;
+  return 15_000;
+}
+
+/**
+ * MySQL 服务端执行时限：在 SELECT 开头注入优化器提示 MAX_EXECUTION_TIME(n)（hint 注释形式，毫秒）。
+ * 仅作用于 SELECT（本层已保证 SELECT-only）；MySQL 5.7.8+ 生效，老版本将其当注释安全忽略。
+ * 注意必须在全部校验/行权限注入之后、执行之前追加（AST 解析器不认 hint 注释，提前注入会被 fail-closed 误拦）。
+ */
+export function injectMysqlMaxExecTime(sql: string, timeoutMs: number): string {
+  const ms = Math.max(1, Math.floor(timeoutMs));
+  return sql.replace(/^\s*select\b/i, `SELECT /*+ MAX_EXECUTION_TIME(${ms}) */`);
 }
 
 // 写/DDL/管理类关键字一律拒绝（对剥离注释与字符串后的 SQL 做整词匹配）。
@@ -357,16 +418,24 @@ export function injectRowFilters(
   }
 }
 
-// ---- 数据源连接池（按数据源 ID 缓存；mysql 走 mysql2，PG 系走 pg 驱动） ----
+// ---- 数据源连接池（P2-4：按 数据源ID+场景 分级缓存；mysql 走 mysql2，PG 系走 pg 驱动） ----
 type DsPoolEntry = { dialect: 'mysql'; pool: mysql.Pool } | { dialect: 'pg'; pool: pg.Pool };
 const dsPools = new Map<string, DsPoolEntry>();
 
-/** 数据源配置变更/删除后调用，使连接池失效 */
+function dsPoolKey(dataSourceId: string, scenario: QueryScenario): string {
+  return `${dataSourceId}::${scenario}`;
+}
+
+/** 数据源配置变更/删除后调用，使该数据源的全部场景连接池失效 */
 export function invalidateExecutorPool(dataSourceId?: string): void {
   if (dataSourceId) {
-    const entry = dsPools.get(dataSourceId);
-    dsPools.delete(dataSourceId);
-    entry?.pool.end().catch(() => undefined);
+    const prefix = `${dataSourceId}::`;
+    for (const [key, entry] of [...dsPools]) {
+      if (key === dataSourceId || key.startsWith(prefix)) {
+        dsPools.delete(key);
+        entry.pool.end().catch(() => undefined);
+      }
+    }
   } else {
     for (const [id, entry] of dsPools) {
       dsPools.delete(id);
@@ -404,11 +473,14 @@ export async function loadDataSourceConfig(dataSourceId: string): Promise<{ type
   return { type: String(ds.type || ''), config };
 }
 
-export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any): DsPoolEntry {
-  let entry = dsPools.get(dataSourceId);
+export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any, scenario: QueryScenario = 'interactive'): DsPoolEntry {
+  const key = dsPoolKey(dataSourceId, scenario);
+  let entry = dsPools.get(key);
   if (!entry) {
+    const poolMax = dsPoolScenarioMax(scenario);
+    const timeoutMs = scenarioTimeoutMs(scenario);
     if (dialect === 'pg') {
-      // PostgreSQL / Greenplum：同属 PG 协议。超时由服务端 statement_timeout 强制，
+      // PostgreSQL / Greenplum：同属 PG 协议。超时由服务端 statement_timeout 按场景池强制，
       // 连接级超时用 connectionTimeoutMillis；只读保障以 SELECT-only 校验 + 单语句为主防线。
       entry = {
         dialect: 'pg',
@@ -418,9 +490,9 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
           user: config?.username || 'postgres',
           password: config?.password || '',
           database: config?.database || undefined,
-          max: dsPoolMax(),
+          max: poolMax,
           connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-          statement_timeout: QUERY_TIMEOUT_MS,
+          statement_timeout: timeoutMs,
         }),
       };
     } else {
@@ -432,13 +504,13 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
           user: config?.username || 'root',
           password: config?.password || '',
           database: config?.database || undefined,
-          connectionLimit: dsPoolMax(),
+          connectionLimit: poolMax,
           connectTimeout: CONNECT_TIMEOUT_MS,
           multipleStatements: false,
         }),
       };
     }
-    dsPools.set(dataSourceId, entry);
+    dsPools.set(key, entry);
   }
   return entry;
 }
@@ -454,7 +526,8 @@ export async function executeSafeSql(
   allowedTables: { name: string; columns?: { name: string }[] }[],
   sensitiveColumns: string[] = [],
   maxRows: number = MAX_ROWS,
-  rowFilters: Record<string, string> = {}
+  rowFilters: Record<string, string> = {},
+  scenario: QueryScenario = 'interactive'
 ): Promise<ExecOutcome> {
   const ds = await loadDataSourceConfig(dataSourceId);
   if (!ds) return { ok: false, reason: '数据源不存在' };
@@ -472,14 +545,18 @@ export async function executeSafeSql(
   const finalSql = injected.sql;
 
   try {
-    const entry = getDsPool(dataSourceId, dialect, ds.config);
+    const entry = getDsPool(dataSourceId, dialect, ds.config, scenario);
+    const timeoutMs = scenarioTimeoutMs(scenario);
     let list: Record<string, any>[];
     if (entry.dialect === 'pg') {
-      // pg 驱动：超时由建池时的 statement_timeout 承担，结果在 result.rows
+      // pg 驱动：超时由建池时的场景化 statement_timeout 承担，结果在 result.rows
       const result = await entry.pool.query(finalSql);
       list = Array.isArray(result.rows) ? result.rows : [];
     } else {
-      const [rows] = await entry.pool.query({ sql: finalSql, timeout: QUERY_TIMEOUT_MS });
+      // MySQL：驱动 query timeout + 服务端 MAX_EXECUTION_TIME hint 双保险（hint 仅注入执行串，
+      // 不改变返回给调用方的 finalSql，审计/展示口径保持业务 SQL 原貌）
+      const execSql = injectMysqlMaxExecTime(finalSql, timeoutMs);
+      const [rows] = await entry.pool.query({ sql: execSql, timeout: timeoutMs });
       list = (Array.isArray(rows) ? rows : []) as Record<string, any>[];
     }
     return {

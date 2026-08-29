@@ -108,6 +108,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
         sensitiveRemoved: ctx.sensitiveRemoved,
         rowFilters: ctx.rowFilters,
         amountUnit,
+        scenario: 'chain',
         ...(approvedPlans ? { approvedPlans } : {}),
       });
       if (live.ok === true) {
@@ -321,6 +322,7 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
       sensitiveRemoved: ctx.sensitiveRemoved,
       rowFilters: ctx.rowFilters,
       amountUnit,
+      scenario: 'chain',
     });
 
     if (live.ok === true) {

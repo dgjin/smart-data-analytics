@@ -93,7 +93,7 @@ async function main(): Promise<void> {
 
   // 预热：建池 + 首轮连接
   for (let i = 0; i < poolMax; i++) {
-    await executeSafeSql(dataSourceId!, probeSql, schema, []);
+    await executeSafeSql(dataSourceId!, probeSql, schema, [], undefined, {}, 'chain');
   }
 
   const stats: LevelStat[] = [];
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
       Array.from({ length: c }, async () => {
         for (let r = 0; r < rounds; r++) {
           const t0 = Date.now();
-          const out = await executeSafeSql(dataSourceId!, probeSql, schema, []);
+          const out = await executeSafeSql(dataSourceId!, probeSql, schema, [], undefined, {}, 'chain');
           latencies.push(Date.now() - t0);
           if (out.ok !== true) errors.push(out.reason);
         }

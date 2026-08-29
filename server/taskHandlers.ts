@@ -72,6 +72,7 @@ async function runReportGenerate(payload: any, reportProgress: (t: string) => Pr
       sensitiveRemoved: ctx.sensitiveRemoved,
       rowFilters: ctx.rowFilters,
       amountUnit,
+      scenario: 'export',
       ...(approvedPlans ? { approvedPlans } : {}),
     });
     if (live.ok === true) {
@@ -140,6 +141,7 @@ async function runReportFromQuery(payload: any, reportProgress: (t: string) => P
     sensitiveRemoved: ctx.sensitiveRemoved,
     rowFilters: ctx.rowFilters,
     amountUnit,
+    scenario: 'export',
   });
 
   if (live.ok === true) {
