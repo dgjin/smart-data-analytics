@@ -23,6 +23,7 @@ import { SavedReport } from '../../types/analytics';
 import { generateSchemaSuggestions } from '../../utils/querySuggestions';
 
 import { scanReportForAnomalies } from '../../utils/anomalyDetector';
+import { pollTask } from '../../utils/asyncTask';
 import { useDataVersion } from '../../hooks/useDataVersion';
 
 // v0.5.2 金额单位：读取问数页选定的口径（localStorage 共享键），报告生成沿用同一单位
@@ -94,7 +95,8 @@ export const ReportGenerator: React.FC = () => {
     setAutoRegenerating(true);
     setAutoRegenMsg(null);
     try {
-      const response = await apiFetch('/api/report/generate', {
+      // v0.9.2 异步化：提交即返回 taskId，后台 worker 执行后轮询取结果
+      const response = await apiFetch('/api/report/generate/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -104,7 +106,13 @@ export const ReportGenerator: React.FC = () => {
           amountUnit: readAmountUnit(), // v0.5.2 金额单位与问数选定口径一致
         }),
       });
-      const data = await response.json();
+      const submitted = await response.json().catch(() => null);
+      if (!response.ok || !submitted?.taskId) {
+        setAutoRegenMsg('检测到数据变化，但报表自动重生成提交失败（可点击生成手动重试）');
+        return;
+      }
+      const task = await pollTask(submitted.taskId);
+      const data = task.result || {};
       if (data.success && data.report) {
         const fresh: SavedReport = {
           ...original,
@@ -172,7 +180,9 @@ export const ReportGenerator: React.FC = () => {
     setGenerateError(null);
 
     try {
-      const response = await apiFetch('/api/report/generate', {
+      // v0.9.2 异步化（改进计划 2-1）：提交即返回 taskId，worker 独立并发执行，前端轮询进度；
+      // 生成期间不占用户交互并发槽
+      const response = await apiFetch('/api/report/generate/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -184,7 +194,22 @@ export const ReportGenerator: React.FC = () => {
         }),
       });
 
-      const data = await response.json();
+      const submitted = await response.json().catch(() => null);
+      if (!response.ok || !submitted?.taskId) {
+        // 透出服务端防御层拒绝原因（注入/频率超限/在途任务过多等）
+        setGenerateError(submitted?.error || '报表任务提交失败，请稍后重试');
+        return;
+      }
+
+      let data: any;
+      try {
+        const task = await pollTask(submitted.taskId);
+        data = task.result || {};
+      } catch (taskErr: any) {
+        // 计划失效（409 等价场景在 worker 内发生）：清空待批准计划，允许重新制定
+        if (reportPlanId) setPendingPlan(null);
+        throw taskErr;
+      }
 
       if (data.success && data.report) {
         const rawReport: SavedReport = {
@@ -209,9 +234,9 @@ export const ReportGenerator: React.FC = () => {
         setActiveReportIndex(0);
         setPendingPlan(null);
       } else {
-        // 透出服务端防御层拒绝原因（注入/频率超限/数据源停用/计划失效 409 等）
+        // 透出任务结果中的失败原因
         setGenerateError(data.error || '报表生成失败，请稍后重试');
-        if (response.status === 409) setPendingPlan(null);
+        if (reportPlanId) setPendingPlan(null);
       }
     } catch (err: any) {
       console.error('Report Generation Failed:', err);

@@ -21,6 +21,7 @@ import { normalizeExportData, buildReportPptx, buildExportFilename } from '../re
 import { runPdfGenerator } from '../pdfExport';
 import { normalizeReport } from '../../src/utils/queryResultNormalizer';
 import { getPool } from '../db';
+import { submitTask } from '../taskQueue';
 
 const router = Router();
 
@@ -363,6 +364,147 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
   } finally {
     await releaseQuerySlot(user.id, reportSlotToken);
   }
+});
+
+// 4-async. v0.9.2 报告生成异步化（改进计划 2-1）：提交即返回 taskId，worker 独立并发执行。
+// 与同步端点差异：不占用户交互并发槽（生成期间可继续问数）；校验（权限/注入/单位/限流）在提交时完成。
+router.post('/generate/async', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const { templateType, customPrompt, dataSourceId } = req.body || {};
+  const auditBase = {
+    userId: user.id,
+    username: user.username,
+    endpoint: 'report' as const,
+    dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+  };
+
+  const safeTemplate = String(templateType || '综合经营分析').slice(0, 200);
+  const safeCustom = String(customPrompt || '生成包含核心KPI、多维趋势图表与战略建议的决策简报').slice(0, 1000);
+  const amountUnit = normalizeAmountUnit(req.body.amountUnit);
+  if (req.body.amountUnit != null && req.body.amountUnit !== '' && !amountUnit) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
+  }
+  if (containsInjection(safeTemplate) || containsInjection(safeCustom)) {
+    writeAudit({ ...auditBase, question: `async-report:${safeTemplate}`, status: 'DENIED_INPUT', detail: '报告参数包含注入特征', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告参数包含不允许的指令内容' });
+  }
+  const limit = await checkUserQueryLimit(user.id);
+  if (!limit.ok) {
+    writeAudit({ ...auditBase, question: `async-report:${safeTemplate}`, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
+  }
+
+  let submitted: { taskId: string } | null = null;
+  try {
+    submitted = await submitTask('report_generate', {
+      templateType: safeTemplate,
+      customPrompt: safeCustom,
+      dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+      amountUnit: amountUnit ?? undefined,
+      reportPlanId: typeof req.body.reportPlanId === 'string' ? req.body.reportPlanId : undefined,
+      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+    }, { id: user.id, username: user.username });
+  } catch (err: any) {
+    console.error('[Report] async submit failed:', err?.message || err);
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
+  }
+  if (!submitted) {
+    writeAudit({ ...auditBase, question: `async-report:${safeTemplate}`, status: 'DENIED_RATE', detail: '在途任务过多', durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: '您有多个报告任务正在排队或执行中，请等待完成后再提交' });
+  }
+  writeAudit({ ...auditBase, question: `async-report:${safeTemplate}`, status: 'QUEUED', detail: `taskId=${submitted.taskId}`, durationMs: Date.now() - startedAt });
+  return res.status(202).json({ success: true, taskId: submitted.taskId, status: 'PENDING', statusUrl: `/api/tasks/${submitted.taskId}` });
+});
+
+// 4a-async. v0.9.2 问数报告异步化：从对话生成报告提交即返回 taskId，完成后报告仍写入 query_reports（报告中心可见）
+router.post('/generate-from-query/async', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const { question, dataSourceId, templateId } = req.body || {};
+  const auditBase = {
+    userId: user.id,
+    username: user.username,
+    endpoint: 'report' as const,
+    dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+  };
+
+  if (!question || typeof question !== 'string' || question.trim().length === 0) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '提问内容不能为空' });
+  }
+  if (!dataSourceId || typeof dataSourceId !== 'string') {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '缺少数据源 ID' });
+  }
+  const safeQuestion = question.trim().slice(0, 500);
+  const auditQuestion = `async-query-report:${safeQuestion.slice(0, 100)}`;
+  const amountUnit = normalizeAmountUnit(req.body.amountUnit);
+  if (req.body.amountUnit != null && req.body.amountUnit !== '' && !amountUnit) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
+  }
+  if (containsInjection(safeQuestion)) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: '提问内容包含注入特征', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '提问内容包含不允许的指令' });
+  }
+  const limit = await checkUserQueryLimit(user.id);
+  if (!limit.ok) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
+  }
+
+  let submitted: { taskId: string } | null = null;
+  try {
+    submitted = await submitTask('report_generate_from_query', {
+      question: safeQuestion,
+      dataSourceId,
+      templateId: typeof templateId === 'number' ? templateId : undefined,
+      amountUnit: amountUnit ?? undefined,
+      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+    }, { id: user.id, username: user.username });
+  } catch (err: any) {
+    console.error('[Report] async submit failed:', err?.message || err);
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
+  }
+  if (!submitted) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_RATE', detail: '在途任务过多', durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: '您有多个报告任务正在排队或执行中，请等待完成后再提交' });
+  }
+  writeAudit({ ...auditBase, question: auditQuestion, status: 'QUEUED', detail: `taskId=${submitted.taskId}`, durationMs: Date.now() - startedAt });
+  return res.status(202).json({ success: true, taskId: submitted.taskId, status: 'PENDING', statusUrl: `/api/tasks/${submitted.taskId}` });
+});
+
+// 4c-async. v0.9.2 PDF 导出异步化：提交即返回 taskId，完成后经 /api/tasks/:id/download 下载
+router.post('/export-pdf/async', express.json({ limit: '20mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
+
+  const data = normalizeExportData(req.body?.report ?? req.body);
+  if (!data) {
+    writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告导出参数无效' });
+  }
+  const orientation = req.body?.orientation === 'landscape' ? 'landscape' : 'portrait';
+  // DLP 水印在提交时冻结（worker 执行时不再依赖会话）
+  const watermark = `导出人: ${user.username}${user.department ? `（${user.department}）` : ''} · ${new Date().toLocaleString('zh-CN', { hour12: false })} · 严禁外传`;
+
+  let submitted: { taskId: string } | null = null;
+  try {
+    submitted = await submitTask('report_export_pdf', {
+      report: data,
+      orientation,
+      watermark,
+      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+    }, { id: user.id, username: user.username });
+  } catch (err: any) {
+    console.error('[Report] async pdf submit failed:', err?.message || err);
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
+  }
+  if (!submitted) {
+    writeAudit({ ...auditBase, question: `async-export-pdf:${data.title}`, status: 'DENIED_RATE', detail: '在途任务过多', durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: '您有多个导出任务正在排队或执行中，请等待完成后再提交' });
+  }
+  writeAudit({ ...auditBase, question: `async-export-pdf:${data.title}`, status: 'QUEUED', detail: `taskId=${submitted.taskId}`, durationMs: Date.now() - startedAt });
+  return res.status(202).json({ success: true, taskId: submitted.taskId, status: 'PENDING', statusUrl: `/api/tasks/${submitted.taskId}` });
 });
 
 // 4b. M4 报告导出：服务端用 pptxgenjs 组装 PPTX（封面/摘要/KPI/每图一页/结论），图表由前端转 base64 PNG 提交

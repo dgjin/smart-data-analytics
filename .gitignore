@@ -13,3 +13,6 @@ playwright-report/
 # 评测报告运行产物（本地/nightly 生成，不入库）
 server/eval/eval-report-*.json
 server/eval/load-report-*.json
+
+# 异步任务结果文件（v0.9.2，运行时生成）
+data/task-results/

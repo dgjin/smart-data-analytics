@@ -40,6 +40,10 @@ import reportTemplateRoutes from './server/routes/reportTemplates';
 import queryReportRoutes from './server/routes/queryReports';
 // P0-4 在线准确率度量看板（北极星指标聚合，仅 ADMIN）
 import opsMetricsRoutes from './server/routes/opsMetrics';
+// v0.9.2 异步任务队列（改进计划 2-1）
+import taskRoutes from './server/routes/tasks';
+import { startTaskWorker } from './server/taskQueue';
+import { registerBuiltinTaskHandlers } from './server/taskHandlers';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -88,12 +92,16 @@ async function startServer() {
   startChainCleanupScheduler();
   cleanupExpiredIntermediateTables().catch((err) => console.warn('[Chain] 启动清理失败:', err?.message || err));
 
+  // v0.9.2 长任务队列（改进计划 2-1）：注册处理器 + 启动内置 worker（含孤儿任务恢复）
+  registerBuiltinTaskHandlers();
+  startTaskWorker();
+
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });
-  // M4 报告导出 body 含图表 base64 PNG，单独放宽（该路由自带 20mb 解析器），其余接口维持 2mb；
+  // M4 报告导出与 v0.9.2 异步 PDF 导出 body 含图表 base64 PNG，单独放宽（路由自带 20mb 解析器），其余接口维持 2mb；
   // 知识库导入 body 为整份 JSON 备份文件（含全部知识文档原文），单独放宽至 10mb
   app.use((req, res, next) => {
-    if (req.path === '/api/report/export') return next();
+    if (req.path.startsWith('/api/report/export')) return next();
     if (req.path === '/api/knowledge/import') return jsonParser10mb(req, res, next);
     return jsonParser2mb(req, res, next);
   });
@@ -192,6 +200,8 @@ async function startServer() {
   app.use('/api/access-requests', accessRequestRoutes);
   // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）
   app.use('/api/export', exportRoutes);
+  // v0.9.2 异步任务查询/下载（见 server/routes/tasks.ts）
+  app.use('/api/tasks', taskRoutes);
 
   // API 兜底 404：所有未匹配的 /api/* 请求（任意方法）统一返回 JSON，
   // 避免 Express 默认 404 HTML 页面导致前端 res.json() 抛出 "Unexpected token '<', <!DOCTYPE..."

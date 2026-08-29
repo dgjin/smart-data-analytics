@@ -12,6 +12,8 @@ export type AuditStatus =
   | 'ERROR'
   | 'CLARIFY'
   | 'REFUSED'
+  // v0.9.2 长任务队列（改进计划 2-1）：异步任务入队留痕，终态由 worker 侧另行落账
+  | 'QUEUED'
   | 'DENIED_INPUT'
   | 'DENIED_AUTH'
   | 'DENIED_RATE'

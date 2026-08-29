@@ -7,6 +7,7 @@ import { INITIAL_DATA_SOURCES } from './seedData';
 import { hashPassword, verifyPassword } from './passwords';
 import { encryptSecret, isEncrypted } from './secretsCrypto';
 import { BUILTIN_SKILLS } from './skills';
+import { ensureTaskTable } from './taskQueue';
 
 // 注意：ESM import 提升会使模块级 process.env 读取早于 dotenv.config()，
 // 因此所有环境变量必须在使用时惰性读取。
@@ -605,6 +606,9 @@ export async function initSchema(): Promise<void> {
       INDEX idx_ekb_ds (data_source_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // v0.9.2 长任务队列表（改进计划 2-1）：报告生成/问数报告/PDF 导出异步执行
+  await ensureTaskTable(pool);
 
   // 4. Seed default admin when users table is empty（首登强制改密）
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');

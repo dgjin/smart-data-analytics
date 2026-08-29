@@ -53,6 +53,7 @@ import { useConversationHistory } from '../../hooks/useConversationHistory';
 import { ReportTemplate } from '../../types/analytics';
 import { useSpeechInput } from '../../hooks/useSpeechInput';
 import { readSseStream } from '../../utils/sseStream';
+import { pollTask } from '../../utils/asyncTask';
 import { ChartConfig, ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
 import { KnowledgeManagementPanel } from '../knowledge/KnowledgeManagementPanel';
 
@@ -496,12 +497,14 @@ export const QueryChat: React.FC = () => {
     }
 
     // v0.5.0 报告模式：提问直接生成完整报告（模板或智能推断），不落普通查询链路
+    // v0.9.2 异步化（改进计划 2-1）：提交即返回 taskId，worker 后台执行，前端轮询任务状态；
+    // 生成期间不再占用用户交互并发槽，可继续问数
     if (reportMode && !approvedPlanId) {
       addChatMessage(userMsg);
       setCurrentQuery('');
       setQueryLoading(true);
       try {
-        const reportResp = await apiFetch('/api/report/generate-from-query', {
+        const submitResp = await apiFetch('/api/report/generate-from-query/async', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -511,9 +514,14 @@ export const QueryChat: React.FC = () => {
             ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}),
           }),
         });
-        const reportData = await reportResp.json().catch(() => null);
-        if (!reportResp.ok || !reportData?.success || !reportData.report) {
-          throw new Error(reportData?.error || '报告生成失败');
+        const submitted = await submitResp.json().catch(() => null);
+        if (!submitResp.ok || !submitted?.taskId) {
+          throw new Error(submitted?.error || '报告任务提交失败');
+        }
+        const task = await pollTask(submitted.taskId);
+        const reportData = task.result;
+        if (!reportData?.success || !reportData.report) {
+          throw new Error('报告生成失败');
         }
         const r = reportData.report;
         // 演示降级数据不入库不可跳转，如实提示

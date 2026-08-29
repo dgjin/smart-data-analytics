@@ -159,12 +159,31 @@ add('/api/report-templates/{id}', 'delete',
     op('Reports', 'deleteReportTemplate', '删除报告模板（仅 ADMIN；预置模板不可删）', ['Forbidden', 'NotFound']),
     [param('id', '模板 ID')])
 
+# ---- Tasks（v0.9.2 长任务队列，改进计划 2-1） ----
+add('/api/report/generate/async', 'post',
+    op('Reports', 'generateReportAsync', '高管报告生成（异步）：提交即返回 taskId，worker 后台执行，前端轮询 /api/tasks/{id}', ['BadRequest', 'RateLimited'],
+       body={'type': 'object', 'properties': {'templateType': {'type': 'string'}, 'customPrompt': {'type': 'string'}, 'dataSourceId': {'type': 'string'}, 'reportPlanId': {'type': 'string'}}}))
+add('/api/report/generate-from-query/async', 'post',
+    op('Reports', 'generateReportFromQueryAsync', '从问数结果生成报告（异步）：提交即返回 taskId，完成后报告写入报告中心', ['BadRequest', 'RateLimited'],
+       body={'type': 'object', 'required': ['dataSourceId', 'question'], 'properties': {'dataSourceId': {'type': 'string'}, 'question': {'type': 'string'}, 'templateId': {'type': 'integer'}}}))
+add('/api/report/export-pdf/async', 'post',
+    op('Export', 'exportReportPdfAsync', '报告 PDF 导出（异步）：提交即返回 taskId，完成后经 /api/tasks/{id}/download 下载', ['BadRequest', 'RateLimited'],
+       body={'type': 'object', 'required': ['title'], 'properties': {'title': {'type': 'string'}, 'orientation': {'type': 'string', 'enum': ['portrait', 'landscape']}}}))
+add('/api/tasks/mine', 'get', op('Tasks', 'listMyTasks', '我的异步任务列表（状态/进度/结果摘要，按创建时间倒序）'))
+add('/api/tasks/{id}', 'get',
+    op('Tasks', 'getTask', '异步任务状态查询（JSON 类任务 SUCCESS 时内联返回 result；仅本人或 ADMIN）', ['Forbidden', 'NotFound']),
+    [param('id', '任务 ID')])
+add('/api/tasks/{id}/download', 'get',
+    op('Tasks', 'downloadTaskResult', '文件类任务（PDF）结果下载（仅本人或 ADMIN；任务未完成 409）', ['BadRequest', 'Forbidden', 'NotFound']),
+    [param('id', '任务 ID')])
+
 # 补充新 tag 定义
 existing_tags = {t['name'] for t in doc.get('tags', [])}
 new_tags = {
     'AccessRequests': '数据源访问申请审批流',
     'Export': '统一导出通道（DLP 脱敏/水印/审批）',
     'ExternalKnowledge': '外部知识库接入管理（仅 ADMIN）',
+    'Tasks': 'v0.9.2 异步长任务队列（报告生成/导出）',
 }
 for name, desc in new_tags.items():
     if name not in existing_tags:

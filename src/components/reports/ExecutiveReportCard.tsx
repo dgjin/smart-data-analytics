@@ -36,6 +36,7 @@ import { DrillModal } from './DrillModal';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { CHART_THEMES } from '../../utils/chartThemes';
 import { apiFetch } from '../../api/client';
+import { pollTask, downloadTaskResult } from '../../utils/asyncTask';
 
 interface ExecutiveReportCardProps {
   report: SavedReport;
@@ -237,7 +238,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         })
       );
 
-      const response = await apiFetch('/api/report/export-pdf', {
+      const response = await apiFetch('/api/report/export-pdf/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -251,19 +252,13 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
           orientation: pdfOrientation,
         }),
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => null);
-        throw new Error(err?.error || `导出失败（${response.status}）`);
+      const submitted = await response.json().catch(() => null);
+      if (!response.ok || !submitted?.taskId) {
+        throw new Error(submitted?.error || `导出任务提交失败（${response.status}）`);
       }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${activeReport.title.replace(/[\\/:*?"<>|\s]+/g, '_')}_分析简报_${activeReport.createdAt}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // v0.9.2 异步化（改进计划 2-1）：worker 后台渲染，轮询完成后经任务下载端点取文件
+      const task = await pollTask(submitted.taskId);
+      await downloadTaskResult(task.id);
       setPdfExportSuccess(true);
       setTimeout(() => setPdfExportSuccess(false), 2000);
     } catch (err: any) {
