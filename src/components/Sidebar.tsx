@@ -206,9 +206,9 @@ export const Sidebar: React.FC = () => {
                   : 'hover:bg-slate-800/80 text-slate-300 border border-transparent'
               }`}
             >
-              <div className="flex items-center space-x-3 min-w-0">
+              <div className="flex items-center space-x-3 min-w-0 flex-1">
                 <div
-                  className={`p-2 rounded-lg ${
+                  className={`p-2 rounded-lg shrink-0 ${
                     isActive
                       ? 'bg-indigo-600 text-white shadow-sm'
                       : 'bg-slate-800 text-slate-400 group-hover:text-slate-200'
@@ -216,8 +216,8 @@ export const Sidebar: React.FC = () => {
                 >
                   <Icon className="w-4 h-4" />
                 </div>
-                <div className="truncate">
-                  <div className="text-xs font-semibold leading-none text-slate-100 mb-1">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold leading-none text-slate-100 mb-1 truncate">
                     {item.label}
                   </div>
                   <div className="text-[10px] text-slate-400 truncate">
@@ -227,7 +227,7 @@ export const Sidebar: React.FC = () => {
               </div>
               {item.badge && (
                 <span
-                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0 ml-2 whitespace-nowrap ${
                     isActive
                       ? 'bg-indigo-500/20 text-indigo-300'
                       : 'bg-slate-800 text-slate-400'
@@ -250,11 +250,11 @@ export const Sidebar: React.FC = () => {
           className="w-full flex items-center justify-between px-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider hover:text-slate-200 transition-colors"
           title={schemaOpen ? '折叠表结构区域' : '展开表结构区域'}
         >
-          <span className="flex items-center space-x-1.5">
-            <Layers className="w-3.5 h-3.5 text-indigo-400" />
-            <span>数据源表结构 Schema</span>
+          <span className="flex items-center space-x-1.5 min-w-0">
+            <Layers className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span className="truncate">数据源表结构 Schema</span>
           </span>
-          <span className="text-slate-500">
+          <span className="text-slate-500 shrink-0 ml-2">
             {(activeDS?.tables.length || activeDS?.tableCount || 0)} 表
           </span>
         </button>
@@ -316,8 +316,8 @@ export const Sidebar: React.FC = () => {
       <div className="p-3 border-t border-slate-800/80 bg-slate-900/80">
         <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-indigo-500/20 text-xs space-y-1.5">
           <div className="flex items-center space-x-1.5 text-indigo-300 font-semibold text-[11px]">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>{engine ? `${engine.label} 引擎运行中` : 'AI 引擎运行中'}</span>
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span className="truncate">{engine ? `${engine.label} 引擎运行中` : 'AI 引擎运行中'}</span>
           </div>
           <p className="text-[11px] text-slate-400 leading-tight">
             基于自然语言自动转化 SQL、智能推荐最优可视化图表并输出归因诊断。
