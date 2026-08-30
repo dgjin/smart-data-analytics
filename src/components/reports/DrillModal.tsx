@@ -40,6 +40,13 @@ export const DrillModal: React.FC<DrillModalProps> = ({
     setColumnNames({});
     setFinalSql('');
 
+    // 前置防御：缺任一必填参数时不发请求（服务端会以 400「必填」拒绝，文案不友好）
+    if (!dataSourceId || !originalSql.trim() || !dimensionKey.trim() || dimensionValue === '' || dimensionValue === undefined || dimensionValue === null) {
+      setError('该报表缺少原始查询 SQL（演示数据或旧版报表），无法下钻；重新生成报表后可使用下钻');
+      setLoading(false);
+      return;
+    }
+
     apiFetch('/api/query/drill', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -659,6 +659,13 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {activeReport.charts.map((chartBlock, idx) => {
               const chartAnomalies = chartBlock.anomalies || [];
+              // P2-2 下钻门禁：仅 live 报表且该图表有原始聚合 SQL 时可下钻；
+              // 演示数据/旧版报表缺 executedSqls，放行会让服务端以「必填」400 拒绝（体验差），前端直接隐藏入口
+              const drillSql = activeReport.executedSqls?.[idx];
+              const canDrill =
+                ['bar', 'line', 'area'].includes(chartBlock.chartConfig.type) &&
+                Boolean(activeReport.dataSourceId) &&
+                typeof drillSql === 'string' && drillSql.trim().length > 0;
               return (
                 <div
                   key={idx}
@@ -686,15 +693,15 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                     autoOptimizeContrast={globalAutoContrast}
                     comparisonMode={globalComparisonMode}
                     showDiffBadges={globalShowDiffBadges}
-                    drillable={['bar', 'line', 'area'].includes(chartBlock.chartConfig.type)}
-                    onDrill={(dimKey, dimValue) => {
+                    drillable={canDrill}
+                    onDrill={canDrill ? (dimKey, dimValue) => {
                       setDrillTarget({ idx, dimKey, dimValue });
                       setDrillOpen(true);
-                    }}
+                    } : undefined}
                   />
                   {['bar', 'line', 'area'].includes(chartBlock.chartConfig.type) && (
                     <div className="text-[10px] text-slate-500 text-center -mt-1">
-                      点击图表维度可下钻查看明细
+                      {canDrill ? '点击图表维度可下钻查看明细' : '演示/旧版报表无原始 SQL，重新生成后可下钻'}
                     </div>
                   )}
 
