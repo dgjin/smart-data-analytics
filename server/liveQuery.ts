@@ -686,28 +686,45 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       attempt === 0
         ? `${unitPrefix}${query}`
         : `${unitPrefix}${query}\n\n（上次生成的 SQL 未通过校验或执行失败：${lastError}。请修正后按同一 JSON 契约重新输出。）`;
-    // 首次 1 个候选；重试时按 candidateCount 生成多候选（Self-consistency 择优）
-    const n = attempt === 0 ? 1 : candidateCount;
     const plans: Stage1Plan[] = [];
 
-    // P2-6 重试阶段多候选并行生成（互不依赖，Promise.allSettled 后统一择优）；
-    // 首个候选保持串行：需先走歧义澄清 / 数据自省判定
-    const texts: string[] = [];
-    if (attempt === 0) {
+    // 首轮即全并行生成 candidateCount 个候选（性能优化：原「首候选串行 + 成功后再并行补发 N-1 个」墙钟
+    // ≈ 首候选耗时 + 最慢补发耗时 ≈ 2×单次，全并行 ≈ 最慢单候选 ≈ 1×）；候选 0 提示词与串行时代完全一致
+    //（candidatePrompt index=0 恒返回原文），澄清/拒答/自省仍在收齐后的首个候选上按序判定，语义不变
+    const n = candidateCount;
+    const tasks: Promise<{ index: number; text: string }>[] = Array.from({ length: n }, (_, i) =>
+      callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: stage1Route })
+        .then((text) => ({ index: i, text }))
+    );
+    // 澄清/拒答竞速先行：首个成功候选立即判定，命中即返回不等其余候选收齐（避免全并行下澄清场景等待退化
+    // 为最慢候选耗时）；未命中则落回收齐后的原判定路径（首个候选按序复查，语义不变）
+    if (attempt === 0 && !input.approvedPlan) {
+      let firstOk: { index: number; text: string } | null = null;
       try {
-        texts.push(await callLLMJson(stage1System, candidatePrompt(basePrompt, 0, 1), [...fewShotHistory, ...budgetedHistory], { route: stage1Route }));
-      } catch (err: any) {
-        return { ok: false, error: `LLM 调用失败：${String(err?.message || err).slice(0, 200)}` };
+        firstOk = await Promise.any(tasks);
+      } catch {
+        // 全部候选网络层失败：落到下方统一处理
       }
-    } else {
-      const settled = await Promise.allSettled(
-        Array.from({ length: n }, (_, i) =>
-          callLLMJson(stage1System, candidatePrompt(basePrompt, i, n), [...fewShotHistory, ...budgetedHistory], { route: stage1Route })
-        )
-      );
-      for (const r of settled) {
-        if (r.status === 'fulfilled') texts.push(r.value);
+      if (firstOk) {
+        const clarification = parseClarification(firstOk.text);
+        if (clarification) return { ok: 'clarify', clarification };
+        const refusal = parseRefusal(firstOk.text);
+        if (refusal) {
+          trace({ stepType: 'sql_gen', title: 'SQL 生成（拒答）', inputSummary: query, outputSummary: refusal.reason, status: 'fail', durationMs: Date.now() - t0 });
+          return { ok: 'refuse', reason: refusal.reason };
+        }
       }
+    }
+    const settled = await Promise.allSettled(tasks);
+    const texts: string[] = [];
+    let firstRejectReason = '';
+    for (const r of settled) {
+      if (r.status === 'fulfilled') texts.push(r.value.text);
+      else if (!firstRejectReason) firstRejectReason = String(r.reason?.message || r.reason).slice(0, 200);
+    }
+    // 首轮全部候选网络层失败：保持快速失败语义并返回明确诊断（不重试放大故障）
+    if (attempt === 0 && texts.length === 0) {
+      return { ok: false, error: `LLM 调用失败：${firstRejectReason || '全部候选生成失败'}` };
     }
     let candidateIndex = 0;
     for (const text of texts) {
@@ -752,28 +769,14 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
             } catch {
               // 自省后的最终生成失败，走常规重试链路
             }
-            candidateIndex++;
-            continue;
+            // 自省链已二次生成最终 SQL；break 丢弃其余并行候选（基于猜测取值，不混入自省链）
+            break;
           }
         }
       }
       const p = parseStage1(text);
       if (p) plans.push(p);
       candidateIndex++;
-    }
-    // P1-7 Self-Consistency 首轮多候选：复杂问题首候选成功解析后并行补发其余候选；
-    // 澄清/拒答已在上方 return，自省链（introspected=true）已二次生成最终 SQL，均不补发
-    if (attempt === 0 && candidateCount > 1 && plans.length > 0 && !introspected) {
-      const supplement = await Promise.allSettled(
-        Array.from({ length: candidateCount - 1 }, (_, i) =>
-          callLLMJson(stage1System, candidatePrompt(basePrompt, i + 1, candidateCount), [...fewShotHistory, ...budgetedHistory], { route: stage1Route })
-        )
-      );
-      for (const r of supplement) {
-        if (r.status !== 'fulfilled') continue;
-        const sp = parseStage1(r.value);
-        if (sp) plans.push(sp);
-      }
     }
     if (plans.length === 0) {
       lastError = 'LLM 输出未通过 SQL 契约校验';
