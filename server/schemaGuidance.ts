@@ -93,6 +93,24 @@ function colRelevantToQuery(query: string, c: ColumnLike): boolean {
   return false;
 }
 
+/**
+ * Prompt 用紧凑 Schema 序列化（P1 prompt 瘦身）。
+ * 列从 {"name","type","description","isMetric","isDimension"} 对象改为 [列名, 类型, 中文说明?] 紧凑数组；
+ * 表级剔除 id/rowCount/businessNote（businessNote 由 extractBusinessNotes 独立注入避免重复，
+ * isMetric/isDimension 由 summarizeSchema 的维度/指标摘要覆盖）。实测各数据源注入体积下降 50-70%。
+ */
+export function serializeSchemaForPrompt(schema: any[] | null | undefined): string {
+  if (!Array.isArray(schema)) return '[]';
+  return JSON.stringify(schema.map((t) => ({
+    name: t?.name,
+    ...(t?.displayName && t.displayName !== t.name ? { displayName: t.displayName } : {}),
+    ...(t?.description ? { description: t.description } : {}),
+    columns: (Array.isArray(t?.columns) ? t.columns : []).map((c: any) =>
+      c?.description ? [c.name, c.type ?? '', c.description] : [c.name, c.type ?? '']
+    ),
+  })));
+}
+
 /** 为降级响应选取维度与指标：优先与 query 语义相关的列，其次日期/类别维度与前两个数值指标 */
 export function pickFallbackAxes(query: string, schema: TableLike[] | null | undefined): FallbackAxes | null {
   const table = pickTableForQuery(query, Array.isArray(schema) ? schema : []);

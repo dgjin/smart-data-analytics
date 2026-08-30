@@ -6,6 +6,7 @@
  */
 import { callLLMJson } from './llmClient';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
+import { serializeSchemaForPrompt } from './schemaGuidance';
 import { getStateStore, isRedisEnabled } from './stateStore';
 
 export interface QueryPlanStep {
@@ -142,8 +143,8 @@ export function parseQueryPlan(text: string, question: string): QueryPlan | null
 function buildPlanSystem(schema: any[]): string {
   return `你是一个数据分析规划引擎。根据数据库 Schema 与用户问题，先制定一份可执行的分析计划（只规划，不执行任何查询）。
 
-数据库 Schema（已经过权限与敏感字段过滤）:
-${JSON.stringify(schema)}
+数据库 Schema（已经过权限与敏感字段过滤；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
+${serializeSchemaForPrompt(schema)}
 
 【强制约束】
 - 仅输出 JSON 对象: {"understanding","steps","relatedTables","complexity"}

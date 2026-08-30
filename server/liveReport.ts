@@ -10,6 +10,7 @@ import { safeParseJson } from '../src/utils/queryResultNormalizer';
 import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from './liveQuery';
 import { getStateStore, isRedisEnabled } from './stateStore';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
+import { serializeSchemaForPrompt } from './schemaGuidance';
 
 const MAX_REPORT_QUERIES = 4;
 const SAMPLE_ROWS_PER_CHART = 10;
@@ -268,14 +269,14 @@ function buildReportStage1System(schema: any[], guidance: string, dsType?: strin
   const dialect = dialectPromptOf(dsType);
   return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 ${dialect.label} SELECT 聚合查询。你不生成任何数据，只生成 SQL。
 
-数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列）:
-${JSON.stringify(schema)}
+数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
+${serializeSchemaForPrompt(schema)}
 
 ${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}
 ${metricPrompt}【强制约束】
 - 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","purpose"}]}
 - columnNames: 该查询 SQL 输出每一列的中文表头映射 {"列名/别名": "中文名"}，维度列与聚合别名都要覆盖
-- 每条 sql 为单条 SELECT；表名与列名必须逐字来自上述 Schema 的 name 字段，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标用聚合函数并用 AS 起英文/拼音别名
+- 每条 sql 为单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标用聚合函数并用 AS 起英文/拼音别名
 ${dialect.rules}- queries 之间应选择不同维度（如时间趋势、类别对比、结构占比），避免重复
 - chartType 从 bar/line/area/pie/donut/radar/treemap/heatmap 选择（时间趋势用 line/area，类别对比用 bar，占比结构用 pie/donut，层级占比用 treemap，多指标横向对照用 heatmap）；xAxisKey 与 yAxisKeys 必须与 SQL 输出列严格一致
 - purpose: 一句话说明该图回答的业务问题
