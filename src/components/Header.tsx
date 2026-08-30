@@ -12,10 +12,12 @@ import {
   Moon,
   HelpCircle,
   Lock,
+  Coins,
   X,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
+import { AMOUNT_UNITS, AmountUnit, useAmountUnitStore } from '../hooks/useAmountUnitStore';
 import { apiFetch } from '../api/client';
 import { UserRole } from '../types/analytics';
 import { getUITheme, toggleUITheme, UI_THEME_EVENT, UIThemeMode } from '../utils/uiTheme';
@@ -42,6 +44,9 @@ export const Header: React.FC = () => {
     activeTab,
   } = useAnalyticsStore();
   const { user, logout } = useAuthStore();
+  // 全局金额单位：问数/报表/灵活查询默认跟随此口径，各模块内可单独覆盖
+  const globalAmountUnit = useAmountUnitStore((s) => s.globalUnit);
+  const setGlobalAmountUnit = useAmountUnitStore((s) => s.setGlobalUnit);
 
   // 帮助弹窗开关
   const [helpOpen, setHelpOpen] = useState(false);
@@ -89,37 +94,37 @@ export const Header: React.FC = () => {
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 text-slate-100 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-md">
       {/* Brand & Title */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-3 shrink-0">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
           <Sparkles className="w-5 h-5 text-white animate-pulse" />
         </div>
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="font-bold text-lg text-slate-100 tracking-tight">
+            <h1 className="font-bold text-lg text-slate-100 tracking-tight whitespace-nowrap">
               智能问数分析系统
             </h1>
-            <span className="px-2 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full">
+            <span className="hidden xl:inline-block px-2 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full whitespace-nowrap">
               NL2SQL Pro v0.5.3
             </span>
           </div>
-          <p className="text-xs text-slate-400 hidden sm:block">
+          <p className="text-xs text-slate-400 hidden sm:block whitespace-nowrap">
             多源数据集成 • 自然语言交互 • 自动可视化与决策简报
           </p>
         </div>
       </div>
 
       {/* Datasource Switcher & Quick Actions */}
-      <div className="flex items-center space-x-3">
+      <div className="flex items-center space-x-2 whitespace-nowrap">
         {/* Datasource Switcher（P2-11：仅列出有访问权限的数据源） */}
         {accessibleSources.length > 0 && (
-        <div className="hidden md:flex items-center bg-slate-800/80 border border-slate-700/80 rounded-lg p-1 text-xs">
+        <div className="hidden md:flex items-center shrink-0 bg-slate-800/80 border border-slate-700/80 rounded-lg p-1 text-xs">
           <Database className="w-3.5 h-3.5 text-indigo-400 ml-2 mr-1.5" />
           <span className="text-slate-400 mr-2 font-medium">当前数据源:</span>
           <select
             data-testid="datasource-select"
             value={activeDataSourceId}
             onChange={(e) => setActiveDataSource(e.target.value)}
-            className="bg-slate-900 text-slate-200 border border-slate-700 rounded px-2.5 py-1 focus:outline-none focus:border-indigo-500 font-medium cursor-pointer"
+            className="bg-slate-900 text-slate-200 border border-slate-700 rounded px-2.5 py-1 max-w-40 focus:outline-none focus:border-indigo-500 font-medium cursor-pointer"
           >
             {accessibleSources.map((ds) => (
               <option key={ds.id} value={ds.id}>
@@ -127,7 +132,7 @@ export const Header: React.FC = () => {
               </option>
             ))}
           </select>
-          <div className="flex items-center ml-2 mr-1.5 text-emerald-400 font-medium text-[11px]">
+          <div className="hidden 2xl:flex items-center ml-2 mr-1.5 text-emerald-400 font-medium text-[11px]">
             <CheckCircle2 className="w-3 h-3 mr-1" />
             已连接
           </div>
@@ -143,34 +148,56 @@ export const Header: React.FC = () => {
               setRequestOpen(true);
             }}
             title={`有 ${deniedSources.length} 个数据源未授权，点击申请访问权限`}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-800/50 transition-colors"
+            className="flex items-center shrink-0 space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-800/50 transition-colors"
           >
             <Lock className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">申请权限({deniedSources.length})</span>
           </button>
         )}
 
+        {/* 全局金额单位：各模块默认跟随此口径分析统计，模块内可单独覆盖（模块选择优先） */}
+        <div
+          className="hidden xl:flex items-center shrink-0 bg-slate-800/80 border border-slate-700/80 rounded-lg px-2 py-1 text-xs"
+          title="全局金额单位：问数 / 报表 / 灵活查询默认按此口径换算金额指标，模块内可单独选择单位覆盖"
+        >
+          <Coins className="w-3.5 h-3.5 text-amber-400 mr-1" />
+          <select
+            data-testid="global-amount-unit-select"
+            value={globalAmountUnit}
+            onChange={(e) => setGlobalAmountUnit(e.target.value as AmountUnit)}
+            className="bg-slate-900 text-slate-200 border border-slate-700 rounded px-2 py-0.5 focus:outline-none focus:border-amber-500 font-medium cursor-pointer"
+          >
+            {AMOUNT_UNITS.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Generate Report Quick Button */}
         <button
           onClick={() => setActiveTab('reports')}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+          title="自动生成报表"
+          className={`flex items-center shrink-0 space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
             activeTab === 'reports'
               ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
               : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
           }`}
         >
           <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-          <span>自动生成报表</span>
+          <span className="hidden xl:inline">自动生成报表</span>
         </button>
 
         {/* Data Source Manager Button（仅管理员） */}
         {user?.role === 'ADMIN' && (
           <button
             onClick={() => setActiveTab('datasources')}
-            className="hidden sm:flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            title="接入数据源"
+            className="hidden sm:flex items-center shrink-0 space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
           >
             <Plus className="w-3.5 h-3.5 text-indigo-400" />
-            <span>接入数据源</span>
+            <span className="hidden xl:inline">接入数据源</span>
           </button>
         )}
 
@@ -178,7 +205,7 @@ export const Header: React.FC = () => {
         <button
           onClick={() => toggleUITheme()}
           title={themeMode === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
-          className="p-2 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+          className="p-2 shrink-0 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
         >
           {themeMode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
@@ -187,14 +214,14 @@ export const Header: React.FC = () => {
         <button
           onClick={() => setHelpOpen(true)}
           title="帮助 · 使用指南"
-          className="p-2 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+          className="p-2 shrink-0 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
         >
           <HelpCircle className="w-4 h-4" />
         </button>
 
         {/* Current User Chip + Logout */}
         {user && (
-          <div className="flex items-center space-x-2 pl-3 border-l border-slate-700/80">
+          <div className="flex items-center space-x-2 pl-3 border-l border-slate-700/80 shrink-0">
             <div className="flex items-center space-x-2">
               <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-[11px] font-bold text-white shadow">
                 {user.displayName.slice(0, 1).toUpperCase()}

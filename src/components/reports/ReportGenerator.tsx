@@ -17,6 +17,8 @@ import {
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useEngineInfo } from '../../hooks/useEngineInfo';
+import { resolveAmountUnit } from '../../hooks/useAmountUnitStore';
+import { AmountUnitSelect } from '../common/AmountUnitSelect';
 import { apiFetch } from '../../api/client';
 import { ExecutiveReportCard } from './ExecutiveReportCard';
 import { SavedReport } from '../../types/analytics';
@@ -26,16 +28,9 @@ import { scanReportForAnomalies } from '../../utils/anomalyDetector';
 import { pollTask } from '../../utils/asyncTask';
 import { useDataVersion } from '../../hooks/useDataVersion';
 
-// v0.5.2 金额单位：读取问数页选定的口径（localStorage 共享键），报告生成沿用同一单位
-const AMOUNT_UNIT_KEY = 'app-amount-unit';
-const readAmountUnit = (): string | undefined => {
-  try {
-    const v = localStorage.getItem(AMOUNT_UNIT_KEY) || '';
-    return ['亿元', '百万元', '万元', '元'].includes(v) ? v : undefined;
-  } catch {
-    return undefined;
-  }
-};
+// v0.5.4 金额单位：由 useAmountUnitStore 统一管理（全局默认 + 模块覆盖），
+// 报表模块生效单位 = 模块内选择（优先）或全局设置（Header 维护）；提交时实时读取，避免闭包过期
+const readAmountUnit = (): string => resolveAmountUnit('report');
 
 export const ReportGenerator: React.FC = () => {
   const {
@@ -367,6 +362,9 @@ export const ReportGenerator: React.FC = () => {
             disabled={aiSwitchOff}
             className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
           />
+
+          {/* 金额单位：默认跟随全局，可单独选择本模块口径（优先于全局设置） */}
+          <AmountUnitSelect module="report" />
 
           {/* M4 报表计划模式开关（仅数据库型数据源可用，localStorage 持久化） */}
           {canPlanMode && (

@@ -28,7 +28,6 @@ import {
   Library,
   Plus,
   Cpu,
-  Coins,
   ListChecks,
   History,
   Download,
@@ -50,6 +49,8 @@ import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { TraceStepper, TraceReplay, TraceStepInfo } from './AnalysisTracePanel';
 import { useConversationHistory } from '../../hooks/useConversationHistory';
+import { useEffectiveAmountUnit } from '../../hooks/useAmountUnitStore';
+import { AmountUnitSelect } from '../common/AmountUnitSelect';
 import { ReportTemplate } from '../../types/analytics';
 import { useSpeechInput } from '../../hooks/useSpeechInput';
 import { readSseStream } from '../../utils/sseStream';
@@ -61,9 +62,7 @@ import { KnowledgeManagementPanel } from '../knowledge/KnowledgeManagementPanel'
 const MAX_QUERY_INPUT_LENGTH = 500;
 // 模型自选持久化键（值为 "engine::model"，空串表示跟随服务端默认）
 const SELECTED_MODEL_KEY = 'app-selected-model';
-// 金额单位自选持久化键（亿元/百万元/万元/元，与服务端白名单一致）
-const AMOUNT_UNIT_KEY = 'app-amount-unit';
-const AMOUNT_UNIT_CHOICES = ['亿元', '百万元', '万元', '元'] as const;
+// 金额单位：由 useAmountUnitStore 统一管理（全局默认 + 模块覆盖，v0.5.4 起）
 // M2 计划模式持久化键（'1' = 开启「先制定计划」）
 const PLAN_MODE_KEY = 'app-plan-mode';
 // M3 深度分析持久化键（'1' = 强制启用中间表清洗链）
@@ -211,23 +210,8 @@ export const QueryChat: React.FC = () => {
     }
   };
 
-  // 金额单位自选：问数前选择，随每次提问生效并持久化；非法存量值回落亿元
-  const [amountUnit, setAmountUnit] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(AMOUNT_UNIT_KEY) || '';
-      return (AMOUNT_UNIT_CHOICES as readonly string[]).includes(saved) ? saved : '亿元';
-    } catch {
-      return '亿元';
-    }
-  });
-  const handleSelectAmountUnit = (value: string) => {
-    setAmountUnit(value);
-    try {
-      localStorage.setItem(AMOUNT_UNIT_KEY, value);
-    } catch {
-      // 存储不可用时仅本次会话生效
-    }
-  };
+  // 金额单位：模块覆盖优先，未覆盖跟随全局（Header 全局选择器维护），随每次提问生效
+  const amountUnit = useEffectiveAmountUnit('query');
   const selectedModelPayload = useMemo(() => {
     const [engine, ...rest] = selectedModel.split('::');
     const model = rest.join('::');
@@ -1584,21 +1568,8 @@ export const QueryChat: React.FC = () => {
                 </span>
               )}
 
-              {/* 金额单位自选：问数前选择，SQL 生成按所选单位换算（亿元/百万元/万元/元） */}
-              <span className="shrink-0 flex items-center space-x-1 ml-auto pl-2 border-l border-slate-800">
-                <Coins className="w-3 h-3 text-amber-400" />
-                <select
-                  value={amountUnit}
-                  onChange={(e) => handleSelectAmountUnit(e.target.value)}
-                  disabled={isQueryLoading}
-                  title="金额输出单位：本次问数的金额指标按此单位换算（随提问生效并记忆）"
-                  className="bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-amber-500 cursor-pointer disabled:opacity-50"
-                >
-                  {AMOUNT_UNIT_CHOICES.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
-                </select>
-              </span>
+              {/* 金额单位：默认跟随全局，可单独选择本模块口径（优先于全局设置） */}
+              <AmountUnitSelect module="query" disabled={isQueryLoading} className="ml-auto pl-2 border-l border-slate-800" />
 
               {/* 模型自选：目录由服务端按实际部署给出，选择随提问生效并持久化 */}
               {modelCatalog.length > 0 && (

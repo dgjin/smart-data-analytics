@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   SlidersHorizontal,
   Table2,
@@ -37,6 +37,7 @@ import { DataTable } from '../charts/DataTable';
 import { TableSchema, ChartConfig, ChartType } from '../../types/analytics';
 import {
   buildFlexQuerySql,
+  isAmountColumn,
   measureAlias,
   FLEX_AGGS,
   FLEX_FILTER_OPS,
@@ -50,6 +51,8 @@ import {
   FlexAgg,
   FlexQueryConfig,
 } from '../../utils/flexQueryBuilder';
+import { useEffectiveAmountUnit, AMOUNT_UNIT_DIVISORS } from '../../hooks/useAmountUnitStore';
+import { AmountUnitSelect } from '../common/AmountUnitSelect';
 
 /** 已保存的固定报表（灵活查询定义），localStorage 持久化 */
 interface SavedFlexQuery {
@@ -231,9 +234,16 @@ export const FlexQueryBuilder: React.FC = () => {
     () => ({ table: selectedTable, joins, dimensions, measures, filters, havings, orderBy, limit }),
     [selectedTable, joins, dimensions, measures, filters, havings, orderBy, limit],
   );
+
+  // v0.5.4 金额单位：模块覆盖优先，未覆盖跟随全局；换算在 SQL 构建期完成（金额列聚合除以除数）
+  const amountUnit = useEffectiveAmountUnit('flexquery');
+  const flexAmountUnit = useMemo(
+    () => ({ label: amountUnit, divisor: AMOUNT_UNIT_DIVISORS[amountUnit] }),
+    [amountUnit],
+  );
   const built = useMemo(
-    () => (tableSchema ? buildFlexQuerySql(config, tableSchema, dialect, tables) : null),
-    [config, tableSchema, dialect, tables],
+    () => (tableSchema ? buildFlexQuerySql(config, tableSchema, dialect, tables, flexAmountUnit) : null),
+    [config, tableSchema, dialect, tables, flexAmountUnit],
   );
 
   // ---------- 执行结果 ----------
@@ -242,6 +252,16 @@ export const FlexQueryBuilder: React.FC = () => {
   const [execError, setExecError] = useState<string | null>(null);
   const [execTimeMs, setExecTimeMs] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // 金额单位切换后口径变化，旧结果与新 SQL 不一致，清空结果引导重新执行
+  const prevAmountUnitRef = useRef(amountUnit);
+  useEffect(() => {
+    if (prevAmountUnitRef.current !== amountUnit) {
+      prevAmountUnitRef.current = amountUnit;
+      setResult(null);
+      setExecError(null);
+    }
+  }, [amountUnit]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -372,13 +392,17 @@ export const FlexQueryBuilder: React.FC = () => {
       map[c.name] = c.description || c.name;
     });
     measures.forEach((m) => {
-      const src = tableSchema?.columns.find((c) => c.name === m.column);
+      // v0.4.15 跨表字段按 fullName 查找；主表字段回退列名查找
+      const src = allFields.find((c) => c.fullName === m.column) || tableSchema?.columns.find((c) => c.name === m.column);
       const alias = measureAlias(m);
-      map[alias] = `${AGG_LABELS[m.agg]}(${src?.description || m.column})`;
+      // 金额列且选定非「元」单位：列名标注口径，与 SQL 换算结果一致（COUNT 类不换算不标注）
+      const convertible = m.agg !== 'COUNT' && m.agg !== 'COUNT_DISTINCT';
+      const unitSuffix = flexAmountUnit.divisor > 1 && convertible && isAmountColumn(src) ? `（${amountUnit}）` : '';
+      map[alias] = `${AGG_LABELS[m.agg]}(${src?.description || m.column})${unitSuffix}`;
       map[`pct_${alias}`] = `占比·${src?.description || m.column}`;
     });
     return map;
-  }, [tableSchema, measures]);
+  }, [tableSchema, allFields, measures, amountUnit, flexAmountUnit]);
 
   const chartConfig: ChartConfig | null = useMemo(() => {
     if (!result || dimensions.length === 0 || measures.length === 0 || chartType === 'table') return null;
@@ -517,6 +541,8 @@ export const FlexQueryBuilder: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center space-x-2 shrink-0">
+          {/* v0.5.4 金额单位：默认跟随全局，可单独选择本模块口径（优先于全局设置） */}
+          <AmountUnitSelect module="flexquery" />
           <Database className="w-4 h-4 text-indigo-400" />
           <select
             data-testid="flexquery-datasource-select"

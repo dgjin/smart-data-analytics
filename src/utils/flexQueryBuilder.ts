@@ -5,6 +5,8 @@
  *
  * v0.4.10（参照 Agile Query 增强）：COUNT_DISTINCT 去重计数、BETWEEN 区间与 IS [NOT] NULL 筛选、
  * 指标过滤（HAVING 聚合后过滤）、排序目标可选任一指标别名或维度列。
+ * v0.5.4：金额单位换算——选定非「元」单位时，金额类列的 SUM/AVG/MIN/MAX 聚合按除数换算
+ * （ROUND(AGG(col)/divisor, 2)），HAVING 中金额列表达式同口径；COUNT 类聚合与「元」原值不换算。
  */
 import { TableSchema } from '../types/analytics';
 
@@ -76,6 +78,39 @@ export function aggExpression(agg: FlexAgg, quotedCol: string): string {
   return agg === 'COUNT_DISTINCT' ? `COUNT(DISTINCT ${quotedCol})` : `${agg}(${quotedCol})`;
 }
 
+/** 金额单位换算配置（label 供 UI 标注，divisor>1 时才进行换算） */
+export interface FlexAmountUnit {
+  label: string;
+  divisor: number;
+}
+
+/** 金额类列关键词：列名或业务描述命中即视为金额列（单位换算仅作用于金额列） */
+const AMOUNT_COL_RE = /(金额|费用|收益|成本|利息|余额|收入|支出|价款|保费)/;
+
+/** 判定列是否金额类（列名或业务描述命中关键词） */
+export function isAmountColumn(col?: { name: string; description?: string } | null): boolean {
+  if (!col) return false;
+  return AMOUNT_COL_RE.test(col.name) || AMOUNT_COL_RE.test(col.description || '');
+}
+
+/**
+ * 指标聚合表达式（含金额单位换算）：金额列在选定非「元」单位时按除数换算并保留两位小数，
+ * 与 SELECT 输出同口径，HAVING 阈值也按所选单位理解；COUNT 类聚合与「元」原值口径不换算。
+ */
+export function measureExpression(
+  m: { column: string; agg: FlexAgg },
+  quotedCol: string,
+  colSchema?: { name: string; description?: string },
+  amountUnit?: FlexAmountUnit,
+): string {
+  const base = aggExpression(m.agg, quotedCol);
+  const convertible = m.agg !== 'COUNT' && m.agg !== 'COUNT_DISTINCT';
+  if (amountUnit && amountUnit.divisor > 1 && convertible && isAmountColumn(colSchema)) {
+    return `ROUND(${base}/${amountUnit.divisor}, 2)`;
+  }
+  return base;
+}
+
 /** 指标列别名：agg_列名（小写，去重计数缩写 countd），避免中文别名在不同方言下的兼容问题 */
 export function measureAlias(m: { column: string; agg: FlexAgg }): string {
   const prefix = m.agg === 'COUNT_DISTINCT' ? 'countd' : m.agg.toLowerCase();
@@ -130,6 +165,7 @@ export function buildFlexQuerySql(
   table: TableSchema | undefined,
   dialect: 'mysql' | 'pg',
   allTables?: TableSchema[],
+  amountUnit?: FlexAmountUnit,
 ): FlexBuildResult {
   if (!table) return { ok: false, error: '请先选择数据表' };
   if (config.table !== table.name) return { ok: false, error: '所选数据表与当前 Schema 不一致' };
@@ -157,6 +193,15 @@ export function buildFlexQuerySql(
     return `${q}${name}${q}`;
   };
 
+  // 列 schema 查找（读取业务描述以判定金额列）：支持 table.column 跨表引用
+  const findColSchema = (name: string): { name: string; description?: string } | undefined => {
+    if (name.includes('.')) {
+      const [tName, cName] = name.split('.', 2);
+      return tableMap.get(tName)?.columns.find((c) => c.name === cName);
+    }
+    return table.columns.find((c) => c.name === name);
+  };
+
   if (config.dimensions.length === 0 && config.measures.length === 0) {
     return { ok: false, error: '请至少拖入一个维度或一个指标' };
   }
@@ -177,7 +222,7 @@ export function buildFlexQuerySql(
     if (!col) return { ok: false, error: `指标列「${m.column}」不存在于该表，请重新拖入` };
     const alias = measureAlias(m);
     if (!IDENT_RE.test(alias)) return { ok: false, error: `指标列「${m.column}」的别名非法` };
-    selectParts.push(`${aggExpression(m.agg, col)} AS ${q}${alias}${q}`);
+    selectParts.push(`${measureExpression(m, col, findColSchema(m.column), amountUnit)} AS ${q}${alias}${q}`);
     aliasToQuoted.set(alias, `${q}${alias}${q}`);
   }
 
@@ -210,7 +255,7 @@ export function buildFlexQuerySql(
     if (!col) return { ok: false, error: `指标过滤列「${h.column}」不存在于该表` };
     if (!FLEX_HAVING_OPS.includes(h.op)) return { ok: false, error: `不支持的指标过滤条件「${h.op}」` };
     if (!h.value.trim()) return { ok: false, error: `指标过滤「${h.column}」的值不能为空` };
-    havingParts.push(`${aggExpression(h.agg, col)} ${h.op} ${filterValueToSql(h.op, h.value)}`);
+    havingParts.push(`${measureExpression(h, col, findColSchema(h.column), amountUnit)} ${h.op} ${filterValueToSql(h.op, h.value)}`);
   }
 
   // ORDER BY：by 必须是已生成的指标别名或维度列

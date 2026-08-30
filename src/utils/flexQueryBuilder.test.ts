@@ -349,3 +349,109 @@ describe('buildFlexQuerySql: 多表 JOIN', () => {
     }
   });
 });
+
+/** v0.5.4 金额单位换算用表：金额列带业务描述（关键词命中），另有非金额数值列 */
+const AMOUNT_TABLE: TableSchema = {
+  id: 't-amt',
+  name: 'fct_jc_main_biz_stat',
+  displayName: '主营业务宽表',
+  description: '',
+  rowCount: 100,
+  columns: [
+    { name: 'JGMC', type: 'string' },
+    { name: 'BNTFJE', type: 'number', description: '本年投放金额' },
+    { name: 'BS', type: 'number', description: '业务笔数' },
+  ],
+};
+
+const WAN = { label: '万元', divisor: 10000 };
+const YUAN = { label: '元', divisor: 1 };
+
+describe('buildFlexQuerySql: v0.5.4 金额单位换算', () => {
+  it('金额列 SUM 按除数换算（ROUND(SUM/除数, 2)），别名不变', () => {
+    const out = buildFlexQuerySql(
+      base({ measures: [{ column: 'BNTFJE', agg: 'SUM' }] }),
+      AMOUNT_TABLE,
+      'mysql',
+      undefined,
+      WAN
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('ROUND(SUM(`BNTFJE`)/10000, 2) AS `sum_bntfje`');
+    }
+  });
+
+  it('金额列 AVG/MIN/MAX 换算，COUNT 与 COUNT_DISTINCT 不换算', () => {
+    const out = buildFlexQuerySql(
+      base({
+        measures: [
+          { column: 'BNTFJE', agg: 'AVG' },
+          { column: 'BNTFJE', agg: 'MAX' },
+          { column: 'BNTFJE', agg: 'COUNT' },
+          { column: 'BNTFJE', agg: 'COUNT_DISTINCT' },
+        ],
+        orderBy: null,
+      }),
+      AMOUNT_TABLE,
+      'mysql',
+      undefined,
+      WAN
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('ROUND(AVG(`BNTFJE`)/10000, 2) AS `avg_bntfje`');
+      expect(out.sql).toContain('ROUND(MAX(`BNTFJE`)/10000, 2) AS `max_bntfje`');
+      expect(out.sql).toContain('COUNT(`BNTFJE`) AS `count_bntfje`');
+      expect(out.sql).toContain('COUNT(DISTINCT `BNTFJE`) AS `countd_bntfje`');
+      expect(out.sql).not.toContain('ROUND(COUNT');
+    }
+  });
+
+  it('非金额数值列不换算（关键词未命中）', () => {
+    const out = buildFlexQuerySql(
+      base({ measures: [{ column: 'BS', agg: 'SUM' }], orderBy: null }),
+      AMOUNT_TABLE,
+      'mysql',
+      undefined,
+      WAN
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('SUM(`BS`) AS `sum_bs`');
+      expect(out.sql).not.toContain('ROUND');
+    }
+  });
+
+  it('「元」为原值口径：不换算；不传 amountUnit 保持原行为', () => {
+    const yuan = buildFlexQuerySql(base(), AMOUNT_TABLE, 'mysql', undefined, YUAN);
+    expect(yuan.ok).toBe(true);
+    if (yuan.ok) expect(yuan.sql).toContain('SUM(`BNTFJE`) AS `sum_bntfje`');
+    const none = buildFlexQuerySql(base(), AMOUNT_TABLE, 'mysql');
+    expect(none.ok).toBe(true);
+    if (none.ok) expect(none.sql).not.toContain('ROUND');
+  });
+
+  it('HAVING 中金额列与 SELECT 同口径换算，阈值按所选单位理解', () => {
+    const out = buildFlexQuerySql(
+      base({
+        measures: [{ column: 'BNTFJE', agg: 'SUM' }],
+        havings: [{ column: 'BNTFJE', agg: 'SUM', op: '>', value: '1000' }],
+      }),
+      AMOUNT_TABLE,
+      'mysql',
+      undefined,
+      WAN
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('HAVING ROUND(SUM(`BNTFJE`)/10000, 2) > 1000');
+    }
+  });
+
+  it('PG 方言下金额换算保持双引号标识符', () => {
+    const out = buildFlexQuerySql(base({ orderBy: null }), AMOUNT_TABLE, 'pg', undefined, WAN);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toContain('ROUND(SUM("BNTFJE")/10000, 2) AS "sum_bntfje"');
+  });
+});
