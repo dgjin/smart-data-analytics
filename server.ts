@@ -4,13 +4,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 
-// 双环境获取模块目录：开发（tsx/ESM）用 import.meta.url；打包 CJS 时 esbuild 自动降级为 __filename 的 file URL。
+// 双环境获取模块目录：开发（tsx/ESM）下 __filename 不存在，走 import.meta.url；
+// esbuild 打包 CJS 后 import.meta 会被置为空对象（import.meta.url = undefined），必须走 CJS 模块作用域的 __filename。
 // 不能用 `typeof __dirname !== 'undefined' ? ...` 的 const 自引用写法（TDZ ReferenceError）。
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = path.dirname(typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url));
 
 // Load .env.local / .env before reading any process.env values
-dotenv.config({ path: path.join(__dirname, '.env.local') });
-dotenv.config({ path: path.join(__dirname, '.env') });
+// 双环境候选：开发时 __dirname=项目根；打包后 __dirname=dist（项目根在上一级）；再兜底启动目录 cwd。
+// dotenv 多次加载不覆盖已有值（先加载者优先），进程环境变量始终优先于文件。
+const ENV_SEARCH_DIRS = [__dirname, path.join(__dirname, '..'), process.cwd()];
+for (const dir of ENV_SEARCH_DIRS) {
+  dotenv.config({ path: path.join(dir, '.env.local') });
+  dotenv.config({ path: path.join(dir, '.env') });
+}
 
 import { initSchema } from './server/db';
 import { isRedisEnabled, warmStateStore } from './server/stateStore';

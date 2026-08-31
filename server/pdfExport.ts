@@ -13,10 +13,10 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// 双环境获取模块目录：开发（tsx/ESM）用 import.meta.url；
-// 打包（esbuild --format=cjs）时 esbuild 自动将 import.meta.url 降级为 __filename 的 file URL，两种形态都正确。
+// 双环境获取模块目录：开发（tsx/ESM）下 __filename 不存在，走 import.meta.url；
+// esbuild 打包 CJS 后 import.meta 会被置为空对象（import.meta.url = undefined），必须走 CJS 模块作用域的 __filename。
 // 注意：不能用 `typeof __dirname !== 'undefined' ? __dirname : ...` 的 const 自引用写法（TDZ 直接抛 ReferenceError）。
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = path.dirname(typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url));
 
 /** 脚本路径候选：开发（server/pdfgen/）与打包（dist/ 上一级项目根）双环境 */
 const PDF_SCRIPT_CANDIDATES = [
