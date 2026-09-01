@@ -205,4 +205,88 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
+// ============ v0.5.0 Environment Config Management ============
+
+// GET /api/admin/env-config
+router.get('/env-config', async (req, res) => {
+  try {
+    // 权限校验：仅 ADMIN 可查看
+    if (!req.user || req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const [rows]: any = await getPool().query('SELECT `key`, `value`, category, description, is_sensitive FROM env_config');
+
+    // 脱敏敏感字段
+    const sanitizedData = rows.map(row => ({
+      ...row,
+      value: row.is_sensitive ? '***hidden***' : (row.value || '')
+    }));
+
+    res.json({ success: true, data: sanitizedData });
+  } catch (error: any) {
+    console.error('[EnvConfig] GET failed:', error.message);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+});
+
+// PUT /api/admin/env-config
+router.put('/env-config', async (req, res) => {
+  try {
+    // 权限校验
+    if (!req.user || req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: 'Access denied' });
+    }
+
+    const { updates }: { updates: Array<{ key: string; value: string }> } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ success: false, error: 'Invalid input' });
+    }
+
+    // 白名单校验
+    const ALLOWED_KEYS = new Set([
+      'OLLAMA_URL', 'LLM_MODEL', 'AI_ENGINE', 'QWEN_API_KEY', 'QWEN_URL', 'QWEN_MODEL',
+      'OLLAMA_TIMEOUT_MS', 'LLM_SQL_ENGINE', 'LLM_SQL_MODEL', 'LLM_ANALYSIS_ENGINE',
+      'LLM_ANALYSIS_MODEL', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD',
+      'MYSQL_DATABASE', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'USER_QUERY_RATE_MAX', 'APP_URL'
+    ]);
+
+    for (const upd of updates) {
+      if (!ALLOWED_KEYS.has(upd.key)) {
+        return res.status(400).json({ success: false, error: `Forbidden key: ${upd.key}` });
+      }
+    }
+
+    // 批量更新
+    for (const upd of updates) {
+      await getPool().query(
+        'INSERT INTO env_config (`key`, `value`, updated_by, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE `value`=?, updated_by=?',
+        [upd.key, upd.value, req.user.id, upd.value, req.user.id]
+      );
+    }
+
+    // 审计日志
+    await getPool().query(
+      `INSERT INTO audit_log (user_id, action, details, created_at)
+       VALUES (?, 'ENV_CONFIG_UPDATE', ?, NOW())`,
+      [req.user.id, JSON.stringify(updates.map(u => `${u.key}=***`))]
+    );
+
+    res.json({
+      success: true,
+      message: `Updated ${updates.length} config items`,
+      audit_log: {
+        user_id: req.user.id,
+        username: req.user.username,
+        timestamp: new Date().toISOString(),
+        changes: updates.map(u => u.key)
+      }
+    });
+  } catch (error: any) {
+    console.error('[EnvConfig] PUT failed:', error.message);
+    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  }
+});
+
 export default router;
