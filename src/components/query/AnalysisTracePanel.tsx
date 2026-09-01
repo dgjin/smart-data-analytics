@@ -23,11 +23,14 @@ const STEP_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   understanding: Brain,
   linking: Search,
   knowledge: FileSearch,
+  metrics: Lightbulb,
   introspection: Database,
   plan: ListChecks,
   intermediate: Table2,
+  template_match: CheckCircle2, // v0.4.15 C: 模板命中
   sql_gen: Code2,
   execution: Database,
+  result_check: XCircle, // v0.4.15 D: 结果合理性校验
   analysis: Lightbulb,
   report: Route,
 };
@@ -49,8 +52,11 @@ export const TraceTimeline: React.FC<{ steps: TraceStepInfo[] }> = ({ steps }) =
         const failed = s.status === 'fail';
         const open = openIdx === i;
         const hasDetail = Boolean(s.inputSummary || s.outputSummary || s.sqlText || typeof s.rowCount === 'number');
+        // v0.4.15: 模板命中用特殊高亮，结果校验用黄色警示
+        const isTemplateMatch = s.stepType === 'template_match';
+        const isResultCheck = s.stepType === 'result_check';
         return (
-          <div key={i} className={`rounded-xl border ${failed ? 'border-rose-500/40 bg-rose-950/20' : 'border-slate-800 bg-slate-950/60'}`}>
+          <div key={i} className={`rounded-xl border ${failed ? 'border-rose-500/40 bg-rose-950/20' : isTemplateMatch ? 'border-emerald-500/30 bg-emerald-950/20' : isResultCheck ? 'border-amber-500/30 bg-amber-950/20' : 'border-slate-800 bg-slate-950/60'}`}>
             <button
               type="button"
               onClick={() => hasDetail && setOpenIdx(open ? null : i)}

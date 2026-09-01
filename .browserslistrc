@@ -1,0 +1,16 @@
+# Browser Compatibility Configuration
+# v0.4.16 - Enhanced support for Chrome, Edge, 360, Firefox, Safari
+
+# 目标浏览器范围 (compatible with autoprefixer, Babel, PostCSS)
+# >1%: 市场占有率大于 1% 的浏览器
+# last 2 versions: 每个浏览器最近两个版本
+# not dead: 不使用已停止维护的版本
+
+Chrome >= 91
+Edge >= 91
+Firefox >= 89
+Safari >= 14
+
+# 重要说明：
+# - 360 浏览器极速模式基于 Chromium，Chrome 配置已覆盖
+# - IE 系列已不再支持（停止于 11），如必须支持需单独配置

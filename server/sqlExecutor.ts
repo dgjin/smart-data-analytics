@@ -109,9 +109,43 @@ export function scenarioTimeoutMs(scenario: QueryScenario): number {
  * MySQL 服务端执行时限：在 SELECT 开头注入优化器提示 MAX_EXECUTION_TIME(n)（hint 注释形式，毫秒）。
  * 仅作用于 SELECT（本层已保证 SELECT-only）；MySQL 5.7.8+ 生效，老版本将其当注释安全忽略。
  * 注意必须在全部校验/行权限注入之后、执行之前追加（AST 解析器不认 hint 注释，提前注入会被 fail-closed 误拦）。
+ * v0.4.15：WITH 开头（CTE）时 hint 须注入 CTE 链之后的主 SELECT——括号配平扫描定位最后一个
+ * CTE 定义的闭合右括号，其后即主查询；定位失败原样返回（驱动层 query timeout 仍兜底，不阻断查询）。
  */
 export function injectMysqlMaxExecTime(sql: string, timeoutMs: number): string {
   const ms = Math.max(1, Math.floor(timeoutMs));
+  if (/^\s*with\b/i.test(sql)) {
+    let depth = 0;
+    let inStr = false;
+    let chainEnd = -1;
+    for (let i = sql.indexOf('('); i >= 0 && i < sql.length; i++) {
+      const ch = sql[i];
+      if (ch === "'") inStr = !inStr; // '' 转义连续翻转两次净效果正确；配平失败仅降级为不注入 hint
+      if (inStr) continue;
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) {
+          // CTE 定义闭合：后续是 `, name AS (` 则还有下一段 CTE，否则链结束
+          const nextCte = sql.slice(i + 1).match(/^\s*,\s*[`"\w]+\s+as\s*\(/i);
+          if (nextCte) {
+            // 让 for 的 i++ 恰好落在下一个 CTE 的左括号上（depth++ 不错漏）
+            i += nextCte[0].length - 1;
+            continue;
+          }
+          chainEnd = i;
+          break;
+        }
+      }
+    }
+    if (chainEnd >= 0) {
+      const tail = sql.slice(chainEnd + 1);
+      if (/^\s*select\b/i.test(tail)) {
+        return sql.slice(0, chainEnd + 1) + tail.replace(/^(\s*)select\b/i, `$1SELECT /*+ MAX_EXECUTION_TIME(${ms}) */`);
+      }
+    }
+    return sql;
+  }
   return sql.replace(/^\s*select\b/i, `SELECT /*+ MAX_EXECUTION_TIME(${ms}) */`);
 }
 
@@ -181,14 +215,32 @@ export function extractTableRefs(strippedSql: string): string[] {
   return [...refs];
 }
 
+/**
+ * v0.4.15 复杂 SQL（CTE 放行）：提取 WITH 链定义的 CTE 名集合（入参为剥离字符串后的 SQL）。
+ * CTE 名是查询内临时结果集别名而非真实表，表名白名单与 AST 复核均须排除，否则合法 CTE 被误拦。
+ * 仅 WITH 开头时有值；`name AS (` 结构不会出现在 SELECT 列列表（别名后不跟左括号），正则安全。
+ */
+export function extractCteNames(strippedSql: string): Set<string> {
+  const names = new Set<string>();
+  if (!/^\s*with\b/i.test(strippedSql)) return names;
+  const re = /(?:\bwith|,)\s*([`"\w]+)\s+as\s*\(/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(strippedSql))) {
+    names.add(m[1].replace(/[`"]/g, '').toLowerCase());
+  }
+  return names;
+}
+
 // P1 AST 二道防线：node-sql-parser 语法树级复核。
 // 解析成功 → 强校验（所有语句类型必须为 select、AST 提取的表必须全在白名单）；
 // 解析失败 → 放行不误伤（MySQL 方言边界），此时第一道正则防线的结论已生效。
+// v0.4.15：cteNames 为 WITH 链定义的 CTE 名（临时结果集别名），tableList 会将其误报为表，须排除。
 const astParser = new SqlAstParser();
 export function checkAstSafety(
   sql: string,
   allowedTables: Set<string>,
-  dialect: SqlDialect = 'mysql'
+  dialect: SqlDialect = 'mysql',
+  cteNames: Set<string> = new Set()
 ): { ok: true; astFallback?: boolean } | { ok: false; reason: string } {
   let entries: string[];
   try {
@@ -203,7 +255,7 @@ export function checkAstSafety(
     if (action !== 'select') {
       return { ok: false, reason: `SQL 包含非只读操作（${action}）` };
     }
-    if (table && table !== 'null' && !allowedTables.has(table.toLowerCase())) {
+    if (table && table !== 'null' && !cteNames.has(table.toLowerCase()) && !allowedTables.has(table.toLowerCase())) {
       return { ok: false, reason: `SQL 引用了问数范围外的表：${table}` };
     }
   }
@@ -264,9 +316,13 @@ export function validateSelectSql(
   if (withoutTrailing.includes(';')) {
     return { ok: false, reason: '只允许单条 SELECT 语句' };
   }
-  if (!/^select\b/i.test(withoutTrailing)) {
+  // v0.4.15：WITH 开头（CTE）放行——正则无法确认 WITH 主体是 SELECT，交由 AST 强校验（解析失败 fail-closed）
+  const isWithCte = /^with\b/i.test(withoutTrailing);
+  if (!/^select\b/i.test(withoutTrailing) && !isWithCte) {
     return { ok: false, reason: '只允许 SELECT 查询' };
   }
+  // CTE 名是查询内临时结果集别名，白名单与 AST 表引用校验均须排除
+  const cteNames = extractCteNames(withoutTrailing);
   if (/\binto\b/i.test(withoutTrailing)) {
     return { ok: false, reason: '禁止 INTO 写文件/表操作' };
   }
@@ -275,7 +331,7 @@ export function validateSelectSql(
   }
   // 表名白名单
   const allowed = new Set(allowedTables.map((t) => String(t.name || '').toLowerCase()));
-  const refs = extractTableRefs(withoutTrailing);
+  const refs = extractTableRefs(withoutTrailing).filter((r) => !cteNames.has(r));
   if (refs.length === 0) {
     return { ok: false, reason: 'SQL 未引用任何数据表' };
   }
@@ -284,9 +340,13 @@ export function validateSelectSql(
     return { ok: false, reason: `SQL 引用了问数范围外的表：${illegal.join(', ')}` };
   }
   // P1 AST 二道防线（正则白名单之后）：语法树级复核语句类型与表引用
-  const astCheck = checkAstSafety(withoutTrailing, allowed, dialect);
+  const astCheck = checkAstSafety(withoutTrailing, allowed, dialect, cteNames);
   if (astCheck.ok !== true) {
     return { ok: false, reason: astCheck.reason };
+  }
+  // WITH 开头必须 AST 解析成功：正则防线无法确认 WITH 主体是 SELECT，解析失败时无兜底，fail-closed
+  if (isWithCte && astCheck.astFallback === true) {
+    return { ok: false, reason: 'WITH 查询无法完成语法解析确认，已拒绝执行' };
   }
   const astFallback = astCheck.astFallback === true;
   // 敏感列拒绝（裸列名整词匹配，覆盖反引号写法）
@@ -387,6 +447,13 @@ export function injectRowFilters(
       }
       if (node.type === 'select') {
         wrapFrom(node.from);
+        // v0.4.15：WITH CTE 定义内的真实表引用也须包裹行过滤——ast.with[i].stmt.ast 为各 CTE 子查询 AST，
+        // 不递归会导致 CTE 内受控表静默漏注（越权读）；CTE 名本身不在 rowFilters 键中，主查询引用 CTE 不受影响
+        if (Array.isArray(node.with)) {
+          for (const cte of node.with) {
+            if (cte && cte.stmt && typeof cte.stmt === 'object') walkNode(cte.stmt.ast);
+          }
+        }
         // WHERE/HAVING 等表达式中的子查询（IN (SELECT ...)、EXISTS 等）
         walkExprSubqueries(node.where);
         walkExprSubqueries(node.having);

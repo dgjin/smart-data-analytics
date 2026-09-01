@@ -11,15 +11,33 @@ import { bigramOverlap } from './queryFeedback';
 
 export const CHUNK_SIZE = 400;
 export const CHUNK_OVERLAP = 80;
-export const TOP_K_CHUNKS = 4;
+/** v0.4.15：topK 4→6（本地算力前提，上下文预算同步上调，提升口径/枚举类知识命中率） */
+export const TOP_K_CHUNKS = 6;
 /** 单文档最多入选块数：防止大字典文档占满槽位，保证口径/指南类文档有注入机会 */
 export const MAX_CHUNKS_PER_DOC = 2;
 /** 标题含这些关键词的属于高价值口径/指南类文档：有命中时至少保留一个注入槽位，
- * 防止字段字典类文档在向量相似度上全面占优、挤掉口径规则 */
-export const GUIDED_DOC_KEYWORDS = ['口径', '指南', '速查', '规则', '枚举'];
+ * 防止字段字典类文档在向量相似度上全面占优、挤掉口径规则；
+ * v0.4.15 增补「对比」「模式」，同比/环比等复杂分析口径文档优先召回 */
+export const GUIDED_DOC_KEYWORDS = ['口径', '指南', '速查', '规则', '枚举', '对比', '模式'];
 /** 保留槽位选块时的词法混合权重：向量分 + 权重×归一 bigram，
  * 避免分块边界把正答块排在同文档其他块之后 */
 export const GUIDED_BIGRAM_WEIGHT = 0.15;
+
+/**
+ * v0.4.15 知识库相关性阈值（向量余弦相似度下限）：低于阈值视为无关不注入。
+ * 背景：余弦相似度对非负 embedding 恒正，原 score>0 过滤形同虚设——天气/删数据类无关问题
+ * 也强行注入 topK 凑数知识（trace 实证 1100+ 字），稀释本地模型注意力。
+ * 默认 0.35（中文 embedding 相关通常 0.5+、无关多在 0.2-0.4），env KNOWLEDGE_MIN_SCORE 可调；
+ * 仅向量模式生效，bigram 关键词降级模式量纲不同，维持 score>0。
+ */
+export function knowledgeMinScore(): number {
+  const raw = process.env.KNOWLEDGE_MIN_SCORE;
+  if (raw !== undefined && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0 && n <= 1) return n;
+  }
+  return 0.35;
+}
 
 /** 按段落优先、定长兜底切块，相邻块保留 overlap 以防语义被截断 */
 export function chunkText(text: string, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP): string[] {
@@ -78,7 +96,8 @@ export interface KnowledgeChunk {
 
 /**
  * 排序检索：question 与 chunk 均可用向量时走余弦相似度，否则降级 bigram 关键词。
- * 返回得分最高的 topK 个片段（得分 ≤0 的被过滤）；
+ * 返回得分最高的 topK 个片段；向量模式过滤低于 knowledgeMinScore() 的无关片段，
+ * bigram 降级模式维持过滤得分 ≤0（量纲不同，不套用向量阈值）；
  * 同一文档（title）最多入选 maxPerDoc 块，避免单一长字典文档占满注入槽位；
  * reserveGuided 为 true 时，为标题命中 GUIDED_DOC_KEYWORDS 的最高分块保留一个槽位，
  * 保证口径/指南类知识（如「高频指标口径速查」）在字段字典相似度更高时仍能注入。
@@ -91,6 +110,7 @@ export function rankChunks(
   maxPerDoc = MAX_CHUNKS_PER_DOC,
   reserveGuided = true
 ): KnowledgeChunk[] {
+  const minScore = knowledgeMinScore();
   const scored = chunks
     .map((c) => {
       const useVector =
@@ -100,9 +120,10 @@ export function rankChunks(
       const score = useVector
         ? cosineSimilarity(questionEmbedding as number[], c.embedding as number[])
         : bigramOverlap(question, `${c.title} ${c.text}`);
-      return { c, score };
+      return { c, score, useVector };
     })
-    .filter((s) => s.score > 0)
+    // v0.4.15：向量模式按相关性阈值过滤（无关问题不强行注入凑数知识）；bigram 维持 >0
+    .filter((s) => (s.useVector ? s.score >= minScore : s.score > 0))
     .sort((a, b) => b.score - a.score);
   const out: KnowledgeChunk[] = [];
   const picked = new Set<KnowledgeChunk>();
@@ -134,11 +155,13 @@ export function rankChunks(
   return out;
 }
 
-/** 将检索到的片段格式化为阶段一 prompt 注入块；无结果返回空串 */
+/** 将检索到的片段格式化为阶段一 prompt 注入块；无结果返回空串。
+ * v0.4.15：措辞由「参考」升级为「必须遵循」强指令（与 businessNotes 对齐）——弱指令下本地小模型
+ * 常忽略知识内容自行编造口径；同时明确知识仅约束口径/术语/枚举，不放开表列白名单。 */
 export function formatKnowledgeSnippets(chunks: KnowledgeChunk[]): string {
   if (chunks.length === 0) return '';
   const lines = chunks.map((c) => `- [${c.title}] ${c.text.replace(/\s+/g, ' ').trim()}`);
-  return `相关业务知识（管理员登记，用于理解口径与术语，生成 SQL 时参考，但表与列仍必须来自 Schema）:\n${lines.join('\n')}\n`;
+  return `业务知识库（管理员登记的权威口径与术语，生成 SQL 时**必须遵循**其中命中本问题的口径、枚举写法与计算规则，禁止自行编造口径；表与列仍必须逐字来自 Schema，知识仅约束业务逻辑）:\n${lines.join('\n')}\n`;
 }
 
 // ---------- 持久化 ----------

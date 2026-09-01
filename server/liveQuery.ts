@@ -28,6 +28,7 @@ import {
   describeIntermediateTables,
   IntermediateTableInfo,
 } from './analysisChain';
+import { AVAILABLE_TEMPLATES, validateTemplateParams } from './sqlTemplates';
 
 const SAMPLE_ROWS_FOR_LLM = 15;
 export const VALID_STAGE1_CHARTS = ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'scatter', 'treemap', 'heatmap'] as const;
@@ -282,11 +283,18 @@ ${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessN
 ${introspectionEnabled ? `③ 数据自省 {"needIntrospection":true,"intermediateSql":"SELECT DISTINCT 列 FROM 表 [WHERE ...] LIMIT 30","note":"一句自省目的"}——过滤条件的实际取值写法（人名/编码/枚举）不确定时先输出此项；仅轻量只读，禁止直接给最终聚合 SQL，系统执行后回喂真实取值再生成最终 SQL
 ④` : '③'} 拒答 {"refuse":true,"reason":"..."}——仅限问题与 Schema 完全无关（闲聊/常识/代码/翻译等），或涉及概念在 Schema 中无任何语义相近表/字段时（禁止强行匹配或编造）。reason 必须用模板「抱歉，我是数据分析助手，仅协助处理数据分析相关工作，无法处理 XXXX」，XXXX 替换为具体请求类型（如天气查询→「无法处理天气查询」、写诗→「无法处理写诗创作」），严禁照抄模板或原样保留 XXXX，一句话完成；数据源暂缺的业务（如「2027 年预算统计」）说明缺失即可
 【SQL 规则】
-- 单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项；严禁添加 tbl_/t_ 等前后缀或编造不存在的表/列
-- 指标用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），AS 起简洁英文/拼音别名（禁中文、禁空格）；金额、比率、均值类指标用 ROUND(表达式, 2) 保留两位小数（除法/换算必须包裹 ROUND），计数/个数类保持整数
-- 结果行数 ≤100（聚合或 LIMIT）；SELECT 只含分组维度列与聚合结果列，禁止常量标签列（如 '项目总数' AS category）
+- 单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项；严禁添加 tbl_/t_等前后缀或编造不存在的表/列
+- 指标用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），AS 起简洁英文/拼音别名（禁中文、禁空格）；金额、比率、均值类指标用 ROUND(表达式，2) 保留两位小数（除法/换算必须包裹 ROUND），计数/个数类保持整数
+- 结果行数 ≤100（聚合或 LIMIT）；SELECT 只含分组维度列与聚合结果列，禁止常量标签列（如'项目总数' AS category）
 - 金额原值保护：除非用户明确要求换算单位（如「换算成亿元」「以万元为单位」），禁止对金额列做除法换算，直接输出聚合原值
 ${dialect.rules}
+【复杂分析范式（v0.4.15 新增，本地算力前提全量注入）】
+- 同比环比：两期对比可用 LEFT JOIN 派生表（FROM (SELECT dim, SUM(amt) FROM t WHERE yr=? GROUP BY dim) r LEFT JOIN (SELECT dim, SUM(amt) FROM t WHERE yr=? GROUP BY dim) p ON r.dim=p.dim）
+- TOP-N 占比：使用 WITH CTE + RANK() OVER() 窗口函数生成排名并计算占比（ROUND(pct, 2)）
+- 条件聚合交叉表：SUM(CASE WHEN col=val THEN expr END) 横向展开多指标列
+- UNION ALL：双期/多源合并数据时优先使用 UNION ALL 而非 JOIN（减少重复计算）
+- 窗口函数：ROW_NUMBER/RANK/LAG 等窗口函数在排名/环比取值场景可用；LAG(amt, 1) OVER (ORDER BY dt) 可提取上期值做同比
+- 注意：简单聚合可回答的问题仍输出简单 SQL，禁止为复杂而复杂（如单表单月 COUNT(*) 不要强行上 CTE）
 【图表与解释】
 - xAxisKey=SELECT 输出的维度列名/别名，yAxisKeys=指标别名数组，二者与 SQL 输出列严格一致；columnNames 覆盖 SQL 输出每一列的中文表头 {"列名/别名": "中文表头"}（维度列与聚合别名都要覆盖）
 - chartType 从 bar/line/area/pie/donut/radar/scatter/treemap/heatmap 选择：时间趋势 line/area，类别对比 bar，占比结构 pie/donut，多指标多维对比 radar，两个数值指标相关性 scatter（xAxisKey 为其中一指标别名），层级/分区占比 treemap，同维度多指标横向对照 heatmap
@@ -674,14 +682,62 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   // 故复杂问题以口径正确性优先（P1-7 多候选择优仍保留）；未配置 LLM_SQL_* 时 sqlStageRoute() 返回 undefined 全程主模型。
   const stage1Route = isComplexQuery ? undefined : sqlStageRoute();
 
-  // 阶段一 + 执行，失败时把原因回喂 LLM 重试一次
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // v0.4.15 C2: 模板匹配前置——优先尝试用 LLM 做"模板选择 + 参数填充"，命中则直接用模板引擎确定性拼装 SQL
+  // 背景：本地开源模型自由生成复杂 SQL（窗口函数/同比环比）可靠性弱于云端旗舰，确定性模板零偏差兜底
+  let templateSql: string | null = null;
+  let matchedTemplateId: string | null = null;
+  if (!input.approvedPlan && AVAILABLE_TEMPLATES.length > 0) {
+    try {
+      // 轻量 LLM 调用：输出 {templateId,params}；未命中时返回 null
+      const templateMatchPrompt = `你是一个模板选择引擎。根据用户问题和 Schema，判断是否命中以下分析模板之一。若命中则输出 JSON{"templateId":"<id>","params":{<paramSchema>}}; 否则输出 null。
+
+可用模板:
+${AVAILABLE_TEMPLATES.map((t, i) => `${i + 1}. [${t.id}] ${t.label}: ${t.description}`).join('\n')}
+
+Schema: ${serializeSchemaForPrompt(schema)}
+
+用户问题：${query}
+
+仅输出纯 JSON 或 null，不要任何 markdown 标记。`;
+      const matchRaw = await callLLMJson(templateMatchPrompt, query, [], { route: stage1Route }).catch(() => null);
+      const matchResult = matchRaw ? (safeParseJson(matchRaw) as { templateId?: string; params?: any } | null) : null;
+      if (matchResult?.templateId && matchResult.params) {
+        const validation = validateTemplateParams(matchResult.templateId as any, matchResult.params);
+        if (validation.ok) {
+          const template = AVAILABLE_TEMPLATES.find((t) => t.id === matchResult.templateId);
+          if (template) {
+            templateSql = template.buildSql(validation.params as any, dsType === 'postgresql' || dsType === 'greenplum' ? 'pg' : 'mysql');
+            matchedTemplateId = matchResult.templateId;
+            trace({ stepType: 'template_match', title: '模板命中', inputSummary: query, outputSummary: `模板:${matchedTemplateId}`, status: 'ok' });
+          }
+        }
+      }
+    } catch {
+      // 模板匹配失败不阻断主流程，落到下方自由生成路径
+    }
+  }
+
+  // 阶段一 + 执行，失败时把原因回喂 LLM 重试一次（v0.4.15 D: 重试次数 2→3）
+  for (let attempt = 0; attempt < 3; attempt++) {
     const unitPrefix = buildAmountUnitPrompt(normalizeAmountUnit(input.amountUnit));
     const basePrompt =
       attempt === 0
         ? `${unitPrefix}${query}`
         : `${unitPrefix}${query}\n\n（上次生成的 SQL 未通过校验或执行失败：${lastError}。请修正后按同一 JSON 契约重新输出。）`;
     const plans: Stage1Plan[] = [];
+
+    // v0.4.15 C2: 模板命中标识——若模板引擎确定拼装 SQL，走下方统一执行流程（仍经安全层 SELECT-only/白名单/行过滤校验）；
+    // 执行失败或结果异常时在循环尾清空模板，下一 attempt 回退自由生成兜底（方案 C：未命中回退自由生成）
+    if (templateSql) {
+      plans.push({
+        sql: templateSql,
+        title: `【模板】${AVAILABLE_TEMPLATES.find((t) => t.id === matchedTemplateId)?.label || matchedTemplateId}`,
+        chartType: 'bar',
+        xAxisKey: '',
+        yAxisKeys: [],
+        thoughtProcess: [`命中「${matchedTemplateId}」分析模板，由模板引擎确定性拼装 SQL（本地模型复杂语法生成能力的零偏差兜底）`],
+      });
+    } else {
 
     // 首轮即全并行生成 candidateCount 个候选（性能优化：原「首候选串行 + 成功后再并行补发 N-1 个」墙钟
     // ≈ 首候选耗时 + 最慢补发耗时 ≈ 2×单次，全并行 ≈ 最慢单候选 ≈ 1×）；候选 0 提示词与串行时代完全一致
@@ -773,6 +829,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       if (p) plans.push(p);
       candidateIndex++;
     }
+    }
     if (plans.length === 0) {
       lastError = 'LLM 输出未通过 SQL 契约校验';
       retries++;
@@ -849,9 +906,28 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       exec = winner.exec;
       input.onStage?.('executed', { sql: exec.result.finalSql, rowCount: exec.result.rows.length });
     }
+
+    // v0.4.15 D: 结果合理性校验——检测到异常模式则回喂原因再生成一轮（本地算力免费，值得多一轮）
+    if (succeeded && exec && exec.ok === true && !input.approvedPlan) {
+      const rows = exec.result.rows || [];
+      let reasonToRetry: string | null = null;
+      if (rows.length === 0) reasonToRetry = '结果为空，请检查过滤条件或改用更宽松的统计口径';
+      else if (rows.every((r) => Object.values(r).every((v) => v === null || v === undefined))) reasonToRetry = '所有列均为 NULL，查询逻辑可能有误';
+      if (reasonToRetry) {
+        trace({ stepType: 'result_check', title: '结果合理性校验', inputSummary: `${rows.length} 行`, outputSummary: reasonToRetry, status: 'fail', durationMs: 0 });
+        lastError = `执行成功但结果异常：${reasonToRetry}`;
+        succeeded = false;
+      }
+    }
     if (succeeded) break;
+    // 模板路径失败（执行失败或结果异常）：清空模板，下一 attempt 回退自由生成兜底
+    if (templateSql) {
+      trace({ stepType: 'template_match', title: '模板回退自由生成', inputSummary: query, outputSummary: lastError, status: 'fail', durationMs: 0 });
+      templateSql = null;
+      matchedTemplateId = null;
+    }
     retries++;
-    plan = attempt === 1 ? plans[plans.length - 1] : null;
+    plan = attempt === 2 ? plans[plans.length - 1] : null;
   }
 
   if (!exec || exec.ok !== true) {

@@ -16,12 +16,15 @@ export function budgetText(text: string, maxTokens: number): string {
   return t.slice(0, Math.max(0, Math.floor(maxTokens * 1.5)));
 }
 
-/** 知识库片段注入预算 */
-export const KNOWLEDGE_TOKEN_BUDGET = 1800;
+/** 知识库片段注入预算
+ * v0.4.15：KNOWLEDGE_TOKEN_BUDGET 1800→2700（topK 扩容至 6 块 + 强指令更强调口径遵循，预留更多字数空间；
+ * 不无限放大的理由：无关问题相关性阈值已过滤，但仍有少量命中，需保留截断防注人稀释；同时与 topK+GUIDED 保留槽位协同）。 */
+export const KNOWLEDGE_TOKEN_BUDGET = 2700;
 /** 外部知识库片段注入预算（与本地知识库分开控制，避免外部源挤占本地口径注入） */
 export const EXTERNAL_KB_TOKEN_BUDGET = 1200;
-/** few-shot 样例注入预算 */
-export const FEWSHOT_TOKEN_BUDGET = 1800;
+/** few-shot 样例注入预算
+ * v0.4.15：FEWSHOT_TOKEN_BUDGET 1800→3600（复杂 SQL 范式引导 + 新增 8-12 条复杂场景样例；预算上调但样例库仍按场景标签召回，避免全量堆砌导致注意力分散）。 */
+export const FEWSHOT_TOKEN_BUDGET = 3600;
 /** 多轮历史对话预算（保留最近若干轮，从新到旧贪心） */
 export const HISTORY_TOKEN_BUDGET = 1500;
 

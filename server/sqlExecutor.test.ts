@@ -3,7 +3,7 @@
  * 仅覆盖纯校验逻辑（validateSelectSql / extractTableRefs），不触碰真实数据库。
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, stripCommentsAndStrings, injectRowFilters, repairTablePrefixes, dsPoolMax } from './sqlExecutor';
+import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, extractCteNames, stripCommentsAndStrings, injectRowFilters, injectMysqlMaxExecTime, repairTablePrefixes, dsPoolMax } from './sqlExecutor';
 import { appPoolMax } from './db';
 
 const ALLOWED = [
@@ -94,10 +94,46 @@ describe('validateSelectSql: SELECT-only 防线', () => {
     expect(multi.ok).toBe(false);
   });
 
-  it('拒绝非 SELECT 开头的语句（WITH/SET/SHOW 等）', () => {
-    expect(validateSelectSql('WITH t AS (SELECT 1) SELECT * FROM t', ALLOWED).ok).toBe(false);
+  it('拒绝非 SELECT 开头的语句（SET/SHOW 等）', () => {
     expect(validateSelectSql('SHOW TABLES', ALLOWED).ok).toBe(false);
     expect(validateSelectSql('SET @a = 1', ALLOWED).ok).toBe(false);
+  });
+
+  it('v0.4.15：WITH 开头（CTE）查询放行，CTE 名不参与白名单校验', () => {
+    // CTE 基础：cte 是临时结果集别名，真实表 tbl_orders 在白名单内
+    const r = validateSelectSql(
+      'WITH cte AS (SELECT channel, amount FROM tbl_orders WHERE id > 10) SELECT channel, SUM(amount) AS total FROM cte GROUP BY channel',
+      ALLOWED
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.sql).toMatch(/LIMIT 100000$/);
+    // 多段 CTE + JOIN
+    const multi = validateSelectSql(
+      'WITH a1 AS (SELECT id FROM tbl_orders), a2 AS (SELECT id FROM tbl_clients JOIN a1 ON tbl_clients.id = a1.id) SELECT * FROM a2',
+      ALLOWED
+    );
+    expect(multi.ok).toBe(true);
+    // CTE 内引用白名单外表仍被拒绝
+    const bad = validateSelectSql('WITH cte AS (SELECT * FROM secret_table) SELECT * FROM cte', ALLOWED);
+    expect(bad.ok).toBe(false);
+    // WITH 包装写操作仍被拒绝（AST 层语句类型校验）
+    const write = validateSelectSql('WITH cte AS (SELECT id FROM tbl_orders) DELETE FROM tbl_orders', ALLOWED);
+    expect(write.ok).toBe(false);
+  });
+
+  it('v0.4.15：窗口函数/条件聚合/派生表/UNION 复杂语法放行', () => {
+    const window = validateSelectSql(
+      'SELECT channel, SUM(amount) AS total, ROW_NUMBER() OVER (ORDER BY SUM(amount) DESC) AS rn FROM tbl_orders GROUP BY channel',
+      ALLOWED
+    );
+    expect(window.ok).toBe(true);
+    const caseAgg = validateSelectSql(
+      "SELECT channel, SUM(CASE WHEN id > 100 THEN amount END) AS big_amt FROM tbl_orders GROUP BY channel",
+      ALLOWED
+    );
+    expect(caseAgg.ok).toBe(true);
+    const union = validateSelectSql('SELECT channel, amount FROM tbl_orders WHERE id > 1 UNION ALL SELECT channel, amount FROM tbl_orders WHERE id <= 1', ALLOWED);
+    expect(union.ok).toBe(true);
   });
 });
 
@@ -357,6 +393,20 @@ describe('injectRowFilters: P1-3 行级权限 AST 强制注入', () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.sql).toMatch(/WHERE.*region.*华东/);
   });
+
+  it('v0.4.15：WITH CTE 定义内的受控表被递归注入，主查询 CTE 引用不受影响', () => {
+    const r = injectRowFilters(
+      'WITH cte AS (SELECT region, amount FROM clients WHERE id > 10) SELECT region, SUM(amount) FROM cte GROUP BY region',
+      { clients: "region = '华东'" }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      // CTE 内部真实表被包裹为过滤派生表
+      expect(r.sql).toContain("SELECT * FROM `clients` WHERE `region` = '华东'");
+      // WITH 结构保留
+      expect(r.sql).toMatch(/^\s*WITH/i);
+    }
+  });
 });
 
 describe('PG 方言（postgresql/greenplum）支持', () => {
@@ -395,6 +445,35 @@ describe('PG 方言（postgresql/greenplum）支持', () => {
   it('PG 方言 AST 拦截非 select 语句类型', () => {
     const allowed = new Set(['tbl_orders']);
     expect(checkAstSafety('DELETE FROM tbl_orders', allowed, 'pg').ok).toBe(false);
+  });
+});
+
+describe('injectMysqlMaxExecTime: v0.4.15 WITH 查询服务端超时 hint', () => {
+  it('普通 SELECT 在开头注入 hint', () => {
+    expect(injectMysqlMaxExecTime('SELECT id FROM t', 15000)).toBe('SELECT /*+ MAX_EXECUTION_TIME(15000) */ id FROM t');
+  });
+
+  it('WITH 单段 CTE：hint 注入主 SELECT 而非 CTE 内部', () => {
+    const sql = 'WITH cte AS (SELECT id FROM t1) SELECT * FROM cte';
+    const out = injectMysqlMaxExecTime(sql, 15000);
+    expect(out).toBe('WITH cte AS (SELECT id FROM t1) SELECT /*+ MAX_EXECUTION_TIME(15000) */ * FROM cte');
+  });
+
+  it('WITH 多段 CTE：hint 注入最后的主 SELECT', () => {
+    const sql = 'WITH a AS (SELECT x FROM t1), b AS (SELECT y FROM t2 JOIN a ON t2.id = a.x) SELECT * FROM b';
+    const out = injectMysqlMaxExecTime(sql, 15000);
+    expect(out).toBe('WITH a AS (SELECT x FROM t1), b AS (SELECT y FROM t2 JOIN a ON t2.id = a.x) SELECT /*+ MAX_EXECUTION_TIME(15000) */ * FROM b');
+  });
+});
+
+describe('extractCteNames: v0.4.15 CTE 名提取', () => {
+  it('WITH 开头提取全部 CTE 名（小写）', () => {
+    const names = extractCteNames('WITH a AS (SELECT 1), `B` AS (SELECT 2) SELECT * FROM a JOIN b');
+    expect([...names].sort()).toEqual(['a', 'b']);
+  });
+
+  it('非 WITH 开头返回空集合', () => {
+    expect(extractCteNames('SELECT a AS x FROM t').size).toBe(0);
   });
 });
 

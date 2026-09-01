@@ -14,8 +14,10 @@ export type TraceStepType =
   | 'introspection'
   | 'plan'
   | 'intermediate'
+  | 'template_match'
   | 'sql_gen'
   | 'execution'
+  | 'result_check'
   | 'analysis'
   | 'report';
 
