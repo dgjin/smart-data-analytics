@@ -4,6 +4,7 @@
  * 写入失败仅告警不阻塞主流程（审计不应成为可用性瓶颈）。
  */
 import { getPool } from './db';
+import { observeAudit } from './monitoring';
 
 export type AuditStatus =
   | 'SUCCESS'
@@ -34,6 +35,7 @@ export interface AuditEntry {
 }
 
 export function writeAudit(entry: AuditEntry): void {
+  observeAudit(entry); // Prometheus 旁路埋点（fail-open，不影响审计落库）
   getPool()
     .query(
       `INSERT INTO query_audit_log

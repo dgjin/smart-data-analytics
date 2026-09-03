@@ -13,6 +13,7 @@ import pg from 'pg';
 // node-sql-parser 是 CJS 包，ESM 下需默认导入后解构（tsx/Node ESM 命名导出不可用）
 import sqlParserPkg from 'node-sql-parser';
 import { getPool } from './db';
+import { observeSqlExec } from './monitoring';
 import { decryptSecret } from './secretsCrypto';
 import { callLLMJson } from './llmClient';
 
@@ -587,7 +588,28 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
  * （mysql / postgresql / greenplum），否则返回 UNSUPPORTED_DS_TYPE（调用方走演示模式）。
  * rowFilters：P1-3 行级权限（实际表名 → 谓词），白名单校验通过后 AST 强制注入。
  */
+/** Prometheus 埋点包装：计时 + 成败 label，真实实现见 executeSafeSqlImpl */
 export async function executeSafeSql(
+  dataSourceId: string,
+  rawSql: unknown,
+  allowedTables: { name: string; columns?: { name: string }[] }[],
+  sensitiveColumns: string[] = [],
+  maxRows: number = MAX_ROWS,
+  rowFilters: Record<string, string> = {},
+  scenario: QueryScenario = 'interactive'
+): Promise<ExecOutcome> {
+  const t0 = Date.now();
+  try {
+    const out = await executeSafeSqlImpl(dataSourceId, rawSql, allowedTables, sensitiveColumns, maxRows, rowFilters, scenario);
+    observeSqlExec(Date.now() - t0, out.ok === true);
+    return out;
+  } catch (err) {
+    observeSqlExec(Date.now() - t0, false);
+    throw err;
+  }
+}
+
+async function executeSafeSqlImpl(
   dataSourceId: string,
   rawSql: unknown,
   allowedTables: { name: string; columns?: { name: string }[] }[],

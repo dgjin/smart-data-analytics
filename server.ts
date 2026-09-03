@@ -25,6 +25,7 @@ import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthCh
 import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llmUsage';
 import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/analysisChain';
 import { requestLogger } from './server/requestLogger';
+import { metricsHandler, httpRequestDuration } from './server/monitoring';
 import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
 import datasourceRoutes from './server/routes/datasources';
@@ -148,12 +149,27 @@ async function startServer() {
   // P2 可观测性：requestId + API 访问日志（位于鉴权之前，被拒请求同样有留痕）
   app.use(requestLogger);
 
+  // Prometheus：/api/* 接口耗时直方图（仅 API 前缀——开发态 Vite 静态资源路径多，全量会撑爆 label 基数）；
+  // route label 用匹配到的路由模式（/api/datasources/:id），无匹配归入 unmatched
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) return next();
+    const end = httpRequestDuration.startTimer();
+    res.on('finish', () => {
+      const routePath = typeof (req as any).route?.path === 'string' ? (req as any).route.path : '';
+      end({ method: req.method, route: (req.baseUrl || '') + routePath || 'unmatched', status: res.statusCode });
+    });
+    next();
+  });
+
   console.log(`[AI Engine] ${llmEngineLabel()}`);
 
   // 1. API Endpoint: Health check (public)
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Prometheus 抓取端点（不走 JWT，基础设施端点不参与 OpenAPI 校验；可选 METRICS_TOKEN 保护）
+  app.get('/metrics', metricsHandler);
 
   // 1b. API Endpoint: 当前 AI 引擎信息（登录用户；前端按实际模型展示提示，不暴露内网地址）
   app.get('/api/system/engine', authMiddleware, (_req, res) => {

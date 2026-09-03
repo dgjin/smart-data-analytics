@@ -1,0 +1,69 @@
+# Prometheus + Grafana 监控栈（P0）
+# 用法：
+#   docker compose -f docker-compose.monitoring.yml up -d
+#   Prometheus: http://localhost:9090    Grafana: http://localhost:3100（admin / ${GRAFANA_ADMIN_PASSWORD:-admin}）
+# 说明：
+# - 本栈只编排监控组件；应用/MySQL/Redis/Ollama 使用既有实例，容器内经 host.docker.internal 回宿主机；
+# - 应用侧需先启动（npm run dev / node dist/server.cjs），/metrics 端点方可抓取；
+# - MySQL/Redis exporter 通过环境变量传入连接串，密码不入库（compose 从 shell/.env 读取）。
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=2GB'
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - '3100:3000'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    pid: host
+    ports:
+      - '9100:9100'
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - '--path.rootfs=/host'
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.63.0
+    environment:
+      REDIS_ADDR: ${REDIS_URL:-redis://host.docker.internal:6379}
+    ports:
+      - '9121:9121'
+    restart: unless-stopped
+
+  mysql-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    environment:
+      # DATA_SOURCE_NAME 格式：user:pass@tcp(host:port)/dbname
+      DATA_SOURCE_NAME: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(${MYSQL_HOST:-host.docker.internal}:${MYSQL_PORT:-3306})/${MYSQL_DATABASE:-smart_analytics}
+    ports:
+      - '9104:9104'
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

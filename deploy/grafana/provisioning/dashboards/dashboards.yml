@@ -1,0 +1,13 @@
+# Grafana 仪表盘自动加载：/var/lib/grafana/dashboards 下的 JSON 即代码入库
+apiVersion: 1
+providers:
+  - name: nl2sql-dashboards
+    orgId: 1
+    folder: '智能问数'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,32 @@
+# Prometheus 抓取配置——智能问数据分析系统
+# 应用 /metrics 暴露：问数状态计数、端到端耗时、缓存命中、LLM 时延/token、SQL 执行耗时、HTTP 接口耗时
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # 应用主链路（多实例部署时在此追加 app2 地址，instance label 自动区分）
+  - job_name: nl2sql-app
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:3000']
+        labels:
+          service: 'nl2sql'
+
+  # 宿主机资源（CPU/内存/磁盘）
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # 查询缓存层
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # 系统元数据库 + 业务库
+  - job_name: mysql
+    static_configs:
+      - targets: ['mysql-exporter:9104']
+
+# 说明：Ollama 原生不暴露 Prometheus 格式指标（根路径返回纯文本，抓取会解析失败），
+# P0 不单独采集——Ollama 健康度通过应用侧 llm_call_duration_seconds{ok="0"} 异常率观测。

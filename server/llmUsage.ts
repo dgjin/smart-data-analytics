@@ -3,6 +3,7 @@
  * 落库 llm_usage 表支撑多引擎成本对比；写入 fire-and-forget，失败不阻断主链路。
  */
 import { getPool } from './db';
+import { observeLlmUsage } from './monitoring';
 
 export type LlmChannel = 'json' | 'text' | 'text_stream' | 'embedding';
 
@@ -21,6 +22,7 @@ export interface LlmUsageEntry {
 
 /** 单次调用用量落库（异步不等待；库未初始化/写入失败仅记日志） */
 export function recordLlmUsage(entry: LlmUsageEntry): void {
+  observeLlmUsage(entry); // Prometheus 旁路埋点（fail-open）
   const total = (entry.promptTokens | 0) + (entry.completionTokens | 0);
   try {
     void getPool()

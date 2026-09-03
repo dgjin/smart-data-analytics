@@ -7,6 +7,7 @@
  */
 import { getStateStore, isRedisEnabled } from './stateStore';
 import { callEmbedding } from './llmClient';
+import { observeCacheHit } from './monitoring';
 
 // P0 性能优化：TTL 默认 10 分钟延长至 30 分钟（分析型场景数据时效要求低，缓存收益大）；
 // 可用 QUERY_CACHE_TTL_MINUTES 覆盖。失效正确性由数据源变更点调用 invalidateQueryCache 保证（见 routes/datasources.ts）。
@@ -39,10 +40,12 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-export async function getCachedQuery(key: string): Promise<any | null> {
+export async function getCachedQuery(key: string, internal = false): Promise<any | null> {
+  const hit = () => { if (!internal) observeCacheHit('l1'); }; // internal=true 时为 L2 取载荷，不计 L1 命中（避免重复计数）
   if (isRedisEnabled()) {
     try {
       const raw = await getStateStore().get(`qc:${key}`);
+      if (raw) hit(); // Prometheus 埋点：L1 精确命中（Redis）
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null; // Redis 异常按未命中处理（缓存 fail-open）
@@ -54,6 +57,7 @@ export async function getCachedQuery(key: string): Promise<any | null> {
     cache.delete(key);
     return null;
   }
+  hit(); // Prometheus 埋点：L1 精确命中（内存）
   return entry.payload;
 }
 
@@ -242,7 +246,8 @@ export async function getSemanticCachedQuery(
     if (!best || similarity > best.similarity) best = { e, similarity };
   }
   if (!best || best.similarity < semanticCacheThreshold()) return null;
-  const payload = await getCachedQuery(best.e.key);
+  const payload = await getCachedQuery(best.e.key, true);
   if (!payload) return null; // L1 已过期/已失效：索引残留不命中
+  observeCacheHit('l2'); // Prometheus 埋点：L2 语义命中
   return { payload, matchedQuestion: best.e.question, similarity: best.similarity };
 }
