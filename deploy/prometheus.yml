@@ -4,6 +4,15 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# P1：告警规则加载 + Alertmanager 通知
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
 scrape_configs:
   # 应用主链路（多实例部署时在此追加 app2 地址，instance label 自动区分）
   - job_name: nl2sql-app

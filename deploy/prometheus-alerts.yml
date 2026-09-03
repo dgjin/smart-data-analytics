@@ -1,0 +1,104 @@
+# Prometheus 告警规则——智能问数据分析系统（P1）
+# 基线依据（2026-09 性能专项评估）：SUCCESS avg 249s、缓存命中率 3.5%→P0 优化后目标 >30%、FALLBACK 率 7.9%
+# 注意：比率类规则在无流量时结果为 NaN（PromQL 中 NaN < x 为 false），天然不误报；
+#       缓存命中率额外加流量门槛，避免夜间低流量误报。
+groups:
+  - name: nl2sql-availability
+    rules:
+      # 应用进程宕机 / /metrics 抓取失败
+      - alert: Nl2sqlAppDown
+        expr: up{job="nl2sql-app"} == 0
+        for: 1m
+        labels: { severity: critical, service: nl2sql }
+        annotations:
+          summary: "问数应用实例不可达"
+          description: "实例 {{ $labels.instance }} 已连续 1 分钟无法抓取 /metrics，服务可能已宕机。"
+
+      # MySQL 元数据库宕机
+      - alert: MySQLDown
+        expr: up{job="mysql"} == 0
+        for: 1m
+        labels: { severity: critical, service: mysql }
+        annotations:
+          summary: "MySQL exporter 不可达或 MySQL 宕机"
+          description: "mysql-exporter 已连续 1 分钟抓取失败，系统元数据库可能不可用（登录/审计/缓存索引均受影响）。"
+
+      # Redis 缓存层宕机（应用层有内存回退，降级运行非致命）
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels: { severity: warning, service: redis }
+        annotations:
+          summary: "Redis 缓存层不可达"
+          description: "redis-exporter 已连续 2 分钟抓取失败；应用将回退进程内缓存（多实例语义缓存/限流共享状态失效）。"
+
+  - name: nl2sql-business
+    rules:
+      # 问数成功率骤降（基线：SUCCESS+CACHE 占比；排除拒答/澄清等正常业务终态之外的 ERROR/FALLBACK 侵蚀）
+      - alert: QuerySuccessRateLow
+        expr: |
+          sum(rate(nl2sql_requests_total{status=~"SUCCESS|CACHE"}[5m]))
+            / sum(rate(nl2sql_requests_total{endpoint="query"}[5m])) < 0.85
+        for: 5m
+        labels: { severity: critical, service: nl2sql }
+        annotations:
+          summary: "问数成功率低于 85%"
+          description: "近 5 分钟成功率 {{ $value | humanizePercentage }}，请检查 LLM 引擎与数据源可用性。"
+
+      # 端到端 P95 时延恶化（基线 SUCCESS avg 249s；P0 优化后双表放宽预期显著下降，超 180s 持续即告警）
+      - alert: QueryLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(nl2sql_duration_seconds_bucket{status=~"SUCCESS|FALLBACK"}[10m])) by (le)) > 180
+        for: 10m
+        labels: { severity: warning, service: nl2sql }
+        annotations:
+          summary: "问数端到端 P95 时延超过 180s"
+          description: "近 10 分钟 P95 = {{ $value }}s，检查 LLM 模型负载（llm_call_duration）与 SQL 执行耗时（sql_execute_duration）占比定位瓶颈。"
+
+      # 缓存命中率异常（P0 优化后目标 >30%；低于 15% 且有流量时提示失效联动/TTL 配置可能异常）
+      - alert: CacheHitRateLow
+        expr: |
+          (
+            sum(rate(nl2sql_cache_hits_total[1h]))
+              / sum(rate(nl2sql_requests_total{endpoint="query"}[1h])) < 0.15
+          )
+          and sum(rate(nl2sql_requests_total{endpoint="query"}[1h])) > 0.005
+        for: 1h
+        labels: { severity: warning, service: nl2sql }
+        annotations:
+          summary: "查询缓存命中率低于 15%（有流量前提下）"
+          description: "近 1 小时命中率 {{ $value | humanizePercentage }}；检查数据源变更后失效联动（invalidateQueryCache）与 QUERY_CACHE_TTL_MINUTES 配置。"
+
+      # FALLBACK 降级率超标（基线 7.9%）
+      - alert: FallbackRateHigh
+        expr: |
+          sum(rate(nl2sql_requests_total{status="FALLBACK"}[30m]))
+            / sum(rate(nl2sql_requests_total{endpoint="query"}[30m])) > 0.15
+        for: 30m
+        labels: { severity: warning, service: nl2sql }
+        annotations:
+          summary: "问数 FALLBACK 降级率超过 15%"
+          description: "近 30 分钟降级率 {{ $value | humanizePercentage }}（基线 7.9%），多为 SQL 生成/执行反复失败，检查 LLM 输出质量与数据源 schema 同步状态。"
+
+  - name: nl2sql-resources
+    rules:
+      # Node 进程内存（LLM prompt 组装与结果集驻留，基线运行约数百 MB）
+      - alert: AppMemoryHigh
+        expr: process_resident_memory_bytes{job="nl2sql-app"} > 1.5 * 1024 * 1024 * 1024
+        for: 15m
+        labels: { severity: warning, service: nl2sql }
+        annotations:
+          summary: "应用进程常驻内存超过 1.5GiB"
+          description: "实例 {{ $labels.instance }} 内存 {{ $value | humanize1024 }}B 持续 15 分钟，疑似泄漏（关注 embedding 缓存/审计缓冲）。"
+
+      # 宿主机/容器磁盘（node-exporter 根文件系统；macOS Docker 下观测的是 Linux VM 磁盘，作趋势参考）
+      - alert: DiskSpaceLow
+        expr: |
+          1 - (node_filesystem_avail_bytes{mountpoint=~"/|/host", fstype!~"tmpfs|overlay|devfs|map.*"}
+                 / node_filesystem_size_bytes{mountpoint=~"/|/host", fstype!~"tmpfs|overlay|devfs|map.*"}) > 0.85
+        for: 10m
+        labels: { severity: warning, service: infra }
+        annotations:
+          summary: "磁盘使用率超过 85%"
+          description: "挂载点 {{ $labels.mountpoint }} 可用空间不足 15%，关注 Prometheus 时序库与 MySQL 数据增长。"

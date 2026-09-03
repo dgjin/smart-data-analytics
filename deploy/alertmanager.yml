@@ -1,0 +1,41 @@
+# Alertmanager 配置——智能问数据分析系统
+# 通知渠道：Webhook（企业微信/钉钉/自研网关均可接入）。
+# 环境变量 ALERT_WEBHOOK_URL 控制通知地址（compose 启动时经 --config.expand-env 展开）：
+#   - 未设置：默认指向 http://127.0.0.1:9/blackhole（弃包端口，等价静默黑洞，告警仍可在 Prometheus/Alertmanager UI 查看）
+#   - 企业微信群机器人：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxxx（需自研小网关做格式转换）
+#   - 邮件渠道：参考下方注释模板，填入 SMTP 参数后把 default-receiver 改为 email
+global:
+  resolve_timeout: 5m
+  # smtp_smarthost: 'smtp.example.com:465'
+  # smtp_from: 'alert@example.com'
+  # smtp_auth_username: 'alert@example.com'
+  # smtp_auth_password: 'xxxx'
+  # smtp_require_tls: true
+
+route:
+  receiver: webhook
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # critical 告警更频繁提醒
+    - matchers: ['severity = critical']
+      repeat_interval: 1h
+
+receivers:
+  - name: webhook
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_URL}'
+        send_resolved: true
+
+  # - name: email
+  #   email_configs:
+  #     - to: 'ops@example.com'
+  #       send_resolved: true
+
+inhibit_rules:
+  # 应用宕机时抑制其下游业务告警（成功率/时延必然连锁异常，避免告警风暴）
+  - source_match: { alertname: 'Nl2sqlAppDown' }
+    target_match_re: { alertname: 'QuerySuccessRateLow|QueryLatencyP95High|CacheHitRateLow|FallbackRateHigh' }
+    equal: ['service']

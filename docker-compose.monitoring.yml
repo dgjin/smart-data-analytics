@@ -17,7 +17,26 @@ services:
       - '9090:9090'
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
+    depends_on:
+      - alertmanager
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--config.expand-env=true'
+      - '--storage.path=/alertmanager'
+    environment:
+      # 通知 Webhook 地址：企业微信/钉钉网关或自研接收端；未设置时指向弃包端口（静默黑洞，仅 UI 可见）
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-http://127.0.0.1:9/blackhole}
+    ports:
+      - '9093:9093'
+    volumes:
+      - ./deploy/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
     restart: unless-stopped
 
   grafana:
@@ -67,3 +86,4 @@ services:
 volumes:
   prometheus-data:
   grafana-data:
+  alertmanager-data:

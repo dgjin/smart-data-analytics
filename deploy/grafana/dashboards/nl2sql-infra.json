@@ -1,0 +1,126 @@
+{
+  "uid": "nl2sql-infra",
+  "title": "智能问数 · 基础设施",
+  "tags": ["nl2sql", "p1"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "采集目标在线状态",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "mappings": [ { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } } ], "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "up", "legendFormat": "{{job}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Node 进程内存（RSS / 堆使用）",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 15, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "process_resident_memory_bytes{job=\"nl2sql-app\"}", "legendFormat": "RSS" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "nodejs_heap_size_used_bytes{job=\"nl2sql-app\"}", "legendFormat": "堆使用" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Node 事件循环 Lag P99（卡顿预警）",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 15, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.99, sum(rate(nodejs_eventloop_lag_seconds_bucket{job=\"nl2sql-app\"}[5m])) by (le))",
+          "legendFormat": "P99" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.50, sum(rate(nodejs_eventloop_lag_seconds_bucket{job=\"nl2sql-app\"}[5m])) by (le))",
+          "legendFormat": "P50" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "MySQL：连接数 / QPS / 慢查询速率",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "mysql_global_status_threads_connected", "legendFormat": "连接数" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "rate(mysql_global_status_queries[5m])", "legendFormat": "QPS" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "rate(mysql_global_status_slow_queries[5m])", "legendFormat": "慢查询/秒" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Redis：内存 / 键数 / 命中率",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "redis_memory_used_bytes", "legendFormat": "内存字节" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "Prometheus" }, "expr": "sum(redis_db_keys)", "legendFormat": "键总数" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))",
+          "legendFormat": "命中率" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "宿主机 CPU 使用率（按 mode 汇总取 busy）",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))",
+          "legendFormat": "CPU busy" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "宿主机磁盘使用率（根分区）",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.85 } ] } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "1 - node_filesystem_avail_bytes{mountpoint=~\"/|/host\", fstype!~\"tmpfs|overlay|devfs|map.*\"} / node_filesystem_size_bytes{mountpoint=~\"/|/host\", fstype!~\"tmpfs|overlay|devfs|map.*\"}",
+          "legendFormat": "{{mountpoint}}" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,134 @@
+{
+  "uid": "nl2sql-llm",
+  "title": "智能问数 · LLM 性能",
+  "tags": ["nl2sql", "p1"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "LLM 调用成功率（15m）",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [
+          { "color": "red", "value": null },
+          { "color": "orange", "value": 0.95 },
+          { "color": "green", "value": 0.99 }
+        ] } },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(llm_call_duration_seconds_count{ok=\"1\"}[15m])) / sum(rate(llm_call_duration_seconds_count[15m]))" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "LLM 调用速率（次/分）",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(llm_call_duration_seconds_count{channel=\"json\"}[5m])) * 60" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Token 吞吐（tokens/分）",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(llm_tokens_total[5m])) * 60" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "平均单次输出 token（completion）",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [ { "color": "purple", "value": null } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(llm_tokens_total{type=\"completion\"}[15m])) / sum(rate(llm_call_duration_seconds_count{channel=\"json\",ok=\"1\"}[15m]))" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "分模型 P95 时延（快速模型 vs 主模型，路由放宽效果直接观测）",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(llm_call_duration_seconds_bucket{channel=\"json\",ok=\"1\"}[5m])) by (le, model))",
+          "legendFormat": "{{model}} P95" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.50, sum(rate(llm_call_duration_seconds_bucket{channel=\"json\",ok=\"1\"}[5m])) by (le, model))",
+          "legendFormat": "{{model}} P50" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "分模型调用量占比（模型路由分布）",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 30, "stacking": { "mode": "percent", "group": "A" }, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (model) (rate(llm_call_duration_seconds_count{channel=\"json\"}[5m]))",
+          "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Token 消耗趋势（按模型 × 输入/输出）",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "custom": { "drawStyle": "bars", "fillOpacity": 50, "stacking": { "mode": "normal", "group": "A" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (model, type) (rate(llm_tokens_total[5m])) * 60",
+          "legendFormat": "{{model}} {{type}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "LLM 失败调用（ok=0，超时/连接中断定位）",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 70, "showPoints": "never" }, "color": { "mode": "fixed", "fixedColor": "red" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (model, channel) (rate(llm_call_duration_seconds_count{ok=\"0\"}[5m])) * 60",
+          "legendFormat": "{{model}} {{channel}}" }
+      ]
+    }
+  ]
+}

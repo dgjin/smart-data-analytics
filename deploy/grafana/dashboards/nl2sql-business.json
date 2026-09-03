@@ -1,0 +1,140 @@
+{
+  "uid": "nl2sql-business",
+  "title": "智能问数 · 问数业务明细",
+  "tags": ["nl2sql", "p1"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "今日问数总量",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(nl2sql_requests_total{endpoint=\"query\"}[24h]))" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "FALLBACK 降级率（1h，基线 7.9%）",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [
+          { "color": "green", "value": null },
+          { "color": "orange", "value": 0.1 },
+          { "color": "red", "value": 0.15 }
+        ] } },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(nl2sql_requests_total{status=\"FALLBACK\"}[1h])) / sum(rate(nl2sql_requests_total{endpoint=\"query\"}[1h]))" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "澄清+拒答占比（1h，问数质量风向标）",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(nl2sql_requests_total{status=~\"CLARIFY|REFUSED\"}[1h])) / sum(rate(nl2sql_requests_total{endpoint=\"query\"}[1h]))" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "DENIED 拦截量（1h，限流/权限/输入）",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [ { "color": "purple", "value": null } ] } }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(increase(nl2sql_requests_total{status=~\"DENIED_.*\"}[1h]))" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "全终态请求量趋势（堆叠）",
+      "gridPos": { "h": 9, "w": 14, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal", "group": "A" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (status) (rate(nl2sql_requests_total{endpoint=\"query\"}[15m]))",
+          "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "端到端时延分位（P50/P90/P95/P99）",
+      "gridPos": { "h": 9, "w": 10, "x": 14, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.50, sum(rate(nl2sql_duration_seconds_bucket{status=~\"SUCCESS|FALLBACK\"}[15m])) by (le))",
+          "legendFormat": "P50" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.90, sum(rate(nl2sql_duration_seconds_bucket{status=~\"SUCCESS|FALLBACK\"}[15m])) by (le))",
+          "legendFormat": "P90" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(nl2sql_duration_seconds_bucket{status=~\"SUCCESS|FALLBACK\"}[15m])) by (le))",
+          "legendFormat": "P95" },
+        { "refId": "D", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.99, sum(rate(nl2sql_duration_seconds_bucket{status=~\"SUCCESS|FALLBACK\"}[15m])) by (le))",
+          "legendFormat": "P99" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "缓存命中量趋势（L1 精确 / L2 语义分层）",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never", "lineWidth": 2 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (layer) (rate(nl2sql_cache_hits_total[15m])) * 60",
+          "legendFormat": "{{layer}} 次/分" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "DENIED 拦截明细（限流/权限/输入/开关）",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 50, "stacking": { "mode": "normal", "group": "A" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "none" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (status) (rate(nl2sql_requests_total{status=~\"DENIED_.*\"}[15m]))",
+          "legendFormat": "{{status}}" }
+      ]
+    }
+  ]
+}
