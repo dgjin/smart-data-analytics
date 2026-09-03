@@ -4,7 +4,7 @@
  * 执行：逐条过安全执行层（允许部分失败，至少 1 条成功才继续）；
  * 阶段二：全部真实 rows 摘要回喂 LLM 生成高管摘要、洞察、KPI 与各图解读。
  */
-import { callLLMJson } from './llmClient';
+import { analysisStageRoute, callLLMJson } from './llmClient';
 import { executeSafeSql, QueryScenario } from './sqlExecutor';
 import { safeParseJson } from '../src/utils/queryResultNormalizer';
 import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from './liveQuery';
@@ -361,19 +361,29 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     return { ok: false, error: '查询计划生成失败', executedSqls };
   }
 
-  // 执行：逐条过安全执行层，允许部分失败
+  // 执行：多条查询计划并行过安全执行层（v0.9.20，对照问数链路并行化）——
+  // 各查询互不依赖，墙钟由「逐条相加」降为「最慢一条」；连接池按场景分级配额排队兜底（chain 默认 5/export 默认 2），
+  // 允许部分失败（至少 1 条成功才继续）；汇总仍按计划原顺序（executedSqls 与 charts 索引对齐，图表下钻依赖该顺序）
+  const execResults = await Promise.all(
+    parsed.plans.map(async (plan) => {
+      const outcome = await executeSafeSql(dataSourceId, plan.sql, schema, sensitiveRemoved, 500, rowFilters || {}, input.scenario ?? 'chain');
+      if (outcome.ok !== true) {
+        console.warn(`[LiveReport] 查询失败已跳过: ${outcome.reason} | sql: ${plan.sql.slice(0, 200)}`);
+        return null;
+      }
+      return { plan, result: outcome.result };
+    })
+  );
+
   const charts: Record<string, any>[] = [];
   const chartDigests: string[] = [];
   let totalRows = 0;
-  for (const plan of parsed.plans) {
-    const outcome = await executeSafeSql(dataSourceId, plan.sql, schema, sensitiveRemoved, 500, rowFilters || {}, input.scenario ?? 'chain');
-    if (outcome.ok !== true) {
-      console.warn(`[LiveReport] 查询失败已跳过: ${outcome.reason} | sql: ${plan.sql.slice(0, 200)}`);
-      continue;
-    }
-    const rows = coerceNumericColumns(outcome.result.rows);
-    executedSqls.push(outcome.result.finalSql);
-    totalRows += outcome.result.rowCount;
+  for (const item of execResults) {
+    if (!item) continue;
+    const { plan, result } = item;
+    const rows = coerceNumericColumns(result.rows);
+    executedSqls.push(result.finalSql);
+    totalRows += result.rowCount;
 
     const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
     const xAxisKey = cols.includes(plan.xAxisKey) ? plan.xAxisKey : cols[0] || '';
@@ -404,8 +414,8 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     chartDigests.push(
       [
         `图表「${plan.title}」（${plan.purpose || '未说明用途'}）`,
-        `SQL: ${outcome.result.finalSql}`,
-        `行数: ${outcome.result.rowCount}`,
+        `SQL: ${result.finalSql}`,
+        `行数: ${result.rowCount}`,
         `列统计: ${JSON.stringify(buildColumnStats(rows))}`,
         `样本: ${JSON.stringify(rows.slice(0, SAMPLE_ROWS_PER_CHART))}`,
       ].join('\n')
@@ -427,7 +437,9 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
 
   let analysis: Record<string, any>;
   try {
-    const text2 = await callLLMJson(buildReportStage2System(schema), stage2User);
+    // v0.9.20 阶段二接入快速模型路由（对照问数链路 v0.3.6：解读类任务 LLM_ANALYSIS_* 可大幅提速；
+    // 未配置时 analysisStageRoute() 返回 undefined 保持主模型，口径不变可一键回退）
+    const text2 = await callLLMJson(buildReportStage2System(schema), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
     if (Object.keys(analysis).length === 0) {
       console.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));
