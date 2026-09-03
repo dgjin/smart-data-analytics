@@ -21,8 +21,8 @@ export const AMOUNT_UNIT_DIVISORS: Record<AmountUnit, number> = {
   元: 1,
 };
 
-/** 支持模块级金额单位覆盖的模块标识 */
-export type AmountUnitModule = 'query' | 'report' | 'flexquery';
+/** 支持模块级金额单位覆盖的模块标识（dashboard = 决策数据看板·语义指标直查，v0.9.21 起） */
+export type AmountUnitModule = 'query' | 'report' | 'flexquery' | 'dashboard';
 
 /** 老版本问数页共享键（迁移来源） */
 export const LEGACY_AMOUNT_UNIT_KEY = 'app-amount-unit';

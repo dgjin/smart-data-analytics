@@ -41,6 +41,8 @@ describe('useAmountUnitStore: 全局金额单位与模块覆盖', () => {
     expect(resolveAmountUnit('query')).toBe('亿元');
     expect(resolveAmountUnit('report')).toBe('亿元');
     expect(resolveAmountUnit('flexquery')).toBe('亿元');
+    // v0.9.21 决策数据看板（语义指标直查）纳入模块单位体系
+    expect(resolveAmountUnit('dashboard')).toBe('亿元');
   });
 
   it('全局单位变更后各模块跟随新口径', () => {
@@ -64,6 +66,16 @@ describe('useAmountUnitStore: 全局金额单位与模块覆盖', () => {
     useAmountUnitStore.getState().setGlobalUnit('万元');
     expect(resolveAmountUnit('flexquery')).toBe('百万元');
     expect(resolveAmountUnit('report')).toBe('万元');
+  });
+
+  it('v0.9.21 dashboard 模块：覆盖优先于全局，清除后回落全局', () => {
+    useAmountUnitStore.getState().setGlobalUnit('亿元');
+    useAmountUnitStore.getState().setModuleUnit('dashboard', '元');
+    expect(resolveAmountUnit('dashboard')).toBe('元');
+    // 其他模块不受影响
+    expect(resolveAmountUnit('query')).toBe('亿元');
+    useAmountUnitStore.getState().setModuleUnit('dashboard', '');
+    expect(resolveAmountUnit('dashboard')).toBe('亿元');
   });
 
   it('非法单位值被拒绝（全局与模块均不生效）', () => {

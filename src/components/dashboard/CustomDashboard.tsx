@@ -26,6 +26,8 @@ import { CHART_THEMES } from '../../utils/chartThemes';
 import { DashboardWidget } from '../../types/analytics';
 import { apiFetch } from '../../api/client';
 import { useDataVersion } from '../../hooks/useDataVersion';
+import { useEffectiveAmountUnit } from '../../hooks/useAmountUnitStore';
+import { AmountUnitSelect } from '../common/AmountUnitSelect';
 
 /** P2-14 语义层：语义指标定义（与后端 MetricDefinition 对齐，仅需看板端用到的字段） */
 interface SemanticMetric {
@@ -120,9 +122,19 @@ export const CustomDashboard: React.FC = () => {
     sql: string;
     metricName: string;
     dims: string[];
+    /** v0.9.21 金额单位标注：服务端实际换算时为单位 label（如「万元」），未换算为空串 */
+    unitLabel: string;
   } | null>(null);
+  // v0.9.21 语义指标直查金额单位：跟随全局（Header），面板内可模块级覆盖
+  const metricAmountUnit = useEffectiveAmountUnit('dashboard');
   // 默认跟随看板正在监测的数据源，其次首个库型数据源
   const effectiveMetricDsId = metricDsId || watchedDsId || dbSources[0]?.id || '';
+
+  // v0.9.21 单位切换后旧结果口径过期，清空待重新查询（与切换数据源/指标行为一致）
+  useEffect(() => {
+    setMetricResult(null);
+    setMetricError('');
+  }, [metricAmountUnit]);
 
   useEffect(() => {
     setMetricList([]);
@@ -163,7 +175,7 @@ export const CustomDashboard: React.FC = () => {
       const res = await apiFetch('/api/metrics/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metricId: selectedMetric.id, dimensions: metricDims, limit: 100 }),
+        body: JSON.stringify({ metricId: selectedMetric.id, dimensions: metricDims, limit: 100, amountUnit: metricAmountUnit }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -175,6 +187,8 @@ export const CustomDashboard: React.FC = () => {
         sql: String(data.sql || ''),
         metricName: selectedMetric.name,
         dims: metricDims,
+        // 服务端实际完成单位换算时才标注（非金额类指标/「元」原值口径不标注）
+        unitLabel: data.amountUnit?.applied === true ? String(data.amountUnit.label) : '',
       });
     } catch (e: any) {
       setMetricError(e?.message || '网络异常');
@@ -185,14 +199,16 @@ export const CustomDashboard: React.FC = () => {
 
   function pinMetricResult(): void {
     if (!metricResult || metricResult.rows.length === 0) return;
-    const { rows, sql, metricName, dims } = metricResult;
-    const title = dims.length > 0 ? `${metricName}（按${dims.join('/')}切分）` : metricName;
+    const { rows, sql, metricName, dims, unitLabel } = metricResult;
+    // v0.9.21：金额单位参与固化标题与轴名，固化卡片口径自说明（重放 SQL 已含换算，口径一致）
+    const displayName = unitLabel ? `${metricName}（${unitLabel}）` : metricName;
+    const title = dims.length > 0 ? `${displayName}（按${dims.join('/')}切分）` : displayName;
     // 带维度结果固化后带 sourceSql，可参与 v0.4.8 数据变化自动重放刷新；
     // 无维度单值固化为静态快照（重放会改变数据形状，不参与自动更新）
     if (dims.length > 0) {
       pinChartToDashboard({
         title,
-        chartConfig: { type: 'bar', title, xAxisKey: dims[0], yAxisKeys: ['value'], yAxisNames: { value: metricName }, xAxisName: dims[0] },
+        chartConfig: { type: 'bar', title, xAxisKey: dims[0], yAxisKeys: ['value'], yAxisNames: { value: displayName }, xAxisName: dims[0] },
         data: rows,
         dataSourceId: effectiveMetricDsId,
         sourceSql: sql || undefined,
@@ -201,7 +217,7 @@ export const CustomDashboard: React.FC = () => {
       const v = rows[0]?.value;
       pinChartToDashboard({
         title,
-        chartConfig: { type: 'bar', title, xAxisKey: 'value', yAxisKeys: ['value'], yAxisNames: { value: metricName } },
+        chartConfig: { type: 'bar', title, xAxisKey: 'value', yAxisKeys: ['value'], yAxisNames: { value: displayName } },
         data: [{ value: typeof v === 'number' ? v : Number(v) || 0 }],
         dataSourceId: effectiveMetricDsId,
       });
@@ -576,6 +592,8 @@ export const CustomDashboard: React.FC = () => {
               </div>
             )}
 
+            <AmountUnitSelect module="dashboard" />
+
             <button
               onClick={() => void runMetricQuery()}
               disabled={!selectedMetric || metricBusy}
@@ -592,6 +610,7 @@ export const CustomDashboard: React.FC = () => {
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-[11px] text-slate-400 truncate">
                   结果 {metricResult.rows.length} 行{metricResult.dims.length > 0 ? ` · 按 ${metricResult.dims.join(' / ')} 分组` : ''}
+                  {metricResult.unitLabel && <span className="ml-1 text-amber-400/90">· 金额单位：{metricResult.unitLabel}</span>}
                   {metricResult.sql && <code className="ml-2 text-slate-600">{metricResult.sql}</code>}
                 </span>
                 <button
@@ -613,16 +632,19 @@ export const CustomDashboard: React.FC = () => {
                       return typeof v === 'number' ? v.toLocaleString('zh-CN') : String(v ?? '-');
                     })()}
                   </span>
-                  <span className="text-xs text-slate-400">{metricResult.metricName}</span>
+                  <span className="text-xs text-slate-400">
+                    {metricResult.metricName}
+                    {metricResult.unitLabel && <span className="ml-1 text-amber-400/90">（{metricResult.unitLabel}）</span>}
+                  </span>
                 </div>
               ) : (
                 <DynamicChart
                   config={{
                     type: 'bar',
-                    title: metricResult.metricName,
+                    title: metricResult.unitLabel ? `${metricResult.metricName}（${metricResult.unitLabel}）` : metricResult.metricName,
                     xAxisKey: metricResult.dims[0],
                     yAxisKeys: ['value'],
-                    yAxisNames: { value: metricResult.metricName },
+                    yAxisNames: { value: metricResult.unitLabel ? `${metricResult.metricName}（${metricResult.unitLabel}）` : metricResult.metricName },
                     xAxisName: metricResult.dims[0],
                   }}
                   data={metricResult.rows}

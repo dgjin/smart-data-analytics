@@ -22,6 +22,7 @@ import {
   loadActiveMetrics,
   buildMetricQuerySql,
   buildMetricPrompt,
+  isAmountMetric,
   findMetricById,
   MetricDefinition,
 } from './metrics';
@@ -272,5 +273,58 @@ describe('P2-14 统一指标查询：buildMetricQuerySql', () => {
     if (r2.ok) expect(r2.sql).toContain('LIMIT 100');
     const r3 = buildMetricQuerySql(active, [], -5);
     if (r3.ok) expect(r3.sql).toContain('LIMIT 1');
+  });
+});
+
+describe('v0.9.21 指标直查金额单位换算（isAmountMetric / buildMetricQuerySql）', () => {
+  const amountMetric: MetricDefinition = {
+    ...validInput,
+    name: '累计投放金额',
+    description: '投放口径',
+    expr: 'SUM(TOU_BAL)',
+    dimensions: ['region'],
+    status: 'ACTIVE',
+  };
+  const wan = { label: '万元', divisor: 10000 };
+
+  it('isAmountMetric：名称/描述/表达式命中金额关键词且非 COUNT 聚合', () => {
+    expect(isAmountMetric(amountMetric)).toBe(true);
+    // COUNT 类计数不随单位缩放（与灵活查询 v0.5.4 同规则）
+    expect(isAmountMetric({ name: '投放金额笔数', description: '', expr: 'COUNT(DISTINCT id)' })).toBe(false);
+    // 非金额关键词指标不判定为金额类
+    expect(isAmountMetric({ name: '项目数', description: '', expr: 'SUM(proj_cnt)' })).toBe(false);
+  });
+
+  it('金额类指标 + 非「元」单位：聚合结果按除数换算并保留两位小数，别名保持 value', () => {
+    const r = buildMetricQuerySql(amountMetric, [], 100, wan);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.sql).toBe('SELECT ROUND((SUM(TOU_BAL))/10000, 2) AS `value` FROM customer LIMIT 100');
+      expect(r.unitApplied).toBe(true);
+    }
+    // 带维度切分同样换算，维度列不换算
+    const g = buildMetricQuerySql(amountMetric, ['region'], 50, { label: '亿元', divisor: 100000000 });
+    expect(g.ok).toBe(true);
+    if (g.ok) {
+      expect(g.sql).toContain('SELECT region, ROUND((SUM(TOU_BAL))/100000000, 2) AS `value`');
+      expect(g.sql).toContain('GROUP BY region');
+    }
+  });
+
+  it('不换算情形：「元」原值 / 未传单位 / COUNT 类 / 非金额类', () => {
+    const yuan = buildMetricQuerySql(amountMetric, [], 100, { label: '元', divisor: 1 });
+    if (yuan.ok) {
+      expect(yuan.sql).toContain('SUM(TOU_BAL) AS `value`');
+      expect(yuan.unitApplied).toBe(false);
+    }
+    const noUnit = buildMetricQuerySql(amountMetric, []);
+    if (noUnit.ok) expect(noUnit.unitApplied).toBe(false);
+    const cnt = buildMetricQuerySql({ ...validInput, name: '投放金额笔数', expr: 'COUNT(*)', status: 'ACTIVE' }, [], 100, wan);
+    if (cnt.ok) {
+      expect(cnt.sql).toContain('COUNT(*) AS `value`');
+      expect(cnt.unitApplied).toBe(false);
+    }
+    const nonAmount = buildMetricQuerySql({ ...validInput, name: '平均项目规模', expr: 'AVG(scale)', status: 'ACTIVE' }, [], 100, wan);
+    if (nonAmount.ok) expect(nonAmount.unitApplied).toBe(false);
   });
 });

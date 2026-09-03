@@ -2903,7 +2903,7 @@
           "Metrics"
         ],
         "operationId": "queryMetric",
-        "summary": "指标查询试算（ADMIN/ANALYST）",
+        "summary": "指标查询试算（ADMIN/ANALYST）；amountUnit 可选：金额类指标按单位换算（亿/百万/万），COUNT 类与「元」原值不换算",
         "requestBody": {
           "required": true,
           "content": {
@@ -2922,6 +2922,18 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "limit": {
+                    "type": "integer"
+                  },
+                  "amountUnit": {
+                    "type": "string",
+                    "enum": [
+                      "亿元",
+                      "百万元",
+                      "万元",
+                      "元"
+                    ]
                   }
                 }
               }

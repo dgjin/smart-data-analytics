@@ -110,8 +110,8 @@ add('/api/knowledge/import', 'post',
 
 # ---- Metrics ----
 add('/api/metrics/query', 'post',
-    op('Metrics', 'queryMetric', '指标查询试算（ADMIN/ANALYST）', ['BadRequest', 'Forbidden'],
-       body={'type': 'object', 'required': ['metricId'], 'properties': {'metricId': {'type': 'integer'}, 'dimensions': {'type': 'array', 'items': {'type': 'string'}}}}))
+    op('Metrics', 'queryMetric', '指标查询试算（ADMIN/ANALYST）；amountUnit 可选：金额类指标按单位换算（亿/百万/万），COUNT 类与「元」原值不换算', ['BadRequest', 'Forbidden'],
+       body={'type': 'object', 'required': ['metricId'], 'properties': {'metricId': {'type': 'integer'}, 'dimensions': {'type': 'array', 'items': {'type': 'string'}}, 'limit': {'type': 'integer'}, 'amountUnit': {'type': 'string', 'enum': ['亿元', '百万元', '万元', '元']}}}))
 add('/api/metrics/{id}/versions', 'get',
     op('Metrics', 'listMetricVersions', '指标版本历史', ['NotFound']),
     [param('id', '指标 ID')])

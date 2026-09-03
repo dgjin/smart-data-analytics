@@ -25,6 +25,7 @@ import { loadSchemaContext } from '../schemaContext';
 import { executeSafeSql } from '../sqlExecutor';
 import { maskRows } from '../dlp';
 import { writeAudit } from '../auditLog';
+import { AMOUNT_UNIT_OPTIONS, normalizeAmountUnit } from '../liveQuery';
 
 const router = Router();
 router.use(authMiddleware);
@@ -66,6 +67,9 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
     ? req.body.dimensions.filter((d: any) => typeof d === 'string').map((d: string) => d.trim()).filter(Boolean)
     : [];
   const limit = typeof req.body?.limit === 'number' ? req.body.limit : undefined;
+  // v0.9.21 金额单位：看板直查跟随全局/模块单位选择传入；白名单归一，非法值按不传处理（原值口径）
+  const unitKey = normalizeAmountUnit(req.body?.amountUnit);
+  const amountUnit = unitKey ? { label: unitKey, divisor: AMOUNT_UNIT_OPTIONS[unitKey].divisor } : undefined;
   const auditBase = {
     userId: Number(user.id || 0),
     username: String(user.username || 'unknown'),
@@ -83,7 +87,7 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       return res.status(403).json({ error: '没有该数据源的访问权限，可向管理员申请开通' });
     }
 
-    const built = buildMetricQuerySql(metric, dimensions, limit);
+    const built = buildMetricQuerySql(metric, dimensions, limit, amountUnit);
     if (built.ok !== true) return res.status(400).json({ error: built.error });
 
     const qLimit = await checkUserQueryLimit(user.id);
@@ -114,6 +118,8 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       rows: dlpOut.rows,
       rowCount: outcome.result.rowCount,
       truncated: outcome.result.truncated,
+      // v0.9.21：单位标注——applied=true 表示 SQL 已按该单位换算（前端据此标注口径）；false=原值口径（非金额类/「元」/未传单位）
+      amountUnit: amountUnit ? { label: amountUnit.label, applied: built.unitApplied } : { label: '元', applied: false },
       executionTimeMs: Date.now() - startedAt,
       ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
     });

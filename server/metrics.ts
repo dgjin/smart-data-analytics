@@ -109,16 +109,40 @@ export function buildMetricPrompt(hits: MetricDefinition[]): string {
 
 // ---------- P2-14 统一指标查询（语义层查询接口，报表/看板/问数三端共享） ----------
 
+/** v0.9.21 指标直查金额单位（label 供响应标注，divisor>1 时才换算；与 liveQuery AMOUNT_UNIT_OPTIONS 同源） */
+export interface MetricAmountUnit {
+  label: string;
+  divisor: number;
+}
+
+/**
+ * 金额类指标关键词（与前端 src/utils/flexQueryBuilder.ts AMOUNT_COL_RE 保持一致，改动需双侧同步）：
+ * 指标名/口径说明/表达式任一命中即视为金额类指标
+ */
+const METRIC_AMOUNT_RE = /(金额|费用|收益|成本|利息|余额|收入|支出|价款|保费)/;
+
+/**
+ * 判定指标是否金额类且可换算：关键词命中且非 COUNT 类聚合（计数不随单位缩放，
+ * 与灵活查询 v0.5.4「COUNT/COUNT_DISTINCT 不换算」同规则）。
+ */
+export function isAmountMetric(metric: Pick<MetricDefinition, 'name' | 'description' | 'expr'>): boolean {
+  if (/^\s*COUNT\s*\(/i.test(metric.expr)) return false;
+  return METRIC_AMOUNT_RE.test(`${metric.name} ${metric.description} ${metric.expr}`);
+}
+
 /**
  * 由指标定义生成「按维度切分」的查询 SQL（不执行，纯函数可单测）。
  * 安全不变式：tableName/dimensions 均为 sanitize 校验过的合法标识符；请求维度必须在指标登记的
  * dimensions 白名单内（调用方之外的维度一律拒绝）；filters 为治理审批过的固定片段。
+ * v0.9.21：amountUnit 非「元」且指标为金额类时，聚合结果按除数换算（ROUND(expr/divisor, 2)），
+ * 别名保持 value 不变（看板固化图表与重放依赖该别名）；unitApplied 标记是否实际换算。
  */
 export function buildMetricQuerySql(
   metric: MetricDefinition,
   reqDims: string[],
-  limit = 100
-): { ok: true; sql: string } | { ok: false; error: string } {
+  limit = 100,
+  amountUnit?: MetricAmountUnit
+): { ok: true; sql: string; unitApplied: boolean } | { ok: false; error: string } {
   if (metric.status !== 'ACTIVE') return { ok: false, error: '指标未生效，不可查询' };
   const dims = Array.isArray(reqDims) ? reqDims : [];
   for (const d of dims) {
@@ -130,8 +154,11 @@ export function buildMetricQuerySql(
   const dimSelect = dims.length > 0 ? `${dims.join(', ')}, ` : '';
   const where = metric.filters ? ` WHERE ${metric.filters}` : '';
   const groupBy = dims.length > 0 ? ` GROUP BY ${dims.join(', ')} ORDER BY \`value\` DESC` : '';
-  const sql = `SELECT ${dimSelect}${metric.expr} AS \`value\` FROM ${metric.tableName}${where}${groupBy} LIMIT ${safeLimit}`;
-  return { ok: true, sql };
+  // 金额单位换算：divisor 来自固定白名单（1/1e4/1e6/1e8），纯数字拼接无注入风险
+  const unitApplied = !!amountUnit && amountUnit.divisor > 1 && isAmountMetric(metric);
+  const valueExpr = unitApplied ? `ROUND((${metric.expr})/${amountUnit!.divisor}, 2)` : metric.expr;
+  const sql = `SELECT ${dimSelect}${valueExpr} AS \`value\` FROM ${metric.tableName}${where}${groupBy} LIMIT ${safeLimit}`;
+  return { ok: true, sql, unitApplied };
 }
 
 // ---------- CRUD（routes/metrics.ts 调用） ----------
