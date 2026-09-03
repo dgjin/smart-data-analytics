@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "docs:check": "node scripts/checkOpenapi.mjs",
     "state:check": "tsx scripts/check-stateless.ts",
+    "metrics:reconcile": "tsx scripts/reconcile-metrics.ts",
     "eval": "tsx server/eval/runEval.ts",
     "loadtest": "tsx server/eval/loadTest.ts",
     "init:data-resource": "tsx scripts/init-data-resource.ts",

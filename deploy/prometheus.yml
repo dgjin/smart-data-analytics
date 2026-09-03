@@ -37,5 +37,20 @@ scrape_configs:
     static_configs:
       - targets: ['mysql-exporter:9104']
 
+  # Alertmanager 自监控（P2：up{job="alertmanager"} 支撑 AlertmanagerDown 告警）
+  - job_name: alertmanager
+    static_configs:
+      - targets: ['alertmanager:9093']
+
 # 说明：Ollama 原生不暴露 Prometheus 格式指标（根路径返回纯文本，抓取会解析失败），
 # P0 不单独采集——Ollama 健康度通过应用侧 llm_call_duration_seconds{ok="0"} 异常率观测。
+
+# P2 多实例抓取拓扑（与 docker-compose.multi-instance.yml 联动）：
+# 多实例部署时 app1/app2 已映射宿主端口 3001/3002，改用下方 job 替换 nl2sql-app 单实例 job——
+# 每实例进程内计数器独立（instance label 区分），仪表盘 sum() 聚合口径不变：
+#   - job_name: nl2sql-app
+#     metrics_path: /metrics
+#     static_configs:
+#       - targets: ['host.docker.internal:3001', 'host.docker.internal:3002']
+#         labels:
+#           service: 'nl2sql'

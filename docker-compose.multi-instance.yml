@@ -13,6 +13,9 @@ services:
 
   app1: &app
     build: .
+    ports:
+      # P2 监控拓扑：映射宿主端口供 Prometheus 逐实例抓取（进程内计数器按 instance 区分）
+      - '3001:3000'
     environment: &app-env
       HOST: 0.0.0.0
       PORT: '3000'
@@ -31,6 +34,8 @@ services:
 
   app2:
     <<: *app
+    ports:
+      - '3002:3000'
     environment: *app-env
 
   nginx:

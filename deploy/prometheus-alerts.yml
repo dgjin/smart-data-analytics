@@ -102,3 +102,42 @@ groups:
         annotations:
           summary: "磁盘使用率超过 85%"
           description: "挂载点 {{ $labels.mountpoint }} 可用空间不足 15%，关注 Prometheus 时序库与 MySQL 数据增长。"
+
+  # P2：监控栈自监控（Prometheus/Alertmanager 自身的健康）
+  - name: monitoring-self
+    rules:
+      # Prometheus 时间序列基数（本项目量级约数百条；异常膨胀提示 label 基数失控或抓取目标异常）
+      - alert: PrometheusCardinalityHigh
+        expr: prometheus_tsdb_head_series > 400000
+        for: 15m
+        labels: { severity: warning, service: monitoring }
+        annotations:
+          summary: "Prometheus 活跃序列数超过 40 万"
+          description: "当前 {{ $value }} 条活跃序列，检查是否有高基数 label 被引入（question/userId 等红线字段）。"
+
+      # 告警规则求值失败（规则写错/PromQL 不合法时第一时间发现）
+      - alert: PrometheusRuleEvalFailures
+        expr: increase(prometheus_rule_evaluation_failures_total[15m]) > 0
+        for: 0m
+        labels: { severity: warning, service: monitoring }
+        annotations:
+          summary: "Prometheus 告警规则求值失败"
+          description: "近 15 分钟规则求值失败 {{ $value }} 次，检查 prometheus-alerts.yml 语法与函数拼写。"
+
+      # 目标抓取耗时过长（应用 /metrics 响应变慢 = 进程卡顿先兆）
+      - alert: ScrapeDurationSlow
+        expr: prometheus_target_scrape_duration_seconds > 10
+        for: 10m
+        labels: { severity: warning, service: monitoring }
+        annotations:
+          summary: "{{ $labels.job }} 抓取耗时超过 10s"
+          description: "抓取 {{ $labels.instance }} 耗时 {{ $value }}s 持续 10 分钟，目标进程可能过载。"
+
+      # Alertmanager 宕机（告警静默——有告警也发不出）
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 2m
+        labels: { severity: critical, service: monitoring }
+        annotations:
+          summary: "Alertmanager 不可达"
+          description: "告警通知通道中断，Prometheus 侧告警仍在评估但无法触达通知渠道。"
