@@ -308,6 +308,23 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
     }
 
     // 演示模式（非 mysql / 未落库数据源）：LLM 单阶段生成模拟数据，响应显式标记 simulated（生成逻辑见 server/simulatedQuery）
+    // P0 性能优化：演示模式同样走 L1 精确 + L2 语义缓存（CSV/Demo 数据源相似提问从 ~60s 降至 ~30ms）；
+    // 与 live 链路共用缓存键机制；refreshCache=true 跳过缓存读（用户强制刷新入口）
+    const simCk = cacheKey(dataSourceId, query, cacheVariant);
+    const skipSimCacheRead = req.body.refreshCache === true;
+    const simCached = skipSimCacheRead ? null : await getCachedQuery(simCk);
+    if (simCached) {
+      writeAudit({ ...auditBase, question: query, status: 'CACHE', durationMs: Date.now() - startedAt });
+      emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
+      return res.json({ ...simCached, fromCache: true, executionTimeMs: Date.now() - startedAt });
+    }
+    const simSemHit = skipSimCacheRead ? null : await getSemanticCachedQuery(dataSourceId, query, cacheVariant);
+    if (simSemHit) {
+      const similarity = Number(simSemHit.similarity.toFixed(4));
+      writeAudit({ ...auditBase, question: query, status: 'CACHE', detail: `L2 语义命中（相似度 ${similarity}）：${simSemHit.matchedQuestion.slice(0, 120)}`, durationMs: Date.now() - startedAt });
+      emitAfterQuery(hookCtx, { status: 'CACHE', durationMs: Date.now() - startedAt });
+      return res.json({ ...simSemHit.payload, fromCache: true, semanticCache: { matchedQuestion: simSemHit.matchedQuestion, similarity }, executionTimeMs: Date.now() - startedAt });
+    }
     const sim = await runSimulatedQuery({ query, history: sanitizedHistory, schema: effectiveSchema, guidance: schemaGuidance });
     if (sim.ok === 'refuse') {
       // 拒答：问题与数据源无关/超出能力，如实反馈（不生成演示数据托底）；小模型照抄模板句时兜底增强理由
@@ -326,6 +343,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
     if (sim.ok === true) {
       // L6 审计层：成功落账
       writeAudit({ ...auditBase, question: query, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+      // P0 性能优化：演示模式成功结果写缓存（与 live 同机制，含 L2 语义索引），相似提问直接复用
+      await setCachedQuery(simCk, { success: true, result: sim.result, defense, dataProvenance: 'simulated' }, { dataSourceId, question: query, variant: cacheVariant });
       // 对话历史落库：演示模式问答同样留痕（provenance=simulated，不参与个人 few-shot 检索）
       recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(sim.parsed?.generatedSQL || ''), answerSummary: String(sim.parsed?.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
       return res.json({

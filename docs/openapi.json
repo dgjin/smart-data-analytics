@@ -3590,6 +3590,71 @@
           }
         }
       }
+    },
+    "/api/admin/env-config": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "envConfigList",
+        "summary": "环境变量配置列表（仅 ADMIN；敏感字段脱敏为 ***hidden***）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "envConfigUpdate",
+        "summary": "批量更新环境变量配置（仅 ADMIN，白名单校验；写入 env_config 表并审计）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "updates"
+                ],
+                "properties": {
+                  "updates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "value"
+                      ],
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
     }
   },
   "components": {

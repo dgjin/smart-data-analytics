@@ -675,7 +675,14 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   // P1-7 自纠错：按问题结构复杂度分档生成多候选（Self-Consistency 多数表决择优）。
   // 复杂信号：schema linking 圈定 ≥2 张表（多表 JOIN 场景）或复杂度评估判定需清洗链（multi-step/嵌套）。
   // 注意：assessment.complexity 的语义是「是否需要中间清洗链」，不等于 SQL 结构复杂度，不能单独作分档依据。
-  const isComplexQuery = assessment.complexity === 'multi-step' || promptSchema.length >= 2;
+  // P0 性能优化：小模型路由表数阈值环境变量化（LLM_SQL_ROUTE_MAX_TABLES，默认 1 = 仅单表走快速模型，v0.5.0 原行为）。
+  // 设为 2 时双表非 multi-step 查询也走快速模型（提速 3~5 倍）；
+  // 注意实测风险：快速模型在多表 JOIN 时易漏 COUNT(DISTINCT) 造成重复计数，放宽后需关注准确率回归（可设回 1 一键回退）。
+  const sqlRouteMaxTables = (() => {
+    const raw = Number(process.env.LLM_SQL_ROUTE_MAX_TABLES);
+    return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 1;
+  })();
+  const isComplexQuery = assessment.complexity === 'multi-step' || promptSchema.length > sqlRouteMaxTables;
   const candidateCount = selfCorrectCandidates(isComplexQuery);
   // 阶段一模型分档：简单单表问题走配置的快速模型路由（flash），复杂/多表问题强制主模型。
   // 实测快速模型在多表 JOIN 时易漏 COUNT(DISTINCT) 造成重复计数，且同源多候选多数表决无法纠正系统性偏差，

@@ -12,6 +12,7 @@ import { sanitizeDataScope } from '../scope';
 import { canAccessDataSource, checkDataSourceAccess, parseAcl, sanitizeAcl } from '../accessControl';
 import { invalidateSchemaCache } from '../schemaContext';
 import { invalidateExecutorPool } from '../sqlExecutor';
+import { invalidateQueryCache } from '../queryCache';
 import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../secretsCrypto';
 
@@ -442,6 +443,8 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     );
     void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
+    // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
+    void invalidateQueryCache(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
   } catch (err) {
@@ -512,6 +515,8 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
     }
     void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
+    // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
+    void invalidateQueryCache(id);
     return res.json({ success: true });
   } catch (err) {
     console.error('[DataSources] update failed:', err);
@@ -529,6 +534,8 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
     }
     void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
+    // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
+    void invalidateQueryCache(id);
     return res.json({ success: true });
   } catch (err) {
     console.error('[DataSources] delete failed:', err);
@@ -593,6 +600,8 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     await getPool().query('UPDATE data_sources SET schema_json = ? WHERE id = ?', [JSON.stringify(tables), id]);
     void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
+    // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
+    void invalidateQueryCache(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, touched, dataSource: rowToDataSource((updated as any[])[0]) });
   } catch (err) {
@@ -645,6 +654,8 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
     ]);
     void invalidateSchemaCache(id);
     invalidateExecutorPool(id);
+    // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
+    void invalidateQueryCache(id);
     const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
   } catch (err) {

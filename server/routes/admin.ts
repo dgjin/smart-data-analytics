@@ -218,7 +218,7 @@ router.get('/env-config', async (req, res) => {
     const [rows]: any = await getPool().query('SELECT `key`, `value`, category, description, is_sensitive FROM env_config');
 
     // 脱敏敏感字段
-    const sanitizedData = rows.map(row => ({
+    const sanitizedData = rows.map((row: any) => ({
       ...row,
       value: row.is_sensitive ? '***hidden***' : (row.value || '')
     }));
@@ -248,7 +248,7 @@ router.put('/env-config', async (req, res) => {
     const ALLOWED_KEYS = new Set([
       'OLLAMA_URL', 'LLM_MODEL', 'AI_ENGINE', 'QWEN_API_KEY', 'QWEN_URL', 'QWEN_MODEL',
       'OLLAMA_TIMEOUT_MS', 'LLM_SQL_ENGINE', 'LLM_SQL_MODEL', 'LLM_ANALYSIS_ENGINE',
-      'LLM_ANALYSIS_MODEL', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD',
+      'LLM_ANALYSIS_MODEL', 'LLM_SQL_ROUTE_MAX_TABLES', 'QUERY_CACHE_TTL_MINUTES', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD',
       'MYSQL_DATABASE', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'USER_QUERY_RATE_MAX', 'APP_URL'
     ]);
 

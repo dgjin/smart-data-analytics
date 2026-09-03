@@ -36,7 +36,10 @@ export function resolvePdfScriptPath(): string | null {
 /** 环境探测：python3 + reportlab 是否可用（供测试跳过与路由健康检查） */
 export function checkPdfEnv(): Promise<{ ok: boolean; reason?: string }> {
   return new Promise((resolve) => {
-    const child = spawn('python3', ['-c', 'import reportlab; print(reportlab.Version)'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    // 探测需覆盖真实生成路径的关键导入链（reportlab.lib.colors → utils → PIL）；
+    // 仅 import reportlab 顶层存在盲区：reportlab 懒加载时顶层可导入但子模块（PIL 等）在精简环境下可能失败，
+    // 导致探测假阳性、生成才报错（husky pre-push 实测踩坑）
+    const child = spawn('python3', ['-c', "import reportlab; from reportlab.lib.colors import HexColor; from PIL import Image; print(reportlab.Version)"], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let settled = false;
     const timer = setTimeout(() => {

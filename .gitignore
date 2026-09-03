@@ -16,3 +16,4 @@ server/eval/load-report-*.json
 
 # 异步任务结果文件（v0.9.2，运行时生成）
 data/task-results/
+dump.rdb

@@ -8,7 +8,12 @@
 import { getStateStore, isRedisEnabled } from './stateStore';
 import { callEmbedding } from './llmClient';
 
-const CACHE_TTL_MS = 10 * 60 * 1000;
+// P0 性能优化：TTL 默认 10 分钟延长至 30 分钟（分析型场景数据时效要求低，缓存收益大）；
+// 可用 QUERY_CACHE_TTL_MINUTES 覆盖。失效正确性由数据源变更点调用 invalidateQueryCache 保证（见 routes/datasources.ts）。
+const CACHE_TTL_MS = (() => {
+  const mins = Number(process.env.QUERY_CACHE_TTL_MINUTES);
+  return Number.isFinite(mins) && mins > 0 ? Math.floor(mins) * 60 * 1000 : 30 * 60 * 1000;
+})();
 const MAX_ENTRIES = 200;
 /** Redis 缓存值体积上限（超过不缓存，避免大结果集撑爆内存库） */
 const REDIS_MAX_PAYLOAD_BYTES = 200 * 1024;
