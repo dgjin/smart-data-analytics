@@ -429,6 +429,24 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.23 可视化决策报表服务端持久化：历史报表从浏览器 localStorage 迁至 MySQL（跨设备/清理缓存不丢失）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saved_reports (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      report_id VARCHAR(64) NOT NULL UNIQUE COMMENT '报表唯一标识（前端生成 report-{timestamp}）',
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL,
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      template_type VARCHAR(200) DEFAULT '' COMMENT '报表主题快照（genParams.templateType）',
+      data_provenance VARCHAR(20) NOT NULL DEFAULT 'live' COMMENT 'live=真实数据源 / simulated=降级演示',
+      report_data MEDIUMTEXT NOT NULL COMMENT '完整 SavedReport JSON（含 genParams 条件快照与批注）',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_sr_ds (data_source_id),
+      INDEX idx_sr_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // v0.5.0 初始化预设报告模板（幂等插入）
   const [templateRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM report_templates WHERE is_preset = 1');
   if (Number(templateRows[0]?.cnt) === 0) {

@@ -23,7 +23,7 @@ export type AuditStatus =
 export interface AuditEntry {
   userId: number;
   username: string;
-  endpoint: 'query' | 'report' | 'query_report' | 'report_template' | 'export';
+  endpoint: 'query' | 'report' | 'query_report' | 'saved_report' | 'report_template' | 'export';
   dataSourceId?: string;
   question?: string;
   status: AuditStatus;

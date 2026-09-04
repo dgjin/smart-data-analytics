@@ -15,7 +15,7 @@ import {
   CheckCircle2,
   Settings2,
 } from 'lucide-react';
-import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { useAnalyticsStore, DEMO_REPORT } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useEngineInfo } from '../../hooks/useEngineInfo';
 import { resolveAmountUnit, AMOUNT_UNITS } from '../../hooks/useAmountUnitStore';
@@ -37,9 +37,12 @@ const readAmountUnit = (): string => resolveAmountUnit('report');
 export const ReportGenerator: React.FC = () => {
   const {
     savedReports,
-    addSavedReport,
-    replaceSavedReport,
-    deleteSavedReport,
+    createSavedReportRemote,
+    updateSavedReportRemote,
+    removeSavedReportRemote,
+    initSavedReports,
+    demoReportDismissed,
+    dismissDemoReport,
     activeDataSourceId,
     dataSources,
   } = useAnalyticsStore();
@@ -78,10 +81,21 @@ export const ReportGenerator: React.FC = () => {
     localStorage.setItem(REPORT_PLAN_MODE_KEY, planMode ? '1' : '0');
   }, [planMode]);
 
+  // v0.9.23 服务端持久化：登录就绪后初始化历史报表（迁移本地遗留 → 拉取服务端权威列表，会话内一次）
+  useEffect(() => {
+    if (user) void initSavedReports();
+  }, [user, initSavedReports]);
+
+  // v0.9.23：服务端无报表且未手动隐藏时，展示内置演示报表（纯前端，不落库）
+  const displayReports = useMemo(
+    () => (savedReports.length > 0 ? savedReports : demoReportDismissed ? [] : [DEMO_REPORT]),
+    [savedReports, demoReportDismissed]
+  );
+
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
 
   // v0.4.8 自主更新：监测当前查看的 live 报表所属数据源，检测到数据变化时按原自定义要求重新生成并就地替换
-  const activeReport = savedReports[activeReportIndex];
+  const activeReport = displayReports[activeReportIndex];
   const watchedReportDsId =
     canGenerate && activeReport && activeReport.dataProvenance === 'live' ? activeReport.dataSourceId : undefined;
   const [autoRegenerating, setAutoRegenerating] = useState(false);
@@ -127,8 +141,10 @@ export const ReportGenerator: React.FC = () => {
       if (data.success && data.report) {
         // v0.9.22：统一走 applyRegenResult（就地替换、保留批注、同步更新条件快照）
         const fresh = applyRegenResult(original, data.report, params, data.dataProvenance === 'simulated' ? 'simulated' : 'live');
-        replaceSavedReport(original.id, scanReportForAnomalies(fresh));
-        setAutoRegenMsg(`检测到数据变化，已自动重新生成报表「${original.title}」`);
+        // v0.9.23 服务端持久化：就地替换并同步服务端，失败回滚本地
+        updateSavedReportRemote(original.id, scanReportForAnomalies(fresh))
+          .then(() => setAutoRegenMsg(`检测到数据变化，已自动重新生成报表「${original.title}」`))
+          .catch(() => setAutoRegenMsg('检测到数据变化，已重新生成但同步到服务器失败（可手动重新生成重试）'));
       } else {
         setAutoRegenMsg('检测到数据变化，但报表自动重生成失败（可点击生成手动重试）');
       }
@@ -234,7 +250,10 @@ export const ReportGenerator: React.FC = () => {
         };
 
         const scannedReport = scanReportForAnomalies(rawReport);
-        addSavedReport(scannedReport);
+        // v0.9.23 服务端持久化：生成成本高，保存失败保留本地并明确提示（刷新后未保存的报表将丢失）
+        createSavedReportRemote(scannedReport).catch((err) => {
+          setGenerateError(`报表已生成，但保存到服务器失败（刷新后将丢失）：${err?.message || err}`);
+        });
         setActiveReportIndex(0);
         setPendingPlan(null);
       } else {
@@ -330,8 +349,10 @@ export const ReportGenerator: React.FC = () => {
           { templateType: regenEditor.templateType, customPrompt: regenEditor.customPrompt, amountUnit: regenEditor.amountUnit, dataSourceId: target!.dataSourceId },
           data.dataProvenance === 'simulated' ? 'simulated' : 'live'
         );
-        replaceSavedReport(target!.id, scanReportForAnomalies(fresh));
-        setRegenEditor(null);
+        // v0.9.23 服务端持久化：就地替换并同步服务端（失败回滚本地并提示）
+        updateSavedReportRemote(target!.id, scanReportForAnomalies(fresh))
+          .then(() => setRegenEditor(null))
+          .catch((err) => setRegenError(`已重新生成，但同步到服务器失败：${err?.message || err}`));
       } else {
         setRegenError(data.error || '重新生成失败，请稍后重试');
       }
@@ -342,12 +363,18 @@ export const ReportGenerator: React.FC = () => {
     }
   };
 
-  /** 删除历史报表：确认后从本地列表移除；删除后当前查看索引前移钳制 */
+  /** 删除历史报表：确认后删除（演示报表仅本地隐藏）；服务端删除失败时回滚本地并提示；删除后当前查看索引前移钳制 */
   const handleDeleteReport = (rep: SavedReport) => {
     if (!window.confirm(`确定删除报表「${rep.title}」吗？删除后不可恢复。`)) return;
     if (regenEditor?.reportId === rep.id) setRegenEditor(null);
-    deleteSavedReport(rep.id);
-    const newLen = savedReports.length - 1;
+    // v0.9.23：内置演示报表不落库，删除仅本地隐藏（persist 标记，刷新不再出现）
+    if (rep.id === DEMO_REPORT.id) {
+      dismissDemoReport();
+      setActiveReportIndex(0);
+      return;
+    }
+    removeSavedReportRemote(rep.id).catch((err) => alert(err?.message || '删除失败，请稍后重试'));
+    const newLen = displayReports.length - 1;
     if (activeReportIndex > newLen - 1) setActiveReportIndex(Math.max(0, newLen - 1));
   };
 
@@ -530,13 +557,13 @@ export const ReportGenerator: React.FC = () => {
       </div>
 
       {/* Generated Reports List & Active View */}
-      {savedReports.length > 0 ? (
+      {displayReports.length > 0 ? (
         <div className="space-y-4">
           {/* Saved Reports Tab Selector + v0.9.22 维护操作（作用于当前选中报表） */}
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-3 flex-wrap">
             <div className="flex items-center space-x-2 text-slate-300 font-bold text-sm flex-wrap gap-y-2">
               <History className="w-4 h-4 text-indigo-400" />
-              <span>已生成的历史报表列表 ({savedReports.length})</span>
+              <span>已生成的历史报表列表 ({displayReports.length})</span>
               {/* 维护操作：修改条件重新生成（仅 live 报表）+ 删除 */}
               {activeReport && (
                 <span className="flex items-center space-x-1.5 ml-2">
@@ -567,7 +594,7 @@ export const ReportGenerator: React.FC = () => {
             </div>
 
             <div className="flex items-center space-x-1 overflow-x-auto">
-              {savedReports.map((rep, idx) => (
+              {displayReports.map((rep, idx) => (
                 <button
                   key={rep.id}
                   onClick={() => { setActiveReportIndex(idx); setRegenEditor(null); setRegenError(null); }}
@@ -592,7 +619,7 @@ export const ReportGenerator: React.FC = () => {
                   <span>修改条件重新生成（就地替换当前报表，数据源不变，已有批注保留）</span>
                 </div>
                 <span className="text-[10px] text-slate-500">
-                  数据源：{dataSources.find((d) => d.id === savedReports.find((r) => r.id === regenEditor.reportId)?.dataSourceId)?.name || '原报表数据源'}
+                  数据源：{dataSources.find((d) => d.id === displayReports.find((r) => r.id === regenEditor.reportId)?.dataSourceId)?.name || '原报表数据源'}
                 </span>
               </div>
               <div className="flex flex-col lg:flex-row lg:items-center gap-2 text-xs">
@@ -653,10 +680,10 @@ export const ReportGenerator: React.FC = () => {
           )}
 
           {/* Active Report Card */}
-          {savedReports[activeReportIndex] && (
+          {activeReport && (
             <ExecutiveReportCard
-              report={savedReports[activeReportIndex]}
-              onDelete={() => handleDeleteReport(savedReports[activeReportIndex])}
+              report={activeReport}
+              onDelete={() => handleDeleteReport(activeReport)}
             />
           )}
         </div>

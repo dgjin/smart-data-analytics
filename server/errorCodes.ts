@@ -22,6 +22,8 @@ export const ERROR_CODES = {
   PLAN_MISMATCH: 'PLAN_MISMATCH',
   /** 目标资源不存在 */
   NOT_FOUND: 'NOT_FOUND',
+  /** 资源冲突（如唯一标识已存在；幂等场景可安全忽略） */
+  CONFLICT: 'CONFLICT',
   /** SQL 未通过安全校验被拒绝执行 */
   SQL_REJECTED: 'SQL_REJECTED',
   /** AI/LLM 服务不可用（超时、配额、网络） */

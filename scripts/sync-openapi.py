@@ -147,6 +147,23 @@ add('/api/query-reports/{reportId}', 'delete',
     op('Reports', 'deleteQueryReport', '删除问数报告（仅本人或 ADMIN）', ['Forbidden', 'NotFound']),
     [param('reportId', '报告 ID')])
 
+# ---- SavedReports（v0.9.23 可视化决策报表服务端持久化） ----
+add('/api/saved-reports', 'get', op('Reports', 'listSavedReports', '历史决策报表列表（所有登录用户可见，可按数据源过滤）'))
+add('/api/saved-reports', 'post',
+    op('Reports', 'createSavedReport', '保存决策报表（ADMIN/ANALYST；report_id 冲突 409 幂等）', ['BadRequest', 'Forbidden', 'Conflict'],
+       body={'type': 'object', 'required': ['report'], 'properties': {'report': {'type': 'object'}}}))
+add('/api/saved-reports/{reportId}', 'put',
+    op('Reports', 'replaceSavedReport', '整体替换决策报表（重新生成；ADMIN/ANALYST 且仅本人或 ADMIN）', ['BadRequest', 'Forbidden', 'NotFound'],
+       body={'type': 'object', 'required': ['report'], 'properties': {'report': {'type': 'object'}}}),
+    [param('reportId', '报表 ID')])
+add('/api/saved-reports/{reportId}', 'delete',
+    op('Reports', 'deleteSavedReport', '删除决策报表（仅本人或 ADMIN）', ['NotFound']),
+    [param('reportId', '报表 ID')])
+add('/api/saved-reports/{reportId}/comments', 'put',
+    op('Reports', 'updateSavedReportComments', '更新报表批注（所有登录用户可协同批注）', ['BadRequest', 'NotFound'],
+       body={'type': 'object', 'required': ['comments'], 'properties': {'comments': {'type': 'array', 'items': {'type': 'object'}}}}),
+    [param('reportId', '报表 ID')])
+
 # ---- ReportTemplates ----
 add('/api/report-templates', 'get', op('Reports', 'listReportTemplates', '报告模板列表（含预置模板）'))
 add('/api/report-templates', 'post',
@@ -188,6 +205,14 @@ new_tags = {
 for name, desc in new_tags.items():
     if name not in existing_tags:
         doc['tags'].append(OrderedDict([('name', name), ('description', desc)]))
+
+# 补充 Conflict 响应组件（v0.9.23 saved_reports 幂等冲突）
+resp_components = doc.setdefault('components', {}).setdefault('responses', {})
+if 'Conflict' not in resp_components:
+    resp_components['Conflict'] = OrderedDict([
+        ('description', '资源冲突（如唯一标识已存在；幂等场景可安全忽略）'),
+        ('content', {'application/json': {'schema': {'$ref': '#/components/schemas/Error'}}}),
+    ])
 
 with open(PATH, 'w', encoding='utf-8') as f:
     json.dump(doc, f, ensure_ascii=False, indent=2)

@@ -3667,6 +3667,178 @@
           }
         }
       }
+    },
+    "/api/saved-reports": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "listSavedReports",
+        "summary": "历史决策报表列表（所有登录用户可见，可按数据源过滤）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "createSavedReport",
+        "summary": "保存决策报表（ADMIN/ANALYST；report_id 冲突 409 幂等）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "report"
+                ],
+                "properties": {
+                  "report": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Conflict": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/saved-reports/{reportId}": {
+      "parameters": [
+        {
+          "name": "reportId",
+          "in": "path",
+          "required": true,
+          "description": "报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "replaceSavedReport",
+        "summary": "整体替换决策报表（重新生成；ADMIN/ANALYST 且仅本人或 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "report"
+                ],
+                "properties": {
+                  "report": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "deleteSavedReport",
+        "summary": "删除决策报表（仅本人或 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/saved-reports/{reportId}/comments": {
+      "parameters": [
+        {
+          "name": "reportId",
+          "in": "path",
+          "required": true,
+          "description": "报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "updateSavedReportComments",
+        "summary": "更新报表批注（所有登录用户可协同批注）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "comments"
+                ],
+                "properties": {
+                  "comments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3750,6 +3922,16 @@
       },
       "Internal": {
         "description": "服务端错误（INTERNAL_ERROR）",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "资源冲突（如唯一标识已存在；幂等场景可安全忽略）",
         "content": {
           "application/json": {
             "schema": {

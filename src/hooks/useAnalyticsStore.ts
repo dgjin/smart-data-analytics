@@ -14,6 +14,7 @@ import {
 } from '../types/analytics';
 import { apiFetch } from '../api/client';
 import { scanReportForAnomalies } from '../utils/anomalyDetector';
+import { pickMigratableReports, reportFromRecord } from '../utils/reportPersistence';
 import { trimChatMessages } from '../utils/chatRetention';
 
 // 默认固化监控图表（widget-1..5）源自「数据资源」库的不良资产宽表（fct_jc_*）；
@@ -74,7 +75,8 @@ const NPA_MONTHLY_RETURN = [
   { month: '8月', sy: 1.1 },
 ];
 
-const INITIAL_REPORT: SavedReport = scanReportForAnomalies({
+/** v0.9.23：内置演示报表导出为常量（不再落库/不再占用 savedReports 初值；列表为空时由报表页纯前端展示） */
+export const DEMO_REPORT: SavedReport = scanReportForAnomalies({
   id: 'report-demo-1',
   title: '不良资产业务经营分析决策简报（2026年8月月末快照）',
   summary:
@@ -191,6 +193,9 @@ const INITIAL_REPORT: SavedReport = scanReportForAnomalies({
   ],
 });
 
+// v0.9.23 initSavedReports 会话内防重入（模块级；迁移失败时置 null 允许下一会话重试）
+let savedReportsInitPromise: Promise<void> | null = null;
+
 interface AnalyticsState {
   // Data Sources
   dataSources: DataSource[];
@@ -225,11 +230,25 @@ interface AnalyticsState {
   reorderDashboardWidgets: (widgets: DashboardWidget[]) => void;
 
   // Generated Visual Reports
+  // v0.9.23：历史报表改为服务端 MySQL 持久化（saved_reports 表），此处为服务端数据的内存镜像
   savedReports: SavedReport[];
   addSavedReport: (report: SavedReport) => void;
   /** v0.4.8 自主更新：数据变化重新生成后就地替换同 id 报表（保留批注等交互状态由调用方并入） */
   replaceSavedReport: (id: string, report: SavedReport) => void;
   deleteSavedReport: (id: string) => void;
+  /** v0.9.23 初始化：迁移本地遗留报表（幂等，演示报表除外）→ 拉取服务端权威列表；会话内仅执行一次 */
+  initSavedReports: () => Promise<void>;
+  /** v0.9.23 生成后保存：本地落列表 + POST 服务端；失败保留本地并抛错（生成成本高，由调用方提示） */
+  createSavedReportRemote: (report: SavedReport) => Promise<void>;
+  /** v0.9.23 重新生成后就地替换：本地替换 + PUT 服务端；服务端 404 时降级 POST 补建；失败回滚并抛错 */
+  updateSavedReportRemote: (id: string, report: SavedReport) => Promise<void>;
+  /** v0.9.23 删除：本地移除 + DELETE 服务端；失败回滚并抛错 */
+  removeSavedReportRemote: (id: string) => Promise<void>;
+  /** v0.9.23 批注同步：将内存中该报表的批注整体写回服务端（fire-and-forget，失败仅记日志） */
+  syncReportCommentsRemote: (reportId: string) => Promise<void>;
+  /** v0.9.23 内置演示报表「删除」：仅本地隐藏（persist 标记，刷新不再出现） */
+  demoReportDismissed: boolean;
+  dismissDemoReport: () => void;
   addReportComment: (reportId: string, comment: ChartComment) => void;
   addReportCommentReply: (reportId: string, commentId: string, reply: ChartCommentReply) => void;
   toggleReportCommentResolve: (reportId: string, commentId: string) => void;
@@ -245,7 +264,7 @@ interface AnalyticsState {
 
 export const useAnalyticsStore = create<AnalyticsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
   // 数据源由服务端 MySQL 持久化，登录后通过 loadDataSources() 加载
   dataSources: [],
   activeDataSourceId: '',
@@ -479,7 +498,8 @@ export const useAnalyticsStore = create<AnalyticsState>()(
 
   reorderDashboardWidgets: (widgets) => set({ dashboardWidgets: widgets }),
 
-  savedReports: [INITIAL_REPORT],
+  // v0.9.23：历史报表服务端持久化——初值为空，由 initSavedReports() 迁移本地遗留后拉取服务端列表填充
+  savedReports: [],
   addSavedReport: (report) =>
     set((state) => ({
       savedReports: [report, ...state.savedReports],
@@ -493,7 +513,116 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       savedReports: state.savedReports.filter((r) => r.id !== id),
     })),
 
-  addReportComment: (reportId, comment) =>
+  initSavedReports: async () => {
+    if (savedReportsInitPromise) return savedReportsInitPromise;
+    savedReportsInitPromise = (async () => {
+      try {
+        // 1. 本地遗留迁移：persist rehydrate 后内存中的旧 localStorage 报表（演示报表/结构不完整项除外）；
+        //    partialize 已移除 savedReports，下一次写入即清除 localStorage 残留；重复迁移由服务端 report_id UNIQUE 幂等吸收
+        const legacy = pickMigratableReports(get().savedReports);
+        for (const report of legacy) {
+          try {
+            await apiFetch('/api/saved-reports', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ report }),
+            });
+          } catch {
+            // 单条迁移失败不阻塞整体（下一会话重试）
+          }
+        }
+        // 2. 拉取服务端权威列表（所有登录用户可见，按创建时间倒序）
+        const res = await apiFetch('/api/saved-reports');
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.ok && Array.isArray(data.reports)) {
+          const list = (data.reports as { report?: unknown }[])
+            .map(reportFromRecord)
+            .filter((r): r is SavedReport => r !== null);
+          set({ savedReports: list });
+        }
+      } catch {
+        // 静默失败：401 已由 apiFetch 统一处理；其余异常下一会话重试
+        savedReportsInitPromise = null;
+      }
+    })();
+    return savedReportsInitPromise;
+  },
+
+  createSavedReportRemote: async (report) => {
+    set((state) => ({ savedReports: [report, ...state.savedReports] }));
+    const res = await apiFetch('/api/saved-reports', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report }),
+    });
+    const data = await res.json().catch(() => null);
+    // 409 冲突 = 服务端已存在（幂等），视为成功；其余失败保留本地报表并抛错由调用方提示（生成成本高）
+    if (!res.ok && res.status !== 409) {
+      throw new Error(data?.error || '保存到服务器失败');
+    }
+  },
+
+  updateSavedReportRemote: async (id, report) => {
+    const prev = get().savedReports.find((r) => r.id === id);
+    set((state) => ({ savedReports: state.savedReports.map((r) => (r.id === id ? report : r)) }));
+    try {
+      let res = await apiFetch(`/api/saved-reports/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report }),
+      });
+      // 服务端无此报表（如创建时保存失败的幽灵报表）：降级为创建补建
+      if (res.status === 404) {
+        res = await apiFetch('/api/saved-reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ report }),
+        });
+      }
+      const data = await res.json().catch(() => null);
+      if (!res.ok && res.status !== 409) {
+        throw new Error(data?.error || '同步到服务器失败');
+      }
+    } catch (err) {
+      // 回滚：保持 UI 与服务端一致（重新生成内容可由用户重试再生）
+      if (prev) set((state) => ({ savedReports: state.savedReports.map((r) => (r.id === id ? prev : r)) }));
+      throw err;
+    }
+  },
+
+  removeSavedReportRemote: async (id) => {
+    const prevList = get().savedReports;
+    if (!prevList.some((r) => r.id === id)) return;
+    set((state) => ({ savedReports: state.savedReports.filter((r) => r.id !== id) }));
+    try {
+      const res = await apiFetch(`/api/saved-reports/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || '删除失败');
+    } catch (err) {
+      // 回滚（恢复原顺序）
+      set({ savedReports: prevList });
+      throw err;
+    }
+  },
+
+  syncReportCommentsRemote: async (reportId) => {
+    const report = get().savedReports.find((r) => r.id === reportId);
+    if (!report) return; // 演示报表（不在 savedReports 中）天然跳过
+    try {
+      await apiFetch(`/api/saved-reports/${encodeURIComponent(reportId)}/comments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comments: report.comments || [] }),
+      });
+    } catch {
+      console.warn('[savedReports] 批注同步到服务器失败：', reportId);
+    }
+  },
+
+  demoReportDismissed: false,
+  dismissDemoReport: () => set({ demoReportDismissed: true }),
+
+  addReportComment: (reportId, comment) => {
     set((state) => ({
       savedReports: state.savedReports.map((report) => {
         if (report.id !== reportId) return report;
@@ -503,9 +632,11 @@ export const useAnalyticsStore = create<AnalyticsState>()(
           comments: [comment, ...currentComments],
         };
       }),
-    })),
+    }));
+    void get().syncReportCommentsRemote(reportId);
+  },
 
-  addReportCommentReply: (reportId, commentId, reply) =>
+  addReportCommentReply: (reportId, commentId, reply) => {
     set((state) => ({
       savedReports: state.savedReports.map((report) => {
         if (report.id !== reportId) return report;
@@ -521,9 +652,11 @@ export const useAnalyticsStore = create<AnalyticsState>()(
           }),
         };
       }),
-    })),
+    }));
+    void get().syncReportCommentsRemote(reportId);
+  },
 
-  toggleReportCommentResolve: (reportId, commentId) =>
+  toggleReportCommentResolve: (reportId, commentId) => {
     set((state) => ({
       savedReports: state.savedReports.map((report) => {
         if (report.id !== reportId) return report;
@@ -539,7 +672,9 @@ export const useAnalyticsStore = create<AnalyticsState>()(
           }),
         };
       }),
-    })),
+    }));
+    void get().syncReportCommentsRemote(reportId);
+  },
 
   activeTab: 'query',
   setActiveTab: (tab) => set({ activeTab: tab }),
@@ -552,8 +687,9 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       // v2：默认看板组件与示例报表切换为不良资产真实数据快照，旧版本本地缓存直接废弃重建
       // v3：为默认固化图表补全 dataSourceId（指向「数据资源」库），修正血缘视图上游归属
       // v4：旧未归属对话消息补盖最后活跃数据源戳，历史按源隔离不再串源
+      // v5：历史报表迁移服务端 saved_reports 表，savedReports 退出持久化（rehydrate 带入内存供 initSavedReports 迁移）
       name: 'analytics-store',
-      version: 4,
+      version: 5,
       migrate: (persisted, version) => {
         const state = persisted as {
           dataSources?: DataSource[];
@@ -586,7 +722,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
         activeTableId: state.activeTableId,
         chatMessages: state.chatMessages,
         dashboardWidgets: state.dashboardWidgets,
-        savedReports: state.savedReports,
+        demoReportDismissed: state.demoReportDismissed,
         activeTab: state.activeTab,
       }),
     }
