@@ -47,6 +47,9 @@ import reportTemplateRoutes from './server/routes/reportTemplates';
 import queryReportRoutes from './server/routes/queryReports';
 // v0.9.23 可视化决策报表服务端持久化（saved_reports 表）
 import savedReportRoutes from './server/routes/savedReports';
+// v0.9.24 看板固化图表 / 灵活查询固定报表与历史服务端持久化
+import dashboardWidgetRoutes from './server/routes/dashboardWidgets';
+import flexQueryRoutes from './server/routes/flexQueries';
 // P0-4 在线准确率度量看板（北极星指标聚合，仅 ADMIN）
 import opsMetricsRoutes from './server/routes/opsMetrics';
 import opsDriftRoutes from './server/routes/opsDrift';
@@ -229,6 +232,9 @@ async function startServer() {
   app.use('/api/query-reports', queryReportRoutes);
   // v0.9.23 历史决策报表服务端持久化（见 server/routes/savedReports.ts）
   app.use('/api/saved-reports', savedReportRoutes);
+  // v0.9.24 决策看板固化图表 / 灵活查询固定报表与历史（见 server/routes/dashboardWidgets.ts、flexQueries.ts）
+  app.use('/api/dashboard-widgets', dashboardWidgetRoutes);
+  app.use('/api/flex-queries', flexQueryRoutes);
   // P0-4 在线准确率度量看板（见 server/routes/opsMetrics.ts）
   app.use('/api/ops', opsMetricsRoutes);
   // P3-3 知识库漂移检测（见 server/routes/opsDrift.ts）

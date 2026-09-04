@@ -79,7 +79,7 @@ export const QueryChat: React.FC = () => {
     dataSources,
     activeDataSourceId,
     loadDataSources,
-    pinChartToDashboard,
+    pinChartToDashboardRemote,
     updateMessageChartConfig,
     setMessageFeedback,
     clearChat,
@@ -1305,7 +1305,7 @@ export const QueryChat: React.FC = () => {
                           config={msg.queryResult.chartConfig}
                           onChange={(newConfig) => updateMessageChartConfig(msg.id, newConfig)}
                           onPinToDashboard={() => {
-                            pinChartToDashboard({
+                            pinChartToDashboardRemote({
                               title: msg.queryResult!.chartConfig!.title,
                               chartConfig: msg.queryResult!.chartConfig!,
                               data: msg.queryResult!.rows,
@@ -1314,8 +1314,9 @@ export const QueryChat: React.FC = () => {
                               ...(msg.queryResult!.dataProvenance === 'live' && msg.queryResult!.generatedSQL
                                 ? { sourceSql: msg.queryResult!.generatedSQL }
                                 : {}),
-                            });
-                            showToast('已成功固定该图表至决策数据看板');
+                            })
+                              .then(() => showToast('已成功固定该图表至决策数据看板'))
+                              .catch((err) => showToast(err?.message || '固定到看板失败'));
                           }}
                         />
 

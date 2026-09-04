@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword } from './passwords';
 import { encryptSecret, isEncrypted } from './secretsCrypto';
 import { BUILTIN_SKILLS } from './skills';
 import { ensureTaskTable } from './taskQueue';
+import { DEFAULT_DASHBOARD_WIDGET_SEEDS } from './defaultWidgets';
 
 // 注意：ESM import 提升会使模块级 process.env 读取早于 dotenv.config()，
 // 因此所有环境变量必须在使用时惰性读取。
@@ -446,6 +447,56 @@ export async function initSchema(): Promise<void> {
       INDEX idx_sr_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  // v0.9.24 决策数据看板固化图表服务端持久化（团队共享巡检屏，sort_order 支撑拖拽排序）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dashboard_widgets (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      widget_id VARCHAR(64) NOT NULL UNIQUE COMMENT '图表唯一标识（前端生成 widget-{timestamp}；出厂内置 widget-1..5）',
+      user_id INT NOT NULL COMMENT '固化人用户 ID（出厂内置为 0/system）',
+      username VARCHAR(50) NOT NULL,
+      widget_data MEDIUMTEXT NOT NULL COMMENT '完整 DashboardWidget JSON（chartConfig/data/colSpan 等）',
+      sort_order INT NOT NULL DEFAULT 0 COMMENT '看板排列顺序（拖拽排序批量回写）',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_dw_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.24 灵活查询固定报表服务端持久化（团队共享查询模板）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS flex_queries (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      query_id VARCHAR(64) NOT NULL UNIQUE COMMENT '固定报表唯一标识（前端生成 flex-{timestamp}）',
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL,
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      query_data MEDIUMTEXT NOT NULL COMMENT '完整 SavedFlexQuery JSON（含 FlexQueryConfig 与图表类型）',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_fq_ds (data_source_id),
+      INDEX idx_fq_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.24 灵活查询最近历史服务端持久化（个人行为记录，一行 per 用户整组替换，上限 8 条）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS flex_query_history (
+      user_id INT PRIMARY KEY,
+      history_data MEDIUMTEXT NOT NULL COMMENT 'FlexHistoryItem JSON 数组（按配置去重、上限 8 条）',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.24 出厂内置默认看板图表（表空时幂等 seed；user_id=0/system 仅 ADMIN 可删）
+  const [dwRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM dashboard_widgets');
+  if (Number(dwRows[0]?.cnt) === 0) {
+    for (const seed of DEFAULT_DASHBOARD_WIDGET_SEEDS) {
+      await pool.query(
+        'INSERT INTO dashboard_widgets (widget_id, user_id, username, widget_data, sort_order) VALUES (?, 0, ?, ?, ?)',
+        [seed.widgetId, 'system', JSON.stringify(seed.widget), seed.sortOrder],
+      );
+    }
+  }
 
   // v0.5.0 初始化预设报告模板（幂等插入）
   const [templateRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM report_templates WHERE is_preset = 1');

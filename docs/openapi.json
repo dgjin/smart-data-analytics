@@ -3839,6 +3839,304 @@
           }
         }
       }
+    },
+    "/api/dashboard-widgets": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "operationId": "listDashboardWidgets",
+        "summary": "看板固化图表列表（所有登录用户可见，按 sort_order 升序）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Dashboard"
+        ],
+        "operationId": "pinDashboardWidget",
+        "summary": "固化图表至看板（ADMIN/ANALYST；widget_id 冲突 409 幂等）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "widget"
+                ],
+                "properties": {
+                  "widget": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Conflict": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/dashboard-widgets/order": {
+      "put": {
+        "tags": [
+          "Dashboard"
+        ],
+        "operationId": "reorderDashboardWidgets",
+        "summary": "批量调整看板图表排序（ADMIN/ANALYST）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/dashboard-widgets/{widgetId}": {
+      "parameters": [
+        {
+          "name": "widgetId",
+          "in": "path",
+          "required": true,
+          "description": "图表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "Dashboard"
+        ],
+        "operationId": "replaceDashboardWidget",
+        "summary": "整体替换看板图表（标题/布局调整、自动重放快照更新；ADMIN/ANALYST）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "widget"
+                ],
+                "properties": {
+                  "widget": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Dashboard"
+        ],
+        "operationId": "deleteDashboardWidget",
+        "summary": "移除看板图表（ADMIN/ANALYST 且仅本人或 ADMIN；出厂内置仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/flex-queries": {
+      "get": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "listFlexQueries",
+        "summary": "已保存固定报表列表（所有登录用户可见，可按数据源过滤）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "createFlexQuery",
+        "summary": "保存固定报表（ADMIN/ANALYST；query_id 冲突 409 幂等）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Conflict": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/history": {
+      "get": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "getFlexQueryHistory",
+        "summary": "本人最近查询历史（上限 8 条）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "replaceFlexQueryHistory",
+        "summary": "整组替换本人最近查询历史（服务端超限裁剪）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "items"
+                ],
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/{queryId}": {
+      "parameters": [
+        {
+          "name": "queryId",
+          "in": "path",
+          "required": true,
+          "description": "固定报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "deleteFlexQuery",
+        "summary": "删除固定报表（ADMIN/ANALYST 且仅本人或 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
     }
   },
   "components": {

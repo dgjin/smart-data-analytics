@@ -54,7 +54,7 @@ import {
 import { useEffectiveAmountUnit, AMOUNT_UNIT_DIVISORS } from '../../hooks/useAmountUnitStore';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
 
-/** 已保存的固定报表（灵活查询定义），localStorage 持久化 */
+/** 已保存的固定报表（灵活查询定义），v0.9.24 起服务端 flex_queries 表持久化 */
 interface SavedFlexQuery {
   id: string;
   name: string;
@@ -64,7 +64,7 @@ interface SavedFlexQuery {
   createdAt: string;
 }
 
-/** 最近执行查询历史，localStorage 持久化 */
+/** 最近执行查询历史，v0.9.24 起服务端 flex_query_history 表持久化（仅本人可见） */
 interface FlexHistoryItem {
   id: string;
   name: string;
@@ -74,6 +74,7 @@ interface FlexHistoryItem {
   ranAt: string;
 }
 
+/** v0.9.24 迁移遗留键：服务端持久化后仅存留一次性迁移源，迁移成功即清除 */
 const SAVED_KEY = 'app-flex-queries';
 const HISTORY_KEY = 'app-flex-history';
 const DB_TYPES = ['mysql', 'postgresql', 'greenplum'];
@@ -104,7 +105,7 @@ export const FlexQueryBuilder: React.FC = () => {
     dataSources,
     activeDataSourceId,
     setActiveDataSource,
-    pinChartToDashboard,
+    pinChartToDashboardRemote,
     setActiveTab,
   } = useAnalyticsStore();
 
@@ -268,41 +269,121 @@ export const FlexQueryBuilder: React.FC = () => {
     window.setTimeout(() => setToast(null), 3200);
   };
 
-  // ---------- 已保存固定报表 ----------
-  const [savedQueries, setSavedQueries] = useState<SavedFlexQuery[]>(() => {
+  // ---------- 已保存固定报表（v0.9.24 服务端持久化） ----------
+  const [savedQueries, setSavedQueries] = useState<SavedFlexQuery[]>([]);
+
+  /** 保存固定报表：本地乐观 + 服务端落库；失败回滚并提示（409 幂等视为成功） */
+  const saveNewQuery = async (item: SavedFlexQuery) => {
+    setSavedQueries((prev) => [item, ...prev]);
     try {
-      const raw = localStorage.getItem(SAVED_KEY);
-      return raw ? (JSON.parse(raw) as SavedFlexQuery[]) : [];
-    } catch {
-      return [];
-    }
-  });
-  const persistSaved = (list: SavedFlexQuery[]) => {
-    setSavedQueries(list);
-    try {
-      localStorage.setItem(SAVED_KEY, JSON.stringify(list));
-    } catch {
-      // 存储不可用时仅本次会话生效
+      const res = await apiFetch('/api/flex-queries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: item }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok && res.status !== 409) throw new Error(data?.error || '保存到服务器失败');
+      showToast(`固定报表「${item.name}」已保存`);
+    } catch (err) {
+      setSavedQueries((prev) => prev.filter((x) => x.id !== item.id));
+      showToast((err as Error)?.message || '固定报表保存失败');
     }
   };
 
-  // ---------- 最近查询历史（v0.4.10） ----------
-  const [history, setHistory] = useState<FlexHistoryItem[]>(() => {
+  /** 删除固定报表：本地乐观 + 服务端删除；失败回滚并提示 */
+  const deleteSavedQuery = async (id: string) => {
+    const prev = savedQueries;
+    setSavedQueries(prev.filter((x) => x.id !== id));
     try {
-      const raw = localStorage.getItem(HISTORY_KEY);
-      return raw ? (JSON.parse(raw) as FlexHistoryItem[]) : [];
-    } catch {
-      return [];
-    }
-  });
-  const persistHistory = (list: FlexHistoryItem[]) => {
-    setHistory(list);
-    try {
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
-    } catch {
-      // 存储不可用时仅本次会话生效
+      const res = await apiFetch(`/api/flex-queries/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || '删除失败');
+    } catch (err) {
+      setSavedQueries(prev);
+      showToast((err as Error)?.message || '删除失败');
     }
   };
+
+  // ---------- 最近查询历史（v0.9.24 服务端持久化，仅本人可见） ----------
+  const [history, setHistory] = useState<FlexHistoryItem[]>([]);
+
+  /** 历史整组替换：本地乐观 + 服务端 fire-and-forget（非关键数据，失败仅告警） */
+  const persistHistory = (list: FlexHistoryItem[]) => {
+    setHistory(list);
+    void apiFetch('/api/flex-queries/history', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: list }),
+    }).catch((err) => console.warn('[flex-query] 查询历史同步失败:', err));
+  };
+
+  // ---------- v0.9.24 服务端持久化初始化：迁移 localStorage 遗留 → 拉取服务端权威数据 ----------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // 1. 迁移遗留固定报表（服务端 query_id UNIQUE + 409 幂等，重复迁移安全）
+      try {
+        const raw = localStorage.getItem(SAVED_KEY);
+        const legacy = raw ? (JSON.parse(raw) as SavedFlexQuery[]) : [];
+        for (const q of legacy) {
+          if (!q?.id || !q?.name) continue;
+          try {
+            await apiFetch('/api/flex-queries', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: q }),
+            });
+          } catch {
+            // 单条迁移失败不阻塞整体（localStorage 保留，下一会话重试）
+          }
+        }
+        localStorage.removeItem(SAVED_KEY);
+      } catch {
+        // 本地读取失败忽略
+      }
+      // 2. 迁移遗留历史（整组替换）
+      try {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        const legacyHist = raw ? (JSON.parse(raw) as FlexHistoryItem[]) : [];
+        if (Array.isArray(legacyHist) && legacyHist.length) {
+          await apiFetch('/api/flex-queries/history', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: legacyHist.slice(0, 8) }),
+          });
+        }
+        localStorage.removeItem(HISTORY_KEY);
+      } catch {
+        // 历史迁移失败不影响主流程
+      }
+      // 3. 拉取服务端权威列表
+      try {
+        const [qRes, hRes] = await Promise.all([
+          apiFetch('/api/flex-queries'),
+          apiFetch('/api/flex-queries/history'),
+        ]);
+        const qData = await qRes.json().catch(() => null);
+        const hData = await hRes.json().catch(() => null);
+        if (cancelled) return;
+        if (qRes.ok && qData?.success && Array.isArray(qData.queries)) {
+          setSavedQueries(
+            (qData.queries as { query?: SavedFlexQuery }[])
+              .map((r) => r.query)
+              .filter((q): q is SavedFlexQuery => !!q && typeof q.id === 'string'),
+          );
+        }
+        if (hRes.ok && hData?.success && Array.isArray(hData.items)) {
+          setHistory(hData.items as FlexHistoryItem[]);
+        }
+      } catch {
+        // 服务端不可达时本次会话以空列表起步（写入仍可乐观进行）
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- 字段添加 ----------
   const addField = (column: string, zone?: DropZone) => {
@@ -470,15 +551,16 @@ export const FlexQueryBuilder: React.FC = () => {
   // ---------- 固化 / 保存 ----------
   const handlePin = () => {
     if (!result || !built?.ok || !chartConfig) return;
-    pinChartToDashboard({
+    pinChartToDashboardRemote({
       title: chartConfig.title,
       chartConfig,
       data: result.rows,
       dataSourceId: activeDataSourceId || undefined,
       // v0.4.8 自主更新联动：携带原 SQL，数据变化时看板自动重放刷新
       sourceSql: built.sql,
-    });
-    showToast('已固化至决策数据看板（数据变化时将自动更新）');
+    })
+      .then(() => showToast('已固化至决策数据看板（数据变化时将自动更新）'))
+      .catch((err) => showToast(err?.message || '固化到看板失败'));
   };
 
   const handleSave = () => {
@@ -492,8 +574,7 @@ export const FlexQueryBuilder: React.FC = () => {
       chartType,
       createdAt: new Date().toISOString().slice(0, 10),
     };
-    persistSaved([item, ...savedQueries]);
-    showToast(`固定报表「${name}」已保存`);
+    void saveNewQuery(item);
   };
 
   /** 兼容 v0.4.9 旧配置（orderByFirstMeasure → orderBy）并补齐新字段 */
@@ -1403,7 +1484,7 @@ export const FlexQueryBuilder: React.FC = () => {
                           载入
                         </button>
                         <button
-                          onClick={() => persistSaved(savedQueries.filter((x) => x.id !== item.id))}
+                          onClick={() => void deleteSavedQuery(item.id)}
                           className="p-1 text-slate-500 hover:text-rose-400"
                           title="删除该固定报表"
                         >

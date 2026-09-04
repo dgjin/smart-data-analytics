@@ -15,6 +15,7 @@ import {
 import { apiFetch } from '../api/client';
 import { scanReportForAnomalies } from '../utils/anomalyDetector';
 import { pickMigratableReports, reportFromRecord } from '../utils/reportPersistence';
+import { pickMigratableWidgets, widgetFromRecord } from '../utils/widgetPersistence';
 import { trimChatMessages } from '../utils/chatRetention';
 
 // 默认固化监控图表（widget-1..5）源自「数据资源」库的不良资产宽表（fct_jc_*）；
@@ -42,28 +43,7 @@ const NPA_BIZ_STRUCTURE = [
   { ywfl: '权益类', je: 251.5 },
   { ywfl: '其他', je: 103.0 },
 ];
-const NPA_ORG_INVEST_TOP = [
-  { jgmc: '北京市分公司', je: 720.3 },
-  { jgmc: '上海市分公司', je: 285.5 },
-  { jgmc: '四川省分公司', je: 210.1 },
-  { jgmc: '江苏省分公司', je: 196.8 },
-  { jgmc: '山东省分公司', je: 157.0 },
-  { jgmc: '河北省分公司', je: 153.1 },
-  { jgmc: '广东省分公司', je: 97.0 },
-  { jgmc: '河南省分公司', je: 94.3 },
-  { jgmc: '陕西省分公司', je: 58.8 },
-  { jgmc: '海南省分公司', je: 55.2 },
-];
-const NPA_AGED_TOP = [
-  { jgmc: '浙江省分公司', bs: 189 },
-  { jgmc: '福建省分公司', bs: 145 },
-  { jgmc: '上海市分公司', bs: 123 },
-  { jgmc: '广东省分公司', bs: 114 },
-  { jgmc: '山东省分公司', bs: 106 },
-  { jgmc: '重庆市分公司', bs: 102 },
-  { jgmc: '江苏省分公司', bs: 100 },
-  { jgmc: '湖北省分公司', bs: 90 },
-];
+// v0.9.24：NPA_ORG_INVEST_TOP / NPA_AGED_TOP 随默认看板图表迁移至服务端 seed（server/defaultWidgets.ts），前端仅保留演示报表所需常量
 const NPA_MONTHLY_RETURN = [
   { month: '1月', sy: 25.4 },
   { month: '2月', sy: 31.8 },
@@ -195,6 +175,8 @@ export const DEMO_REPORT: SavedReport = scanReportForAnomalies({
 
 // v0.9.23 initSavedReports 会话内防重入（模块级；迁移失败时置 null 允许下一会话重试）
 let savedReportsInitPromise: Promise<void> | null = null;
+// v0.9.24 initDashboardWidgets 会话内防重入（同模式）
+let dashboardWidgetsInitPromise: Promise<void> | null = null;
 
 interface AnalyticsState {
   // Data Sources
@@ -222,12 +204,14 @@ interface AnalyticsState {
   setMessageFeedback: (msgId: string, verdict: 'UP' | 'DOWN') => void;
   clearChat: () => void;
 
-  // Custom Dashboard Widgets
+  // Custom Dashboard Widgets（v0.9.24 服务端持久化：初值为空，由 initDashboardWidgets() 迁移本地遗留后拉取服务端列表）
   dashboardWidgets: DashboardWidget[];
-  pinChartToDashboard: (widget: Omit<DashboardWidget, 'id'>) => void;
-  removeDashboardWidget: (id: string) => void;
-  updateDashboardWidget: (id: string, updates: Partial<DashboardWidget>) => void;
-  reorderDashboardWidgets: (widgets: DashboardWidget[]) => void;
+  initDashboardWidgets: () => Promise<void>;
+  pinChartToDashboardRemote: (widget: Omit<DashboardWidget, 'id'>) => Promise<void>;
+  removeDashboardWidgetRemote: (id: string) => Promise<void>;
+  /** keepLocalOnError：自动重放快照更新失败仅本地生效不回滚；localOnly：高频拖拽预览仅本地，由调用方收尾时再发远端同步 */
+  updateDashboardWidgetRemote: (id: string, updates: Partial<DashboardWidget>, options?: { keepLocalOnError?: boolean; localOnly?: boolean }) => Promise<void>;
+  reorderDashboardWidgetsRemote: (widgets: DashboardWidget[]) => Promise<void>;
 
   // Generated Visual Reports
   // v0.9.23：历史报表改为服务端 MySQL 持久化（saved_reports 表），此处为服务端数据的内存镜像
@@ -395,108 +379,125 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       activeQueryResult: null,
     })),
 
-  // Pin Widgets to Dashboard（默认组件：不良资产宽表 2026-08-31 月末快照核算版真实数据，金额单位亿元）
-  // 显式标注 DashboardWidget[]：strictNullChecks 下各 widget 的 yAxisNames 字面量形状不同，
-  // 推断出的联合类型（可选键 ?: undefined）与 Record<string, string> 不兼容
-  dashboardWidgets: [
-    {
-      id: 'widget-1',
-      title: '2026年逐月投放金额走势',
-      chartConfig: {
-        type: 'area',
-        title: '逐月投放金额走势（月末快照口径）',
-        xAxisKey: 'month',
-        yAxisKeys: ['tfje'],
-        yAxisNames: { tfje: '当月投放金额（亿元）' },
-        xAxisName: '月份',
-        stacked: false,
-      },
-      data: NPA_MONTHLY_INVEST,
-      colSpan: 2,
-    },
-    {
-      id: 'widget-2',
-      title: '本年投放业务分类结构',
-      chartConfig: {
-        type: 'pie',
-        title: '本年投放业务分类占比',
-        xAxisKey: 'ywfl',
-        yAxisKeys: ['je'],
-        yAxisNames: { je: '本年投放金额（亿元）' },
-        xAxisName: '业务分类',
-        stacked: false,
-      },
-      data: NPA_BIZ_STRUCTURE,
-      colSpan: 1,
-    },
-    {
-      id: 'widget-3',
-      title: '本年投放金额 TOP10 机构',
-      chartConfig: {
-        type: 'bar',
-        title: '各机构本年投放金额排名（核算版）',
-        xAxisKey: 'jgmc',
-        yAxisKeys: ['je'],
-        yAxisNames: { je: '本年投放金额（亿元）' },
-        xAxisName: '机构名称',
-        stacked: false,
-      },
-      data: NPA_ORG_INVEST_TOP,
-      colSpan: 2,
-    },
-    {
-      id: 'widget-4',
-      title: '长龄业务笔数 TOP8 机构',
-      chartConfig: {
-        type: 'bar',
-        title: '各机构长龄业务笔数（SFCL=是）',
-        xAxisKey: 'jgmc',
-        yAxisKeys: ['bs'],
-        yAxisNames: { bs: '长龄业务笔数' },
-        xAxisName: '机构名称',
-        stacked: false,
-      },
-      data: NPA_AGED_TOP,
-      colSpan: 1,
-    },
-    {
-      id: 'widget-5',
-      title: '当年投资收益逐月兑现走势',
-      chartConfig: {
-        type: 'line',
-        title: '当月投资收益走势（财务宽表核算版）',
-        xAxisKey: 'month',
-        yAxisKeys: ['sy'],
-        yAxisNames: { sy: '当月投资收益（亿元）' },
-        xAxisName: '月份',
-        stacked: false,
-      },
-      data: NPA_MONTHLY_RETURN,
-      colSpan: 2,
-    },
-  ] as DashboardWidget[],
+  // Pin Widgets to Dashboard（v0.9.24 服务端持久化：默认 5 个出厂图表由服务端 seed，见 server/defaultWidgets.ts）
+  dashboardWidgets: [],
 
-  pinChartToDashboard: (widget) =>
+  /** 会话一次：迁移 persist rehydrate 带入内存的旧本地图表（出厂内置除外）后拉取服务端权威列表 */
+  initDashboardWidgets: async () => {
+    if (dashboardWidgetsInitPromise) return dashboardWidgetsInitPromise;
+    dashboardWidgetsInitPromise = (async () => {
+      try {
+        // 1. 本地遗留迁移：partialize 已移除 dashboardWidgets，下一次写入即清除 localStorage 残留；
+        //    重复迁移由服务端 widget_id UNIQUE 幂等吸收（409 忽略）
+        const legacy = pickMigratableWidgets(get().dashboardWidgets);
+        for (const widget of legacy) {
+          try {
+            await apiFetch('/api/dashboard-widgets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ widget }),
+            });
+          } catch {
+            // 单条迁移失败不阻塞整体（下一会话重试）
+          }
+        }
+        // 2. 拉取服务端权威列表（所有登录用户可见，按 sort_order 升序）
+        const res = await apiFetch('/api/dashboard-widgets');
+        const data = await res.json().catch(() => null);
+        if (res.ok && data?.success && Array.isArray(data.widgets)) {
+          const list = (data.widgets as { widgetId?: unknown; widget?: unknown }[])
+            .map(widgetFromRecord)
+            .filter((w): w is DashboardWidget => w !== null);
+          set({ dashboardWidgets: list });
+        }
+      } catch {
+        // 静默失败：401 已由 apiFetch 统一处理；其余异常下一会话重试
+        dashboardWidgetsInitPromise = null;
+      }
+    })();
+    return dashboardWidgetsInitPromise;
+  },
+
+  pinChartToDashboardRemote: async (widget) => {
+    const full: DashboardWidget = { ...widget, id: `widget-${Date.now()}` };
+    set((state) => ({ dashboardWidgets: [...state.dashboardWidgets, full] }));
+    try {
+      const res = await apiFetch('/api/dashboard-widgets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ widget: full }),
+      });
+      const data = await res.json().catch(() => null);
+      // 409 冲突 = 服务端已存在（幂等），视为成功；其余失败回滚并抛错由调用方提示
+      if (!res.ok && res.status !== 409) {
+        throw new Error(data?.error || '固化到看板失败');
+      }
+    } catch (err) {
+      set((state) => ({ dashboardWidgets: state.dashboardWidgets.filter((w) => w.id !== full.id) }));
+      throw err;
+    }
+  },
+
+  removeDashboardWidgetRemote: async (id) => {
+    const prevList = get().dashboardWidgets;
+    if (!prevList.some((w) => w.id === id)) return;
+    set((state) => ({ dashboardWidgets: state.dashboardWidgets.filter((w) => w.id !== id) }));
+    try {
+      const res = await apiFetch(`/api/dashboard-widgets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || '移除看板图表失败');
+    } catch (err) {
+      set({ dashboardWidgets: prevList });
+      throw err;
+    }
+  },
+
+  updateDashboardWidgetRemote: async (id, updates, options) => {
+    const prev = get().dashboardWidgets.find((w) => w.id === id);
+    if (!prev) return;
+    const next = { ...prev, ...updates };
     set((state) => ({
-      dashboardWidgets: [
-        ...state.dashboardWidgets,
-        { ...widget, id: `widget-${Date.now()}` },
-      ],
-    })),
+      dashboardWidgets: state.dashboardWidgets.map((w) => (w.id === id ? next : w)),
+    }));
+    // localOnly：拖拽缩放 mousemove 高频本地预览，不发请求（mouseup 由调用方再同步一次）
+    if (options?.localOnly) return;
+    try {
+      const res = await apiFetch(`/api/dashboard-widgets/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ widget: next }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || '同步看板图表失败');
+    } catch (err) {
+      // keepLocalOnError：v0.4.8 自动重放快照更新（VIEWER 无写权限 403 或网络异常）——保留本地新数据不回滚，避免看板数字闪回
+      if (options?.keepLocalOnError) {
+        console.warn('[dashboard-widgets] 远端同步失败（仅本次会话生效）:', err);
+        return;
+      }
+      set((state) => ({
+        dashboardWidgets: state.dashboardWidgets.map((w) => (w.id === id ? prev : w)),
+      }));
+      throw err;
+    }
+  },
 
-  removeDashboardWidget: (id) =>
-    set((state) => ({
-      dashboardWidgets: state.dashboardWidgets.filter((w) => w.id !== id),
-    })),
-
-  updateDashboardWidget: (id, updates) =>
-    set((state) => ({
-      dashboardWidgets: state.dashboardWidgets.map((w) =>
-        w.id === id ? { ...w, ...updates } : w
-      ),
-    })),
-
-  reorderDashboardWidgets: (widgets) => set({ dashboardWidgets: widgets }),
+  reorderDashboardWidgetsRemote: async (widgets) => {
+    const prevList = get().dashboardWidgets;
+    set({ dashboardWidgets: widgets });
+    try {
+      const res = await apiFetch('/api/dashboard-widgets/order', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: widgets.map((w) => w.id) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || '看板排序同步失败');
+    } catch (err) {
+      set({ dashboardWidgets: prevList });
+      throw err;
+    }
+  },
 
   // v0.9.23：历史报表服务端持久化——初值为空，由 initSavedReports() 迁移本地遗留后拉取服务端列表填充
   savedReports: [],
@@ -688,8 +689,9 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       // v3：为默认固化图表补全 dataSourceId（指向「数据资源」库），修正血缘视图上游归属
       // v4：旧未归属对话消息补盖最后活跃数据源戳，历史按源隔离不再串源
       // v5：历史报表迁移服务端 saved_reports 表，savedReports 退出持久化（rehydrate 带入内存供 initSavedReports 迁移）
+      // v6：看板固化图表迁移服务端 dashboard_widgets 表（含出厂 seed），dashboardWidgets 退出持久化（同模式供 initDashboardWidgets 迁移）
       name: 'analytics-store',
-      version: 5,
+      version: 6,
       migrate: (persisted, version) => {
         const state = persisted as {
           dataSources?: DataSource[];
@@ -721,7 +723,6 @@ export const useAnalyticsStore = create<AnalyticsState>()(
         activeDataSourceId: state.activeDataSourceId,
         activeTableId: state.activeTableId,
         chatMessages: state.chatMessages,
-        dashboardWidgets: state.dashboardWidgets,
         demoReportDismissed: state.demoReportDismissed,
         activeTab: state.activeTab,
       }),

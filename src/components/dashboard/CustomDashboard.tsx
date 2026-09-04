@@ -42,16 +42,22 @@ interface SemanticMetric {
 export const CustomDashboard: React.FC = () => {
   const {
     dashboardWidgets,
-    removeDashboardWidget,
-    updateDashboardWidget,
-    reorderDashboardWidgets,
-    pinChartToDashboard,
+    initDashboardWidgets,
+    removeDashboardWidgetRemote,
+    updateDashboardWidgetRemote,
+    reorderDashboardWidgetsRemote,
+    pinChartToDashboardRemote,
     dataSources,
     setActiveTab,
   } = useAnalyticsStore();
   const currentUser = useAuthStore((s) => s.user);
   // P2-14：统一指标查询端点仅 ADMIN/ANALYST 可调（与问数同权限）
   const canQueryMetric = currentUser?.role === 'ADMIN' || currentUser?.role === 'ANALYST';
+
+  // v0.9.24：看板固化图表服务端持久化——挂载后迁移本地遗留并拉取服务端权威列表
+  useEffect(() => {
+    if (currentUser) void initDashboardWidgets();
+  }, [currentUser, initDashboardWidgets]);
 
   const [globalThemeId, setGlobalThemeId] = useState<string>('cyber');
   const [globalAutoContrast, setGlobalAutoContrast] = useState<boolean>(true);
@@ -91,7 +97,8 @@ export const CustomDashboard: React.FC = () => {
           if (!res.ok) continue;
           const data = await res.json();
           if (data.success && Array.isArray(data.rows)) {
-            updateDashboardWidget(w.id, { data: data.rows, lastAutoUpdatedAt: new Date().toISOString() });
+            // v0.9.24：自动重放快照同步远端；VIEWER 无写权限（403）或网络异常时仅本地生效，不回滚避免看板数字闪回
+            void updateDashboardWidgetRemote(w.id, { data: data.rows, lastAutoUpdatedAt: new Date().toISOString() }, { keepLocalOnError: true });
             refreshed += 1;
           }
         } catch {
@@ -206,21 +213,21 @@ export const CustomDashboard: React.FC = () => {
     // 带维度结果固化后带 sourceSql，可参与 v0.4.8 数据变化自动重放刷新；
     // 无维度单值固化为静态快照（重放会改变数据形状，不参与自动更新）
     if (dims.length > 0) {
-      pinChartToDashboard({
+      pinChartToDashboardRemote({
         title,
         chartConfig: { type: 'bar', title, xAxisKey: dims[0], yAxisKeys: ['value'], yAxisNames: { value: displayName }, xAxisName: dims[0] },
         data: rows,
         dataSourceId: effectiveMetricDsId,
         sourceSql: sql || undefined,
-      });
+      }).catch((err) => window.alert(err?.message || '固化到看板失败'));
     } else {
       const v = rows[0]?.value;
-      pinChartToDashboard({
+      pinChartToDashboardRemote({
         title,
         chartConfig: { type: 'bar', title, xAxisKey: 'value', yAxisKeys: ['value'], yAxisNames: { value: displayName } },
         data: [{ value: typeof v === 'number' ? v : Number(v) || 0 }],
         dataSourceId: effectiveMetricDsId,
-      });
+      }).catch((err) => window.alert(err?.message || '固化到看板失败'));
     }
     setMetricPinned(true);
   }
@@ -264,7 +271,8 @@ export const CustomDashboard: React.FC = () => {
     const [movedItem] = updated.splice(draggedIndex, 1);
     updated.splice(targetIndex, 0, movedItem);
 
-    reorderDashboardWidgets(updated);
+    // v0.9.24：排序同步服务端，失败自动回滚（回滚即视觉反馈）
+    void reorderDashboardWidgetsRemote(updated).catch(() => {});
     setDraggedIndex(null);
     setDragOverIndex(null);
   };
@@ -320,16 +328,24 @@ export const CustomDashboard: React.FC = () => {
       // Height calculation: clamped between 200px and 520px
       const newHeight = Math.max(200, Math.min(520, Math.round(initialHeight + dy)));
 
-      updateDashboardWidget(widgetId, {
+      // v0.9.24：拖拽缩放 mousemove 高频调用仅本地预览（localOnly），mouseup 再一次性同步远端
+      void updateDashboardWidgetRemote(widgetId, {
         colSpan: newColSpan,
         height: newHeight,
-      });
+      }, { localOnly: true });
     };
 
     const handleMouseUp = () => {
       if (resizingWidgetId) {
+        const finalWidget = widgetsRef.current.find((x) => x.id === resizingWidgetId);
         resizeStartRef.current = null;
         setResizingWidgetId(null);
+        if (finalWidget) {
+          void updateDashboardWidgetRemote(finalWidget.id, {
+            colSpan: finalWidget.colSpan,
+            height: finalWidget.height,
+          }).catch(() => {});
+        }
       }
     };
 
@@ -342,7 +358,7 @@ export const CustomDashboard: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [resizingWidgetId, updateDashboardWidget]);
+  }, [resizingWidgetId, updateDashboardWidgetRemote]);
 
   // Apply Layout Presets
   const applyPresetLayout = (preset: 'three' | 'two' | 'hero') => {
@@ -360,7 +376,13 @@ export const CustomDashboard: React.FC = () => {
       }
       return w;
     });
-    reorderDashboardWidgets(updated);
+    // v0.9.24：预设布局只改列宽/高度（顺序不变），逐图同步远端；失败自动回滚
+    updated.forEach((w, idx) => {
+      const prev = dashboardWidgets[idx];
+      if (prev && (prev.colSpan !== w.colSpan || prev.height !== w.height)) {
+        void updateDashboardWidgetRemote(w.id, { colSpan: w.colSpan, height: w.height }).catch(() => {});
+      }
+    });
   };
 
   return (
@@ -741,7 +763,7 @@ export const CustomDashboard: React.FC = () => {
                       <div className="flex items-center space-x-1 bg-slate-950 border border-slate-800 p-0.5 rounded-lg text-[10px]">
                         <span className="text-slate-500 px-1 font-mono">列宽:</span>
                         <button
-                          onClick={() => updateDashboardWidget(widget.id, { colSpan: 1 })}
+                          onClick={() => void updateDashboardWidgetRemote(widget.id, { colSpan: 1 }).catch(() => {})}
                           className={`px-1.5 py-0.5 rounded ${
                             colSpan === 1
                               ? 'bg-indigo-600 text-white font-bold'
@@ -751,7 +773,7 @@ export const CustomDashboard: React.FC = () => {
                           1x
                         </button>
                         <button
-                          onClick={() => updateDashboardWidget(widget.id, { colSpan: 2 })}
+                          onClick={() => void updateDashboardWidgetRemote(widget.id, { colSpan: 2 }).catch(() => {})}
                           className={`px-1.5 py-0.5 rounded ${
                             colSpan === 2
                               ? 'bg-indigo-600 text-white font-bold'
@@ -761,7 +783,7 @@ export const CustomDashboard: React.FC = () => {
                           2x
                         </button>
                         <button
-                          onClick={() => updateDashboardWidget(widget.id, { colSpan: 3 })}
+                          onClick={() => void updateDashboardWidgetRemote(widget.id, { colSpan: 3 }).catch(() => {})}
                           className={`px-1.5 py-0.5 rounded ${
                             colSpan === 3
                               ? 'bg-indigo-600 text-white font-bold'
@@ -774,7 +796,7 @@ export const CustomDashboard: React.FC = () => {
                     )}
 
                     <button
-                      onClick={() => removeDashboardWidget(widget.id)}
+                      onClick={() => void removeDashboardWidgetRemote(widget.id).catch((err) => window.alert(err?.message || '移除看板图表失败'))}
                       className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors"
                       title="从看板移除"
                     >

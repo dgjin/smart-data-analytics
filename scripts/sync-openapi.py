@@ -164,6 +164,35 @@ add('/api/saved-reports/{reportId}/comments', 'put',
        body={'type': 'object', 'required': ['comments'], 'properties': {'comments': {'type': 'array', 'items': {'type': 'object'}}}}),
     [param('reportId', '报表 ID')])
 
+# ---- DashboardWidgets（v0.9.24 决策数据看板固化图表服务端持久化） ----
+add('/api/dashboard-widgets', 'get', op('Dashboard', 'listDashboardWidgets', '看板固化图表列表（所有登录用户可见，按 sort_order 升序）'))
+add('/api/dashboard-widgets', 'post',
+    op('Dashboard', 'pinDashboardWidget', '固化图表至看板（ADMIN/ANALYST；widget_id 冲突 409 幂等）', ['BadRequest', 'Forbidden', 'Conflict'],
+       body={'type': 'object', 'required': ['widget'], 'properties': {'widget': {'type': 'object'}}}))
+add('/api/dashboard-widgets/order', 'put',
+    op('Dashboard', 'reorderDashboardWidgets', '批量调整看板图表排序（ADMIN/ANALYST）', ['BadRequest', 'Forbidden'],
+       body={'type': 'object', 'required': ['ids'], 'properties': {'ids': {'type': 'array', 'items': {'type': 'string'}}}}))
+add('/api/dashboard-widgets/{widgetId}', 'put',
+    op('Dashboard', 'replaceDashboardWidget', '整体替换看板图表（标题/布局调整、自动重放快照更新；ADMIN/ANALYST）', ['BadRequest', 'Forbidden', 'NotFound'],
+       body={'type': 'object', 'required': ['widget'], 'properties': {'widget': {'type': 'object'}}}),
+    [param('widgetId', '图表 ID')])
+add('/api/dashboard-widgets/{widgetId}', 'delete',
+    op('Dashboard', 'deleteDashboardWidget', '移除看板图表（ADMIN/ANALYST 且仅本人或 ADMIN；出厂内置仅 ADMIN）', ['Forbidden', 'NotFound']),
+    [param('widgetId', '图表 ID')])
+
+# ---- FlexQueries（v0.9.24 灵活查询固定报表与最近历史服务端持久化） ----
+add('/api/flex-queries', 'get', op('FlexQuery', 'listFlexQueries', '已保存固定报表列表（所有登录用户可见，可按数据源过滤）'))
+add('/api/flex-queries', 'post',
+    op('FlexQuery', 'createFlexQuery', '保存固定报表（ADMIN/ANALYST；query_id 冲突 409 幂等）', ['BadRequest', 'Forbidden', 'Conflict'],
+       body={'type': 'object', 'required': ['query'], 'properties': {'query': {'type': 'object'}}}))
+add('/api/flex-queries/history', 'get', op('FlexQuery', 'getFlexQueryHistory', '本人最近查询历史（上限 8 条）'))
+add('/api/flex-queries/history', 'put',
+    op('FlexQuery', 'replaceFlexQueryHistory', '整组替换本人最近查询历史（服务端超限裁剪）', ['BadRequest'],
+       body={'type': 'object', 'required': ['items'], 'properties': {'items': {'type': 'array', 'items': {'type': 'object'}}}}))
+add('/api/flex-queries/{queryId}', 'delete',
+    op('FlexQuery', 'deleteFlexQuery', '删除固定报表（ADMIN/ANALYST 且仅本人或 ADMIN）', ['Forbidden', 'NotFound']),
+    [param('queryId', '固定报表 ID')])
+
 # ---- ReportTemplates ----
 add('/api/report-templates', 'get', op('Reports', 'listReportTemplates', '报告模板列表（含预置模板）'))
 add('/api/report-templates', 'post',
