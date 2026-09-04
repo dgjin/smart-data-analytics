@@ -310,6 +310,21 @@ export interface SavedReport {
   /** v0.4.8 自主更新：生成时的自定义要求与数据来源，数据变化时按同参数重新生成 */
   customPrompt?: string;
   dataProvenance?: 'live' | 'simulated';
+  /**
+   * v0.9.22 报表维护：生成条件快照（报表主题/自定义要求/金额单位）。
+   * 「修改条件重新生成」以此预填，数据变化自动重生成也以此为参数源（旧版报表缺失时回退 customPrompt 平铺字段与默认模板）。
+   */
+  genParams?: ReportGenParams;
+}
+
+/** v0.9.22 报表生成条件快照（数据源沿用 SavedReport.dataSourceId 平铺字段） */
+export interface ReportGenParams {
+  /** 报表主题（模板 id，如「综合经营分析」） */
+  templateType: string;
+  /** 自定义关注侧重点（可为空串） */
+  customPrompt: string;
+  /** 生成时金额单位（亿元/百万元/万元/元） */
+  amountUnit?: string;
 }
 
 export interface DashboardWidget {

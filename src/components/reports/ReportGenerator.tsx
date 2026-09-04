@@ -13,12 +13,14 @@ import {
   AlertTriangle,
   ClipboardList,
   CheckCircle2,
+  Settings2,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useEngineInfo } from '../../hooks/useEngineInfo';
-import { resolveAmountUnit } from '../../hooks/useAmountUnitStore';
+import { resolveAmountUnit, AMOUNT_UNITS } from '../../hooks/useAmountUnitStore';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
+import { resolveReportGenParams, canRegenerateReport, applyRegenResult } from '../../utils/reportRegen';
 import { apiFetch } from '../../api/client';
 import { ExecutiveReportCard } from './ExecutiveReportCard';
 import { SavedReport } from '../../types/analytics';
@@ -53,6 +55,16 @@ export const ReportGenerator: React.FC = () => {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [activeReportIndex, setActiveReportIndex] = useState<number>(0);
 
+  // v0.9.22 历史报表维护：修改条件重新生成编辑器状态（作用于当前选中的历史报表）
+  const [regenEditor, setRegenEditor] = useState<{
+    reportId: string;
+    templateType: string;
+    customPrompt: string;
+    amountUnit: string;
+  } | null>(null);
+  const [regenBusy, setRegenBusy] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+
   // M4 报告计划模式：先生成查询计划供批准，再携带 reportPlanId 生成报表（localStorage 持久化）
   const REPORT_PLAN_MODE_KEY = 'app-report-plan-mode';
   const [planMode, setPlanMode] = useState<boolean>(() => localStorage.getItem(REPORT_PLAN_MODE_KEY) === '1');
@@ -74,8 +86,8 @@ export const ReportGenerator: React.FC = () => {
     canGenerate && activeReport && activeReport.dataProvenance === 'live' ? activeReport.dataSourceId : undefined;
   const [autoRegenerating, setAutoRegenerating] = useState(false);
   const [autoRegenMsg, setAutoRegenMsg] = useState<string | null>(null);
-  const reportGenStateRef = useRef({ isGenerating, pendingPlan });
-  reportGenStateRef.current = { isGenerating, pendingPlan };
+  const reportGenStateRef = useRef({ isGenerating, pendingPlan, regenBusy, regenEditorOpen: regenEditor !== null });
+  reportGenStateRef.current = { isGenerating, pendingPlan, regenBusy, regenEditorOpen: regenEditor !== null };
   const activeReportRef = useRef(activeReport);
   activeReportRef.current = activeReport;
   useDataVersion(watchedReportDsId, () => {
@@ -83,22 +95,26 @@ export const ReportGenerator: React.FC = () => {
   });
 
   async function autoRegenerateActiveReport(): Promise<void> {
-    // 与手动生成/待批准计划互斥，避免并发重复生成
-    if (reportGenStateRef.current.isGenerating || reportGenStateRef.current.pendingPlan) return;
+    // 与手动生成/待批准计划/重新生成编辑器互斥，避免并发重复生成或覆盖用户正在编辑的条件
+    const st = reportGenStateRef.current;
+    if (st.isGenerating || st.pendingPlan || st.regenBusy || st.regenEditorOpen) return;
     const original = activeReportRef.current;
     if (!original || original.dataProvenance !== 'live' || !original.dataSourceId) return;
     setAutoRegenerating(true);
     setAutoRegenMsg(null);
     try {
+      // v0.9.22：按原报表生成条件快照重新生成（修复此前错用组件当前模板 state 的口径漂移）；
+      // 旧版报表无快照时回退当前模板与模块生效单位
+      const params = resolveReportGenParams(original, templateType, readAmountUnit());
       // v0.9.2 异步化：提交即返回 taskId，后台 worker 执行后轮询取结果
       const response = await apiFetch('/api/report/generate/async', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          templateType,
-          customPrompt: original.customPrompt || '',
-          dataSourceId: original.dataSourceId,
-          amountUnit: readAmountUnit(), // v0.5.2 金额单位与问数选定口径一致
+          templateType: params.templateType,
+          customPrompt: params.customPrompt,
+          dataSourceId: params.dataSourceId,
+          amountUnit: params.amountUnit, // v0.5.2 金额单位与问数选定口径一致
         }),
       });
       const submitted = await response.json().catch(() => null);
@@ -109,17 +125,8 @@ export const ReportGenerator: React.FC = () => {
       const task = await pollTask(submitted.taskId);
       const data = task.result || {};
       if (data.success && data.report) {
-        const fresh: SavedReport = {
-          ...original,
-          title: data.report.title || original.title,
-          summary: data.report.summary || original.summary,
-          createdAt: data.report.createdAt || new Date().toISOString().split('T')[0],
-          insights: data.report.insights || [],
-          kpiList: data.report.kpiList || [],
-          charts: data.report.charts || [],
-          ...(Array.isArray(data.report.executedSqls) ? { executedSqls: data.report.executedSqls } : {}),
-          comments: original.comments, // 数据刷新不清空已有批注
-        };
+        // v0.9.22：统一走 applyRegenResult（就地替换、保留批注、同步更新条件快照）
+        const fresh = applyRegenResult(original, data.report, params, data.dataProvenance === 'simulated' ? 'simulated' : 'live');
         replaceSavedReport(original.id, scanReportForAnomalies(fresh));
         setAutoRegenMsg(`检测到数据变化，已自动重新生成报表「${original.title}」`);
       } else {
@@ -221,6 +228,8 @@ export const ReportGenerator: React.FC = () => {
           ...(Array.isArray(data.report.executedSqls) ? { executedSqls: data.report.executedSqls } : {}),
           // v0.4.8 自主更新：记录自定义要求与数据来源，数据变化时按同参数重新生成
           ...(customPrompt.trim() ? { customPrompt: customPrompt.trim() } : {}),
+          // v0.9.22 报表维护：完整生成条件快照（主题/要求/金额单位），供「修改条件重新生成」预填与自动重生成取参
+          genParams: { templateType, customPrompt: customPrompt.trim(), amountUnit: readAmountUnit() },
           dataProvenance: data.dataProvenance === 'simulated' ? 'simulated' : 'live',
         };
 
@@ -273,6 +282,73 @@ export const ReportGenerator: React.FC = () => {
     } else {
       handleGenerateReport();
     }
+  };
+
+  // ---------- v0.9.22 历史报表维护：修改条件重新生成 + 删除 ----------
+
+  /** 打开「修改条件重新生成」编辑器：以该报表的生成条件快照预填（旧报表回退当前模板与模块生效单位） */
+  const openRegenEditor = (rep: SavedReport) => {
+    const params = resolveReportGenParams(rep, templateType, readAmountUnit());
+    // 防御：快照主题不在模板列表内时回退首个模板（历史模板下线等场景）
+    const validTemplate = templates.some((t) => t.id === params.templateType) ? params.templateType : templates[0].id;
+    setRegenEditor({ reportId: rep.id, templateType: validTemplate, customPrompt: params.customPrompt, amountUnit: params.amountUnit || '亿元' });
+    setRegenError(null);
+  };
+
+  /** 提交修改后的条件重新生成：复用异步生成端点，成功后就地替换原报表（保留 id 与批注） */
+  const submitRegen = async () => {
+    if (!regenEditor || regenBusy) return;
+    const target = savedReports.find((r) => r.id === regenEditor.reportId);
+    if (!canRegenerateReport(target, canGenerate)) {
+      setRegenError('仅真实数据源生成的报表支持重新生成（演示报表请重新新建）');
+      return;
+    }
+    setRegenBusy(true);
+    setRegenError(null);
+    try {
+      const response = await apiFetch('/api/report/generate/async', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          templateType: regenEditor.templateType,
+          customPrompt: regenEditor.customPrompt,
+          dataSourceId: target!.dataSourceId,
+          amountUnit: regenEditor.amountUnit,
+        }),
+      });
+      const submitted = await response.json().catch(() => null);
+      if (!response.ok || !submitted?.taskId) {
+        setRegenError(submitted?.error || '重新生成任务提交失败，请稍后重试');
+        return;
+      }
+      const task = await pollTask(submitted.taskId);
+      const data = task.result || {};
+      if (data.success && data.report) {
+        const fresh = applyRegenResult(
+          target!,
+          data.report,
+          { templateType: regenEditor.templateType, customPrompt: regenEditor.customPrompt, amountUnit: regenEditor.amountUnit, dataSourceId: target!.dataSourceId },
+          data.dataProvenance === 'simulated' ? 'simulated' : 'live'
+        );
+        replaceSavedReport(target!.id, scanReportForAnomalies(fresh));
+        setRegenEditor(null);
+      } else {
+        setRegenError(data.error || '重新生成失败，请稍后重试');
+      }
+    } catch (err: any) {
+      setRegenError(err?.message || '网络异常，重新生成失败');
+    } finally {
+      setRegenBusy(false);
+    }
+  };
+
+  /** 删除历史报表：确认后从本地列表移除；删除后当前查看索引前移钳制 */
+  const handleDeleteReport = (rep: SavedReport) => {
+    if (!window.confirm(`确定删除报表「${rep.title}」吗？删除后不可恢复。`)) return;
+    if (regenEditor?.reportId === rep.id) setRegenEditor(null);
+    deleteSavedReport(rep.id);
+    const newLen = savedReports.length - 1;
+    if (activeReportIndex > newLen - 1) setActiveReportIndex(Math.max(0, newLen - 1));
   };
 
   return (
@@ -456,18 +532,45 @@ export const ReportGenerator: React.FC = () => {
       {/* Generated Reports List & Active View */}
       {savedReports.length > 0 ? (
         <div className="space-y-4">
-          {/* Saved Reports Tab Selector */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center space-x-2 text-slate-300 font-bold text-sm">
+          {/* Saved Reports Tab Selector + v0.9.22 维护操作（作用于当前选中报表） */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-3 flex-wrap">
+            <div className="flex items-center space-x-2 text-slate-300 font-bold text-sm flex-wrap gap-y-2">
               <History className="w-4 h-4 text-indigo-400" />
               <span>已生成的历史报表列表 ({savedReports.length})</span>
+              {/* 维护操作：修改条件重新生成（仅 live 报表）+ 删除 */}
+              {activeReport && (
+                <span className="flex items-center space-x-1.5 ml-2">
+                  <button
+                    onClick={() => openRegenEditor(activeReport)}
+                    disabled={!canRegenerateReport(activeReport, canGenerate) || isGenerating || regenBusy || regenEditor !== null}
+                    title={
+                      canRegenerateReport(activeReport, canGenerate)
+                        ? '修改报表主题/关注点/金额单位后重新生成，就地替换当前报表（数据源不变，批注保留）'
+                        : '仅真实数据源生成的报表支持重新生成（演示报表请重新新建）'
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-cyan-600/20 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-600/35 disabled:opacity-40 disabled:cursor-not-allowed text-[11px] font-semibold flex items-center space-x-1 transition-colors"
+                  >
+                    <Settings2 className="w-3 h-3" />
+                    <span>修改条件重新生成</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteReport(activeReport)}
+                    disabled={regenBusy}
+                    title="删除该历史报表（不可恢复）"
+                    className="px-2.5 py-1 rounded-lg bg-rose-600/15 border border-rose-500/40 text-rose-300 hover:bg-rose-600/30 disabled:opacity-40 text-[11px] font-semibold flex items-center space-x-1 transition-colors"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>删除</span>
+                  </button>
+                </span>
+              )}
             </div>
 
             <div className="flex items-center space-x-1 overflow-x-auto">
               {savedReports.map((rep, idx) => (
                 <button
                   key={rep.id}
-                  onClick={() => setActiveReportIndex(idx)}
+                  onClick={() => { setActiveReportIndex(idx); setRegenEditor(null); setRegenError(null); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                     activeReportIndex === idx
                       ? 'bg-indigo-600 text-white shadow'
@@ -480,11 +583,80 @@ export const ReportGenerator: React.FC = () => {
             </div>
           </div>
 
+          {/* v0.9.22 修改条件重新生成编辑器：预填该报表生成条件快照，提交后就地替换 */}
+          {regenEditor && (
+            <div className="p-4 rounded-2xl bg-cyan-950/25 border border-cyan-500/30 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center space-x-2 text-cyan-200 text-xs font-bold">
+                  <Settings2 className="w-4 h-4" />
+                  <span>修改条件重新生成（就地替换当前报表，数据源不变，已有批注保留）</span>
+                </div>
+                <span className="text-[10px] text-slate-500">
+                  数据源：{dataSources.find((d) => d.id === savedReports.find((r) => r.id === regenEditor.reportId)?.dataSourceId)?.name || '原报表数据源'}
+                </span>
+              </div>
+              <div className="flex flex-col lg:flex-row lg:items-center gap-2 text-xs">
+                <select
+                  value={regenEditor.templateType}
+                  onChange={(e) => setRegenEditor({ ...regenEditor, templateType: e.target.value })}
+                  disabled={regenBusy}
+                  title="报表主题模板"
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
+                >
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={regenEditor.customPrompt}
+                  onChange={(e) => setRegenEditor({ ...regenEditor, customPrompt: e.target.value })}
+                  placeholder="自定义关注侧重点（可选）"
+                  maxLength={500}
+                  disabled={regenBusy}
+                  className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 disabled:opacity-60"
+                />
+                <select
+                  value={regenEditor.amountUnit}
+                  onChange={(e) => setRegenEditor({ ...regenEditor, amountUnit: e.target.value })}
+                  disabled={regenBusy}
+                  title="金额单位（本次重新生成生效）"
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
+                >
+                  {AMOUNT_UNITS.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => void submitRegen()}
+                  disabled={regenBusy}
+                  className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center space-x-1.5 transition-colors shrink-0"
+                >
+                  {regenBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>{regenBusy ? 'AI 正在重新生成…' : '按新条件重新生成'}</span>
+                </button>
+                <button
+                  onClick={() => { setRegenEditor(null); setRegenError(null); }}
+                  disabled={regenBusy}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs shrink-0"
+                >
+                  取消
+                </button>
+              </div>
+              {regenError && (
+                <p className="text-xs text-rose-400 flex items-center space-x-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{regenError}</span>
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Active Report Card */}
           {savedReports[activeReportIndex] && (
             <ExecutiveReportCard
               report={savedReports[activeReportIndex]}
-              onDelete={() => deleteSavedReport(savedReports[activeReportIndex].id)}
+              onDelete={() => handleDeleteReport(savedReports[activeReportIndex])}
             />
           )}
         </div>
