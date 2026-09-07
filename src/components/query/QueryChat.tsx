@@ -3,36 +3,16 @@ import {
   Send,
   Sparkles,
   Bot,
-  User,
-  Code2,
-  Brain,
-  Lightbulb,
-  Pin,
   Trash2,
-  BarChart3,
-  CheckCircle,
   Search,
-  CornerDownLeft,
-  Command,
-  Database,
   ArrowUpRight,
   Mic,
   MicOff,
   Volume2,
   ShieldCheck,
-  Copy,
-  Pencil,
-  ThumbsUp,
-  ThumbsDown,
-  HelpCircle,
   Library,
-  Plus,
-  Cpu,
-  ListChecks,
   History,
   Download,
-  FileText,
-  Zap,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -40,22 +20,20 @@ import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { apiFetch } from '../../api/client';
 import { applyDataScope } from '../../utils/dataScope';
 import { buildQueryPlaceholder, generateSchemaSuggestions } from '../../utils/querySuggestions';
-import { DynamicChart } from '../charts/DynamicChart';
-import { KPIStats } from '../charts/KPIStats';
-import { DataTable } from '../charts/DataTable';
-import { ChartCustomizer } from '../charts/ChartCustomizer';
 import { SQLPreviewModal } from './SQLPreviewModal';
 import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
-import { TraceStepper, TraceReplay, TraceStepInfo } from './AnalysisTracePanel';
+import { ChatMessageItem } from './ChatMessageItem';
+import { QueryModeBar } from './QueryModeBar';
+import { SkillMenuButton } from './SkillMenuButton';
+import { TraceStepper, TraceStepInfo } from './AnalysisTracePanel';
 import { useConversationHistory } from '../../hooks/useConversationHistory';
 import { useEffectiveAmountUnit } from '../../hooks/useAmountUnitStore';
-import { AmountUnitSelect } from '../common/AmountUnitSelect';
 import { ReportTemplate } from '../../types/analytics';
 import { useSpeechInput } from '../../hooks/useSpeechInput';
 import { readSseStream } from '../../utils/sseStream';
 import { pollTask } from '../../utils/asyncTask';
-import { ChartConfig, ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
+import { ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
 import { KnowledgeManagementPanel } from '../knowledge/KnowledgeManagementPanel';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
@@ -816,6 +794,59 @@ export const QueryChat: React.FC = () => {
     }
   };
 
+  // 歧义澄清：用户确认口径后按所选理解重新提交（P0-1 随 ChatMessageItem 拆分上提为回调）
+  const handleSelectClarification = (msg: ChatMessage, query: string) => {
+    setResolvedClarifications((prev) => new Set(prev).add(msg.id));
+    handleSendQuery(query);
+  };
+
+  // M2 计划卡片：批准执行 / 修改提问 / 取消（任一处理后置灰防重复提交）
+  const handleApprovePlan = (msg: ChatMessage) => {
+    if (!msg.queryPlan) return;
+    setResolvedPlans((prev) => new Set(prev).add(msg.id));
+    handleSendQuery(msg.question || msg.queryPlan.understanding, msg.queryPlan.planId);
+  };
+  const handleEditPlanQuestion = (msg: ChatMessage) => {
+    setResolvedPlans((prev) => new Set(prev).add(msg.id));
+    if (msg.question) handleEditQuestion(msg.question);
+  };
+  const handleDismissPlan = (msgId: string) => {
+    setResolvedPlans((prev) => new Set(prev).add(msgId));
+  };
+
+  // 固定图表到决策数据看板（v0.4.8：仅 live 链路携带原聚合 SQL，供数据变化时重放刷新）
+  const handlePinChart = (msg: ChatMessage) => {
+    if (!msg.queryResult?.chartConfig) return;
+    pinChartToDashboardRemote({
+      title: msg.queryResult.chartConfig.title,
+      chartConfig: msg.queryResult.chartConfig,
+      data: msg.queryResult.rows,
+      dataSourceId: activeDataSourceId || undefined,
+      ...(msg.queryResult.dataProvenance === 'live' && msg.queryResult.generatedSQL
+        ? { sourceSql: msg.queryResult.generatedSQL }
+        : {}),
+    })
+      .then(() => showToast('已成功固定该图表至决策数据看板'))
+      .catch((err) => showToast(err?.message || '固定到看板失败'));
+  };
+
+  // v0.5.0 报告卡片：跳转报告中心查看完整报告
+  const handleOpenReport = (reportId: string) => {
+    setPendingReportId(reportId);
+    setActiveTab('query-reports');
+  };
+
+  // P2-A 技能：选中后将提问模板填入输入框并聚焦；技能库管理入口
+  const handleSelectSkill = (promptTemplate: string) => {
+    setCurrentQuery(promptTemplate);
+    setSkillMenuOpen(false);
+    inputRef.current?.focus();
+  };
+  const handleOpenSkillLibrary = () => {
+    setSkillMenuOpen(false);
+    setSkillLibraryOpen(true);
+  };
+
   // 快速问题推荐 pills：取真实 Schema 推荐的前 3 条（无可用推荐时隐藏该区域）
   const presetQueries = schemaSuggestions.slice(0, 3);
 
@@ -937,432 +968,28 @@ export const QueryChat: React.FC = () => {
             </div>
           </div>
         )}
-        {visibleMessages.map((msg) => {
-          const isUser = msg.role === 'user';
-
-          return (
-            <div
-              key={msg.id}
-              className={`flex items-start space-x-3 ${
-                isUser ? 'flex-row-reverse space-x-reverse' : ''
-              }`}
-            >
-              {/* Avatar */}
-              <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
-                  isUser
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-800 text-indigo-400 border border-slate-700'
-                }`}
-              >
-                {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-              </div>
-
-              {/* Message Card */}
-              <div
-                className={`max-w-4xl space-y-3 ${
-                  isUser
-                    ? 'bg-indigo-600/90 text-white px-4 py-2.5 rounded-2xl rounded-tr-none text-xs leading-relaxed shadow-md'
-                    : 'w-full bg-slate-900 border border-slate-800 rounded-2xl p-4 md:p-5 shadow-sm text-xs text-slate-200'
-                }`}
-              >
-                {/* Header info */}
-                <div className="flex items-center justify-between border-b border-slate-800/60 pb-2 text-[11px] text-slate-400">
-                  <span className="flex items-center space-x-2">
-                    <span className="font-semibold text-slate-300">
-                      {isUser ? '你' : '智能数据分析助手 NL2SQL'}
-                    </span>
-                    {!isUser && msg.queryResult?.expertPersona && (
-                      <span
-                        className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 font-medium"
-                        title="根据你的问题内容自动匹配的专家分析视角"
-                      >
-                        {msg.queryResult.expertPersona}视角
-                      </span>
-                    )}
-                  </span>
-                  <div className="flex items-center space-x-3">
-                    {msg.queryResult && !isUser && (
-                      <button
-                        onClick={() => setInspectModalResult(msg.queryResult!)}
-                        className="flex items-center space-x-1 text-indigo-400 hover:text-indigo-300 bg-indigo-950/40 px-2 py-0.5 rounded-md border border-indigo-500/30 font-medium transition-colors"
-                      >
-                        <Code2 className="w-3 h-3" />
-                        <span>查看生成的 SQL</span>
-                      </button>
-                    )}
-                    {msg.queryResult && !isUser && msg.question && (
-                      <span className="flex items-center space-x-1" title="对本次回答进行评价">
-                        <button
-                          onClick={() => handleFeedback(msg, 'UP')}
-                          disabled={Boolean(msg.feedback)}
-                          className={`p-1 rounded-md border transition-colors ${
-                            msg.feedback === 'UP'
-                              ? 'text-emerald-400 border-emerald-500/50 bg-emerald-950/40'
-                              : 'text-slate-400 border-slate-700 hover:text-emerald-400 hover:border-emerald-500/50 disabled:opacity-50'
-                          }`}
-                          aria-label="回答有帮助"
-                        >
-                          <ThumbsUp className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={() => handleFeedback(msg, 'DOWN')}
-                          disabled={Boolean(msg.feedback)}
-                          className={`p-1 rounded-md border transition-colors ${
-                            msg.feedback === 'DOWN'
-                              ? 'text-rose-400 border-rose-500/50 bg-rose-950/40'
-                              : 'text-slate-400 border-slate-700 hover:text-rose-400 hover:border-rose-500/50 disabled:opacity-50'
-                          }`}
-                          aria-label="回答不准确"
-                        >
-                          <ThumbsDown className="w-3 h-3" />
-                        </button>
-                      </span>
-                    )}
-                    <span>{msg.timestamp}</span>
-                  </div>
-                </div>
-
-                {/* Fallback Data Notice */}
-                {msg.isFallback && !isUser && (
-                  <div className="p-2 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-300 text-[11px] flex items-center space-x-1.5">
-                    <Lightbulb className="w-3.5 h-3.5 shrink-0" />
-                    <span>AI 服务当前不可用，以下展示为内置示例数据，仅用于演示界面功能。</span>
-                  </div>
-                )}
-
-                {/* 拒答提示：问题与数据源无关/超出能力，如实反馈（无演示数据托底） */}
-                {!isUser && msg.refused && (
-                  <div className="p-2 rounded-lg bg-slate-800/60 border border-slate-500/40 text-slate-300 text-[11px] flex items-center space-x-1.5">
-                    <HelpCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>问数仅支持当前数据源相关的数据分析；该问题与数据无关或数据源中缺少支撑数据，未生成任何结果。</span>
-                  </div>
-                )}
-
-                {/* 数据来源徽标（P1：live = 真实库执行；simulated = 演示数据，CSV/demo 等场景强制标记） */}
-                {!isUser && msg.queryResult && msg.dataProvenance === 'live' && (
-                  <div className="p-2 rounded-lg bg-emerald-950/50 border border-emerald-500/40 text-emerald-300 text-[11px] flex items-center space-x-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>真实数据：SQL 已在数据库中实际执行，图表与解读均基于返回的 {msg.queryResult.totalCount} 行结果。</span>
-                  </div>
-                )}
-                {!isUser && msg.queryResult && !msg.isFallback && msg.dataProvenance === 'simulated' && (
-                  <div className="p-2 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-300 text-[11px] flex items-center space-x-1.5">
-                    <Lightbulb className="w-3.5 h-3.5 shrink-0" />
-                    <span>演示数据：当前数据源不支持真实查询（非 MySQL 直连），以下为 AI 生成的模拟数据，仅供演示。</span>
-                  </div>
-                )}
-
-                {/* P1-6 语义缓存命中提示：来自相似问题缓存，可一键刷新重新走真实查询 */}
-                {!isUser && msg.semanticCache && (
-                  <div className="p-2 rounded-lg bg-sky-950/50 border border-sky-500/40 text-sky-300 text-[11px] flex items-center justify-between gap-2">
-                    <div className="flex items-center space-x-1.5 min-w-0">
-                      <Zap className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate" title={msg.semanticCache.matchedQuestion}>
-                        来自相似问题缓存（原问题：{msg.semanticCache.matchedQuestion}，相似度 {(msg.semanticCache.similarity * 100).toFixed(1)}%）
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => msg.question && handleSendQuery(msg.question, undefined, { refreshCache: true })}
-                      disabled={isQueryLoading}
-                      className="shrink-0 px-2 py-0.5 rounded bg-sky-900/60 hover:bg-sky-800 border border-sky-500/40 text-sky-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      重新查询
-                    </button>
-                  </div>
-                )}
-
-                {/* P2-12 DLP 脱敏提示：结果中敏感字段已按角色策略掩码 */}
-                {!isUser && msg.dlpMaskedLabels && msg.dlpMaskedLabels.length > 0 && (
-                  <div className="p-2 rounded-lg bg-violet-950/50 border border-violet-500/40 text-violet-300 text-[11px] flex items-center space-x-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>DLP 数据防泄漏：结果中的{msg.dlpMaskedLabels.join('、')}已按你的角色权限自动脱敏。</span>
-                  </div>
-                )}
-
-                {/* Sensitive Column Filter Notice（L7 敏感标记） */}
-                {!isUser && (msg.sensitiveFiltered ?? 0) > 0 && (
-                  <div className="p-2 rounded-lg bg-sky-950/50 border border-sky-500/40 text-sky-300 text-[11px] flex items-center space-x-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>安全策略已从 AI 分析上下文中剔除 {msg.sensitiveFiltered} 个敏感字段，本次分析不会涉及这些数据。</span>
-                  </div>
-                )}
-
-                {/* M1 推导回放：按需拉取本次问数的全链路步骤时间线 */}
-                {!isUser && msg.traceId && <TraceReplay traceId={msg.traceId} />}
-
-                {/* Content Text（欢迎语按当前数据源真实表结构动态生成） */}
-                <div className="whitespace-pre-wrap leading-relaxed text-sm">
-                  {msg.id.startsWith('welcome-') ? welcomeContent : msg.content}
-                </div>
-
-                {/* 歧义澄清卡片：语义理解存在异议时展示候选口径，用户点选后按该理解重新提交 */}
-                {!isUser && msg.clarification && msg.clarification.options.length > 0 && (
-                  <div className="p-3 bg-sky-950/40 border border-sky-500/30 rounded-2xl space-y-2">
-                    <div className="flex items-center space-x-1.5 font-bold text-sky-300 text-xs">
-                      <HelpCircle className="w-4 h-4" />
-                      <span>请选择您想要的分析口径（确认后将按该理解执行）:</span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {msg.clarification.options.map((opt, idx) => {
-                        const resolved = resolvedClarifications.has(msg.id);
-                        return (
-                          <button
-                            key={idx}
-                            disabled={resolved || isQueryLoading}
-                            onClick={() => {
-                              setResolvedClarifications((prev) => new Set(prev).add(msg.id));
-                              handleSendQuery(opt.query);
-                            }}
-                            title={opt.query}
-                            className="w-full text-left px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 hover:border-sky-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <div className="text-xs font-semibold text-sky-200">{opt.label}</div>
-                            <div className="text-[11px] text-slate-400 mt-0.5 truncate">{opt.query}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {resolvedClarifications.has(msg.id) && (
-                      <div className="text-[11px] text-slate-500 flex items-center space-x-1">
-                        <CheckCircle className="w-3 h-3 text-emerald-400" />
-                        <span>已确认口径，正在按该理解执行分析…</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* M2 计划卡片：执行前展示编号步骤与涉及表，批准后携带 planId 提交 */}
-                {!isUser && msg.queryPlan && (
-                  <div className="p-3 bg-violet-950/30 border border-violet-500/30 rounded-2xl space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1.5 font-bold text-violet-300 text-xs">
-                        <ListChecks className="w-4 h-4" />
-                        <span>分析计划（{msg.queryPlan.steps.length} 步 · {msg.queryPlan.complexity === 'multi-step' ? '多步复合' : '单步简单'}）</span>
-                      </div>
-                      {msg.queryPlan.relatedTables.length > 0 && (
-                        <div className="flex items-center space-x-1 flex-wrap justify-end">
-                          <span className="text-[10px] text-slate-500">涉及表:</span>
-                          {msg.queryPlan.relatedTables.map((t) => (
-                            <span key={t} className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">{t}</span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <ol className="space-y-1.5">
-                      {msg.queryPlan.steps.map((st, idx) => (
-                        <li key={idx} className="flex items-start space-x-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800/80">
-                          <span className="w-4 h-4 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">{idx + 1}</span>
-                          <div className="min-w-0">
-                            <div className="text-xs font-semibold text-slate-200">
-                              {st.title}
-                              <span className="ml-1.5 text-[10px] text-slate-500 font-mono">{st.type}</span>
-                            </div>
-                            <div className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">{st.description}</div>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                    {resolvedPlans.has(msg.id) ? (
-                      <div className="text-[11px] text-slate-500 flex items-center space-x-1">
-                        <CheckCircle className="w-3 h-3 text-emerald-400" />
-                        <span>该计划已处理，如需重新执行请重新制定计划。</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-2">
-                        <button
-                          disabled={isQueryLoading}
-                          onClick={() => {
-                            setResolvedPlans((prev) => new Set(prev).add(msg.id));
-                            handleSendQuery(msg.question || msg.queryPlan!.understanding, msg.queryPlan!.planId);
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          批准执行
-                        </button>
-                        <button
-                          disabled={isQueryLoading}
-                          onClick={() => {
-                            setResolvedPlans((prev) => new Set(prev).add(msg.id));
-                            if (msg.question) {
-                              setCurrentQuery(msg.question);
-                              inputRef.current?.focus();
-                            }
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs transition-colors disabled:opacity-50"
-                        >
-                          修改提问
-                        </button>
-                        <button
-                          onClick={() => setResolvedPlans((prev) => new Set(prev).add(msg.id))}
-                          className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-rose-400 text-xs transition-colors"
-                        >
-                          取消
-                        </button>
-                        <span className="text-[10px] text-slate-500 ml-auto">计划 10 分钟内有效</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* v0.5.0 报告卡片：报告模式生成的完整报告摘要，点击跳转报告中心查看详情 */}
-                {!isUser && msg.reportCard && (
-                  <div className="p-4 bg-emerald-950/30 border border-emerald-500/30 rounded-2xl space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1.5 font-bold text-emerald-300 text-xs">
-                        <FileText className="w-4 h-4" />
-                        <span>分析报告已生成（模板：{msg.reportCard.templateName}）</span>
-                      </div>
-                    </div>
-                    <div className="text-sm font-bold text-slate-100">{msg.reportCard.title}</div>
-                    {msg.reportCard.summary && (
-                      <div className="text-xs text-slate-400 leading-relaxed line-clamp-2">{msg.reportCard.summary}…</div>
-                    )}
-                    <div className="flex items-center space-x-3 text-[11px] text-slate-400">
-                      <span>KPI {msg.reportCard.kpiCount} 项</span>
-                      <span>图表 {msg.reportCard.chartCount} 张</span>
-                      <span>洞察 {msg.reportCard.insightCount} 条</span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setPendingReportId(msg.reportCard!.reportId);
-                        setActiveTab('query-reports');
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors"
-                    >
-                      查看完整报告
-                    </button>
-                  </div>
-                )}
-
-                {/* 用户提问操作条：复制问题 / 再次编辑 */}
-                {isUser && (
-                  <div className="flex items-center justify-end space-x-2 pt-1.5 mt-0.5 border-t border-white/15">
-                    <button
-                      onClick={() => handleCopyQuestion(msg.content)}
-                      title="复制问题到剪贴板"
-                      className="flex items-center space-x-1 px-2 py-1 rounded-md text-indigo-100/80 hover:text-white hover:bg-white/10 text-[11px] font-medium transition-colors"
-                    >
-                      <Copy className="w-3 h-3" />
-                      <span>复制</span>
-                    </button>
-                    <button
-                      onClick={() => handleEditQuestion(msg.content)}
-                      title="回填到输入框，修改后重新发送"
-                      className="flex items-center space-x-1 px-2 py-1 rounded-md text-indigo-100/80 hover:text-white hover:bg-white/10 text-[11px] font-medium transition-colors"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      <span>再次编辑</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Query Result Analysis Dashboard Block */}
-                {msg.queryResult && (
-                  <div className="space-y-4 pt-2 border-t border-slate-800">
-                    {/* KPI Cards */}
-                    {msg.queryResult.kpiMetrics && (
-                      <KPIStats metrics={msg.queryResult.kpiMetrics} />
-                    )}
-
-                    {/* AI Key Insights Box */}
-                    {msg.queryResult.keyInsights && msg.queryResult.keyInsights.length > 0 && (
-                      <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
-                        <div className="flex items-center space-x-1.5 font-bold text-indigo-300 text-xs">
-                          <Lightbulb className="w-4 h-4 text-amber-400" />
-                          <span>AI 归因分析与决策提示:</span>
-                        </div>
-                        <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-200">
-                          {msg.queryResult.keyInsights.map((insight, idx) => (
-                            <li
-                              key={idx}
-                              className="p-2 bg-slate-900/80 rounded-xl border border-slate-800/80 flex items-start space-x-2"
-                            >
-                              <span className="w-4 h-4 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
-                                {idx + 1}
-                              </span>
-                              <span className="leading-tight">{insight}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Interactive Chart */}
-                    {msg.queryResult.chartConfig && (
-                      <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <BarChart3 className="w-4 h-4 text-cyan-400" />
-                            <h4 className="font-bold text-slate-100 text-sm">
-                              {msg.queryResult.chartConfig.title}
-                            </h4>
-                          </div>
-                        </div>
-
-                        {/* Chart Customizer Toolbar */}
-                        <ChartCustomizer
-                          config={msg.queryResult.chartConfig}
-                          onChange={(newConfig) => updateMessageChartConfig(msg.id, newConfig)}
-                          onPinToDashboard={() => {
-                            pinChartToDashboardRemote({
-                              title: msg.queryResult!.chartConfig!.title,
-                              chartConfig: msg.queryResult!.chartConfig!,
-                              data: msg.queryResult!.rows,
-                              dataSourceId: activeDataSourceId || undefined,
-                              // v0.4.8 自主更新：仅 live 链路携带原聚合 SQL，供数据变化时重放刷新
-                              ...(msg.queryResult!.dataProvenance === 'live' && msg.queryResult!.generatedSQL
-                                ? { sourceSql: msg.queryResult!.generatedSQL }
-                                : {}),
-                            })
-                              .then(() => showToast('已成功固定该图表至决策数据看板'))
-                              .catch((err) => showToast(err?.message || '固定到看板失败'));
-                          }}
-                        />
-
-                        {/* Render Chart */}
-                        <DynamicChart
-                          config={msg.queryResult.chartConfig}
-                          data={msg.queryResult.rows}
-                        />
-                      </div>
-                    )}
-
-                    {/* Data Table */}
-                    {msg.queryResult.rows && (
-                      <DataTable
-                        data={msg.queryResult.rows}
-                        columnNames={msg.queryResult.columnNames}
-                        title="明细数据集"
-                      />
-                    )}
-                  </div>
-                )}
-
-                {/* Suggested Follow-up Questions（欢迎语的追问推荐已由真实 Schema pills 取代，跳过渲染） */}
-                {!msg.id.startsWith('welcome-') && msg.suggestedQuestions && msg.suggestedQuestions.length > 0 && (
-                  <div className="pt-2 border-t border-slate-800/60 space-y-1.5">
-                    <div className="text-[11px] text-slate-400 flex items-center space-x-1">
-                      <Sparkles className="w-3 h-3 text-cyan-400" />
-                      <span>推荐后续追问方向:</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {msg.suggestedQuestions.map((sq, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleSendQuery(sq)}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-indigo-300 hover:text-indigo-200 border border-slate-700/80 text-xs text-left transition-colors"
-                        >
-                          {sq}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {visibleMessages.map((msg) => (
+          <ChatMessageItem
+            key={msg.id}
+            msg={msg}
+            welcomeContent={welcomeContent}
+            isQueryLoading={isQueryLoading}
+            clarificationResolved={resolvedClarifications.has(msg.id)}
+            planResolved={resolvedPlans.has(msg.id)}
+            onInspectSql={setInspectModalResult}
+            onFeedback={handleFeedback}
+            onSendQuery={handleSendQuery}
+            onCopyQuestion={handleCopyQuestion}
+            onEditQuestion={handleEditQuestion}
+            onSelectClarification={handleSelectClarification}
+            onApprovePlan={handleApprovePlan}
+            onEditPlanQuestion={handleEditPlanQuestion}
+            onDismissPlan={handleDismissPlan}
+            onUpdateChartConfig={updateMessageChartConfig}
+            onPinChart={handlePinChart}
+            onOpenReport={handleOpenReport}
+          />
+        ))}
 
         {/* Loading Spinner Indicator */}
         {isQueryLoading && (
@@ -1494,108 +1121,24 @@ export const QueryChat: React.FC = () => {
             </div>
           )}
 
-          {/* 模式选项行：计划模式/深度分析/模型自选（技能改由输入框旁「+」弹出菜单选择） */}
-          {!aiSwitchOff && (
-            <div className="mb-2 flex items-center space-x-1.5 overflow-x-auto pb-0.5">
-              {/* M2 计划模式：先制定分析计划，批准后执行（持久化，仅数据库型数据源展示） */}
-              {canPlanMode && (
-                <button
-                  type="button"
-                  onClick={togglePlanMode}
-                  title={planMode ? '已开启：提问后先制定分析计划，确认后执行' : '已关闭：提问后直接执行查询'}
-                  className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
-                    planMode
-                      ? 'bg-violet-950/60 border-violet-500 text-violet-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-violet-500/60 hover:text-violet-300'
-                  }`}
-                >
-                  <ListChecks className="w-3 h-3" />
-                  <span>{planMode ? '先制定计划：开' : '先制定计划：关'}</span>
-                </button>
-              )}
-
-              {/* M3 深度分析：强制启用中间表清洗链（关闭时服务端复杂度评估自动判定） */}
-              {canPlanMode && (
-                <button
-                  type="button"
-                  onClick={toggleDeepMode}
-                  title={deepMode ? '已开启：强制通过中间表清洗链完成复杂分析' : '已关闭：由系统自动判断是否需要中间表清洗'}
-                  className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
-                    deepMode
-                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300'
-                  }`}
-                >
-                  <Database className="w-3 h-3" />
-                  <span>{deepMode ? '深度分析：开' : '深度分析：关'}</span>
-                </button>
-              )}
-
-              {/* v0.5.0 报告模式：开启后提问直接生成完整报告（支持模板选择或智能推断） */}
-              {canPlanMode && (
-                <button
-                  type="button"
-                  onClick={toggleReportMode}
-                  title={reportMode ? '已开启：提问后直接生成完整分析报告' : '已关闭：提问后返回单条分析结果'}
-                  className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
-                    reportMode
-                      ? 'bg-emerald-950/60 border-emerald-500 text-emerald-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-emerald-500/60 hover:text-emerald-300'
-                  }`}
-                >
-                  <FileText className="w-3 h-3" />
-                  <span>{reportMode ? '报告模式：开' : '报告模式：关'}</span>
-                </button>
-              )}
-
-              {/* 报告模式模板选择：开启后显示 */}
-              {reportMode && reportTemplates.length > 0 && (
-                <span className="shrink-0 flex items-center space-x-1 pl-2 border-l border-slate-800">
-                  <FileText className="w-3 h-3 text-emerald-400" />
-                  <select
-                    value={selectedTemplateId ?? ''}
-                    onChange={(e) => setSelectedTemplateId(e.target.value ? Number(e.target.value) : null)}
-                    disabled={isQueryLoading}
-                    title="选择报告模板：选中后按模板结构生成报告；留空则根据提问智能推断"
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500 cursor-pointer disabled:opacity-50"
-                  >
-                    <option value="">智能推断</option>
-                    {reportTemplates.map((tpl) => (
-                      <option key={tpl.id} value={tpl.id}>
-                        {tpl.name}{tpl.isPreset ? '（预设）' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </span>
-              )}
-
-              {/* 金额单位：默认跟随全局，可单独选择本模块口径（优先于全局设置） */}
-              <AmountUnitSelect module="query" disabled={isQueryLoading} className="ml-auto pl-2 border-l border-slate-800" />
-
-              {/* 模型自选：目录由服务端按实际部署给出，选择随提问生效并持久化 */}
-              {modelCatalog.length > 0 && (
-                <span className="shrink-0 flex items-center space-x-1 pl-2 border-l border-slate-800">
-                  <Cpu className="w-3 h-3 text-violet-400" />
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => handleSelectModel(e.target.value)}
-                    disabled={isQueryLoading}
-                    title="选择本次问数使用的 AI 模型"
-                    className="bg-slate-950 border border-slate-700 rounded-lg px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none focus:border-violet-500 cursor-pointer disabled:opacity-50 max-w-[180px]"
-                  >
-                    <option value="">
-                      默认模型{modelCatalog.find((m) => m.isDefault) ? `（${modelCatalog.find((m) => m.isDefault)!.label}）` : ''}
-                    </option>
-                    {modelCatalog.map((m) => (
-                      <option key={`${m.engine}::${m.model}`} value={`${m.engine}::${m.model}`}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </span>
-              )}
-            </div>
-          )}
+          {/* 模式选项行：P0-1 拆至 QueryModeBar（计划/深度/报告模式 + 金额单位 + 模型自选） */}
+          <QueryModeBar
+            aiSwitchOff={aiSwitchOff}
+            canPlanMode={canPlanMode}
+            planMode={planMode}
+            onTogglePlanMode={togglePlanMode}
+            deepMode={deepMode}
+            onToggleDeepMode={toggleDeepMode}
+            reportMode={reportMode}
+            onToggleReportMode={toggleReportMode}
+            reportTemplates={reportTemplates}
+            selectedTemplateId={selectedTemplateId}
+            onSelectTemplate={setSelectedTemplateId}
+            isQueryLoading={isQueryLoading}
+            modelCatalog={modelCatalog}
+            selectedModel={selectedModel}
+            onSelectModel={handleSelectModel}
+          />
 
           <form
             onSubmit={(e) => {
@@ -1604,68 +1147,16 @@ export const QueryChat: React.FC = () => {
             }}
             className="flex items-center space-x-2"
           >
-            {/* P2-A 技能「+」入口（参照 Qoder IDE「+」交互）：点击向上弹出技能选择面板，选中后填充提问模板 */}
-            {!aiSwitchOff && skills.length > 0 && (
-              <div className="relative shrink-0" ref={skillMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setSkillMenuOpen(!skillMenuOpen)}
-                  title="添加分析技能（选择后将提问模板填入输入框）"
-                  className={`px-3.5 py-3 rounded-xl border text-sm transition-colors ${
-                    skillMenuOpen
-                      ? 'bg-cyan-950/60 border-cyan-500 text-cyan-300'
-                      : 'bg-slate-950 border-slate-700/80 text-slate-400 hover:border-cyan-500/60 hover:text-cyan-300'
-                  }`}
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-                {skillMenuOpen && (
-                  <div className="absolute left-0 bottom-full mb-2 w-80 max-w-[86vw] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 z-50 overflow-hidden">
-                    <div className="px-3 py-2 border-b border-slate-800 flex items-center space-x-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                      <span className="text-[11px] font-semibold text-cyan-300">分析技能 ({skills.length})</span>
-                      <span className="text-[10px] text-slate-500">· 点击填充提问模板</span>
-                    </div>
-                    <ul className="max-h-56 overflow-y-auto divide-y divide-slate-800/60">
-                      {skills.map((sk) => (
-                        <li key={sk.id}>
-                          <button
-                            type="button"
-                            title={`点击将「${sk.name}」的提问模板填入输入框`}
-                            onClick={() => {
-                              setCurrentQuery(sk.promptTemplate);
-                              setSkillMenuOpen(false);
-                              inputRef.current?.focus();
-                            }}
-                            className="w-full text-left px-3 py-2 hover:bg-slate-800/60 transition-colors group"
-                          >
-                            <div className="flex items-center space-x-2 min-w-0">
-                              <span className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 shrink-0">{sk.name}</span>
-                              <span className="text-[10px] text-slate-500 truncate flex-1">{sk.description}</span>
-                              <ArrowUpRight className="w-3 h-3 text-slate-600 group-hover:text-cyan-400 shrink-0" />
-                            </div>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="border-t border-slate-800">
-                      <button
-                        type="button"
-                        title="管理我的技能库与系统技能库"
-                        onClick={() => {
-                          setSkillMenuOpen(false);
-                          setSkillLibraryOpen(true);
-                        }}
-                        className="w-full text-left px-3 py-2 text-[11px] text-indigo-300 hover:bg-slate-800/60 transition-colors flex items-center space-x-1.5"
-                      >
-                        <Library className="w-3 h-3" />
-                        <span>技能库管理</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* P2-A 技能「+」入口：P0-1 拆至 SkillMenuButton（选中技能填充提问模板） */}
+            <SkillMenuButton
+              aiSwitchOff={aiSwitchOff}
+              skills={skills}
+              menuOpen={skillMenuOpen}
+              onToggleMenu={() => setSkillMenuOpen((v) => !v)}
+              menuRef={skillMenuRef}
+              onSelectSkill={handleSelectSkill}
+              onOpenLibrary={handleOpenSkillLibrary}
+            />
 
             <div className="relative flex-1 flex items-center">
               <input
