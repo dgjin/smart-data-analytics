@@ -14,6 +14,7 @@ import { loadConversationFewShot } from './conversationHistory';
 import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { searchExternalKnowledge } from '../knowledge/externalKnowledge';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
+import type { SchemaTable } from './schemaTypes';
 import { budgetText, budgetHistory, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from './schemaGuidance';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
@@ -58,7 +59,7 @@ export function buildAmountUnitPrompt(unit?: string): string {
 export interface LiveQueryInput {
   query: string;
   history: ChatMessage[];
-  schema: any[];
+  schema: SchemaTable[];
   guidance: string;
   dataSourceId: string;
   /** 数据源显示名（注入 prompt 防止 LLM 把库名当数据过滤值） */
@@ -71,7 +72,7 @@ export interface LiveQueryInput {
   /** 数据源级数据自省开关（Vanna intermediate_sql 借鉴，默认关） */
   allowIntrospection?: boolean;
   /** SSE 阶段进度回调（P2-7）：understanding/executed/introspecting/analyzing */
-  onStage?: (stage: string, info?: Record<string, any>) => void;
+  onStage?: (stage: string, info?: Record<string, unknown>) => void;
   /** M1 推导留痕回调：每步记录（旁路，实现方自行异步落库） */
   onTrace?: (step: TraceStep) => void;
   /** M2 计划模式：用户已批准的分析计划（按步骤引导 SQL 生成，跳过澄清） */
@@ -208,8 +209,8 @@ function rectifyChartKeys(
  * 只保留真实出现在结果行中的列，键全部限定为白名单内的列名。
  */
 export function buildColumnNames(
-  rows: Record<string, any>[],
-  schema: any[],
+  rows: Array<Record<string, unknown>>,
+  schema: SchemaTable[],
   ...overrides: Array<Record<string, string> | undefined>
 ): Record<string, string> {
   const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
@@ -218,7 +219,7 @@ export function buildColumnNames(
   const tables = Array.isArray(schema) ? schema : [];
   for (const col of cols) {
     for (const t of tables) {
-      const c = (t?.columns || []).find((x: any) => x && x.name === col);
+      const c = (t?.columns || []).find((x) => x && x.name === col);
       if (c && typeof c.description === 'string' && c.description.trim()) {
         out[col] = c.description.trim();
         break;
@@ -238,7 +239,7 @@ export function buildColumnNames(
 // ---------- 阶段一：NL → SQL ----------
 
 /** 提取管理员登记的表级业务口径说明（P2），注入 prompt 约束 SQL 生成口径 */
-export function extractBusinessNotes(schema: any[]): string {
+export function extractBusinessNotes(schema: SchemaTable[]): string {
   const notes = (Array.isArray(schema) ? schema : [])
     .filter((t) => t && typeof t.businessNote === 'string' && t.businessNote.trim())
     .map((t) => `- ${String(t.name)}: ${String(t.businessNote).trim()}`);
@@ -258,7 +259,7 @@ export function dialectPromptOf(dsType?: string): { label: string; rules: string
   return { label: 'MySQL', rules: '' };
 }
 
-function buildStage1System(schema: any[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = [], dataSourceName = ''): string {
+function buildStage1System(schema: SchemaTable[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = [], dataSourceName = ''): string {
   const dialect = dialectPromptOf(dsType);
   const planSection = approvedPlan
     ? `【用户已批准的分析计划】（生成 SQL 时必须按此计划执行）
@@ -327,12 +328,12 @@ function parseStage1(text: string): Stage1Plan | null {
     chartType: (VALID_STAGE1_CHARTS as readonly string[]).includes(parsed.chartType) ? parsed.chartType : 'bar',
     xAxisKey: typeof parsed.xAxisKey === 'string' ? parsed.xAxisKey : '',
     yAxisKeys: Array.isArray(parsed.yAxisKeys)
-      ? parsed.yAxisKeys.filter((k: any) => typeof k === 'string')
+      ? parsed.yAxisKeys.filter((k: unknown): k is string => typeof k === 'string')
       : [],
     yAxisNames: parsed.yAxisNames && typeof parsed.yAxisNames === 'object' ? parsed.yAxisNames : undefined,
     columnNames: parsed.columnNames && typeof parsed.columnNames === 'object' ? parsed.columnNames : undefined,
     thoughtProcess: Array.isArray(parsed.thoughtProcess)
-      ? parsed.thoughtProcess.filter((s: any) => typeof s === 'string').slice(0, 6)
+      ? parsed.thoughtProcess.filter((s: unknown): s is string => typeof s === 'string').slice(0, 6)
       : [],
   };
 }
@@ -345,10 +346,15 @@ export function parseClarification(text: string): Clarification | null {
   if (!c || typeof c !== 'object') return null;
   if (typeof c.question !== 'string' || !c.question.trim()) return null;
   if (!Array.isArray(c.options)) return null;
-  const options: ClarificationOption[] = c.options
-    .filter((o: any) => o && typeof o.label === 'string' && typeof o.query === 'string' && o.query.trim())
+  const rawOptions: unknown[] = c.options;
+  const options: ClarificationOption[] = rawOptions
+    .filter((o: unknown): o is { label: string; query: string } => {
+      if (!o || typeof o !== 'object') return false;
+      const r = o as Record<string, unknown>;
+      return typeof r.label === 'string' && typeof r.query === 'string' && r.query.trim().length > 0;
+    })
     .slice(0, 4)
-    .map((o: any) => ({ label: String(o.label).trim().slice(0, 60), query: String(o.query).trim().slice(0, 500) }));
+    .map((o) => ({ label: o.label.trim().slice(0, 60), query: o.query.trim().slice(0, 500) }));
   if (options.length === 0) return null;
   return { question: c.question.trim().slice(0, 300), options };
 }
@@ -366,14 +372,14 @@ export function parseRefusal(text: string): { reason: string } | null {
  * 拒答理由规范化：统一话术「抱歉，我是数据分析助手，仅协助处理数据分析相关工作，无法处理XXXX」。
  * 小模型可能未遵模板（照抄旧模板句/XXXX 占位未填/理由过短），此处兜底改写并拼上数据源覆盖表清单。
  */
-export function enrichRefusalReason(reason: string, schema: any[]): string {
+export function enrichRefusalReason(reason: string, schema: SchemaTable[]): string {
   // XXXX 占位未替换 → 降级为通用措辞
   const cleaned = reason.replace(/x{2,}/gi, '该请求').trim();
   const generic = cleaned.length < 30
     || /与(当前)?数据源无关，或数据源中缺少支撑该问题的数据/.test(cleaned);
   if (!generic) return cleaned;
   const tables = (schema || [])
-    .map((t: any) => (t && typeof t.name === 'string' ? t.name.trim() : ''))
+    .map((t) => (t && typeof t.name === 'string' ? t.name.trim() : ''))
     .filter(Boolean);
   const scope = tables.length > 0
     ? `当前数据源仅覆盖：${tables.slice(0, 8).join('、')}${tables.length > 8 ? ` 等 ${tables.length} 张表` : ''}。`
@@ -445,14 +451,21 @@ export function candidatePrompt(base: string, index: number, total: number): str
  * 避免 "查询返回 N 行" 这种无信息量的兜底文案。
  */
 export function buildFallbackAnalysis(
-  rows: Record<string, any>[],
-  stats: Record<string, any>,
+  rows: Array<Record<string, unknown>>,
+  stats: Record<string, { 总计?: number; 均值?: number; 最小?: number | string; 最大?: number | string; 去重取值数?: number }>,
   columnNames: Record<string, string>,
-  chartConfig: Record<string, any>
-): { aiExplanation: string; keyInsights: string[]; kpiMetrics: any[] } {
+  chartConfig: { xAxisKey?: string; yAxisKeys?: string[] }
+): { aiExplanation: string; keyInsights: string[]; kpiMetrics: Array<{ label: string; value: string; subtext: string }> } {
   const rowCount = rows.length;
-  const numericCols = Object.keys(stats).filter((c) => stats[c] && typeof stats[c].总计 === 'number');
-  const dimCols = Object.keys(stats).filter((c) => !numericCols.includes(c));
+  // 数值列统计四字段同生同灭（buildColumnStats 一次写入 总计/均值/最小/最大），守卫判定 总计 后按完整形态使用
+  type NumericStat = { 总计: number; 均值: number; 最小: number | string; 最大: number | string };
+  const isNumericStat = (v: { 总计?: number } | undefined): v is NumericStat => !!v && typeof v.总计 === 'number';
+  const numericStats = new Map<string, NumericStat>();
+  for (const [key, value] of Object.entries(stats)) {
+    if (isNumericStat(value)) numericStats.set(key, value);
+  }
+  const numericCols = [...numericStats.keys()];
+  const dimCols = Object.keys(stats).filter((c) => !numericStats.has(c));
 
   // 1. aiExplanation：按数据特征组织
   const parts: string[] = [];
@@ -461,7 +474,7 @@ export function buildFallbackAnalysis(
   if (numericCols.length > 0) {
     const top = numericCols.slice(0, 2);
     const descs = top.map((c) => {
-      const s = stats[c];
+      const s = numericStats.get(c)!;
       const name = columnNames[c] || c;
       return `${name}总计 ${s.总计.toLocaleString('zh-CN')}，均值 ${s.均值.toLocaleString('zh-CN')}，区间 ${s.最小} ~ ${s.最大}`;
     });
@@ -474,7 +487,7 @@ export function buildFallbackAnalysis(
     parts.push(`；按${name}划分共 ${stats[d].去重取值数} 个维度`);
   }
 
-  if (chartConfig.xAxisKey && chartConfig.yAxisKeys?.length > 0) {
+  if (chartConfig.xAxisKey && chartConfig.yAxisKeys && chartConfig.yAxisKeys.length > 0) {
     const xName = columnNames[chartConfig.xAxisKey] || chartConfig.xAxisKey;
     parts.push(`，图表以 ${xName} 为维度展示`);
   }
@@ -485,12 +498,12 @@ export function buildFallbackAnalysis(
   const insights: string[] = [];
   if (numericCols.length > 0) {
     const c = numericCols[0];
-    const s = stats[c];
+    const s = numericStats.get(c)!;
     const name = columnNames[c] || c;
     insights.push(`${name}最高达 ${s.最大.toLocaleString('zh-CN')}，最低 ${s.最小.toLocaleString('zh-CN')}，波动幅度较大`);
     if (numericCols.length > 1) {
       const c2 = numericCols[1];
-      const s2 = stats[c2];
+      const s2 = numericStats.get(c2)!;
       const name2 = columnNames[c2] || c2;
       insights.push(`${name2}均值为 ${s2.均值.toLocaleString('zh-CN')}，总计 ${s2.总计.toLocaleString('zh-CN')}`);
     }
@@ -502,9 +515,9 @@ export function buildFallbackAnalysis(
   }
 
   // 3. kpiMetrics：取前 2 个数值列做 KPI 卡片
-  const kpis: any[] = [];
+  const kpis: Array<{ label: string; value: string; subtext: string }> = [];
   for (const c of numericCols.slice(0, 2)) {
-    const s = stats[c];
+    const s = numericStats.get(c)!;
     const name = columnNames[c] || c;
     kpis.push({ label: `${name}（总计）`, value: s.总计.toLocaleString('zh-CN'), subtext: `均值 ${s.均值.toLocaleString('zh-CN')}` });
     kpis.push({ label: `${name}（峰值）`, value: s.最大.toLocaleString('zh-CN'), subtext: `最小 ${s.最小.toLocaleString('zh-CN')}` });
@@ -563,7 +576,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     stepType: 'linking',
     title: 'Schema 圈表：选定相关表',
     inputSummary: query,
-    outputSummary: `命中 ${promptSchemaBase.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchemaBase.map((t: any) => String(t?.name || '')).join(', ')}`,
+    outputSummary: `命中 ${promptSchemaBase.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchemaBase.map((t) => String(t?.name || '')).join(', ')}`,
     durationMs: Date.now() - t0,
   });
   // 上下文构建并行化：few-shot / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀六者互不依赖，并发执行（各自失败不阻断）
@@ -572,7 +585,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     loadFewShotExamples(
       dataSourceId,
       query,
-      promptSchemaBase.map((t: any) => String(t?.name || ''))
+      promptSchemaBase.map((t) => String(t?.name || ''))
     ).catch(() => [] as FewShotExample[]),
     // P1-A 知识库 RAG：检索业务知识片段注入 prompt，按 token 预算截断
     retrieveKnowledgeSnippets(dataSourceId, query).catch(() => ''),
@@ -589,7 +602,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       input.userId,
       dataSourceId,
       query,
-      promptSchemaBase.map((t: any) => String(t?.name || ''))
+      promptSchemaBase.map((t) => String(t?.name || ''))
     ).catch(() => []),
   ]);
   // Vanna 借鉴：few-shot 以 user/assistant 消息对注入对话历史（比平铺文本更贴合 LLM 多轮格式）；
@@ -710,7 +723,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
 
 仅输出纯 JSON 或 null，不要任何 markdown 标记。`;
       const matchRaw = await callLLMJson(templateMatchPrompt, query, [], { route: stage1Route }).catch(() => null);
-      const matchResult = matchRaw ? (safeParseJson(matchRaw) as { templateId?: string; params?: any } | null) : null;
+      const matchResult = matchRaw ? (safeParseJson(matchRaw) as { templateId?: string; params?: Record<string, unknown> } | null) : null;
       if (matchResult?.templateId && matchResult.params) {
         // templateId 来自 LLM 输出的动态字符串，此处单次受控断言收窄类型；非法值由 validateTemplateParams 白名单校验拒绝
         const validation = validateTemplateParams<object>(matchResult.templateId as TemplateId, matchResult.params);
@@ -1065,14 +1078,14 @@ Schema: ${serializeSchemaForPrompt(schema)}
       thoughtProcess: plan.thoughtProcess,
       aiExplanation: analysis.aiExplanation,
       keyInsights: Array.isArray(analysis.keyInsights)
-        ? analysis.keyInsights.filter((s: any) => typeof s === 'string').slice(0, 5)
+        ? analysis.keyInsights.filter((s: unknown): s is string => typeof s === 'string').slice(0, 5)
         : [],
       chartConfig,
       data: rows,
       columnNames,
       kpiMetrics: Array.isArray(analysis.kpiMetrics) ? analysis.kpiMetrics : [],
       suggestedQuestions: Array.isArray(analysis.suggestedQuestions)
-        ? analysis.suggestedQuestions.filter((s: any) => typeof s === 'string').slice(0, 5)
+        ? analysis.suggestedQuestions.filter((s: unknown): s is string => typeof s === 'string').slice(0, 5)
         : [],
       expertPersona: persona.label,
     },

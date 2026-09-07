@@ -83,10 +83,41 @@ function reportOllamaFailure(url: string): void {
   }
 }
 
+/** P0-2：各引擎响应的最小结构类型（仅声明取用字段，非法载荷由既有运行时校验兑底） */
+interface OllamaTagsResponse {
+  models?: Array<{ name?: string }>;
+}
+/** OpenAI 兼容 chat 响应（Qwen 百炼 / Coding Plan） */
+interface OpenAiChatResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+/** Ollama /api/chat 响应 */
+interface OllamaChatResponse {
+  message?: { content?: string };
+  prompt_eval_count?: number;
+  eval_count?: number;
+}
+/** OpenAI 兼容 embedding 响应（Qwen 单条/批量） */
+interface OpenAiEmbedResponse {
+  data?: Array<{ embedding?: number[]; index?: number }>;
+  usage?: { total_tokens?: number };
+}
+/** Ollama embedding 响应（/api/embeddings 单条 embedding；/api/embed 批量 embeddings） */
+interface OllamaEmbedResponse {
+  embedding?: number[];
+  embeddings?: number[][];
+}
+
+/** AbortController 超时中止判定（DOMException/Error 均按 name 判别） */
+function isAbortErr(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { name?: unknown }).name === 'AbortError';
+}
+
 /** 多后端执行包装：最少并发选取 → 失败记账摘除 → 自动在次优健康后端重试（单后端直接抛出交由外层重试） */
 async function withOllamaBackend<T>(fn: (baseUrl: string) => Promise<T>): Promise<T> {
   const tried = new Set<string>();
-  let lastErr: any;
+  let lastErr: unknown;
   while (true) {
     const b = pickOllamaBackend(tried);
     if (!b) break;
@@ -417,9 +448,9 @@ export async function listAvailableModels(): Promise<ModelOption[]> {
     const res = await fetch(`${base}/api/tags`, { signal: controller.signal });
     clearTimeout(timer);
     if (res.ok) {
-      const json: any = await res.json();
+      const json = (await res.json()) as OllamaTagsResponse;
       ollamaModels = Array.isArray(json?.models)
-        ? json.models.map((m: any) => String(m?.name || '')).filter(Boolean)
+        ? json.models.map((m) => String(m?.name || '')).filter(Boolean)
         : [];
     }
   } catch {
@@ -479,7 +510,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
       throw makeLlmError(`Qwen API error: ${res.status} ${text}`, { status: res.status });
     }
 
-    const json: any = await res.json();
+    const json = (await res.json()) as OpenAiChatResponse;
     // P2-4 成本埋点：OpenAI 兼容响应带 usage 字段
     const u = json?.usage;
     return {
@@ -488,8 +519,8 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
         ? { promptTokens: Number(u.prompt_tokens) || 0, completionTokens: Number(u.completion_tokens) || 0 }
         : undefined,
     };
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
+  } catch (err) {
+    if (isAbortErr(err)) {
       throw makeLlmError(`Qwen 推理超时（超过 ${Math.round(timeout / 1000)} 秒）`, { code: 'TIMEOUT', cause: err });
     }
     throw err;
@@ -527,7 +558,7 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverr
       throw makeLlmError(`Ollama API error: ${res.status} ${text}`, { status: res.status });
     }
 
-    const json: any = await res.json();
+    const json = (await res.json()) as OllamaChatResponse;
     // P2-4 成本埋点：Ollama 返回 prompt_eval_count / eval_count
     const pt = Number(json?.prompt_eval_count) || 0;
     const ct = Number(json?.eval_count) || 0;
@@ -535,8 +566,8 @@ async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverr
       text: json.message?.content || '',
       usage: pt > 0 || ct > 0 ? { promptTokens: pt, completionTokens: ct } : undefined,
     };
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
+  } catch (err) {
+    if (isAbortErr(err)) {
       throw makeLlmError(`Ollama 推理超时（超过 ${Math.round(timeout / 1000)} 秒）`, { code: 'TIMEOUT', cause: err });
     }
     throw err;
@@ -769,7 +800,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
         const errText = await res.text().catch(() => '');
         throw new Error(`Qwen embedding error: ${res.status} ${errText}`);
       }
-      const json: any = await res.json();
+      const json = (await res.json()) as OpenAiEmbedResponse;
       const emb = json.data?.[0]?.embedding;
       if (!Array.isArray(emb) || emb.length === 0) throw new Error('Qwen 返回空向量');
       embedCacheSet(cacheKey, emb);
@@ -793,7 +824,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
         })
       );
       if (!res.ok) throw new Error(`Ollama embedding error: ${res.status}`);
-      const json: any = await res.json();
+      const json = (await res.json()) as OllamaEmbedResponse;
       const emb = json.embedding;
       if (!Array.isArray(emb) || emb.length === 0) {
         throw new Error('Ollama 返回空向量（请确认已安装 embedding 模型，如 ollama pull nomic-embed-text）');
@@ -808,11 +839,12 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
 
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  const r: any = await ai.models.embedContent({
+  const r = await ai.models.embedContent({
     model: 'gemini-embedding-001',
     contents: [{ role: 'user', parts: [{ text: input }] }],
   });
-  const vals = r?.embeddings?.[0]?.values ?? r?.values;
+  // SDK 类型仅含 embeddings；r.values 为老版响应的防御性兑底（受控断言，不扩散 any）
+  const vals = r?.embeddings?.[0]?.values ?? (r as { values?: number[] })?.values;
   if (!Array.isArray(vals) || vals.length === 0) throw new Error('Gemini 返回空向量');
   embedCacheSet(cacheKey, vals);
   recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
@@ -855,7 +887,7 @@ async function ollamaEmbeddingBatch(inputs: string[]): Promise<(number[] | null)
               })
             );
             if (!r.ok) throw new Error(`Ollama embedding error: ${r.status}`);
-            const j: any = await r.json();
+            const j = (await r.json()) as OllamaEmbedResponse;
             out.push(Array.isArray(j?.embedding) && j.embedding.length > 0 ? j.embedding : null);
           } catch {
             out.push(null);
@@ -865,7 +897,7 @@ async function ollamaEmbeddingBatch(inputs: string[]): Promise<(number[] | null)
       }
       throw new Error(`Ollama batch embedding error: ${res.status}`);
     }
-    const json: any = await res.json();
+    const json = (await res.json()) as OllamaEmbedResponse;
     const embs = json?.embeddings;
     if (!Array.isArray(embs)) throw new Error('Ollama 批量返回缺少 embeddings');
     return inputs.map((_, i) => (Array.isArray(embs[i]) && embs[i].length > 0 ? embs[i] : null));
@@ -892,11 +924,11 @@ async function qwenEmbeddingBatch(inputs: string[]): Promise<(number[] | null)[]
       const errText = await res.text().catch(() => '');
       throw new Error(`Qwen batch embedding error: ${res.status} ${errText}`);
     }
-    const json: any = await res.json();
-    const data: any[] = Array.isArray(json?.data) ? json.data : [];
+    const json = (await res.json()) as OpenAiEmbedResponse;
+    const data = Array.isArray(json?.data) ? json.data : [];
     const out: (number[] | null)[] = new Array(inputs.length).fill(null);
-    data.forEach((d: any, i: number) => {
-      const idx = Number.isInteger(d?.index) ? d.index : i;
+    data.forEach((d, i) => {
+      const idx = Number.isInteger(d?.index) ? d.index! : i;
       if (idx >= 0 && idx < inputs.length && Array.isArray(d?.embedding) && d.embedding.length > 0) {
         out[idx] = d.embedding;
       }

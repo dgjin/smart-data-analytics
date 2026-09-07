@@ -15,6 +15,38 @@ import { invalidateExecutorPool } from '../query/sqlExecutor';
 import { invalidateQueryCache } from '../query/queryCache';
 import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../infra/secretsCrypto';
+import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
+
+/** P0-2：data_sources 表行（SELECT * 动态列，仅声明取用字段） */
+interface DataSourceDbRow extends mysql.RowDataPacket {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  config_json: string | null;
+  schema_json: string | null;
+  scope_json: string | null;
+  acl_json: string | null;
+  quick_questions_json: string | null;
+  allow_introspection: number;
+  updated_at: string | Date | null;
+}
+
+/** 数据库连接配置（config_json；password 加密存储、不下发前端） */
+interface DbConnConfig {
+  host?: string;
+  port?: number | string;
+  username?: string;
+  password?: string;
+  database?: string;
+  /** PG 系的 schema 名（默认 public） */
+  schema?: string;
+}
+
+/** 提取异常消息（unknown 收窄；非 Error 兑底文案） */
+function errMsg(err: unknown, fallback = '未知错误'): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
 
 const router = Router();
 router.use(authMiddleware);
@@ -26,8 +58,8 @@ function isDbType(type: string): boolean {
   return type === 'mysql' || type === 'postgresql' || type === 'greenplum';
 }
 
-function rowToDataSource(row: any) {
-  const config = safeJson(row.config_json, {});
+function rowToDataSource(row: DataSourceDbRow) {
+  const config = safeJson<Record<string, unknown>>(row.config_json, {});
   // 连接密码不下发给前端（列表对所有登录用户可见）
   const { password: _pw, ...safeConfig } = config;
   return {
@@ -36,12 +68,12 @@ function rowToDataSource(row: any) {
     type: row.type,
     status: row.status,
     config: safeConfig,
-    tables: safeJson(row.schema_json, []),
-    scope: safeJson(row.scope_json, null),
-    // P2-11 访问控制清单（仅 ADMIN 下发；非管理员由列表接口剥离）
+    tables: safeJson<SchemaTable[]>(row.schema_json, []),
+    scope: safeJson<unknown>(row.scope_json, null),
+    // P2-11 访问控制清单（仅 ADMIN 下发；非管理员由列表接口剖离）
     acl: parseAcl(row.acl_json),
     // 管理员登记的专业快速问题推荐（优先于前端通用 Schema 推导）
-    quickQuestions: safeJson(row.quick_questions_json, null),
+    quickQuestions: safeJson<string[] | null>(row.quick_questions_json, null),
     allowIntrospection: Number(row.allow_introspection) === 1,
     lastSyncedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
   };
@@ -111,7 +143,7 @@ interface SchemaColumnRow {
 }
 
 /** 组装后的列 Schema（落库 schema_json / 下发前端共用） */
-interface AssembledColumn {
+interface AssembledColumn extends SchemaColumn {
   name: string;
   type: string;
   description: string;
@@ -121,7 +153,7 @@ interface AssembledColumn {
 }
 
 /** 组装后的表 Schema（落库 schema_json / 下发前端共用；businessNote 为管理员手工标注的业务口径） */
-interface AssembledTable {
+interface AssembledTable extends SchemaTable {
   id: string;
   name: string;
   displayName: string;
@@ -179,7 +211,7 @@ interface MysqlColMetaRow extends mysql.RowDataPacket {
 }
 
 // 真实连接 MySQL 并提取全部表与列结构（information_schema）
-async function extractMysqlSchema(config: any) {
+async function extractMysqlSchema(config: DbConnConfig) {
   const conn = await mysql.createConnection({
     host: config?.host || '127.0.0.1',
     port: Number(config?.port) || 3306,
@@ -215,7 +247,7 @@ async function extractMysqlSchema(config: any) {
 // 真实连接 PostgreSQL / Greenplum 并提取全部表与列结构。
 // 表清单走 pg_catalog（reltuples 行数估算、obj_description 表注释）；
 // 列走 information_schema.columns + col_description 列注释 + PRIMARY KEY 子查询。
-async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
+async function extractPgSchema(type: 'postgresql' | 'greenplum', config: DbConnConfig) {
   const client = new pg.Client({
     host: config?.host || '127.0.0.1',
     port: Number(config?.port) || 5432,
@@ -287,7 +319,7 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
       ORDER BY c.relname, a.attnum`;
        
     const { rows: colRows } = await client.query(colQuery, [schema]);
-    console.log(`[Schema Extract] Extracted ${colRows.length} columns, ${colRows.filter((r: any) => r.comment).length} with comments`);
+    console.log(`[Schema Extract] Extracted ${colRows.length} columns, ${colRows.filter((r) => r.comment).length} with comments`);
     return assembleTables(tableRows, colRows, mapPgType);
   } finally {
     await client.end().catch(() => undefined);
@@ -295,7 +327,7 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: any) {
 }
 
 /** 按数据源类型分派真实 Schema 提取 */
-async function extractDbSchema(type: string, config: any) {
+async function extractDbSchema(type: string, config: DbConnConfig) {
   // Greenplum 和 PostgreSQL 需要类型区分以选择正确的 SQL 语法
   if (type === 'mysql') {
     return extractMysqlSchema(config);
@@ -309,11 +341,11 @@ function isPostgresLike(type: string): boolean {
   return type === 'postgresql' || type === 'greenplum';
 }
 
-function safeJson(text: any, fallback: any) {
+function safeJson<T>(text: unknown, fallback: T): T {
   if (text === null || text === undefined) return fallback;
-  if (typeof text === 'object') return text; // mysql2 may auto-parse JSON columns
+  if (typeof text === 'object') return text as T; // mysql2 may auto-parse JSON columns
   try {
-    return JSON.parse(text);
+    return JSON.parse(String(text)) as T;
   } catch {
     return fallback;
   }
@@ -327,7 +359,7 @@ router.get('/', async (req, res) => {
   try {
     const user = req.user;
     const isAdmin = user?.role === 'ADMIN';
-    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources ORDER BY created_at ASC');
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources ORDER BY created_at ASC');
     return res.json({
       dataSources: rows.map((row) => {
         const ds = rowToDataSource(row);
@@ -384,7 +416,7 @@ router.get('/:id/flex-schema', requireRole('ADMIN', 'ANALYST'), async (req, res)
     if (!(await checkDataSourceAccess(req.user!, dataSourceId))) {
       return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
     }
-    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [dataSourceId]);
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [dataSourceId]);
     if (!rows.length) return res.status(404).json({ error: '数据源不存在' });
     const ds = rowToDataSource(rows[0]);
     if (ds.status === 'disconnected') {
@@ -412,8 +444,8 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   if (isDbType(type)) {
     try {
       schemaTables = await extractDbSchema(type, config);
-    } catch (err: any) {
-      return res.status(400).json({ error: `数据库连接失败，无法提取表结构：${err?.message || '未知错误'}` });
+    } catch (err) {
+      return res.status(400).json({ error: `数据库连接失败，无法提取表结构：${errMsg(err)}` });
     }
   }
 
@@ -431,7 +463,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         req.user!.username,
       ]
     );
-    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.status(201).json({ success: true, id, dataSource: rowToDataSource(rows[0]) });
   } catch (err) {
     console.error('[DataSources] create failed:', err);
@@ -444,7 +476,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
 router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     const ds = rows[0];
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
@@ -453,7 +485,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
       return res.status(400).json({ error: '仅 MySQL / PostgreSQL / Greenplum 数据源支持自动同步 Schema' });
     }
 
-    const config = safeJson(ds.config_json, {});
+    const config = safeJson<DbConnConfig>(ds.config_json, {});
     // 允许前端在本次请求中补充密码（历史数据源可能未保存密码）
     if (req.body?.password && !config.password) {
       config.password = String(req.body.password);
@@ -467,9 +499,9 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     }
 
     // 保留管理员在"指标维度维护"中对仍存在列的手工标注（新列用自动推导结果）
-    const oldMeta = new Map<string, any>();
+    const oldMeta = new Map<string, SchemaColumn>();
     const oldTableNotes = new Map<string, string>();
-    for (const t of safeJson(ds.schema_json, [])) {
+    for (const t of safeJson<SchemaTable[]>(ds.schema_json, [])) {
       if (t?.businessNote) oldTableNotes.set(String(t.name), String(t.businessNote));
       for (const c of t?.columns || []) {
         oldMeta.set(`${t.name}.${c.name}`, c);
@@ -478,7 +510,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     for (const t of tables) {
       const note = oldTableNotes.get(String(t.name));
       if (note) t.businessNote = note; // 表级业务口径说明同步时保留
-      t.columns = (t.columns || []).map((c: any) => {
+      t.columns = (t.columns || []).map((c) => {
         const old = oldMeta.get(`${t.name}.${c.name}`);
         if (!old) return c;
         return {
@@ -501,7 +533,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     invalidateExecutorPool(id);
     // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
     void invalidateQueryCache(id);
-    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] sync-schema failed:', err);
@@ -515,7 +547,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
   const { name, type, config, tables, status, allowIntrospection, quickQuestions } = req.body || {};
 
   const updates: string[] = [];
-  const params: any[] = [];
+  const params: (string | number | null)[] = [];
   if (name !== undefined) {
     updates.push('name = ?');
     params.push(String(name).slice(0, 128));
@@ -551,7 +583,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
       return res.status(400).json({ error: 'quickQuestions 必须为字符串数组或 null' });
     }
     const list = Array.isArray(quickQuestions)
-      ? quickQuestions.filter((q: any) => typeof q === 'string' && q.trim()).map((q: any) => String(q).trim().slice(0, 200)).slice(0, 12)
+      ? quickQuestions.filter((q: unknown): q is string => typeof q === 'string' && q.trim().length > 0).map((q) => q.trim().slice(0, 200)).slice(0, 12)
       : null;
     updates.push('quick_questions_json = ?');
     params.push(list ? JSON.stringify(list) : null);
@@ -609,13 +641,13 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     return res.status(400).json({ error: '请求格式无效：tables 必须为数组' });
   }
   try {
-    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     const ds = rows[0];
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
     }
 
-    const tables = safeJson(ds.schema_json, []);
+    const tables = safeJson<SchemaTable[]>(ds.schema_json, []);
     if (!Array.isArray(tables)) {
       return res.status(500).json({ error: '数据源 Schema 数据异常' });
     }
@@ -623,7 +655,7 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     let touched = 0;
     for (const pt of payloadTables) {
       if (!pt || typeof pt !== 'object') continue;
-      const table = tables.find((t: any) => t.id === pt.id || t.name === pt.name);
+      const table = tables.find((t) => t.id === pt.id || t.name === pt.name);
       if (!table) continue;
       // 表级业务口径说明（P2）：如"复购率=90天内≥2单客户/总客户"，将随 Schema 注入 LLM 上下文
       if (pt.businessNote !== undefined) {
@@ -636,7 +668,7 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
       if (!Array.isArray(pt.columns)) continue;
       for (const pc of pt.columns) {
         if (!pc || typeof pc.name !== 'string') continue;
-        const col = (table.columns || []).find((c: any) => c.name === pc.name);
+        const col = (table.columns || []).find((c) => c.name === pc.name);
         if (!col) continue;
         if (pc.isMetric !== undefined) {
           if (typeof pc.isMetric !== 'boolean') return res.status(400).json({ error: 'isMetric 必须为布尔值' });
@@ -658,7 +690,7 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     invalidateExecutorPool(id);
     // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
     void invalidateQueryCache(id);
-    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, touched, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] update schema-meta failed:', err);
@@ -679,7 +711,7 @@ router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
       acl ? JSON.stringify(acl) : null,
       id,
     ]);
-    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] update acl failed:', err);
@@ -692,7 +724,7 @@ router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
 router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     const ds = rows[0];
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
@@ -712,7 +744,7 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
     invalidateExecutorPool(id);
     // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
     void invalidateQueryCache(id);
-    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] update scope failed:', err);

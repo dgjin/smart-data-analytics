@@ -13,6 +13,7 @@ import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from '../query/met
 import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { budgetText, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from '../query/schemaGuidance';
+import type { SchemaTable } from '../query/schemaTypes';
 
 const MAX_REPORT_QUERIES = 4;
 const SAMPLE_ROWS_PER_CHART = 10;
@@ -21,7 +22,7 @@ const SAMPLE_ROWS_PER_CHART = 10;
  * v0.5.1 报表文案中文化：从 schema 提取「英文标识符 → 中文名」映射。
  * 覆盖表名（name → displayName）与列名（name → description），供 prompt 注入与服务端兜底替换。
  */
-export function buildIdentifierNameMap(schema: any[]): Record<string, string> {
+export function buildIdentifierNameMap(schema: SchemaTable[]): Record<string, string> {
   const map: Record<string, string> = {};
   for (const t of Array.isArray(schema) ? schema : []) {
     if (!t || typeof t.name !== 'string' || !t.name.trim()) continue;
@@ -69,27 +70,28 @@ export function replaceIdentifiersWithChinese(text: string, nameMap: Record<stri
 /**
  * v0.5.1 报表文案中文化：对阶段二输出的所有文案字段做英文标识符 → 中文名替换（LLM 不守约束时的服务端兜底）
  */
-export function sanitizeReportNarrative<T extends Record<string, any>>(report: T, schema: any[]): T {
+export function sanitizeReportNarrative<T extends Record<string, unknown>>(report: T, schema: SchemaTable[]): T {
   const nameMap = buildIdentifierNameMap(schema);
   if (Object.keys(nameMap).length === 0) return report;
-  const fix = (s: any): any => (typeof s === 'string' ? replaceIdentifiersWithChinese(s, nameMap) : s);
-  const out: Record<string, any> = { ...report };
+  const fix = (s: unknown): unknown => (typeof s === 'string' ? replaceIdentifiersWithChinese(s, nameMap) : s);
+  /** 对报表子对象（insight/kpi/chart）的指定文案字段做标识符中文化，非对象原样透传 */
+  const fixObjKeys = (o: unknown, keys: string[]): unknown => {
+    if (!o || typeof o !== 'object') return o;
+    const next = { ...(o as Record<string, unknown>) };
+    for (const k of keys) next[k] = fix(next[k]);
+    return next;
+  };
+  const out: Record<string, unknown> = { ...report };
   if (typeof out.title === 'string') out.title = fix(out.title);
   if (typeof out.summary === 'string') out.summary = fix(out.summary);
   if (Array.isArray(out.insights)) {
-    out.insights = out.insights.map((i: any) =>
-      i && typeof i === 'object' ? { ...i, title: fix(i.title), content: fix(i.content), actionItem: fix(i.actionItem) } : i
-    );
+    out.insights = out.insights.map((i) => fixObjKeys(i, ['title', 'content', 'actionItem']));
   }
   if (Array.isArray(out.kpiList)) {
-    out.kpiList = out.kpiList.map((k: any) =>
-      k && typeof k === 'object' ? { ...k, label: fix(k.label), value: fix(k.value), change: fix(k.change) } : k
-    );
+    out.kpiList = out.kpiList.map((k) => fixObjKeys(k, ['label', 'value', 'change']));
   }
   if (Array.isArray(out.charts)) {
-    out.charts = out.charts.map((c: any) =>
-      c && typeof c === 'object' ? { ...c, title: fix(c.title), commentary: fix(c.commentary) } : c
-    );
+    out.charts = out.charts.map((c) => fixObjKeys(c, ['title', 'commentary']));
   }
   return out as T;
 }
@@ -97,7 +99,7 @@ export function sanitizeReportNarrative<T extends Record<string, any>>(report: T
 export interface LiveReportInput {
   templateType: string;
   customPrompt: string;
-  schema: any[];
+  schema: SchemaTable[];
   guidance: string;
   dataSourceId: string;
   /** 数据源类型（mysql/postgresql/greenplum），用于阶段一 SQL 方言提示 */
@@ -249,7 +251,7 @@ async function buildReportKnowledgePrompt(dataSourceId: string | undefined, temp
 async function generateStage1Plans(
   templateType: string,
   customPrompt: string,
-  schema: any[],
+  schema: SchemaTable[],
   guidance: string,
   dsType?: string,
   amountUnit?: string,
@@ -282,7 +284,7 @@ async function generateStage1Plans(
   return parsed;
 }
 
-function buildReportStage1System(schema: any[], guidance: string, dsType?: string, metricPrompt = '', knowledgePrompt = ''): string {
+function buildReportStage1System(schema: SchemaTable[], guidance: string, dsType?: string, metricPrompt = '', knowledgePrompt = ''): string {
   const dialect = dialectPromptOf(dsType);
   return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 ${dialect.label} SELECT 聚合查询。你不生成任何数据，只生成 SQL。
 
@@ -316,7 +318,7 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
       sql: q.sql,
       chartType: ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'treemap', 'heatmap'].includes(q.chartType) ? q.chartType : 'bar',
       xAxisKey: typeof q.xAxisKey === 'string' ? q.xAxisKey : '',
-      yAxisKeys: Array.isArray(q.yAxisKeys) ? q.yAxisKeys.filter((k: any) => typeof k === 'string') : [],
+      yAxisKeys: Array.isArray(q.yAxisKeys) ? q.yAxisKeys.filter((k: unknown): k is string => typeof k === 'string') : [],
       columnNames: q.columnNames && typeof q.columnNames === 'object' ? q.columnNames : undefined,
       purpose: typeof q.purpose === 'string' ? q.purpose : '',
     });
@@ -329,7 +331,7 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
   };
 }
 
-function buildReportStage2System(schema: any[]): string {
+function buildReportStage2System(schema: SchemaTable[]): string {
   const nameMap = buildIdentifierNameMap(schema);
   const nameMapText = Object.entries(nameMap)
     .map(([en, cn]) => `${en} = ${cn}`)
@@ -444,14 +446,14 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     if (Object.keys(analysis).length === 0) {
       console.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));
     }
-  } catch (err: any) {
-    // v0.5.0：阶段二失败不再静默——记录原因便于诊断（报表降级为兜底摘要，KPI/洞察缺失）
-    console.warn('[LiveReport] 阶段二 LLM 调用失败（kpiList/insights 将缺失）:', err?.message || err);
+  } catch (err) {
+    // v0.5.0：阶段二失败不再静默——记录原因便于诊断（报表降级为兑底摘要，KPI/洞察缺失）
+    console.warn('[LiveReport] 阶段二 LLM 调用失败（kpiList/insights 将缺失）:', err instanceof Error ? err.message : err);
     analysis = {};
   }
-
+  
   const commentaries = Array.isArray(analysis.commentaries)
-    ? analysis.commentaries.filter((s: any) => typeof s === 'string')
+    ? analysis.commentaries.filter((s: unknown): s is string => typeof s === 'string')
     : [];
   charts.forEach((c, i) => {
     // c.data 为 coerceNumericColumns 产出的行数组（Record<string, any>[]），此处仅取行数
@@ -471,12 +473,16 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     // KPI 字段矫正：LLM 常返回 change 为 null/number/缺省，label/value 缺失的项直接丢弃，
     // 保证下发字段符合 SavedReport 契约（前端异常扫描依赖 change 为字符串）
     kpiList: (Array.isArray(analysis.kpiList) ? analysis.kpiList : [])
-      .filter((k: any) => k && typeof k === 'object' && typeof k.label === 'string' && k.label.trim())
-      .map((k: any) => ({
+      .filter((k: unknown): k is Record<string, unknown> => {
+        if (!k || typeof k !== 'object') return false;
+        const label = (k as Record<string, unknown>).label;
+        return typeof label === 'string' && label.trim().length > 0;
+      })
+      .map((k) => ({
         label: String(k.label).trim(),
         value: k.value != null ? String(k.value) : '',
         change: k.change != null ? String(k.change) : '',
-        status: ['good', 'bad', 'neutral'].includes(k.status) ? k.status : 'neutral',
+        status: ['good', 'bad', 'neutral'].includes(String(k.status)) ? String(k.status) : 'neutral',
       })),
     charts,
   };

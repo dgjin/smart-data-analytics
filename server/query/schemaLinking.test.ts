@@ -85,11 +85,11 @@ describe('pruneWideTableColumns: P1-5 宽表列级裁剪', () => {
     const wide = makeWideTable('fin', 204, { descMap: { 10: '投放金额', 20: '机构编号' } });
     const { tables, pruned } = pruneWideTableColumns([wide], '各机构投放金额汇总');
     expect(pruned).toEqual([{ table: 'fin', before: 204, after: MAX_COLUMNS_IN_WIDE_TABLE }]);
-    const kept = tables[0].columns.map((c: any) => c.description);
+    const kept = tables[0].columns!.map((c: any) => c.description);
     expect(kept).toContain('投放金额');
     expect(kept).toContain('机构编号');
     // 原顺序保留：kept 列在原表中的下标递增
-    const idxs = tables[0].columns.map((c: any) => wide.columns.indexOf(c));
+    const idxs = tables[0].columns!.map((c: any) => wide.columns.indexOf(c));
     expect([...idxs].sort((a, b) => a - b)).toEqual(idxs);
   });
 
@@ -97,11 +97,11 @@ describe('pruneWideTableColumns: P1-5 宽表列级裁剪', () => {
     const wide = makeWideTable('fin', 120, { pk: 'id' });
     // 指标引用一个与问题完全无关的列 col_99
     const { tables } = pruneWideTableColumns([wide], '机构投放金额', { fin: ['col_99'] });
-    const names = tables[0].columns.map((c: any) => c.name);
+    const names = tables[0].columns!.map((c: any) => c.name);
     expect(names).toContain('id'); // 主键
     expect(names).toContain('col_99'); // 指标引用列
     // id 主键因 isPrimaryKey 打分加权本就在 top-N 内，仅 col_99 在 top-N 外额外保留
-    expect(tables[0].columns.length).toBe(MAX_COLUMNS_IN_WIDE_TABLE + 1);
+    expect(tables[0].columns!.length).toBe(MAX_COLUMNS_IN_WIDE_TABLE + 1);
   });
 
   it('不修改入参（不可变性）', () => {

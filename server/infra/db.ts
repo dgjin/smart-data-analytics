@@ -753,7 +753,7 @@ export async function initSchema(): Promise<void> {
   // 6. P0 存量迁移：明文数据源密码就地加密（enc:v1: 前缀幂等跳过）
   const [dsAll] = await pool.query<mysql.RowDataPacket[]>('SELECT id, config_json FROM data_sources');
   for (const row of dsAll) {
-    let config: any;
+    let config: { password?: string } & Record<string, unknown>;
     try {
       config = typeof row.config_json === 'string' ? JSON.parse(row.config_json) : row.config_json;
     } catch {

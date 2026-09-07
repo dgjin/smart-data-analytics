@@ -2,23 +2,11 @@
  * Schema 动态摘要：从数据源真实表结构中提取维度/指标候选，
  * 注入 LLM prompt，避免分析指标与维度使用与当前数据源无关的固定模版。
  */
+import type { SchemaColumn, SchemaTable } from './schemaTypes';
 
-interface ColumnLike {
-  name: string;
-  type?: string;
-  description?: string;
-  isMetric?: boolean;
-  isDimension?: boolean;
-  isPrimaryKey?: boolean;
-}
-
-interface TableLike {
-  id: string;
-  name: string;
-  displayName?: string;
-  description?: string;
-  columns?: ColumnLike[];
-}
+/** P0-2：本地 ColumnLike/TableLike 与 queryGuard 的同名定义收敛为共享规范类型（别名保持下游签名不变） */
+type ColumnLike = SchemaColumn;
+type TableLike = SchemaTable;
 
 const DIMENSION_TYPES = new Set(['string', 'category', 'date', 'boolean']);
 
@@ -99,13 +87,13 @@ function colRelevantToQuery(query: string, c: ColumnLike): boolean {
  * 表级剔除 id/rowCount/businessNote（businessNote 由 extractBusinessNotes 独立注入避免重复，
  * isMetric/isDimension 由 summarizeSchema 的维度/指标摘要覆盖）。实测各数据源注入体积下降 50-70%。
  */
-export function serializeSchemaForPrompt(schema: any[] | null | undefined): string {
+export function serializeSchemaForPrompt(schema: SchemaTable[] | null | undefined): string {
   if (!Array.isArray(schema)) return '[]';
   return JSON.stringify(schema.map((t) => ({
     name: t?.name,
     ...(t?.displayName && t.displayName !== t.name ? { displayName: t.displayName } : {}),
     ...(t?.description ? { description: t.description } : {}),
-    columns: (Array.isArray(t?.columns) ? t.columns : []).map((c: any) =>
+    columns: (Array.isArray(t?.columns) ? t.columns : []).map((c) =>
       c?.description ? [c.name, c.type ?? '', c.description] : [c.name, c.type ?? '']
     ),
   })));

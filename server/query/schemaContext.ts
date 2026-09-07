@@ -10,6 +10,7 @@ import { getStateStore } from '../infra/stateStore';
 import { applyDataScope, rowFiltersByTableName } from './scope';
 import { summarizeSchema } from './schemaGuidance';
 import { filterSensitiveColumns } from './queryGuard';
+import type { SchemaTable } from './schemaTypes';
 import type mysql from 'mysql2/promise';
 
 /** data_sources 表上下文加载行（SELECT 指定列） */
@@ -26,7 +27,7 @@ const SCHEMA_CACHE_PREFIX = 'sctx:';
 const CACHE_TTL_SEC = 5 * 60;
 
 interface CacheEntry {
-  schema: any[];
+  schema: SchemaTable[];
   guidance: string;
   status: string;
   /** 数据源类型（mysql 才走真实 SQL 执行；null = 前端提交 schema 的演示模式） */
@@ -48,7 +49,7 @@ export async function invalidateSchemaCache(dataSourceId?: string): Promise<void
 }
 
 export interface SchemaContext {
-  schema: any[];
+  schema: SchemaTable[];
   guidance: string;
   /** null 表示数据源未落库（使用前端提交的 schema，不缓存） */
   status: string | null;
@@ -63,11 +64,11 @@ export interface SchemaContext {
   dataSourceName: string;
 }
 
-function parseJson(v: any, fallback: any) {
+function parseJson<T>(v: unknown, fallback: T): T {
   if (v === null || v === undefined) return fallback;
-  if (typeof v === 'object') return v;
+  if (typeof v === 'object') return v as T;
   try {
-    return JSON.parse(v);
+    return JSON.parse(String(v)) as T;
   } catch {
     return fallback;
   }
@@ -120,7 +121,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
     const ds = rows[0];
     if (!ds) return fromClientSchema(clientSchema);
 
-    const scoped = applyDataScope(parseJson(ds.schema_json, []), parseJson(ds.scope_json, null));
+    const scoped = applyDataScope(parseJson<SchemaTable[]>(ds.schema_json, []), parseJson(ds.scope_json, null));
     const filtered = filterSensitiveColumns(scoped);
     const entry: CacheEntry = {
       schema: filtered.schema,

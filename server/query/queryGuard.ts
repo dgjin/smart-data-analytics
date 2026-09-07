@@ -2,6 +2,7 @@
  * 智能问数纵深防御：输入净化（L1）、上下文敏感列过滤（L3）、历史净化（L4）。
  * 全部为纯函数，服务端在 LLM 调用前强制执行，不信任前端提交的任何内容。
  */
+import type { SchemaTable } from './schemaTypes';
 
 // L1：单条提问最大长度（架构图约定 500 字，超长截断而非拒绝）
 export const MAX_QUESTION_LENGTH = 500;
@@ -71,15 +72,8 @@ export function sanitizeHistory(raw: unknown): { role: 'user'; content: string }
 const SENSITIVE_COLUMN_PATTERN =
   /(password|passwd|pwd|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|id[_-]?card|idcard|身份证|密码|密钥|令牌)/i;
 
-interface ColumnLike {
-  name: string;
-  description?: string;
-}
-
-interface TableLike {
-  name: string;
-  columns?: ColumnLike[];
-}
+/** P0-2：与 schemaGuidance 的同名本地定义收敛为共享规范类型 */
+type TableLike = SchemaTable;
 
 /**
  * L3 上下文层敏感过滤：在 scope 白名单过滤之后执行，
