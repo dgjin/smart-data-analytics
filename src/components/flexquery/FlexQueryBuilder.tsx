@@ -88,8 +88,11 @@ export const FlexQueryBuilder: React.FC = () => {
   } = useAnalyticsStore();
 
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
-  const dbSupported = !!activeDS && DB_TYPES.includes(activeDS.type) && activeDS.status !== 'disconnected';
-  const dialect: 'mysql' | 'pg' = activeDS?.type === 'mysql' ? 'mysql' : 'pg';
+  // v0.9.34：已落库文件型数据源（config.physicalTable = upl_*）同样走真实执行链路
+  const isFileBacked = !!activeDS?.config?.physicalTable;
+  const dbSupported = !!activeDS && (DB_TYPES.includes(activeDS.type) || isFileBacked) && activeDS.status !== 'disconnected';
+  // 文件源落应用库（MySQL），生成的 SQL 方言按 mysql
+  const dialect: 'mysql' | 'pg' = activeDS?.type === 'mysql' || isFileBacked ? 'mysql' : 'pg';
 
   // ---------- Schema 加载 ----------
   const [tables, setTables] = useState<TableSchema[]>([]);
@@ -626,7 +629,7 @@ export const FlexQueryBuilder: React.FC = () => {
           <p className="text-xs text-slate-400">
             {activeDS?.status === 'disconnected'
               ? '该数据源已被管理员停用'
-              : '仅 MySQL / PostgreSQL / Greenplum 数据库型数据源支持拖拉拽查询，请在上方切换数据源'}
+              : '仅 MySQL / PostgreSQL / Greenplum 及已导入落库的 CSV/Excel/JSON 文件数据源支持拖拉拽查询，请在上方切换数据源'}
           </p>
         </div>
       ) : (

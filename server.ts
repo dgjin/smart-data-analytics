@@ -120,10 +120,12 @@ async function startServer() {
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });
   // M4 报告导出与 v0.9.2 异步 PDF 导出 body 含图表 base64 PNG，单独放宽（路由自带 20mb 解析器），其余接口维持 2mb；
-  // 知识库导入 body 为整份 JSON 备份文件（含全部知识文档原文），单独放宽至 10mb
+  // 知识库导入 body 为整份 JSON 备份文件（含全部知识文档原文），单独放宽至 10mb；
+  // 文件数据源导入（v0.9.34）body 为文件 base64，同样放宽至 10mb（净荷约 7MB）
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/report/export')) return next();
     if (req.path === '/api/knowledge/import') return jsonParser10mb(req, res, next);
+    if (req.path === '/api/datasources/import-file') return jsonParser10mb(req, res, next);
     return jsonParser2mb(req, res, next);
   });
 

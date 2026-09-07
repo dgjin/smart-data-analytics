@@ -12,7 +12,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { containsInjection } from '../query/queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
 import { writeAudit } from '../infra/auditLog';
-import { loadSchemaContext } from '../query/schemaContext';
+import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from '../report/liveReport';
 import { normalizeAmountUnit } from '../query/liveQuery';
 import { runSimulatedReport } from '../report/simulatedReport';
@@ -97,8 +97,8 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
       approvedPlans = consumed.plan;
     }
 
-    // P1 报表真实化：数据库型数据源走双阶段（查询计划 → 真实执行 → 真实数据摘要撰写）
-    const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+    // P1 报表真实化：数据库型 + 已落库文件数据源（v0.9.34）走双阶段（查询计划 → 真实执行 → 真实数据摘要撰写）
+    const canRunLive = isLiveCapableType(ctx.dsType, ctx.fileBacked) && typeof dataSourceId === 'string' && dataSourceId.length > 0;
     if (canRunLive) {
       const live = await runLiveReport({
         templateType: safeTemplate,
@@ -195,9 +195,9 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     writeAudit({ ...auditBase, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
     return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
-  const canPlan = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+  const canPlan = isLiveCapableType(ctx.dsType, ctx.fileBacked) && typeof dataSourceId === 'string' && dataSourceId.length > 0;
   if (!canPlan) {
-    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '仅数据库型数据源支持报表计划模式' });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '仅数据库型或已导入数据的文件型数据源支持报表计划模式' });
   }
 
   try {
@@ -309,10 +309,10 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
       }
     }
 
-    // P1 报表真实化：数据库型数据源走双阶段
-    const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+    // P1 报表真实化：数据库型 + 已落库文件数据源（v0.9.34）走双阶段
+    const canRunLive = isLiveCapableType(ctx.dsType, ctx.fileBacked) && typeof dataSourceId === 'string' && dataSourceId.length > 0;
     if (!canRunLive) {
-      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '仅数据库型数据源支持报告生成' });
+      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '仅数据库型或已导入数据的文件型数据源支持报告生成' });
     }
 
     const live = await runLiveReport({

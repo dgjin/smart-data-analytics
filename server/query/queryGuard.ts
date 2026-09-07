@@ -68,8 +68,8 @@ export function sanitizeHistory(raw: unknown): { role: 'user'; content: string }
   return turns.slice(-MAX_HISTORY_TURNS);
 }
 
-// L3：敏感列特征（列名或描述命中即从 AI 上下文剔除）
-const SENSITIVE_COLUMN_PATTERN =
+// L3：敏感列特征（列名或描述命中即从 AI 上下文剔除；文件数据源导入落库时亦用同一清单剔除敏感列）
+export const SENSITIVE_COLUMN_PATTERN =
   /(password|passwd|pwd|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|id[_-]?card|idcard|身份证|密码|密钥|令牌)/i;
 
 /** P0-2：与 schemaGuidance 的同名本地定义收敛为共享规范类型 */

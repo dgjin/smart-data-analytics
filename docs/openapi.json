@@ -708,6 +708,63 @@
         }
       }
     },
+    "/api/datasources/import-file": {
+      "post": {
+        "tags": [
+          "DataSources"
+        ],
+        "operationId": "importFileDatasource",
+        "summary": "上传 CSV/Excel/JSON 文件导入为数据源（仅 ADMIN）：服务端解析真实数据落应用库物理表 upl_*，问数/报表/指标/灵活查询走真实执行；≤7MB、≤2万行、≤100列（超限截断），敏感列自动剔除",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fileType",
+                  "fileName",
+                  "fileBase64"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "数据源显示名（可选，默认取文件名）"
+                  },
+                  "fileType": {
+                    "type": "string",
+                    "enum": [
+                      "csv",
+                      "xlsx",
+                      "json"
+                    ]
+                  },
+                  "fileName": {
+                    "type": "string",
+                    "description": "原始文件名"
+                  },
+                  "fileBase64": {
+                    "type": "string",
+                    "description": "文件内容 base64（文件本体 ≤7MB）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "导入成功：返回 dataSource 与 stats（rows/columns/droppedSensitive/truncated）"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/datasources/test-connection": {
       "post": {
         "tags": [

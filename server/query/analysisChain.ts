@@ -178,7 +178,8 @@ export function inferColumnType(rows: Record<string, any>[], col: string): 'DOUB
   return seen > 0 && numeric >= Math.ceil(seen * 0.6) ? 'DOUBLE' : 'TEXT';
 }
 
-function toCellValue(v: any, type: 'DOUBLE' | 'TEXT'): number | string | null {
+/** 单元格值规整（v0.9.34 起导出，文件数据源导入落库复用同一规则）：空值→null、DOUBLE 非数值→null、其余→截断字符串 */
+export function toCellValue(v: any, type: 'DOUBLE' | 'TEXT'): number | string | null {
   if (v === null || v === undefined || v === '') return null;
   if (type === 'DOUBLE') {
     const n = typeof v === 'number' ? v : Number(v);

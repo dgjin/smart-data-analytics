@@ -16,7 +16,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { sanitizeQuestion, sanitizeHistory } from '../query/queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
 import { writeAudit } from '../infra/auditLog';
-import { loadSchemaContext } from '../query/schemaContext';
+import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { callLLMText, validateModelSelection, setLlmOverride, ChatMessage } from '../llm/llmClient';
 import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from '../query/liveQuery';
 import { runSimulatedQuery } from '../query/simulatedQuery';
@@ -176,8 +176,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
     // L4 历史层：assistant 输出一律丢弃（防回流污染），user 消息逐条过注入检测，最多 5 轮
     const sanitizedHistory: ChatMessage[] = sanitizeHistory(req.body.history);
 
-    // P0 双阶段真实执行：对落库的数据库型数据源启用（mysql/postgresql/greenplum，LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
-    const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && typeof dataSourceId === 'string' && dataSourceId.length > 0;
+    // P0 双阶段真实执行：数据库型数据源 + 已落库文件数据源（v0.9.34）启用（LLM 生成 SQL → 安全执行 → 真实 rows 回喂分析）
+    const canRunLive = isLiveCapableType(ctx.dsType, ctx.fileBacked) && typeof dataSourceId === 'string' && dataSourceId.length > 0;
     const traceMeta: TraceMeta = { userId: user.id, username: user.username, dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '', question: query };
     if (canRunLive) {
       // M2 计划模式：携带已批准 planId 时校验有效性（过期/越权/问题不匹配 → 409 提示重新制定）
@@ -505,9 +505,9 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     if (ctx.status === 'disconnected') {
       return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
     }
-    const canPlan = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && dsIdStr.length > 0;
+    const canPlan = isLiveCapableType(ctx.dsType, ctx.fileBacked) && dsIdStr.length > 0;
     if (!canPlan) {
-      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '计划模式仅支持真实连接的数据库型数据源' });
+      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '计划模式仅支持真实数据源（数据库型或已导入数据的文件型）' });
     }
     const plan = await generateQueryPlan(clean.question, ctx.schema);
     await storePlan(plan, user.id, dsIdStr);
@@ -550,7 +550,7 @@ router.post('/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
 });
 
 // 3c. API Endpoint: SQL 重跑（P0：SQL 预览弹窗的真实执行入口）
-// 复用 SELECT-only 安全执行层；仅落库 mysql 数据源可执行
+// 复用 SELECT-only 安全执行层；数据库型与已落库文件型（v0.9.34 upl_*）数据源可执行
 router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const startedAt = Date.now();
   const user = req.user!;
@@ -591,7 +591,7 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
   if (outcome.ok !== true) {
     const status = outcome.reason === 'UNSUPPORTED_DS_TYPE' ? 400 : 422;
     writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'DENIED_INPUT', detail: outcome.reason.slice(0, 200), durationMs: Date.now() - startedAt });
-    return res.status(status).json({ error: outcome.reason === 'UNSUPPORTED_DS_TYPE' ? '仅 MySQL / PostgreSQL / Greenplum 数据源支持 SQL 真实执行' : outcome.reason });
+    return res.status(status).json({ error: outcome.reason === 'UNSUPPORTED_DS_TYPE' ? '该数据源类型不支持 SQL 真实执行（支持数据库型与已导入落库的文件型数据源）' : outcome.reason });
   }
 
   // P1-3：AST 解析失败放行补审计（status=FALLBACK，detail 标记 AST_FALLBACK）

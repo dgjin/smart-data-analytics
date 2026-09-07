@@ -10,6 +10,7 @@ import { getStateStore } from '../infra/stateStore';
 import { applyDataScope, rowFiltersByTableName } from './scope';
 import { summarizeSchema } from './schemaGuidance';
 import { filterSensitiveColumns } from './queryGuard';
+import { getFilePhysicalTable, isFileDataSourceType } from './fileDataSource';
 import type { SchemaTable } from './schemaTypes';
 import type mysql from 'mysql2/promise';
 import { logger } from '../infra/logger';
@@ -22,6 +23,8 @@ interface DataSourceRow extends mysql.RowDataPacket {
   status: string;
   type: string;
   allow_introspection: number;
+  /** v0.9.34 文件数据源判定：config.physicalTable 存在即走应用库真实执行 */
+  config_json: string | null;
 }
 
 const SCHEMA_CACHE_PREFIX = 'sctx:';
@@ -40,6 +43,8 @@ interface CacheEntry {
   rowFilters: Record<string, string>;
   /** 数据源显示名（注入 prompt 防止 LLM 把库名当数据过滤值） */
   dataSourceName: string;
+  /** v0.9.34 文件数据源已落应用库物理表（csv/json/excel + config.physicalTable）；旧缓存无此字段按 false 处理 */
+  fileBacked?: boolean;
 }
 
 /** 数据源配置/结构变更后调用，使缓存失效（跨实例：Redis 模式下 deleteByPrefix 广播清理） */
@@ -63,6 +68,16 @@ export interface SchemaContext {
   rowFilters: Record<string, string>;
   /** 数据源显示名；演示模式为空串 */
   dataSourceName: string;
+  /** 文件数据源已落应用库物理表（问数/报表走真实执行链路）；演示模式恒 false */
+  fileBacked: boolean;
+}
+
+/**
+ * 支持真实执行的数据源判定（v0.9.34 统一收口）：数据库型（mysql/postgresql/greenplum）
+ * 或已落物理表的文件型（fileBacked）。问数/计划/报表/异步任务 7 处分流点统一使用本判定。
+ */
+export function isLiveCapableType(dsType: string | null | undefined, fileBacked?: boolean): boolean {
+  return dsType === 'mysql' || dsType === 'postgresql' || dsType === 'greenplum' || fileBacked === true;
 }
 
 function parseJson<T>(v: unknown, fallback: T): T {
@@ -86,6 +101,7 @@ function fromClientSchema(clientSchema: unknown): SchemaContext {
     allowIntrospection: false,
     rowFilters: {},
     dataSourceName: '',
+    fileBacked: false,
   };
 }
 
@@ -108,6 +124,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
         allowIntrospection: cached.allowIntrospection,
         rowFilters: cached.rowFilters,
         dataSourceName: cached.dataSourceName || '',
+        fileBacked: cached.fileBacked === true,
       };
     } catch {
       // 缓存体损坏视为未命中，走查库重建
@@ -116,7 +133,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
 
   try {
     const [rows] = await getPool().query<DataSourceRow[]>(
-      'SELECT name, schema_json, scope_json, status, type, allow_introspection FROM data_sources WHERE id = ?',
+      'SELECT name, schema_json, scope_json, status, type, allow_introspection, config_json FROM data_sources WHERE id = ?',
       [dataSourceId]
     );
     const ds = rows[0];
@@ -133,6 +150,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       allowIntrospection: Number(ds.allow_introspection) === 1,
       rowFilters: rowFiltersByTableName(scoped, parseJson(ds.scope_json, null)),
       dataSourceName: String(ds.name || ''),
+      fileBacked: isFileDataSourceType(String(ds.type || '')) && getFilePhysicalTable(parseJson(ds.config_json, {})) !== null,
     };
     await getStateStore().setEx(cacheKey, JSON.stringify(entry), CACHE_TTL_SEC);
     return {
@@ -144,6 +162,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       allowIntrospection: entry.allowIntrospection,
       rowFilters: entry.rowFilters,
       dataSourceName: entry.dataSourceName,
+      fileBacked: entry.fileBacked === true,
     };
   } catch (err) {
     logger.warn('[Schema] load datasource schema failed, fallback to client schema:', err);

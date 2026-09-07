@@ -116,7 +116,8 @@ export const CustomDashboard: React.FC = () => {
   }
 
   // ---------- P2-14 语义层看板端：语义指标直查（选指标+维度 → 统一查询端点 → 可固化） ----------
-  const dbSources = dataSources.filter((ds) => ['mysql', 'postgresql', 'greenplum'].includes(ds.type));
+  // v0.9.34：已落库文件型数据源（config.physicalTable）同样走真实执行链路，可登记并直查语义指标
+  const dbSources = dataSources.filter((ds) => ['mysql', 'postgresql', 'greenplum'].includes(ds.type) || !!ds.config?.physicalTable);
   const [metricDsId, setMetricDsId] = useState('');
   const [metricList, setMetricList] = useState<SemanticMetric[]>([]);
   const [metricId, setMetricId] = useState<number | ''>('');

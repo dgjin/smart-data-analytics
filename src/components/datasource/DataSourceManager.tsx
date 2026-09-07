@@ -99,7 +99,8 @@ export const DataSourceManager: React.FC = () => {
 
   useEffect(() => {
     if (!importNotice) return;
-    const timer = setTimeout(() => setImportNotice(null), 4000);
+    // 文件导入提示带 stats 明细较长，按文案长度适度延长展示时间（4s 基础，最多 8s）
+    const timer = setTimeout(() => setImportNotice(null), Math.min(8000, 4000 + importNotice.length * 30));
     return () => clearTimeout(timer);
   }, [importNotice]);
 
@@ -418,62 +419,74 @@ export const DataSourceManager: React.FC = () => {
     }
   };
 
-  // File Upload Parsing handler（上传后同样落库）
+  // File Upload（v0.9.34：服务端真实解析并落应用库物理表，问数/报表走真实执行链路）
+  const [importing, setImporting] = useState(false);
+
+  // 前端预检上限与服务端 MAX_FILE_BYTES 对齐（7MB 文件本体，base64 后走 10mb JSON 通道）
+  const MAX_IMPORT_FILE_BYTES = 7 * 1024 * 1024;
+
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        // readAsDataURL 输出 "data:<mime>;base64,<payload>"，只提交 payload 部分
+        const comma = result.indexOf(',');
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsDataURL(file);
+    });
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || importing) return;
 
     const fileExt = file.name.split('.').pop()?.toLowerCase();
-    const isCSV = fileExt === 'csv';
+    const fileType = fileExt === 'csv' ? 'csv' : fileExt === 'json' ? 'json' : fileExt === 'xlsx' ? 'xlsx' : null;
+    if (!fileType) {
+      setActionError(
+        fileExt === 'xls'
+          ? '暂不支持旧版 .xls 格式，请在 Excel/WPS 中另存为 .xlsx 后重试。'
+          : '仅支持 .csv / .xlsx / .json 文件。'
+      );
+      e.target.value = '';
+      return;
+    }
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      setActionError(`文件超过 ${Math.floor(MAX_IMPORT_FILE_BYTES / 1024 / 1024)}MB 大小上限，请拆分或精简后重试。`);
+      e.target.value = '';
+      return;
+    }
 
-    const newTable: TableSchema = {
-      id: `tbl_file_${Date.now()}`,
-      name: file.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase(),
-      displayName: `文件解析: ${file.name}`,
-      description: `从 ${file.name} 导入的本地结构化文件数据`,
-      rowCount: Math.floor(Math.random() * 2000) + 500,
-      columns: [
-        { name: 'row_id', type: 'number', description: '行号', isPrimaryKey: true },
-        { name: 'date', type: 'date', description: '日期字段', isDimension: true },
-        { name: 'category', type: 'category', description: '分类', isDimension: true },
-        { name: 'metric_value', type: 'number', description: '度量数值', isMetric: true },
-      ],
-    };
-
-    const dsConfig = {
-      fileName: file.name,
-      fileSize: `${(file.size / 1024).toFixed(1)} KB`,
-    };
-
+    setImporting(true);
     try {
-      const res = await apiFetch('/api/datasources', {
+      const fileBase64 = await readFileAsBase64(file);
+      const res = await apiFetch('/api/datasources/import-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `导入文件: ${file.name}`,
-          type: isCSV ? 'csv' : 'json',
-          config: dsConfig,
-          tables: [newTable],
-        }),
+        body: JSON.stringify({ fileType, fileName: file.name, fileBase64 }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || '导入失败');
 
-      const newDS: DataSource = {
-        id: data.id,
-        name: `导入文件: ${file.name}`,
-        type: isCSV ? 'csv' : 'json',
-        status: 'connected',
-        config: dsConfig,
-        tables: [newTable],
-        lastSyncedAt: new Date().toISOString(),
-      };
-
-      addDataSource(newDS);
-      setImportNotice(`成功解析并导入本地文件 "${file.name}"！Schema 已自动识别。`);
+      addDataSource(data.dataSource as DataSource);
+      // 如实告知解析结果：敏感列剔除与超限截断不静默
+      const stats = data.stats || {};
+      const extras: string[] = [];
+      if (Array.isArray(stats.droppedSensitive) && stats.droppedSensitive.length > 0) {
+        extras.push(
+          `已自动剔除 ${stats.droppedSensitive.length} 个敏感列（${stats.droppedSensitive.slice(0, 3).join('、')}${stats.droppedSensitive.length > 3 ? ' 等' : ''}）`
+        );
+      }
+      if (stats.truncated) extras.push('超出 2 万行 / 100 列上限的部分已截断');
+      setImportNotice(
+        `已导入「${file.name}」：${stats.rows ?? '-'} 行 × ${stats.columns ?? '-'} 列真实落库，可直接问数与生成报表。${extras.length ? `（${extras.join('；')}）` : ''}`
+      );
     } catch (err: any) {
       setActionError(err.message || '文件导入失败');
     } finally {
+      setImporting(false);
       e.target.value = '';
     }
   };
@@ -491,19 +504,28 @@ export const DataSourceManager: React.FC = () => {
             数据源与元数据配置 (Data Source & Schema)
           </h1>
           <p className="text-xs text-slate-400">
-            支持接入 PostgreSQL、MySQL、本地 CSV/JSON 文件以及 REST API 接口，AI 将自动探测并读取表结构进行自然语言分析。
+            支持接入 PostgreSQL、MySQL、Greenplum 数据库与 REST API 接口；也可直接上传本地 CSV / Excel / JSON 文件，数据将真实落库并自动识别表结构，上传后即可自然语言问数。
           </p>
         </div>
 
         <div className="flex items-center space-x-2 shrink-0">
-          {/* Upload Local File Button */}
-          <label className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold cursor-pointer transition-colors">
-            <Upload className="w-4 h-4 text-cyan-400" />
-            <span>导入本地 CSV / JSON</span>
+          {/* Upload Local File Button（v0.9.34 真实落库：服务端解析 CSV/Excel/JSON 写入应用库） */}
+          <label
+            className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors ${
+              importing ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-700 cursor-pointer'
+            }`}
+          >
+            {importing ? (
+              <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
+            ) : (
+              <Upload className="w-4 h-4 text-cyan-400" />
+            )}
+            <span>{importing ? '正在解析导入...' : '导入本地 CSV / Excel / JSON'}</span>
             <input
               type="file"
               accept=".csv,.json,.xlsx"
               onChange={handleFileUpload}
+              disabled={importing}
               className="hidden"
             />
           </label>

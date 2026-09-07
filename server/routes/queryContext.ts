@@ -16,13 +16,15 @@ router.use(authMiddleware);
 
 /** 由服务端 Schema 上下文构造前端展示摘要；表级明细仅管理员可见（纯函数，便于单测） */
 export function buildContextSummary(
-  ctx: { schema: any[]; sensitiveRemoved: string[]; status: string | null; dsType: string | null },
+  ctx: { schema: any[]; sensitiveRemoved: string[]; status: string | null; dsType: string | null; fileBacked?: boolean },
   isAdmin: boolean
 ) {
   return {
     ok: true,
     status: ctx.status,
     dsType: ctx.dsType,
+    // v0.9.34 文件数据源已落应用库物理表标记：前端计划模式等真实执行入口与其余库型数据源对齐
+    fileBacked: ctx.fileBacked === true,
     tableCount: Array.isArray(ctx.schema) ? ctx.schema.length : 0,
     // 表级明细仅管理员可见；非管理员只暴露数量
     tables: isAdmin

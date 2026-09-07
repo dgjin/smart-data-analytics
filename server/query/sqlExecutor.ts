@@ -17,6 +17,7 @@ import { observeSqlExec, observeExplainGuard } from '../infra/monitoring';
 import { decryptSecret } from '../infra/secretsCrypto';
 import { callLLMJson } from '../llm/llmClient';
 import { logger } from '../infra/logger';
+import { getFilePhysicalTable } from './fileDataSource';
 
 const { Parser: SqlAstParser } = sqlParserPkg;
 
@@ -761,7 +762,10 @@ async function executeSafeSqlImpl(
 ): Promise<ExecOutcome> {
   const ds = await loadDataSourceConfig(dataSourceId);
   if (!ds) return { ok: false, reason: '数据源不存在' };
-  const dialect = dialectOfDsType(ds.type);
+  // 文件数据源（v0.9.34：csv/json/excel 上传落应用库 upl_* 物理表）：无独立连接池，
+  // 方言按 MySQL 校验（应用库即 MySQL），执行改道应用库
+  const fileTable = dialectOfDsType(ds.type) ? null : getFilePhysicalTable(ds.config);
+  const dialect = dialectOfDsType(ds.type) || (fileTable ? 'mysql' : null);
   if (!dialect) {
     return { ok: false, reason: 'UNSUPPORTED_DS_TYPE' };
   }
@@ -775,6 +779,25 @@ async function executeSafeSqlImpl(
   const finalSql = injected.sql;
 
   try {
+    if (fileTable) {
+      // 文件数据源：白名单校验已过（Schema 表名即 upl_* 物理表名，天然隔离越权引用），改在应用库执行。
+      // 表为上传快照（导入上限 2 万行），跳过 EXPLAIN 防线（其针对业务库大扫描）；
+      // 保留驱动 timeout + MAX_EXECUTION_TIME hint 双保险。
+      const timeoutMs = scenarioTimeoutMs(scenario);
+      const execSql = injectMysqlMaxExecTime(finalSql, timeoutMs);
+      const [fileRows] = await getPool().query({ sql: execSql, timeout: timeoutMs });
+      const fileList = (Array.isArray(fileRows) ? fileRows : []) as Record<string, any>[];
+      return {
+        ok: true,
+        result: {
+          rows: fileList.slice(0, maxRows),
+          rowCount: fileList.length,
+          truncated: fileList.length > maxRows,
+          finalSql,
+          astFallback: check.astFallback === true,
+        },
+      };
+    }
     const entry = getDsPool(dataSourceId, dialect, ds.config, scenario);
     const timeoutMs = scenarioTimeoutMs(scenario);
     // EXPLAIN 防线：真执行前预估扫描量，超阈值拦截（大扫描防拖垮业务库；EXPLAIN 失败 fail-open）

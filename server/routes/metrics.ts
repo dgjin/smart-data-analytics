@@ -109,7 +109,7 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
     // 复用 SELECT-only 安全执行层：表白名单 / 敏感列剔除 / 部门行级过滤全部生效
     const outcome = await executeSafeSql(metric.dataSourceId, built.sql, ctx.schema, ctx.sensitiveRemoved, undefined, ctx.rowFilters);
     if (outcome.ok !== true) {
-      return res.status(outcome.reason === 'UNSUPPORTED_DS_TYPE' ? 400 : 422).json({ error: outcome.reason === 'UNSUPPORTED_DS_TYPE' ? '仅 MySQL / PostgreSQL / Greenplum 数据源支持指标查询' : outcome.reason });
+      return res.status(outcome.reason === 'UNSUPPORTED_DS_TYPE' ? 400 : 422).json({ error: outcome.reason === 'UNSUPPORTED_DS_TYPE' ? '该数据源类型不支持指标真实查询（支持数据库型与已导入落库的文件型数据源）' : outcome.reason });
     }
 
     // P2-12 DLP：维度切分值可能含敏感数据，按角色脱敏（ADMIN 豁免）

@@ -154,8 +154,10 @@ export const ReportGenerator: React.FC = () => {
       setAutoRegenerating(false);
     }
   }
-  // 仅数据库型且未停用的数据源支持报表计划模式（与服务端 canPlan 判定一致）
-  const canPlanMode = !!activeDS && ['mysql', 'postgresql', 'greenplum'].includes(activeDS.type) && activeDS.status !== 'disconnected';
+  // 数据库型与已落库文件型（config.physicalTable）数据源支持报表计划模式（与服务端 canPlan 判定一致）
+  const canPlanMode = !!activeDS
+    && (['mysql', 'postgresql', 'greenplum'].includes(activeDS.type) || !!activeDS.config?.physicalTable)
+    && activeDS.status !== 'disconnected';
   // L7 AI 开关：数据源被停用（disconnected）时禁用报表生成入口（服务端同样强制 403）
   const aiSwitchOff = activeDS?.status === 'disconnected';
   // 自定义侧重点占位示例：取自所选数据源的真实表结构（应用问数范围过滤）

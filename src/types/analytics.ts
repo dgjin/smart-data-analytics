@@ -1,4 +1,4 @@
-export type DataSourceType = 'mysql' | 'postgresql' | 'greenplum' | 'csv' | 'json' | 'api' | 'demo';
+export type DataSourceType = 'mysql' | 'postgresql' | 'greenplum' | 'csv' | 'json' | 'excel' | 'api' | 'demo';
 
 // ---- Auth & RBAC ----
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
@@ -66,6 +66,8 @@ export interface DataSource {
     url?: string;
     fileName?: string;
     fileSize?: string;
+    /** v0.9.34 文件数据源落应用库的物理表名（upl_*）：存在即走真实执行链路（问数/报表/指标） */
+    physicalTable?: string;
   };
   tables: TableSchema[];
   /** 数据自省开关（Vanna intermediate_sql 借鉴）：允许问数链路先执行轻量自省 SQL 确认真实取值 */

@@ -15,6 +15,15 @@ import { invalidateExecutorPool } from '../query/sqlExecutor';
 import { invalidateQueryCache } from '../query/queryCache';
 import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../infra/secretsCrypto';
+import {
+  MAX_FILE_BYTES,
+  createFileTable,
+  dropFileTable,
+  getFilePhysicalTable,
+  inferFileColumnTypes,
+  parseFileContent,
+  sanitizeColumns,
+} from '../query/fileDataSource';
 import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
 
@@ -52,7 +61,7 @@ function errMsg(err: unknown, fallback = '未知错误'): string {
 const router = Router();
 router.use(authMiddleware);
 
-const VALID_TYPES = ['mysql', 'postgresql', 'greenplum', 'csv', 'json', 'api', 'demo'];
+const VALID_TYPES = ['mysql', 'postgresql', 'greenplum', 'csv', 'json', 'api', 'demo', 'excel'];
 
 /** 支持真实 Schema 提取/同步的数据库类型 */
 function isDbType(type: string): boolean {
@@ -472,6 +481,110 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   }
 });
 
+// POST /api/datasources/import-file（仅 ADMIN）：v0.9.34 上传 CSV/Excel/JSON 文件，
+// 服务端解析真实数据落应用库物理表（upl_*），登记为可真实问数/报表的数据源（不再走演示模式）。
+// body: { name?, fileType: 'csv'|'xlsx'|'json', fileName, fileBase64 }
+// 响应附 stats：{ rows, columns, droppedSensitive, truncated }（敏感列剔除与超限截断如实告知，不静默）
+router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
+  const { name, fileType, fileName, fileBase64 } = req.body || {};
+  if (fileType !== 'csv' && fileType !== 'xlsx' && fileType !== 'json') {
+    return res.status(400).json({ error: 'fileType 必须是 csv / xlsx / json' });
+  }
+  if (typeof fileName !== 'string' || !fileName.trim()) {
+    return res.status(400).json({ error: '缺少文件名 fileName' });
+  }
+  if (typeof fileBase64 !== 'string' || !fileBase64) {
+    return res.status(400).json({ error: '缺少文件内容 fileBase64' });
+  }
+  const buf = Buffer.from(fileBase64, 'base64');
+  if (buf.length === 0) return res.status(400).json({ error: '文件内容为空' });
+  if (buf.length > MAX_FILE_BYTES) {
+    return res.status(400).json({ error: `文件超过大小上限（${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB），请拆分或精简后重试` });
+  }
+
+  let parsed;
+  try {
+    parsed = await parseFileContent(fileType, buf);
+  } catch (err) {
+    return res.status(400).json({ error: `文件解析失败：${errMsg(err, '格式无法识别')}` });
+  }
+
+  const { columns, droppedSensitive } = sanitizeColumns(parsed.headers);
+  if (columns.length === 0) {
+    return res.status(400).json({ error: '没有可导入的列（表头为空或全部命中敏感词被剔除）' });
+  }
+  // 敏感列剔除后行数据按保留列下标投影对齐
+  const projected = parsed.rows.map((r) => columns.map((c) => r[c.sourceIndex]));
+  if (projected.length === 0) {
+    return res.status(400).json({ error: '文件只有表头没有数据行' });
+  }
+  const types = inferFileColumnTypes(projected, columns.length);
+
+  const id = `ds_${Date.now()}`;
+  const physicalTable = `upl_${id.slice(3)}`;
+  const safeFileName = fileName.trim().slice(0, 200);
+  try {
+    await createFileTable(physicalTable, columns, types, projected);
+  } catch (err) {
+    logger.error('[DataSources] create file table failed:', err);
+    return res.status(500).json({ error: '数据写入应用库失败' });
+  }
+
+  const baseName = safeFileName.replace(/\.[^.]+$/, '') || safeFileName;
+  const schemaTables: SchemaTable[] = [
+    {
+      id: `tbl_${physicalTable}`,
+      name: physicalTable,
+      displayName: baseName,
+      description: `从文件 ${safeFileName} 导入的 ${projected.length} 行数据快照（静态数据，源文件变更后需重新导入）`,
+      rowCount: projected.length,
+      columns: columns.map((c, i) => ({
+        name: c.name,
+        type: types[i] === 'DOUBLE' ? 'number' : 'string',
+        description: c.description,
+        ...deriveColumnRole(c.name, types[i] === 'DOUBLE' ? 'number' : 'string', false, types[i] === 'DOUBLE' ? 'double' : 'text', null),
+      })),
+    },
+  ];
+  const dsType = fileType === 'xlsx' ? 'excel' : fileType;
+  try {
+    await getPool().query(
+      'INSERT INTO data_sources (id, name, type, config_json, schema_json, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        id,
+        (typeof name === 'string' && name.trim() ? name.trim() : `导入文件: ${baseName}`).slice(0, 128),
+        dsType,
+        JSON.stringify({ fileName: safeFileName, fileSize: `${(buf.length / 1024).toFixed(1)} KB`, fileType, physicalTable }),
+        JSON.stringify(schemaTables),
+        'connected',
+        req.user!.username,
+      ]
+    );
+  } catch (err) {
+    // 登记失败级联清理物理表，避免残留孤儿表
+    await dropFileTable(physicalTable).catch(() => undefined);
+    logger.error('[DataSources] import-file register failed:', err);
+    return res.status(500).json({ error: '数据源登记失败' });
+  }
+  try {
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.status(201).json({
+      success: true,
+      id,
+      dataSource: rowToDataSource(rows[0]),
+      stats: {
+        rows: projected.length,
+        columns: columns.length,
+        droppedSensitive,
+        truncated: parsed.truncated,
+      },
+    });
+  } catch (err) {
+    logger.error('[DataSources] import-file reload failed:', err);
+    return res.status(500).json({ error: '数据源创建失败' });
+  }
+});
+
 // POST /api/datasources/:id/sync-schema（ADMIN，数据库类型）
 // 重新连接数据库提取最新表结构并覆盖 schema_json
 router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
@@ -617,9 +730,15 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
 router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
+    // v0.9.34 文件数据源级联：先读 config 取物理表名，删除登记后异步 DROP（失败仅告警不阻断）
+    const [dsRows] = await getPool().query<DataSourceDbRow[]>('SELECT config_json FROM data_sources WHERE id = ?', [id]);
+    const physicalTable = getFilePhysicalTable(safeJson(dsRows[0]?.config_json, {}));
     const [result] = await getPool().query<mysql.ResultSetHeader>('DELETE FROM data_sources WHERE id = ?', [id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: '数据源不存在' });
+    }
+    if (physicalTable) {
+      dropFileTable(physicalTable).catch((err) => logger.warn('[DataSources] 级联删除文件物理表失败:', err?.message || err));
     }
     void invalidateSchemaCache(id);
     invalidateExecutorPool(id);

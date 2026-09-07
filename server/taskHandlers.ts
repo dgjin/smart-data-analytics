@@ -8,7 +8,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import type mysql from 'mysql2/promise';
 import { registerTaskHandler } from './infra/taskQueue';
 import { writeAudit } from './infra/auditLog';
-import { loadSchemaContext } from './query/schemaContext';
+import { loadSchemaContext, isLiveCapableType } from './query/schemaContext';
 import { runLiveReport, consumeReportPlan } from './report/liveReport';
 import { runSimulatedReport } from './report/simulatedReport';
 import { getFallbackExecutiveReport } from './serverFallbacks';
@@ -60,7 +60,7 @@ async function runReportGenerate(payload: any, reportProgress: (t: string) => Pr
     approvedPlans = consumed.plan;
   }
 
-  const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && dataSourceId.length > 0;
+  const canRunLive = isLiveCapableType(ctx.dsType, ctx.fileBacked) && dataSourceId.length > 0;
   if (canRunLive) {
     await reportProgress('查询计划与真实数据执行中');
     const live = await runLiveReport({
@@ -111,8 +111,8 @@ async function runReportFromQuery(payload: any, reportProgress: (t: string) => P
     writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
     throw new Error('该数据源的智能问数功能已被管理员停用');
   }
-  const canRunLive = ['mysql', 'postgresql', 'greenplum'].includes(ctx.dsType || '') && dataSourceId.length > 0;
-  if (!canRunLive) throw new Error('仅数据库型数据源支持报告生成');
+  const canRunLive = isLiveCapableType(ctx.dsType, ctx.fileBacked) && dataSourceId.length > 0;
+  if (!canRunLive) throw new Error('仅数据库型或已导入数据的文件型数据源支持报告生成');
 
   let templateType = '智能推断';
   let customPrompt = safeQuestion;

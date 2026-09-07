@@ -293,6 +293,8 @@ export const QueryChat: React.FC = () => {
   const [queryContext, setQueryContext] = useState<{
     status: string | null;
     dsType: string | null;
+    /** v0.9.34 文件数据源已落应用库物理表（服务端摘要下发），真实执行入口判定与库型源对齐 */
+    fileBacked?: boolean;
     tableCount: number;
     tables: { name: string; displayName: string }[];
     sensitiveFiltered: number;
@@ -391,8 +393,9 @@ export const QueryChat: React.FC = () => {
     }
   }, [currentQuery, filteredSuggestions.length]);
 
-  // M2 计划模式：仅真实连接的数据库型数据源支持（与服务端 canPlan 判定一致）
-  const canPlanMode = queryContext !== null && ['mysql', 'postgresql', 'greenplum'].includes(queryContext.dsType || '');
+  // M2 计划模式：数据库型与已落库文件型数据源均走真实执行链路（与服务端 canPlan 判定一致）
+  const canPlanMode = queryContext !== null
+    && (['mysql', 'postgresql', 'greenplum'].includes(queryContext.dsType || '') || queryContext.fileBacked === true);
 
   // Handle NL Query Submission（approvedPlanId：M2 批准计划后携带，服务端校验后按计划执行；
   // options.refreshCache：P1-6 语义缓存命中后用户强制刷新，跳过缓存读取重新走真实链路）
