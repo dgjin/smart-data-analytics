@@ -18,16 +18,15 @@ import {
   Trash2,
   SlidersHorizontal,
   ListChecks,
-  ChevronDown,
-  ChevronRight,
   ShieldCheck,
-  X,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { apiFetch } from '../../api/client';
 import { SchemaViewer } from './SchemaViewer';
 import { DataLineageView } from './DataLineageView';
 import { SchemaMetaEditor } from './SchemaMetaEditor';
+import { AclConfigModal } from './AclConfigModal';
+import { ScopeConfigModal } from './ScopeConfigModal';
 import { KnowledgeBasePanel } from './KnowledgeBasePanel';
 import { SqlExamplesPanel } from './SqlExamplesPanel';
 import { DataScope, DataSource, DataSourceType, TableSchema } from '../../types/analytics';
@@ -945,195 +944,31 @@ export const DataSourceManager: React.FC = () => {
         />
       )}
 
-      {/* P2-11 ACL Config Modal（访问控制：部门/个人授权清单） */}
-      {aclDs && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg flex flex-col bg-slate-900 border border-emerald-500/40 rounded-2xl shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-              <div className="space-y-0.5">
-                <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>访问控制：{aclDs.name}</span>
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  配置可访问该数据源的部门与个人；两组均留空 = 不限制（全员可见）。管理员不受限。
-                </p>
-              </div>
-              <button
-                onClick={() => setAclDs(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* P2-11 ACL 访问控制弹窗：P0-1 拆至 AclConfigModal */}
+      <AclConfigModal
+        ds={aclDs}
+        depts={aclDepts}
+        onDeptsChange={setAclDepts}
+        userIds={aclUserIds}
+        onUserIdsChange={setAclUserIds}
+        saving={aclSaving}
+        onSave={handleSaveAcl}
+        onClose={() => setAclDs(null)}
+      />
 
-            <div className="px-5 py-4 space-y-4 text-xs">
-              <div className="space-y-1">
-                <label className="text-slate-300 font-medium">授权部门（逗号分隔，与「系统管理 → 用户」中的部门一致）:</label>
-                <textarea
-                  value={aclDepts}
-                  onChange={(e) => setAclDepts(e.target.value.slice(0, 2000))}
-                  placeholder="例如：风险部, 财务部"
-                  rows={2}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-slate-300 font-medium">授权用户 ID（逗号分隔数字；审批通过的申请会自动并入此清单）:</label>
-                <textarea
-                  value={aclUserIds}
-                  onChange={(e) => setAclUserIds(e.target.value.slice(0, 2000))}
-                  placeholder="例如：3, 7, 12"
-                  rows={2}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
-                />
-              </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                命中任一清单即可访问；无权用户在数据源列表中仅看到名称并可通过头部「申请权限」入口发起申请。
-              </p>
-            </div>
-
-            <div className="flex items-center justify-end space-x-2 px-5 py-3.5 border-t border-slate-800">
-              <button
-                onClick={() => setAclDs(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSaveAcl}
-                disabled={aclSaving}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold shadow flex items-center space-x-1"
-              >
-                {aclSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{aclSaving ? '保存中...' : '保存访问控制'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Query Scope Config Modal */}
-      {scopeDs && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-slate-900 border border-amber-500/40 rounded-2xl shadow-2xl">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-              <div className="space-y-0.5">
-                <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2">
-                  <SlidersHorizontal className="w-4 h-4 text-amber-400" />
-                  <span>问数范围配置：{scopeDs.name}</span>
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  勾选允许 AI 智能问数使用的数据表与字段，未勾选内容不会进入 AI 的 Schema 上下文。
-                </p>
-              </div>
-              <button
-                onClick={() => setScopeDs(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-1.5">
-              {scopeDs.tables.map((table) => {
-                const tableChecked = scopeTables.has(table.id);
-                const checkedCols = scopeCols[table.id] || new Set<string>();
-                const expanded = scopeExpanded === table.id;
-                return (
-                  <div
-                    key={table.id}
-                    className={`rounded-xl border transition-colors ${
-                      tableChecked ? 'border-amber-500/30 bg-amber-950/10' : 'border-slate-800 bg-slate-950/50'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2.5 px-3 py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={tableChecked}
-                        onChange={() => toggleScopeTable(table)}
-                        className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
-                      />
-                      <button
-                        onClick={() => setScopeExpanded(expanded ? null : table.id)}
-                        className="flex-1 flex items-center justify-between min-w-0 text-left"
-                      >
-                        <div className="min-w-0">
-                          <span className="text-xs font-semibold text-slate-200">{table.displayName}</span>
-                          <span className="ml-2 text-[10px] text-slate-500 font-mono">{table.name}</span>
-                        </div>
-                        <div className="flex items-center space-x-2 shrink-0">
-                          <span className="text-[10px] text-slate-400">
-                            字段 {tableChecked ? checkedCols.size : 0}/{table.columns.length}
-                          </span>
-                          {expanded ? (
-                            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                          ) : (
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                          )}
-                        </div>
-                      </button>
-                    </div>
-
-                    {expanded && (
-                      <div className="px-4 pb-3 pt-1 border-t border-slate-800/60 grid grid-cols-2 md:grid-cols-3 gap-1">
-                        {table.columns.map((col) => (
-                          <label
-                            key={col.name}
-                            className={`flex items-center space-x-1.5 px-2 py-1 rounded-lg text-[11px] cursor-pointer transition-colors ${
-                              !tableChecked
-                                ? 'opacity-40 pointer-events-none'
-                                : checkedCols.has(col.name)
-                                  ? 'text-slate-200 bg-amber-950/30'
-                                  : 'text-slate-400 hover:bg-slate-800/60'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={tableChecked && checkedCols.has(col.name)}
-                              disabled={!tableChecked}
-                              onChange={() => toggleScopeColumn(table.id, col.name)}
-                              className="w-3 h-3 accent-amber-500"
-                            />
-                            <span className="font-mono truncate">{col.name}</span>
-                            <span className="text-slate-500 text-[9px]">{col.type}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-t border-slate-800">
-              <div className="text-[11px] text-slate-400">
-                已选 <span className="text-amber-300 font-bold">{scopeTables.size}</span> / {scopeDs.tables.length} 张表
-                {scopeTables.size === 0 && <span className="ml-2 text-rose-400">至少保留一张表</span>}
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setScopeDs(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSaveScope}
-                  disabled={scopeSaving || scopeTables.size === 0}
-                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold shadow flex items-center space-x-1"
-                >
-                  {scopeSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{scopeSaving ? '保存中...' : '保存问数范围'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 问数范围配置弹窗：P0-1 拆至 ScopeConfigModal */}
+      <ScopeConfigModal
+        ds={scopeDs}
+        scopeTables={scopeTables}
+        scopeCols={scopeCols}
+        expandedTableId={scopeExpanded}
+        onToggleExpand={setScopeExpanded}
+        onToggleTable={toggleScopeTable}
+        onToggleColumn={toggleScopeColumn}
+        saving={scopeSaving}
+        onSave={handleSaveScope}
+        onClose={() => setScopeDs(null)}
+      />
     </div>
   );
 };
