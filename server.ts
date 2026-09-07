@@ -34,6 +34,7 @@ import knowledgeManageRoutes from './server/routes/knowledge';
 import externalKnowledgeRoutes from './server/routes/externalKnowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
+import ironRuleRoutes from './server/routes/ironRules';
 import skillRoutes from './server/routes/skills';
 import queryContextRoutes from './server/routes/queryContext';
 import accessRequestRoutes from './server/routes/accessRequests';
@@ -218,6 +219,7 @@ async function startServer() {
   // 外部知识库接入（接口配置仅 ADMIN；问数链路自动检索注入）
   app.use('/api/knowledge-external', externalKnowledgeRoutes);
   app.use('/api/metrics', metricRoutes);
+  app.use('/api/iron-rules', ironRuleRoutes);
   app.use('/api/sql-examples', sqlExampleRoutes);
   app.use('/api/skills', skillRoutes);
   app.use('/api/query', queryContextRoutes);

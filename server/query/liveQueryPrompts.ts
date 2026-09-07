@@ -32,7 +32,7 @@ export function dialectPromptOf(dsType?: string): { label: string; rules: string
   return { label: 'MySQL', rules: '' };
 }
 
-export function buildStage1System(schema: SchemaTable[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = [], dataSourceName = ''): string {
+export function buildStage1System(schema: SchemaTable[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = [], dataSourceName = '', ironRulesPrompt = ''): string {
   const dialect = dialectPromptOf(dsType);
   const planSection = approvedPlan
     ? `【用户已批准的分析计划】（生成 SQL 时必须按此计划执行）
@@ -51,7 +51,7 @@ ${dsNameContext}
 数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
 ${serializeSchemaForPrompt(schema)}
 
-${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessNotes(schema)}${metricPrompt}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}${negativeExamples.length > 0 ? `反面教材（以下问题曾被用户确认答案错误，严禁重复同样的错误表选择与统计口径；这里不提供错误 SQL，请自行推导正确口径）:\n${negativeExamples.map((ex) => `错误案例：${ex.question}${ex.wrongTables ? `（错误答案涉及表：${ex.wrongTables}）` : ''}`).join('\n')}\n` : ''}
+${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessNotes(schema)}${metricPrompt}${ironRulesPrompt}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}${negativeExamples.length > 0 ? `反面教材（以下问题曾被用户确认答案错误，严禁重复同样的错误表选择与统计口径；这里不提供错误 SQL，请自行推导正确口径）:\n${negativeExamples.map((ex) => `错误案例：${ex.question}${ex.wrongTables ? `（错误答案涉及表：${ex.wrongTables}）` : ''}`).join('\n')}\n` : ''}
 【强制约束】仅输出纯 JSON（禁止 markdown 与多余文字），内容为以下${introspectionEnabled ? '四' : '三'}种之一：
 ① 正常查询 {"sql","title","chartType","xAxisKey","yAxisKeys","yAxisNames","columnNames","thoughtProcess"}
 ② 歧义澄清 {"needClarification":true,"clarification":{"question":"点明歧义的一句中文提问","options":[{"label":"选项简称","query":"按该理解改写、可直接执行的完整问题"}]}}（选项 2-4 个）

@@ -3181,6 +3181,146 @@
         }
       }
     },
+    "/api/iron-rules": {
+      "get": {
+        "tags": [
+          "IronRules"
+        ],
+        "operationId": "listIronRules",
+        "summary": "铁律规则列表（按数据源过滤，仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "铁律列表"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "IronRules"
+        ],
+        "operationId": "createIronRule",
+        "summary": "新建铁律规则（创建即生效，仅 ADMIN）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "创建结果"
+          }
+        }
+      }
+    },
+    "/api/iron-rules/export": {
+      "get": {
+        "tags": [
+          "IronRules"
+        ],
+        "operationId": "exportIronRules",
+        "summary": "导出指定数据源全部铁律为 JSON 备份文件（仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON 备份文件下载"
+          }
+        }
+      }
+    },
+    "/api/iron-rules/import": {
+      "post": {
+        "tags": [
+          "IronRules"
+        ],
+        "operationId": "importIronRules",
+        "summary": "从 JSON 备份文件导入铁律（skip/overwrite + dryRun 预检，仅 ADMIN）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "导入结果统计"
+          }
+        }
+      }
+    },
+    "/api/iron-rules/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "description": "铁律 ID",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "IronRules"
+        ],
+        "operationId": "updateIronRule",
+        "summary": "更新铁律规则（含启停，仅 ADMIN）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新结果"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "IronRules"
+        ],
+        "operationId": "deleteIronRule",
+        "summary": "删除铁律规则（仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "删除结果"
+          }
+        }
+      }
+    },
     "/api/metrics/{id}/versions": {
       "parameters": [
         {

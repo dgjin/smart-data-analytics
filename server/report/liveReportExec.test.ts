@@ -20,6 +20,10 @@ vi.mock('../query/metrics', () => ({
   matchMetrics: vi.fn().mockReturnValue([]),
   buildMetricPrompt: vi.fn().mockReturnValue(''),
 }));
+vi.mock('../query/ironRules', () => ({
+  loadActiveIronRules: vi.fn().mockResolvedValue([]),
+  buildIronRulesPrompt: vi.fn().mockReturnValue(''),
+}));
 vi.mock('../knowledge/knowledgeBase', () => ({ retrieveKnowledgeSnippets: vi.fn().mockResolvedValue('') }));
 
 const mockedLLM = vi.mocked(callLLMJson);

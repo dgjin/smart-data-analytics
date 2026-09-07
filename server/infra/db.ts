@@ -622,6 +622,23 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 铁律规则库（v0.9.35）：管理员按数据源登记的问数强制规则（口径红线/禁区/固定约束），
+  // 全部 ACTIVE 规则恒注入问数/报表阶段一 prompt（最高优先级逐条遵守）；仅 ADMIN 维护，创建即生效
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS iron_rules (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      title VARCHAR(100) NOT NULL,
+      content VARCHAR(2000) NOT NULL,
+      status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_iron_ds_title (data_source_id, title),
+      INDEX idx_iron_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // P2-4 LLM 用量埋点：按引擎/模型/通道记录 token 与耗时，支撑多引擎成本对比；
   // fire-and-forget 写入，失败不阻断主链路
   await pool.query(`

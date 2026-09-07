@@ -10,6 +10,7 @@ import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from '../query/liveQuery';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from '../query/metrics';
+import { loadActiveIronRules, buildIronRulesPrompt } from '../query/ironRules';
 import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { budgetText, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from '../query/schemaGuidance';
@@ -236,6 +237,16 @@ async function buildReportMetricPrompt(dataSourceId: string | undefined, templat
   }
 }
 
+/** 铁律规则库（v0.9.35）：报表阶段一全量恒注入该数据源 ACTIVE 铁律（最高优先级强制约束，不按主题匹配），失败降级为空串 */
+async function buildReportIronRulesPrompt(dataSourceId: string | undefined): Promise<string> {
+  if (!dataSourceId) return '';
+  try {
+    return buildIronRulesPrompt(await loadActiveIronRules(dataSourceId));
+  } catch {
+    return '';
+  }
+}
+
 /** v0.9.19 报表端知识库 RAG 接入（此前仅问数链路注入，报表 SQL 不遵守知识库口径规则）：
  * 按「报表主题+额外要求」检索业务知识片段（口径红线/枚举写法/计算规则），与问数同一检索函数与 token 预算，失败降级为空串 */
 async function buildReportKnowledgePrompt(dataSourceId: string | undefined, templateType: string, customPrompt: string): Promise<string> {
@@ -262,9 +273,10 @@ async function generateStage1Plans(
   let lastError = '';
   // v0.5.2 金额单位约定拼在用户消息首位（与问数链路口径一致）
   const unitPrompt = buildAmountUnitPrompt(amountUnit);
-  // 语义层指标 + 知识库 RAG 并行检索（互不依赖，各自失败降级空串；v0.9.19 起报表与问数同一知识口径）
-  const [metricPrompt, knowledgePrompt] = await Promise.all([
+  // 语义层指标 + 铁律规则 + 知识库 RAG 并行检索（互不依赖，各自失败降级空串；v0.9.19 起报表与问数同一知识口径；v0.9.35 铁律全量恒注入）
+  const [metricPrompt, ironRulesPrompt, knowledgePrompt] = await Promise.all([
     buildReportMetricPrompt(dataSourceId, templateType, customPrompt),
+    buildReportIronRulesPrompt(dataSourceId),
     buildReportKnowledgePrompt(dataSourceId, templateType, customPrompt),
   ]);
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -274,7 +286,7 @@ async function generateStage1Plans(
         : `${unitPrompt}报表主题：${templateType}\n额外要求：${customPrompt}\n\n（上次输出未通过校验：${lastError}，请修正后按同一 JSON 契约重新输出。）`;
     let text: string;
     try {
-      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType, metricPrompt, knowledgePrompt), userPrompt);
+      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType, metricPrompt, ironRulesPrompt, knowledgePrompt), userPrompt);
     } catch {
       return null;
     }
@@ -285,7 +297,7 @@ async function generateStage1Plans(
   return parsed;
 }
 
-function buildReportStage1System(schema: SchemaTable[], guidance: string, dsType?: string, metricPrompt = '', knowledgePrompt = ''): string {
+function buildReportStage1System(schema: SchemaTable[], guidance: string, dsType?: string, metricPrompt = '', ironRulesPrompt = '', knowledgePrompt = ''): string {
   const dialect = dialectPromptOf(dsType);
   return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 ${dialect.label} SELECT 聚合查询。你不生成任何数据，只生成 SQL。
 
@@ -293,7 +305,7 @@ function buildReportStage1System(schema: SchemaTable[], guidance: string, dsType
 ${serializeSchemaForPrompt(schema)}
 
 ${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}
-${metricPrompt}${knowledgePrompt}【强制约束】
+${metricPrompt}${ironRulesPrompt}${knowledgePrompt}【强制约束】
 - 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","purpose"}]}
 - columnNames: 该查询 SQL 输出每一列的中文表头映射 {"列名/别名": "中文名"}，维度列与聚合别名都要覆盖
 - 每条 sql 为单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标用聚合函数并用 AS 起英文/拼音别名

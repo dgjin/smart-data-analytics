@@ -14,6 +14,7 @@ import { loadConversationFewShot } from './conversationHistory';
 import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { searchExternalKnowledge } from '../knowledge/externalKnowledge';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
+import { loadActiveIronRules, buildIronRulesPrompt } from './ironRules';
 import type { SchemaTable } from './schemaTypes';
 import { budgetText, budgetHistory, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from './schemaGuidance';
@@ -189,8 +190,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     outputSummary: `命中 ${promptSchemaBase.length}/${Array.isArray(schema) ? schema.length : 0} 张表：${promptSchemaBase.map((t) => String(t?.name || '')).join(', ')}`,
     durationMs: Date.now() - t0,
   });
-  // 上下文构建并行化：few-shot / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀六者互不依赖，并发执行（各自失败不阻断）
-  const [fewShotPairs, knowledgeRaw, externalKb, metricHits, negativePairs, convPairs] = await Promise.all([
+  // 上下文构建并行化：few-shot / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀 / 铁律规则七者互不依赖，并发执行（各自失败不阻断）
+  const [fewShotPairs, knowledgeRaw, externalKb, metricHits, negativePairs, convPairs, ironRules] = await Promise.all([
     // P0 Few-shot（DAIL-SQL 双维度）：用圈定表名引导样例贴近当前可查表
     loadFewShotExamples(
       dataSourceId,
@@ -214,6 +215,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       query,
       promptSchemaBase.map((t) => String(t?.name || ''))
     ).catch(() => []),
+    // 铁律规则库（v0.9.35）：该数据源全部 ACTIVE 铁律恒注入（最高优先级强制约束，不按问题匹配）
+    loadActiveIronRules(dataSourceId).catch(() => []),
   ]);
   // Vanna 借鉴：few-shot 以 user/assistant 消息对注入对话历史（比平铺文本更贴合 LLM 多轮格式）；
   // 团队样例库在前，个人对话沉淀在后，均为「先问题后 SQL」格式
@@ -241,6 +244,17 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       title: '语义指标层命中',
       inputSummary: query,
       outputSummary: `命中 ${metricHits.length} 个指标定义：${metricHits.map((m) => m.name).join('、')}`,
+      durationMs: Date.now() - t0,
+    });
+  }
+  // 铁律规则全量恒注入（v0.9.35）：ACTIVE 即最高优先级强制约束，注入留痕便于推导审计
+  const ironRulesPrompt = buildIronRulesPrompt(ironRules);
+  if (ironRules.length > 0) {
+    trace({
+      stepType: 'metrics',
+      title: '铁律规则注入',
+      inputSummary: query,
+      outputSummary: `注入 ${ironRules.length} 条铁律：${ironRules.map((r) => r.title).join('、')}`,
       durationMs: Date.now() - t0,
     });
   }
@@ -283,7 +297,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     }).catch(() => null);
     if (chain) chainTables = chain.tables;
   }
-  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs, input.dataSourceName);
+  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs, input.dataSourceName, ironRulesPrompt);
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
   // 专家角色路由：财务/客户/风险/不良关键词命中对应专家，否则默认金融数据分析师
