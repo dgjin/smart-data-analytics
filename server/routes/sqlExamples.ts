@@ -4,7 +4,7 @@
  * 保证 few-shot 语料质量可由管理员持续治理（劣质样例可剔除）。
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
+import { authMiddleware, requireRole } from '../auth/auth';
 import {
   listSqlExamples,
   createSqlExample,
@@ -12,7 +12,7 @@ import {
   deleteSqlExample,
   validateExampleInput,
   generateQuestionsForSqls,
-} from '../queryFeedback';
+} from '../query/queryFeedback';
 
 const router = Router();
 router.use(authMiddleware);
@@ -35,7 +35,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   if (typeof dataSourceId !== 'string' || !dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   const invalid = validateExampleInput({ question, sql });
   if (invalid) return res.status(400).json({ error: invalid });
-  const username = String((req as any).user?.username || 'admin');
+  const username = String(req.user?.username || 'admin');
   try {
     const example = await createSqlExample({ dataSourceId, question, sql }, username);
     res.json({ ok: true, example });
@@ -65,7 +65,7 @@ router.post('/bulk', requireRole('ADMIN'), async (req, res) => {
   if (typeof dataSourceId !== 'string' || !dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   if (!Array.isArray(examples) || examples.length === 0) return res.status(400).json({ error: '缺少 examples 数组' });
   if (examples.length > 10) return res.status(400).json({ error: '单次最多保存 10 条样例' });
-  const username = String((req as any).user?.username || 'admin');
+  const username = String(req.user?.username || 'admin');
   let saved = 0;
   try {
     for (const ex of examples) {

@@ -5,10 +5,10 @@
  * 权限对齐：表名清单仅 ADMIN 可见（与 GET /api/datasources 剥离 tables 的约定一致）。
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { loadSchemaContext } from '../schemaContext';
-import { checkDataSourceAccess } from '../accessControl';
-import { MAX_TABLES_IN_PROMPT } from '../schemaLinking';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { loadSchemaContext } from '../query/schemaContext';
+import { checkDataSourceAccess } from '../auth/accessControl';
+import { MAX_TABLES_IN_PROMPT } from '../query/schemaLinking';
 
 const router = Router();
 router.use(authMiddleware);

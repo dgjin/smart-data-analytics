@@ -50,7 +50,7 @@
 
 ## 二、元数据库（smart_analytics）表结构详解
 
-服务启动时由 `server/db.ts` 自动执行 `initSchema()`，完成建库、建表、迁移、种子数据写入。
+服务启动时由 `server/infra/db.ts` 自动执行 `initSchema()`，完成建库、建表、迁移、种子数据写入。
 
 ### 2.1 用户与权限
 
@@ -329,6 +329,7 @@ GEMINI_API_KEY=your-gemini-key
 | `REDIS_URL` | 状态外置（多实例扩展） | 无（进程内存） |
 | `RATE_LIMIT_MAX` | 全局限流阈值 | `100` |
 | `USER_QUERY_RATE_MAX` | 每用户查询限流 | `20` |
+| `SQL_EXPLAIN_MAX_ROWS` | EXPLAIN 防线：SQL 真执行前预估扫描行数，超阈值拦截并提示用户收窄条件（防大扫描拖垮业务库；export 场景阈值自动 ×10；`0` 关闭） | `1000000` |
 | `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂问题 3 / 简单问题 1 |
 | `SEMANTIC_CACHE_THRESHOLD` | L2 语义缓存命中阈值（0.5-1.0，误命中代价高宜保守；实测同域近似问题 0.85~0.95 区间会误命中，故默认 0.95，更换 embedding 模型需重新标定） | `0.95` |
 | `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入，P1-9） | `20` |

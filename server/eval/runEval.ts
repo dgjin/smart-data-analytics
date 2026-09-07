@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runEval } from './evalRunner';
-import { initSchema } from '../db';
+import { initSchema } from '../infra/db';
 
 // golden SQL 走进程内安全执行层，需要 MySQL 连接配置与 DB 池（与 server.ts 同序：先 dotenv 再惰性读取）
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');

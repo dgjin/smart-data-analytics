@@ -10,7 +10,7 @@ import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { authMiddleware } from '../auth';
+import { authMiddleware } from '../auth/auth';
 
 // 双环境获取模块目录：开发（tsx/ESM）下 __filename 不存在，走 import.meta.url；
 // esbuild 打包 CJS 后 import.meta 会被置为空对象（import.meta.url = undefined），必须走 CJS 模块作用域的 __filename。

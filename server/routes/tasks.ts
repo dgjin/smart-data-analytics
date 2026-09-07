@@ -7,9 +7,19 @@
  */
 import { Router } from 'express';
 import { existsSync } from 'node:fs';
-import { authMiddleware } from '../auth';
-import { getTask, listUserTasks } from '../taskQueue';
+import { authMiddleware } from '../auth/auth';
+import { getTask, listUserTasks } from '../infra/taskQueue';
 import { taskResultFile } from '../taskHandlers';
+
+/** 任务结果负载：JSON 类任务为任意对象；文件类任务（PDF 导出）形如 { file: true, filename, size }，见 taskHandlers.runExportPdf */
+interface TaskResultPayload {
+  file?: boolean;
+  filename?: string;
+  [key: string]: unknown;
+}
+
+/** result 为 JSON 解析产物（unknown），边界处单次收窄为负载形状后结构化读取 */
+const asTaskResultPayload = (result: unknown): TaskResultPayload => result as TaskResultPayload;
 
 const router = Router();
 
@@ -32,7 +42,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ error: '无权查看他人任务' });
     }
     // 文件类任务不内联二进制结果，提示走下载端点
-    const result = task.result as any;
+    const result = asTaskResultPayload(task.result);
     if (result?.file === true) {
       const { file: _omit, ...meta } = result;
       return res.json({ ...task, result: { ...meta, downloadUrl: `/api/tasks/${task.id}/download` } });
@@ -54,7 +64,7 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
     if (task.status !== 'SUCCESS') {
       return res.status(409).json({ error: task.status === 'FAILED' ? `任务失败：${task.error}` : '任务尚未完成' });
     }
-    const result = task.result as any;
+    const result = asTaskResultPayload(task.result);
     if (result?.file !== true) {
       return res.status(400).json({ error: '该任务结果不是文件，请从任务详情读取' });
     }

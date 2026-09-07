@@ -5,10 +5,10 @@
  * - DELETE /:reportId  删除报告（仅本人或 ADMIN）
  */
 import { Router } from 'express';
-import { authMiddleware } from '../auth';
-import { getPool } from '../db';
-import { writeAudit } from '../auditLog';
-import { ERROR_CODES } from '../errorCodes';
+import { authMiddleware } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { writeAudit } from '../infra/auditLog';
+import { ERROR_CODES } from '../infra/errorCodes';
 
 const router = Router();
 

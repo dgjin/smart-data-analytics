@@ -4,7 +4,8 @@
  * 计算轻量指纹，不做全表扫描；结果内存缓存 10s，防多端轮询风暴。
  */
 import { createHash } from 'node:crypto';
-import { loadDataSourceConfig, getDsPool, dialectOfDsType } from './sqlExecutor';
+import { loadDataSourceConfig, getDsPool, dialectOfDsType } from './query/sqlExecutor';
+import type { RowDataPacket } from 'mysql2';
 
 export interface TableStat {
   name: string;
@@ -80,10 +81,10 @@ export async function computeDataVersion(dataSourceId: string): Promise<DataVers
         } catch {
           /* MySQL 5.7 / MariaDB 无此变量，保持缓存统计降级行为 */
         }
-        const [rows] = await conn.query(
+        const [rows] = await conn.query<RowDataPacket[]>(
           "SELECT TABLE_NAME, TABLE_ROWS, IFNULL(UPDATE_TIME, CREATE_TIME) AS TS FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'"
         );
-        tables = parseMysqlTableStats(Array.isArray(rows) ? (rows as any[]) : []);
+        tables = parseMysqlTableStats(Array.isArray(rows) ? rows : []);
       } finally {
         conn.release();
       }

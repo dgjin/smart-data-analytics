@@ -4,10 +4,30 @@
  * 聚合逻辑抽取为纯函数（computeNorthStar / buildDailyTrend / toWeeklyTrend）便于单测。
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
+import type mysql from 'mysql2/promise';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
 
 // ---------- 类型 ----------
+
+/** 按日分桶计数查询行（audit / feedback 两个来源共用列名 date/bucket/cnt） */
+interface DailyCountDbRow extends mysql.RowDataPacket {
+  date: string;
+  bucket: string;
+  cnt: number;
+}
+
+/** 自纠错触发按日统计行（SUM 在无命中行时返回 NULL） */
+interface DailyTraceDbRow extends mysql.RowDataPacket {
+  date: string;
+  traces: number;
+  selfCorrected: number | null;
+}
+
+/** 平均耗时行（AVG 在无命中行时返回 NULL） */
+interface AvgDurationDbRow extends mysql.RowDataPacket {
+  avgMs: number | null;
+}
 
 export interface DailyCountRow {
   date: string; // YYYY-MM-DD
@@ -247,7 +267,7 @@ router.get('/metrics', async (req, res) => {
   try {
     const pool = getPool();
     // 问数主链路（endpoint='query'）按日 × 十态
-    const [auditRowsRaw] = await pool.query(
+    const [auditRowsRaw] = await pool.query<DailyCountDbRow[]>(
       `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date, status AS bucket, COUNT(*) AS cnt
        FROM query_audit_log
        WHERE endpoint = 'query' AND created_at >= ?${dsFilter}
@@ -255,7 +275,7 @@ router.get('/metrics', async (req, res) => {
       dsParams([since])
     );
     // 反馈按日 × UP/DOWN
-    const [feedbackRowsRaw] = await pool.query(
+    const [feedbackRowsRaw] = await pool.query<DailyCountDbRow[]>(
       `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date, verdict AS bucket, COUNT(*) AS cnt
        FROM query_feedback
        WHERE created_at >= ?${dsFilter}
@@ -263,7 +283,7 @@ router.get('/metrics', async (req, res) => {
       dsParams([since])
     );
     // 自纠错触发：同一 trace 出现 ≥2 次 SQL 生成视为触发重试/多候选择优
-    const [traceRowsRaw] = await pool.query(
+    const [traceRowsRaw] = await pool.query<DailyTraceDbRow[]>(
       `SELECT t.date AS date, COUNT(*) AS traces, SUM(t.gen_cnt >= 2) AS selfCorrected
        FROM (
          SELECT trace_id, DATE_FORMAT(MIN(created_at), '%Y-%m-%d') AS date, COUNT(*) AS gen_cnt
@@ -275,21 +295,21 @@ router.get('/metrics', async (req, res) => {
       dsParams([since])
     );
     // 平均端到端耗时（问数主链路）
-    const [avgRows] = await pool.query(
+    const [avgRows] = await pool.query<AvgDurationDbRow[]>(
       `SELECT AVG(duration_ms) AS avgMs FROM query_audit_log WHERE endpoint = 'query' AND created_at >= ?${dsFilter}`,
       dsParams([since])
     );
 
-    const toCountRows = (rows: any): DailyCountRow[] =>
-      (rows as any[]).map((r) => ({ date: String(r.date), bucket: String(r.bucket), cnt: Number(r.cnt) }));
+    const toCountRows = (rows: DailyCountDbRow[]): DailyCountRow[] =>
+      rows.map((r) => ({ date: String(r.date), bucket: String(r.bucket), cnt: Number(r.cnt) }));
     const auditRows = toCountRows(auditRowsRaw);
     const feedbackRows = toCountRows(feedbackRowsRaw);
-    const traceRows: DailyTraceRow[] = (traceRowsRaw as any[]).map((r) => ({
+    const traceRows: DailyTraceRow[] = traceRowsRaw.map((r) => ({
       date: String(r.date),
       traces: Number(r.traces),
       selfCorrected: Number(r.selfCorrected || 0),
     }));
-    const avgMs = Number((avgRows as any[])[0]?.avgMs || 0);
+    const avgMs = Number(avgRows[0]?.avgMs || 0);
 
     const northStar = computeNorthStar(auditRows, feedbackRows, traceRows, avgMs);
     const daily = buildDailyTrend(auditRows, feedbackRows, traceRows, days);

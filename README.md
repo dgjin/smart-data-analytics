@@ -54,7 +54,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
-| 测试 | Vitest（78 文件 / 875 用例）+ NL2SQL 评测集（server/eval，19 用例） |
+| 测试 | Vitest（78 文件 / 875 用例）+ NL2SQL 评测集（server/eval，148 用例：六类分层 + 行级权限类；`npm run eval:seed` 一键重建可复现评测数据源） |
 
 ## 快速开始
 
@@ -142,6 +142,7 @@ docker run -d -p 3000:3000 \
 | `DS_SECRET_KEY` | 数据源凭据加密密钥 | 缺省回退 JWT_SECRET |
 | `PORT` / `HOST` | 服务端口 / 绑定地址 | 3000 / 127.0.0.1 |
 | `RATE_LIMIT_MAX` / `USER_QUERY_RATE_MAX` | 全局限流 / 每用户问数配额 | — |
+| `SQL_EXPLAIN_MAX_ROWS` | EXPLAIN 防线：预估扫描行数超阈值则拦截并提示收窄条件（export 场景自动 ×10；0=关闭） | 1000000 |
 | `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂 3 / 简单 1 |
 | `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入） | 20 |
 | `DS_POOL_MAX` / `APP_POOL_MAX` | 数据源池 / 应用库池上限（显式配置优先于公式） | 公式推导（5 / 10） |

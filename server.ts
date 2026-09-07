@@ -18,14 +18,14 @@ for (const dir of ENV_SEARCH_DIRS) {
   dotenv.config({ path: path.join(dir, '.env') });
 }
 
-import { initSchema } from './server/db';
-import { isRedisEnabled, warmStateStore } from './server/stateStore';
-import { authMiddleware, requireRole } from './server/auth';
-import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthChecks } from './server/llmClient';
-import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llmUsage';
-import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/analysisChain';
-import { requestLogger } from './server/requestLogger';
-import { metricsHandler, httpRequestDuration } from './server/monitoring';
+import { initSchema } from './server/infra/db';
+import { isRedisEnabled, warmStateStore } from './server/infra/stateStore';
+import { authMiddleware, requireRole } from './server/auth/auth';
+import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthChecks } from './server/llm/llmClient';
+import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llm/llmUsage';
+import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/query/analysisChain';
+import { requestLogger } from './server/infra/requestLogger';
+import { metricsHandler, httpRequestDuration } from './server/infra/monitoring';
 import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
 import datasourceRoutes from './server/routes/datasources';
@@ -55,10 +55,10 @@ import opsMetricsRoutes from './server/routes/opsMetrics';
 import opsDriftRoutes from './server/routes/opsDrift';
 // v0.9.2 异步任务队列（改进计划 2-1）
 import taskRoutes from './server/routes/tasks';
-import { startTaskWorker } from './server/taskQueue';
+import { startTaskWorker } from './server/infra/taskQueue';
 import { registerBuiltinTaskHandlers } from './server/taskHandlers';
 // P2-5 SSE 断线续传：重放缓冲周期清扫（改进计划 2-5）
-import { startSseReplaySweeper } from './server/sseReplayBuffer';
+import { startSseReplaySweeper } from './server/query/sseReplayBuffer';
 import { startDriftSweeper } from './server/driftDetector';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
@@ -160,7 +160,8 @@ async function startServer() {
     if (!req.path.startsWith('/api/')) return next();
     const end = httpRequestDuration.startTimer();
     res.on('finish', () => {
-      const routePath = typeof (req as any).route?.path === 'string' ? (req as any).route.path : '';
+      // req.route 由 Express 路由层在匹配后挂载（@types 标注为 any）：finish 时已可读
+      const routePath = typeof req.route?.path === 'string' ? req.route.path : '';
       end({ method: req.method, route: (req.baseUrl || '') + routePath || 'unmatched', status: res.statusCode });
     });
     next();

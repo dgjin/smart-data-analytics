@@ -5,10 +5,10 @@
  * 对列别名/列顺序/等价写法（COUNT(1) vs COUNT(*)）天然宽容，只关心数值正确性。
  * 运行方式：npm run eval -- --limit 5（本地 LLM 单问 1-5 分钟，建议分批跑并留意用户配额）。
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { executeSafeSql } from '../sqlExecutor';
+import { executeSafeSql } from '../query/sqlExecutor';
 
 export interface EvalCase {
   id: string;
@@ -16,10 +16,12 @@ export interface EvalCase {
   goldenSql: string;
   /** Top-N 类用例结果行序有意义（ORDER BY + LIMIT），按行序比较 */
   ordered?: boolean;
-  /** 难度分类（六类分层）：single_agg/join/time/subquery/clarify/refuse；加载时缺省补 single_agg */
+  /** 难度分类（六类分层+权限类）：single_agg/join/time/subquery/clarify/refuse/permission；加载时缺省补 single_agg */
   category: string;
   /** 期望结果：result=执行准确率；clarify=应澄清；refuse=应拒答；加载时缺省补 result */
   expect: 'result' | 'clarify' | 'refuse';
+  /** 覆盖评测集默认数据源（permission 类用例指向带行级过滤的受限数据源） */
+  dataSourceId?: string;
 }
 
 export interface EvalSuite {
@@ -80,6 +82,7 @@ export function loadEvalCases(path?: string): EvalSuite {
       ordered: c.ordered === true,
       category: typeof c.category === 'string' && c.category ? c.category : 'single_agg',
       expect: c.expect === 'clarify' || c.expect === 'refuse' ? (c.expect as 'clarify' | 'refuse') : ('result' as const),
+      ...(typeof c.dataSourceId === 'string' && c.dataSourceId ? { dataSourceId: c.dataSourceId } : {}),
     }));
   if (!dataSourceId) throw new Error('评测集缺少 dataSourceId');
   if (cases.length === 0) throw new Error('评测集为空');
@@ -237,12 +240,14 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
+      // permission 类用例可覆盖数据源（指向带行级过滤的受限数据源，golden 已含同口径谓词）
+      const caseDsId = c.dataSourceId || dataSourceId;
       const res = await fetch(`${baseUrl}/api/query/natural-language`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         // refreshCache=true：评测测的是 LLM 全链路准确率，必须旁路 L1/L2 结果缓存，
         // 否则同域近似问题会命中彼此缓存导致测量失真（P1-7 基线评测实测污染）
-        body: JSON.stringify({ query: c.question, dataSourceId, refreshCache: true }),
+        body: JSON.stringify({ query: c.question, dataSourceId: caseDsId, refreshCache: true }),
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -279,7 +284,7 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
           } else {
             // 响应体 SQL 字段：result.finalSql（执行层）→ result.generatedSQL（NL2SQL 链路）→ 顶层 executedSql
             result.generatedSql = String(data?.result?.finalSql || data?.result?.generatedSQL || data?.executedSql || '');
-            const golden = await executeGoldenSql(dataSourceId, c.goldenSql);
+            const golden = await executeGoldenSql(caseDsId, c.goldenSql);
             if (golden.ok === false) {
               result.status = 'error';
               result.reason = `golden SQL 执行失败: ${golden.reason}`;
@@ -322,7 +327,10 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
     results,
   };
 
-  const reportPath = join(HERE, `eval-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  // 报告生成物统一落 reports/ 子目录，与源码/评测集分离
+  const reportsDir = join(HERE, 'reports');
+  mkdirSync(reportsDir, { recursive: true });
+  const reportPath = join(reportsDir, `eval-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   writeFileSync(reportPath, JSON.stringify({ ...summary, dataSourceId, generatedAt: new Date().toISOString() }, null, 2));
   console.log(`[eval] 执行准确率: ${(summary.accuracy * 100).toFixed(1)}%（pass ${pass}/${summary.total}）· 报告: ${reportPath}`);
   for (const cat of Object.keys(byCategory).sort()) {

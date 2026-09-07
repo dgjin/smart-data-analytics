@@ -3,9 +3,10 @@
  * 保护规则：不能修改/删除自己，且必须始终保留至少一个 ACTIVE 管理员。
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
-import { hashPassword, validatePasswordStrength } from '../passwords';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { hashPassword, validatePasswordStrength } from '../auth/passwords';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -14,11 +15,11 @@ const VALID_ROLES = ['ADMIN', 'ANALYST', 'VIEWER'] as const;
 const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
 
 async function countActiveAdmins(excludeId?: number): Promise<number> {
-  const [rows] = await getPool().query(
+  const [rows] = await getPool().query<RowDataPacket[]>(
     `SELECT COUNT(*) AS cnt FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE'${excludeId ? ' AND id != ?' : ''}`,
     excludeId ? [excludeId] : []
   );
-  return Number((rows as any[])[0]?.cnt || 0);
+  return Number(rows[0]?.cnt || 0);
 }
 
 // GET /api/admin/users
@@ -55,11 +56,11 @@ router.post('/users', async (req, res) => {
   }
 
   try {
-    const [result] = await getPool().query(
+    const [result] = await getPool().query<ResultSetHeader>(
       'INSERT INTO users (username, password_hash, display_name, department, role, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
       [username, hashPassword(password), String(displayName || username).slice(0, 50), String(department || '').trim().slice(0, 100), role]
     );
-    const insertId = (result as any).insertId;
+    const insertId = result.insertId;
     return res.status(201).json({
       success: true,
       user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE' },
@@ -120,8 +121,8 @@ router.put('/users/:id', async (req, res) => {
   const demotingAdmin = role !== undefined && role !== 'ADMIN';
   const disabling = status === 'DISABLED';
   if (demotingAdmin || disabling) {
-    const [rows] = await getPool().query('SELECT role, status FROM users WHERE id = ?', [targetId]);
-    const target = (rows as any[])[0];
+    const [rows] = await getPool().query<RowDataPacket[]>('SELECT role, status FROM users WHERE id = ?', [targetId]);
+    const target = rows[0];
     if (target?.role === 'ADMIN' && target?.status === 'ACTIVE') {
       const remaining = await countActiveAdmins(targetId);
       if (remaining < 1) {
@@ -132,11 +133,11 @@ router.put('/users/:id', async (req, res) => {
 
   try {
     params.push(targetId);
-    const [result] = await getPool().query(
+    const [result] = await getPool().query<ResultSetHeader>(
       `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
       params
     );
-    if ((result as any).affectedRows === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: '用户不存在' });
     }
     return res.json({ success: true });
@@ -160,11 +161,11 @@ router.post('/users/:id/reset-password', async (req, res) => {
   }
 
   try {
-    const [result] = await getPool().query(
+    const [result] = await getPool().query<ResultSetHeader>(
       'UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?',
       [hashPassword(newPassword), targetId]
     );
-    if ((result as any).affectedRows === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: '用户不存在' });
     }
     return res.json({ success: true });
@@ -185,8 +186,8 @@ router.delete('/users/:id', async (req, res) => {
   }
 
   try {
-    const [rows] = await getPool().query('SELECT role, status FROM users WHERE id = ?', [targetId]);
-    const target = (rows as any[])[0];
+    const [rows] = await getPool().query<RowDataPacket[]>('SELECT role, status FROM users WHERE id = ?', [targetId]);
+    const target = rows[0];
     if (!target) {
       return res.status(404).json({ error: '用户不存在' });
     }

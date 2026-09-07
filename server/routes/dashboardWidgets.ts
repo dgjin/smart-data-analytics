@@ -5,10 +5,10 @@
  */
 import { Router } from 'express';
 import type mysql from 'mysql2/promise';
-import { getPool } from '../db';
-import { authMiddleware, requireRole } from '../auth';
-import { writeAudit } from '../auditLog';
-import { ERROR_CODES } from '../errorCodes';
+import { getPool } from '../infra/db';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { writeAudit } from '../infra/auditLog';
+import { ERROR_CODES } from '../infra/errorCodes';
 
 const router = Router();
 
@@ -57,7 +57,7 @@ interface DashboardWidgetRow extends mysql.RowDataPacket {
 
 /** 行记录 → API 响应（widget_data JSON 展开为 widget 字段） */
 export function toDashboardWidgetRecord(row: DashboardWidgetRow) {
-  let widget: DashboardWidgetPayload | null = null;
+  let widget: DashboardWidgetPayload | null;
   try {
     widget = JSON.parse(row.widget_data) as DashboardWidgetPayload;
   } catch {

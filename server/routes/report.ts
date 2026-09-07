@@ -6,22 +6,23 @@
  */
 import express, { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { ERROR_CODES } from '../errorCodes';
-import { authMiddleware, requireRole } from '../auth';
-import { rateLimiter } from '../rateLimiter';
-import { containsInjection } from '../queryGuard';
-import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../userQueryLimit';
-import { writeAudit } from '../auditLog';
-import { loadSchemaContext } from '../schemaContext';
-import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from '../liveReport';
-import { normalizeAmountUnit } from '../liveQuery';
-import { runSimulatedReport } from '../simulatedReport';
-import { getFallbackExecutiveReport } from '../../serverFallbacks';
-import { normalizeExportData, buildReportPptx, buildExportFilename } from '../reportExport';
-import { runPdfGenerator } from '../pdfExport';
+import { ERROR_CODES } from '../infra/errorCodes';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { rateLimiter } from '../infra/rateLimiter';
+import { containsInjection } from '../query/queryGuard';
+import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
+import { writeAudit } from '../infra/auditLog';
+import { loadSchemaContext } from '../query/schemaContext';
+import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from '../report/liveReport';
+import { normalizeAmountUnit } from '../query/liveQuery';
+import { runSimulatedReport } from '../report/simulatedReport';
+import { getFallbackExecutiveReport } from '../serverFallbacks';
+import { normalizeExportData, buildReportPptx, buildExportFilename } from '../report/reportExport';
+import { runPdfGenerator } from '../report/pdfExport';
 import { normalizeReport } from '../../src/utils/queryResultNormalizer';
-import { getPool } from '../db';
-import { submitTask } from '../taskQueue';
+import { getPool } from '../infra/db';
+import { submitTask } from '../infra/taskQueue';
+import type mysql from 'mysql2/promise';
 
 const router = Router();
 
@@ -293,8 +294,9 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
     // 如果指定了模板，加载模板内容
     if (templateId && typeof templateId === 'number') {
       const pool = getPool();
-      const [rows] = await pool.query('SELECT * FROM report_templates WHERE id = ?', [templateId]);
-      const template = (rows as any[])[0];
+      // SELECT *：RowDataPacket 动态行（字段经下方直取使用）
+      const [rows] = await pool.query<mysql.RowDataPacket[]>('SELECT * FROM report_templates WHERE id = ?', [templateId]);
+      const template = rows[0];
       if (template) {
         templateType = template.name;
         templateName = template.name;
@@ -397,7 +399,7 @@ router.post('/generate/async', rateLimiter, authMiddleware, requireRole('ADMIN',
     return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
   }
 
-  let submitted: { taskId: string } | null = null;
+  let submitted: { taskId: string } | null;
   try {
     submitted = await submitTask('report_generate', {
       templateType: safeTemplate,
@@ -453,7 +455,7 @@ router.post('/generate-from-query/async', rateLimiter, authMiddleware, requireRo
     return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
   }
 
-  let submitted: { taskId: string } | null = null;
+  let submitted: { taskId: string } | null;
   try {
     submitted = await submitTask('report_generate_from_query', {
       question: safeQuestion,
@@ -489,7 +491,7 @@ router.post('/export-pdf/async', express.json({ limit: '20mb' }), rateLimiter, a
   // DLP 水印在提交时冻结（worker 执行时不再依赖会话）
   const watermark = `导出人: ${user.username}${user.department ? `（${user.department}）` : ''} · ${new Date().toLocaleString('zh-CN', { hour12: false })} · 严禁外传`;
 
-  let submitted: { taskId: string } | null = null;
+  let submitted: { taskId: string } | null;
   try {
     submitted = await submitTask('report_export_pdf', {
       report: data,

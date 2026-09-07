@@ -4,7 +4,7 @@
  * P1-8 指标层治理：分析师可提议（PENDING）；创建直接生效 / 审批 / 驳回 / 编辑 / 删除 / 版本回溯仅 ADMIN。
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
+import { authMiddleware, requireRole } from '../auth/auth';
 import {
   listMetrics,
   createMetric,
@@ -18,14 +18,14 @@ import {
   restoreMetricVersion,
   findMetricById,
   buildMetricQuerySql,
-} from '../metrics';
-import { checkDataSourceAccess } from '../accessControl';
-import { checkUserQueryLimit } from '../userQueryLimit';
-import { loadSchemaContext } from '../schemaContext';
-import { executeSafeSql } from '../sqlExecutor';
-import { maskRows } from '../dlp';
-import { writeAudit } from '../auditLog';
-import { AMOUNT_UNIT_OPTIONS, normalizeAmountUnit } from '../liveQuery';
+} from '../query/metrics';
+import { checkDataSourceAccess } from '../auth/accessControl';
+import { checkUserQueryLimit } from '../infra/userQueryLimit';
+import { loadSchemaContext } from '../query/schemaContext';
+import { executeSafeSql } from '../query/sqlExecutor';
+import { maskRows } from '../query/dlp';
+import { writeAudit } from '../infra/auditLog';
+import { AMOUNT_UNIT_OPTIONS, normalizeAmountUnit } from '../query/liveQuery';
 
 const router = Router();
 router.use(authMiddleware);
@@ -45,7 +45,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const cleaned = sanitizeMetricInput(req.body);
   if (cleaned.ok !== true) return res.status(400).json({ error: cleaned.error });
-  const user = (req as any).user || {};
+  const user = req.user!;
   const username = String(user.username || 'unknown');
   const isAdmin = user.role === 'ADMIN';
   try {
@@ -61,7 +61,7 @@ router.post('/', async (req, res) => {
 // 按指标登记的可切分维度白名单生成 GROUP BY 查询，复用 SELECT-only 安全执行层执行，结果按角色 DLP 脱敏
 router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const startedAt = Date.now();
-  const user = (req as any).user || {};
+  const user = req.user!;
   const metricId = Number(req.body?.metricId);
   const dimensions = Array.isArray(req.body?.dimensions)
     ? req.body.dimensions.filter((d: any) => typeof d === 'string').map((d: string) => d.trim()).filter(Boolean)
@@ -136,7 +136,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
   if (cleaned.ok !== true) return res.status(400).json({ error: cleaned.error });
   try {
     const { dataSourceId: _ignored, ...rest } = cleaned.metric;
-    const r = await updateMetric(id, rest, String((req as any).user?.username || ''));
+    const r = await updateMetric(id, rest, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.notFound ? 404 : 409).json({ error: r.error });
     res.json({ ok: true });
   } catch (err: any) {
@@ -149,7 +149,7 @@ router.post('/:id/approve', requireRole('ADMIN'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: '非法指标 ID' });
   try {
-    const r = await approveMetric(id, String((req as any).user?.username || ''));
+    const r = await approveMetric(id, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
   } catch (err: any) {
@@ -162,7 +162,7 @@ router.post('/:id/reject', requireRole('ADMIN'), async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: '非法指标 ID' });
   try {
-    const r = await rejectMetric(id, String((req as any).user?.username || ''));
+    const r = await rejectMetric(id, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
   } catch (err: any) {
@@ -175,7 +175,7 @@ router.post('/:id/repropose', async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: '非法指标 ID' });
   try {
-    const r = await reproposeMetric(id, String((req as any).user?.username || ''));
+    const r = await reproposeMetric(id, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
   } catch (err: any) {
@@ -201,7 +201,7 @@ router.post('/:id/restore', requireRole('ADMIN'), async (req, res) => {
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: '非法指标 ID' });
   if (!Number.isInteger(version) || version <= 0) return res.status(400).json({ error: '非法版本号' });
   try {
-    const r = await restoreMetricVersion(id, version, String((req as any).user?.username || ''));
+    const r = await restoreMetricVersion(id, version, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
   } catch (err: any) {

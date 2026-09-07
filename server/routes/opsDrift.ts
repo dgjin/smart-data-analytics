@@ -7,7 +7,7 @@
  * - POST   /api/ops/drift/:id/ack    确认事件（OPEN → ACKED）
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
+import { authMiddleware, requireRole } from '../auth/auth';
 import {
   addWatch,
   ackDriftEvent,

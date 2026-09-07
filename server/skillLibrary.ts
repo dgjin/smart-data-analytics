@@ -7,7 +7,7 @@
  * 技能仍只是「提问模板」，不绕过 NL2SQL 与安全执行层。
  */
 import mysql from 'mysql2/promise';
-import { getPool } from './db';
+import { getPool } from './infra/db';
 
 export type SkillScope = 'USER' | 'SYSTEM';
 export type SkillStatus = 'ACTIVE' | 'PENDING_SHARE';

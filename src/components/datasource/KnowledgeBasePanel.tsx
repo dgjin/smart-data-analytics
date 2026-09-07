@@ -29,6 +29,9 @@ interface KnowledgeDocDetail {
   chunks: { index: number; text: string }[];
 }
 
+/** 导入同名知识时的冲突处理策略（与服务端 mergeStrategy 参数对齐） */
+type ImportMergeStrategy = 'skip' | 'overwrite' | 'append';
+
 export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId?: string }> = ({
   dataSources,
   initialId,
@@ -52,7 +55,7 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
   const [exporting, setExporting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importStrategy, setImportStrategy] = useState<'skip' | 'overwrite' | 'append'>('skip');
+  const [importStrategy, setImportStrategy] = useState<ImportMergeStrategy>('skip');
   const [importDryRun, setImportDryRun] = useState(true);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<any>(null);
@@ -67,8 +70,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
     try {
       const res = await apiFetch(`/api/knowledge/export?dataSourceId=${encodeURIComponent(selectedId)}`);
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error((d as any).error || '导出失败');
+        const d: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(d.error || '导出失败');
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -350,7 +353,7 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
               <label className="block text-xs text-slate-400 mb-1.5">同名知识冲突处理</label>
               <select
                 value={importStrategy}
-                onChange={(e) => setImportStrategy(e.target.value as any)}
+                onChange={(e) => setImportStrategy(e.target.value as ImportMergeStrategy)}
                 disabled={importing}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
               >
@@ -501,7 +504,7 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
             {isAdmin && (
               <div className="flex justify-end gap-2 p-4 border-t border-slate-800">
                 <button
-                  onClick={() => handleEdit(detail as any)}
+                  onClick={() => handleEdit(detail)}
                   disabled={detailLoading}
                   className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold"
                 >

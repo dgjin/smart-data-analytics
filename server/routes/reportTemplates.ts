@@ -6,10 +6,11 @@
  * - DELETE /:id        删除模板（仅 ADMIN，预设模板不可删除）
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
-import { writeAudit } from '../auditLog';
-import { ERROR_CODES } from '../errorCodes';
+import type mysql from 'mysql2/promise';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { writeAudit } from '../infra/auditLog';
+import { ERROR_CODES } from '../infra/errorCodes';
 
 const router = Router();
 
@@ -101,16 +102,16 @@ router.post('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const pool = getPool();
     // 检查名称唯一性
-    const [existing] = await pool.query('SELECT id FROM report_templates WHERE name = ?', [name.trim()]);
-    if ((existing as any[]).length > 0) {
+    const [existing] = await pool.query<mysql.RowDataPacket[]>('SELECT id FROM report_templates WHERE name = ?', [name.trim()]);
+    if (existing.length > 0) {
       return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '模板名称已存在' });
     }
 
-    const [result] = await pool.query(
+    const [result] = await pool.query<mysql.ResultSetHeader>(
       'INSERT INTO report_templates (name, description, template_content, is_preset, created_by) VALUES (?, ?, ?, 0, ?)',
       [name.trim(), String(description || '').trim(), templateContent, user.username]
     );
-    const insertId = (result as any).insertId;
+    const insertId = result.insertId;
 
     writeAudit({
       userId: user.id,
@@ -175,8 +176,8 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
     }
 
     // 检查名称唯一性（排除自身）
-    const [duplicates] = await pool.query('SELECT id FROM report_templates WHERE name = ? AND id != ?', [name.trim(), id]);
-    if ((duplicates as any[]).length > 0) {
+    const [duplicates] = await pool.query<mysql.RowDataPacket[]>('SELECT id FROM report_templates WHERE name = ? AND id != ?', [name.trim(), id]);
+    if (duplicates.length > 0) {
       return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '模板名称已存在' });
     }
 

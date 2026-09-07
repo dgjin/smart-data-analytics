@@ -8,10 +8,10 @@
  * - DELETE /:reportId           删除报表（仅本人或 ADMIN；越权统一 404 防探测）
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
-import { writeAudit } from '../auditLog';
-import { ERROR_CODES } from '../errorCodes';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { writeAudit } from '../infra/auditLog';
+import { ERROR_CODES } from '../infra/errorCodes';
 
 const router = Router();
 

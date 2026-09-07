@@ -5,10 +5,10 @@
  */
 import { Router } from 'express';
 import type mysql from 'mysql2/promise';
-import { getPool } from '../db';
-import { authMiddleware, requireRole } from '../auth';
-import { writeAudit } from '../auditLog';
-import { ERROR_CODES } from '../errorCodes';
+import { getPool } from '../infra/db';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { writeAudit } from '../infra/auditLog';
+import { ERROR_CODES } from '../infra/errorCodes';
 
 const router = Router();
 
@@ -74,7 +74,7 @@ interface FlexQueryRow extends mysql.RowDataPacket {
 
 /** 行记录 → API 响应（query_data JSON 展开为 query 字段） */
 export function toFlexQueryRecord(row: FlexQueryRow) {
-  let query: SavedFlexQueryPayload | null = null;
+  let query: SavedFlexQueryPayload | null;
   try {
     query = JSON.parse(row.query_data) as SavedFlexQueryPayload;
   } catch {

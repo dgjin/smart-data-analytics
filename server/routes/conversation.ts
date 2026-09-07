@@ -4,10 +4,10 @@
  * - DELETE /:id        删除单条对话（仅限本人记录，越权删除返回 404）
  */
 import { Router } from 'express';
-import { ERROR_CODES } from '../errorCodes';
-import { authMiddleware, requireRole } from '../auth';
-import { rateLimiter } from '../rateLimiter';
-import { searchConversations, deleteConversation } from '../conversationHistory';
+import { ERROR_CODES } from '../infra/errorCodes';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { rateLimiter } from '../infra/rateLimiter';
+import { searchConversations, deleteConversation } from '../query/conversationHistory';
 
 const router = Router();
 

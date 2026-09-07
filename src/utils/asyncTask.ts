@@ -35,7 +35,7 @@ export async function pollTask(taskId: string, opts: PollTaskOptions = {}): Prom
   let consecutiveErrors = 0;
 
   while (Date.now() < deadline) {
-    let task: AsyncTaskStatus | null = null;
+    let task: AsyncTaskStatus | null;
     try {
       const resp = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
         headers: { Accept: 'application/json' },

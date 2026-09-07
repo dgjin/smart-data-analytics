@@ -8,7 +8,7 @@
  *   /:id/share/approve 与 /:id/share/reject（ADMIN 审核）
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
+import { authMiddleware, requireRole } from '../auth/auth';
 import {
   listVisibleSkills,
   listManageSkills,

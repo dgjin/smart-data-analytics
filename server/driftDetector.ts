@@ -9,8 +9,9 @@
  *   首次仅建基线不产生事件；有差异则写 kb_drift_events 并更新快照；同列已有相同内容的 OPEN 事件不重复告警。
  * - 取值读取走安全执行层（SELECT-only/超时/链路基 scenario），仅读取枚举值元数据、不读事实行。
  */
-import { getPool } from './db';
-import { executeSafeSql } from './sqlExecutor';
+import mysql from 'mysql2/promise';
+import { getPool } from './infra/db';
+import { executeSafeSql } from './query/sqlExecutor';
 
 /** 标识符安全校验（表/列名来自名单配置，拼入 SQL 前必须过此校验） */
 export const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -110,10 +111,15 @@ async function countDistinct(dataSourceId: string, table: string, column: string
   return Number((res.result.rows as Array<{ c: unknown }>)[0]?.c || 0);
 }
 
+/** data_sources.schema_json 读取行（MEDIUMTEXT 落库 JSON 文本） */
+interface SchemaJsonRow extends mysql.RowDataPacket {
+  schema_json: string | null;
+}
+
 async function loadSchemaTables(dataSourceId: string): Promise<SchemaTableLike[]> {
   const pool = getPool();
-  const [rows] = await pool.query(`SELECT schema_json FROM data_sources WHERE id = ?`, [dataSourceId]);
-  const raw = (rows as any[])[0]?.schema_json;
+  const [rows] = await pool.query<SchemaJsonRow[]>(`SELECT schema_json FROM data_sources WHERE id = ?`, [dataSourceId]);
+  const raw = rows[0]?.schema_json;
   if (!raw) return [];
   const schema = typeof raw === 'string' ? JSON.parse(raw) : raw;
   return Array.isArray(schema) ? schema : (schema?.tables || []);
@@ -131,11 +137,19 @@ export async function addWatch(dataSourceId: string, table: string, column: stri
 
 export async function removeWatch(dataSourceId: string, table: string, column: string): Promise<number> {
   const pool = getPool();
-  const [r] = await pool.query(
+  const [r] = await pool.query<mysql.ResultSetHeader>(
     `DELETE FROM kb_drift_watch WHERE data_source_id = ? AND table_name = ? AND column_name = ?`,
     [dataSourceId, table, column]
   );
-  return Number((r as any).affectedRows || 0);
+  return Number(r.affectedRows || 0);
+}
+
+/** kb_drift_watch 读取行（SELECT *，字段口径同 WatchRow） */
+interface WatchListRow extends mysql.RowDataPacket {
+  data_source_id: string;
+  table_name: string;
+  column_name: string;
+  values_json: string | null;
 }
 
 /** 扫描单个数据源的观察列；名单为空时先自动发现低基数列。 */
@@ -143,9 +157,9 @@ export async function scanDataSource(dataSourceId: string): Promise<ScanSummary>
   const pool = getPool();
   const summary: ScanSummary = { dataSourceId, watched: 0, discovered: 0, scanned: 0, newEvents: 0, skippedHighCardinality: 0 };
   try {
-    let [watchRows] = await pool.query(`SELECT * FROM kb_drift_watch WHERE data_source_id = ?`, [dataSourceId]);
+    let [watchRows] = await pool.query<WatchListRow[]>(`SELECT * FROM kb_drift_watch WHERE data_source_id = ?`, [dataSourceId]);
     // 名单为空 → 自动发现（仅首次；低基数判定后才入名单）
-    if ((watchRows as any[]).length === 0) {
+    if (watchRows.length === 0) {
       const candidates = discoverEnumColumns(await loadSchemaTables(dataSourceId));
       for (const c of candidates) {
         try {
@@ -158,9 +172,9 @@ export async function scanDataSource(dataSourceId: string): Promise<ScanSummary>
           // 单列探测失败跳过（不阻断其他列）
         }
       }
-      [watchRows] = await pool.query(`SELECT * FROM kb_drift_watch WHERE data_source_id = ?`, [dataSourceId]);
+      [watchRows] = await pool.query<WatchListRow[]>(`SELECT * FROM kb_drift_watch WHERE data_source_id = ?`, [dataSourceId]);
     }
-    const watches = watchRows as any as WatchRow[];
+    const watches: WatchRow[] = watchRows;
     summary.watched = watches.length;
 
     for (const w of watches) {
@@ -183,13 +197,13 @@ export async function scanDataSource(dataSourceId: string): Promise<ScanSummary>
       );
       if (!diff) continue;
       // 同列已有相同内容的 OPEN 事件 → 不重复告警
-      const [dup] = await pool.query(
+      const [dup] = await pool.query<mysql.RowDataPacket[]>(
         `SELECT id FROM kb_drift_events
          WHERE data_source_id = ? AND table_name = ? AND column_name = ? AND status = 'OPEN'
            AND added_json <=> ? AND removed_json <=> ? LIMIT 1`,
         [w.data_source_id, w.table_name, w.column_name, JSON.stringify(diff.added), JSON.stringify(diff.removed)]
       );
-      if ((dup as any[]).length > 0) continue;
+      if (dup.length > 0) continue;
       const id = `drift_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       await pool.query(
         `INSERT INTO kb_drift_events (id, data_source_id, table_name, column_name, added_json, removed_json, status)
@@ -207,25 +221,37 @@ export async function scanDataSource(dataSourceId: string): Promise<ScanSummary>
 /** 全量扫描：所有数据库型数据源（逐个容错，单源失败不影响其他） */
 export async function scanAllDataSources(): Promise<ScanSummary[]> {
   const pool = getPool();
-  const [rows] = await pool.query(`SELECT id FROM data_sources WHERE type IN ('mysql', 'postgres', 'greenplum')`);
+  const [rows] = await pool.query<mysql.RowDataPacket[]>(`SELECT id FROM data_sources WHERE type IN ('mysql', 'postgres', 'greenplum')`);
   const out: ScanSummary[] = [];
-  for (const r of rows as any[]) {
+  for (const r of rows) {
     out.push(await scanDataSource(String(r.id)));
   }
   return out;
 }
 
+/** kb_drift_events 列表读取行（detected_at 已 DATE_FORMAT 为字符串） */
+interface DriftEventListRow extends mysql.RowDataPacket {
+  id: string;
+  data_source_id: string;
+  table_name: string;
+  column_name: string;
+  added_json: string | null;
+  removed_json: string | null;
+  status: string;
+  detected_at: string;
+}
+
 /** 事件列表（OPEN 优先、按时间倒序） */
 export async function listDriftEvents(limit = 100): Promise<{ events: DriftEventRow[]; watched: number }> {
   const pool = getPool();
-  const [rows] = await pool.query(
+  const [rows] = await pool.query<DriftEventListRow[]>(
     `SELECT id, data_source_id, table_name, column_name, added_json, removed_json, status,
             DATE_FORMAT(detected_at, '%Y-%m-%d %H:%i:%s') AS detected_at
      FROM kb_drift_events ORDER BY (status = 'OPEN') DESC, detected_at DESC LIMIT ?`,
     [Math.min(500, Math.max(1, limit))]
   );
-  const [watchCnt] = await pool.query(`SELECT COUNT(*) AS c FROM kb_drift_watch`);
-  const events: DriftEventRow[] = (rows as any[]).map((r) => ({
+  const [watchCnt] = await pool.query<mysql.RowDataPacket[]>(`SELECT COUNT(*) AS c FROM kb_drift_watch`);
+  const events: DriftEventRow[] = rows.map((r) => ({
     id: String(r.id),
     data_source_id: String(r.data_source_id),
     table_name: String(r.table_name),
@@ -235,14 +261,14 @@ export async function listDriftEvents(limit = 100): Promise<{ events: DriftEvent
     status: r.status === 'ACKED' ? 'ACKED' : 'OPEN',
     detected_at: String(r.detected_at),
   }));
-  return { events, watched: Number((watchCnt as any[])[0]?.c || 0) };
+  return { events, watched: Number(watchCnt[0]?.c || 0) };
 }
 
 export async function ackDriftEvent(id: string): Promise<boolean> {
   if (!/^drift_[A-Za-z0-9_]{6,40}$/.test(id)) return false;
   const pool = getPool();
-  const [r] = await pool.query(`UPDATE kb_drift_events SET status = 'ACKED' WHERE id = ? AND status = 'OPEN'`, [id]);
-  return Number((r as any).affectedRows || 0) > 0;
+  const [r] = await pool.query<mysql.ResultSetHeader>(`UPDATE kb_drift_events SET status = 'ACKED' WHERE id = ? AND status = 'OPEN'`, [id]);
+  return Number(r.affectedRows || 0) > 0;
 }
 
 /** 每日定时扫描（unref 不阻塞进程退出）；启动即不立即跑，等首个周期 */

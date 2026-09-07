@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildContextSummary } from './queryContext';
-import { MAX_TABLES_IN_PROMPT } from '../schemaLinking';
+import { MAX_TABLES_IN_PROMPT } from '../query/schemaLinking';
 
 const ctxBase = {
   schema: [

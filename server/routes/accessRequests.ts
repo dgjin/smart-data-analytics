@@ -7,10 +7,11 @@
  * - POST   /api/access-requests/:id/reject   ADMIN 驳回（可附备注）
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
-import { rateLimiter } from '../rateLimiter';
-import { checkDataSourceAccess, grantUserAccess } from '../accessControl';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { rateLimiter } from '../infra/rateLimiter';
+import { checkDataSourceAccess, grantUserAccess } from '../auth/accessControl';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 
 const router = Router();
 router.use(authMiddleware);
@@ -41,25 +42,25 @@ router.post('/', rateLimiter, async (req, res) => {
   if (!reason) return res.status(400).json({ error: '请填写申请理由' });
 
   try {
-    const [dsRows] = await getPool().query('SELECT id FROM data_sources WHERE id = ? LIMIT 1', [dataSourceId]);
-    if (!(dsRows as any[])[0]) return res.status(404).json({ error: '数据源不存在' });
+    const [dsRows] = await getPool().query<RowDataPacket[]>('SELECT id FROM data_sources WHERE id = ? LIMIT 1', [dataSourceId]);
+    if (!dsRows[0]) return res.status(404).json({ error: '数据源不存在' });
 
     if (await checkDataSourceAccess(user, dataSourceId)) {
       return res.status(409).json({ error: '你已拥有该数据源的访问权限' });
     }
-    const [dup] = await getPool().query(
+    const [dup] = await getPool().query<RowDataPacket[]>(
       "SELECT id FROM permission_requests WHERE user_id = ? AND data_source_id = ? AND status = 'PENDING' LIMIT 1",
       [user.id, dataSourceId]
     );
-    if ((dup as any[])[0]) {
+    if (dup[0]) {
       return res.status(409).json({ error: '已有待审批的申请，请等待管理员处理' });
     }
 
-    const [result] = await getPool().query(
+    const [result] = await getPool().query<ResultSetHeader>(
       'INSERT INTO permission_requests (user_id, username, department, data_source_id, reason) VALUES (?, ?, ?, ?, ?)',
       [user.id, user.username, user.department || '', dataSourceId, reason]
     );
-    return res.status(201).json({ success: true, id: Number((result as any).insertId) });
+    return res.status(201).json({ success: true, id: Number(result.insertId) });
   } catch (err) {
     console.error('[AccessRequests] create failed:', err);
     return res.status(500).json({ error: '申请提交失败' });
@@ -69,13 +70,13 @@ router.post('/', rateLimiter, async (req, res) => {
 // GET /api/access-requests/mine
 router.get('/mine', async (req, res) => {
   try {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<RowDataPacket[]>(
       `SELECT r.*, d.name AS ds_name FROM permission_requests r
        LEFT JOIN data_sources d ON d.id = r.data_source_id
        WHERE r.user_id = ? ORDER BY r.id DESC LIMIT 100`,
       [req.user!.id]
     );
-    return res.json({ success: true, requests: (rows as any[]).map(rowToRequest) });
+    return res.json({ success: true, requests: rows.map(rowToRequest) });
   } catch (err) {
     console.error('[AccessRequests] mine failed:', err);
     return res.status(500).json({ error: '申请列表获取失败' });
@@ -88,13 +89,13 @@ router.get('/', requireRole('ADMIN'), async (req, res) => {
   const where = ['PENDING', 'APPROVED', 'REJECTED'].includes(status) ? 'WHERE r.status = ?' : '';
   const params = where ? [status] : [];
   try {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<RowDataPacket[]>(
       `SELECT r.*, d.name AS ds_name FROM permission_requests r
        LEFT JOIN data_sources d ON d.id = r.data_source_id
        ${where} ORDER BY r.status = 'PENDING' DESC, r.id DESC LIMIT 500`,
       params
     );
-    return res.json({ success: true, requests: (rows as any[]).map(rowToRequest) });
+    return res.json({ success: true, requests: rows.map(rowToRequest) });
   } catch (err) {
     console.error('[AccessRequests] list failed:', err);
     return res.status(500).json({ error: '审批列表获取失败' });
@@ -108,8 +109,8 @@ async function decide(req: any, res: any, action: 'APPROVED' | 'REJECTED') {
   const note = String(req.body?.note || '').trim().slice(0, 300);
 
   try {
-    const [rows] = await getPool().query('SELECT * FROM permission_requests WHERE id = ? LIMIT 1', [id]);
-    const request = (rows as any[])[0];
+    const [rows] = await getPool().query<RowDataPacket[]>('SELECT * FROM permission_requests WHERE id = ? LIMIT 1', [id]);
+    const request = rows[0];
     if (!request) return res.status(404).json({ error: '申请不存在' });
     if (request.status !== 'PENDING') {
       return res.status(409).json({ error: `该申请已被 ${request.approver || '其他管理员'} 处理（${request.status}）` });

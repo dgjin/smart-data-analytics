@@ -73,13 +73,18 @@ async function main(): Promise<number> {
     password: process.env.MYSQL_PASSWORD || '',
     database: process.env.MYSQL_DATABASE || 'smart_analytics',
   });
-  let auditMap = new Map<string, number>();
+  /** 审计表按状态计数行 */
+  interface AuditCntRow extends mysql.RowDataPacket {
+    status: string;
+    c: number;
+  }
+  let auditMap: Map<string, number>;
   try {
-    const [rows] = await conn.query(
+    const [rows] = await conn.query<AuditCntRow[]>(
       "SELECT status, COUNT(*) AS c FROM query_audit_log WHERE endpoint='query' AND created_at >= FROM_UNIXTIME(?) GROUP BY status",
       [sinceEpoch]
     );
-    auditMap = new Map((rows as any[]).map((r) => [String(r.status), Number(r.c)]));
+    auditMap = new Map(rows.map((r) => [String(r.status), Number(r.c)]));
   } finally {
     await conn.end();
   }

@@ -3,8 +3,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('./db', () => ({ getPool: vi.fn() }));
-vi.mock('./sqlExecutor', () => ({ executeSafeSql: vi.fn() }));
+vi.mock('./infra/db', () => ({ getPool: vi.fn() }));
+vi.mock('./query/sqlExecutor', () => ({ executeSafeSql: vi.fn() }));
 
 import { diffValues, discoverEnumColumns, IDENT_RE, MAX_ENUM_CARDINALITY } from './driftDetector';
 

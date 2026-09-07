@@ -8,12 +8,13 @@
  *   npx tsx server/eval/loadTest.ts --ds <id> --levels 20,50,100 --rounds 5
  *
  * 说明：问数端到端延迟由 LLM 生成主导（本地 27B 模型数十秒/问），数据库侧瓶颈在连接池，
- * 故压测聚焦执行层（轻量聚合查询）而非全链路；报告 JSON 落盘 server/eval/load-report-*.json。
+ * 故压测聚焦执行层（轻量聚合查询）而非全链路；报告 JSON 落盘 server/eval/reports/。
  */
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import dotenv from 'dotenv';
+import type { RowDataPacket } from 'mysql2';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '../..');
@@ -53,18 +54,18 @@ async function main(): Promise<void> {
     .filter((n) => Number.isFinite(n) && n > 0);
   const rounds = Math.max(1, Number(argOf('rounds')) || 5);
 
-  const { initSchema, getPool } = await import('../db');
-  const { executeSafeSql, loadDataSourceConfig, dsPoolMax, dialectOfDsType, invalidateExecutorPool } = await import('../sqlExecutor');
+  const { initSchema, getPool } = await import('../infra/db');
+  const { executeSafeSql, loadDataSourceConfig, dsPoolMax, dialectOfDsType, invalidateExecutorPool } = await import('../query/sqlExecutor');
   await initSchema();
 
   // 选定数据源：--ds 指定或取第一个 mysql/pg 系数据源
   let dataSourceId = argOf('ds');
   let schema: { name: string; columns?: { name: string }[] }[] = [];
   if (!dataSourceId) {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<RowDataPacket[]>(
       "SELECT id, schema_json FROM data_sources WHERE type IN ('mysql','postgresql','greenplum') ORDER BY created_at ASC"
     );
-    const list = rows as any[];
+    const list = rows;
     if (list.length === 0) throw new Error('无可用真实数据源（mysql/postgresql/greenplum）');
     dataSourceId = String(list[0].id);
     try {
@@ -73,8 +74,8 @@ async function main(): Promise<void> {
       schema = [];
     }
   } else {
-    const [rows] = await getPool().query('SELECT schema_json FROM data_sources WHERE id = ?', [dataSourceId]);
-    const row = (rows as any[])[0];
+    const [rows] = await getPool().query<RowDataPacket[]>('SELECT schema_json FROM data_sources WHERE id = ?', [dataSourceId]);
+    const row = rows[0];
     if (!row) throw new Error(`数据源不存在：${dataSourceId}`);
     try {
       schema = JSON.parse(String(row.schema_json || '[]'));
@@ -142,7 +143,10 @@ async function main(): Promise<void> {
     roundsPerWorker: rounds,
     levels: stats,
   };
-  const outPath = join(__dirname, `load-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  // 报告生成物统一落 reports/ 子目录，与源码/评测集分离
+  const reportsDir = join(__dirname, 'reports');
+  mkdirSync(reportsDir, { recursive: true });
+  const outPath = join(reportsDir, `load-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   writeFileSync(outPath, JSON.stringify(report, null, 2));
   console.log(`[LoadTest] 报告已写入 ${outPath}`);
 

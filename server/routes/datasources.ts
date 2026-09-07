@@ -6,15 +6,15 @@
 import { Router } from 'express';
 import mysql from 'mysql2/promise';
 import pg from 'pg';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
-import { sanitizeDataScope } from '../scope';
-import { canAccessDataSource, checkDataSourceAccess, parseAcl, sanitizeAcl } from '../accessControl';
-import { invalidateSchemaCache } from '../schemaContext';
-import { invalidateExecutorPool } from '../sqlExecutor';
-import { invalidateQueryCache } from '../queryCache';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { sanitizeDataScope } from '../query/scope';
+import { canAccessDataSource, checkDataSourceAccess, parseAcl, sanitizeAcl } from '../auth/accessControl';
+import { invalidateSchemaCache } from '../query/schemaContext';
+import { invalidateExecutorPool } from '../query/sqlExecutor';
+import { invalidateQueryCache } from '../query/queryCache';
 import { computeDataVersion } from '../dataVersion';
-import { decryptSecret, encryptConfigPassword } from '../secretsCrypto';
+import { decryptSecret, encryptConfigPassword } from '../infra/secretsCrypto';
 
 const router = Router();
 router.use(authMiddleware);
@@ -92,9 +92,49 @@ export function deriveColumnRole(
   return { isMetric: false, isDimension: !isLongText };
 }
 
+/** Schema 提取：表清单行（MySQL information_schema.tables / PG pg_catalog 共用形态） */
+interface SchemaTableRow {
+  name: string;
+  rowCount?: number | string | null;
+  comment?: string | null;
+  tableType?: string | null;
+}
+
+/** Schema 提取：列清单行 */
+interface SchemaColumnRow {
+  tableName: string;
+  name: string;
+  dataType: string;
+  columnKey?: string | null;
+  comment?: string | null;
+  maxLength?: number | string | null;
+}
+
+/** 组装后的列 Schema（落库 schema_json / 下发前端共用） */
+interface AssembledColumn {
+  name: string;
+  type: string;
+  description: string;
+  isPrimaryKey?: boolean;
+  isMetric: boolean;
+  isDimension: boolean;
+}
+
+/** 组装后的表 Schema（落库 schema_json / 下发前端共用；businessNote 为管理员手工标注的业务口径） */
+interface AssembledTable {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  rowCount: number;
+  columns: AssembledColumn[];
+  tableType?: string;
+  businessNote?: string;
+}
+
 // 表/列元数据组装（MySQL 与 PG 系共用）：列按表分组、推导角色、拼 TableSchema
-function assembleTables(tableRows: any[], colRows: any[], mapType: (dataType: string) => string) {
-  const colsByTable = new Map<string, any[]>();
+function assembleTables(tableRows: SchemaTableRow[], colRows: SchemaColumnRow[], mapType: (dataType: string) => string): AssembledTable[] {
+  const colsByTable = new Map<string, AssembledColumn[]>();
   for (const c of colRows) {
     const type = mapType(c.dataType);
     const isPK = c.columnKey === 'PRI';
@@ -117,8 +157,25 @@ function assembleTables(tableRows: any[], colRows: any[], mapType: (dataType: st
     description: t.comment || `数据表 ${t.name}`,
     rowCount: Number(t.rowCount || 0),
     columns: colsByTable.get(t.name) || [],
-    tableType: (t as any).tableType || undefined,
+    tableType: t.tableType || undefined,
   }));
+}
+
+/** MySQL information_schema.tables 行（Schema 提取） */
+interface MysqlTableMetaRow extends mysql.RowDataPacket {
+  name: string;
+  rowCount: number | null;
+  comment: string | null;
+}
+
+/** MySQL information_schema.columns 行（Schema 提取） */
+interface MysqlColMetaRow extends mysql.RowDataPacket {
+  tableName: string;
+  name: string;
+  dataType: string;
+  columnKey: string;
+  comment: string | null;
+  maxLength: number | null;
 }
 
 // 真实连接 MySQL 并提取全部表与列结构（information_schema）
@@ -133,14 +190,14 @@ async function extractMysqlSchema(config: any) {
   });
   try {
     const db = config?.database || '';
-    const [tableRows] = await conn.query(
+    const [tableRows] = await conn.query<MysqlTableMetaRow[]>(
       `SELECT table_name AS name, table_rows AS rowCount, table_comment AS comment
        FROM information_schema.tables
        WHERE table_schema = ? AND table_type = 'BASE TABLE'
        ORDER BY table_name LIMIT 500`,
       [db]
     );
-    const [colRows] = await conn.query(
+    const [colRows] = await conn.query<MysqlColMetaRow[]>(
       `SELECT table_name AS tableName, column_name AS name, data_type AS dataType,
               column_key AS columnKey, column_comment AS comment,
               character_maximum_length AS maxLength
@@ -149,7 +206,7 @@ async function extractMysqlSchema(config: any) {
        ORDER BY table_name, ordinal_position`,
       [db]
     );
-    return assembleTables(tableRows as any[], colRows as any[], mapMysqlType);
+    return assembleTables(tableRows, colRows, mapMysqlType);
   } finally {
     await conn.end();
   }
@@ -270,9 +327,9 @@ router.get('/', async (req, res) => {
   try {
     const user = req.user;
     const isAdmin = user?.role === 'ADMIN';
-    const [rows] = await getPool().query('SELECT * FROM data_sources ORDER BY created_at ASC');
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources ORDER BY created_at ASC');
     return res.json({
-      dataSources: (rows as any[]).map((row) => {
+      dataSources: rows.map((row) => {
         const ds = rowToDataSource(row);
         if (isAdmin) return ds;
         if (!canAccessDataSource(user, ds.acl)) {
@@ -292,7 +349,7 @@ router.get('/', async (req, res) => {
           };
         }
         const { tables, acl: _acl, ...rest } = ds;
-        return { ...rest, tables: [], tableCount: (tables as any[]).length };
+        return { ...rest, tables: [], tableCount: tables.length };
       }),
     });
   } catch (err) {
@@ -327,10 +384,9 @@ router.get('/:id/flex-schema', requireRole('ADMIN', 'ANALYST'), async (req, res)
     if (!(await checkDataSourceAccess(req.user!, dataSourceId))) {
       return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
     }
-    const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [dataSourceId]);
-    const list = rows as any[];
-    if (!list.length) return res.status(404).json({ error: '数据源不存在' });
-    const ds = rowToDataSource(list[0]);
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [dataSourceId]);
+    if (!rows.length) return res.status(404).json({ error: '数据源不存在' });
+    const ds = rowToDataSource(rows[0]);
     if (ds.status === 'disconnected') {
       return res.status(403).json({ error: '该数据源已被管理员停用' });
     }
@@ -375,8 +431,8 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         req.user!.username,
       ]
     );
-    const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    return res.status(201).json({ success: true, id, dataSource: rowToDataSource((rows as any[])[0]) });
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.status(201).json({ success: true, id, dataSource: rowToDataSource(rows[0]) });
   } catch (err) {
     console.error('[DataSources] create failed:', err);
     return res.status(500).json({ error: '数据源创建失败' });
@@ -388,8 +444,8 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
 router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    const ds = (rows as any[])[0];
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const ds = rows[0];
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
     }
@@ -413,7 +469,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     // 保留管理员在"指标维度维护"中对仍存在列的手工标注（新列用自动推导结果）
     const oldMeta = new Map<string, any>();
     const oldTableNotes = new Map<string, string>();
-    for (const t of safeJson(ds.schema_json, []) as any[]) {
+    for (const t of safeJson(ds.schema_json, [])) {
       if (t?.businessNote) oldTableNotes.set(String(t.name), String(t.businessNote));
       for (const c of t?.columns || []) {
         oldMeta.set(`${t.name}.${c.name}`, c);
@@ -421,7 +477,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     }
     for (const t of tables) {
       const note = oldTableNotes.get(String(t.name));
-      if (note) (t as any).businessNote = note; // 表级业务口径说明同步时保留
+      if (note) t.businessNote = note; // 表级业务口径说明同步时保留
       t.columns = (t.columns || []).map((c: any) => {
         const old = oldMeta.get(`${t.name}.${c.name}`);
         if (!old) return c;
@@ -445,8 +501,8 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     invalidateExecutorPool(id);
     // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
     void invalidateQueryCache(id);
-    const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
+    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] sync-schema failed:', err);
     return res.status(500).json({ error: 'Schema 同步失败' });
@@ -506,11 +562,11 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
 
   try {
     params.push(id);
-    const [result] = await getPool().query(
+    const [result] = await getPool().query<mysql.ResultSetHeader>(
       `UPDATE data_sources SET ${updates.join(', ')} WHERE id = ?`,
       params
     );
-    if ((result as any).affectedRows === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: '数据源不存在' });
     }
     void invalidateSchemaCache(id);
@@ -528,8 +584,8 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
 router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    const [result] = await getPool().query('DELETE FROM data_sources WHERE id = ?', [id]);
-    if ((result as any).affectedRows === 0) {
+    const [result] = await getPool().query<mysql.ResultSetHeader>('DELETE FROM data_sources WHERE id = ?', [id]);
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: '数据源不存在' });
     }
     void invalidateSchemaCache(id);
@@ -553,8 +609,8 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     return res.status(400).json({ error: '请求格式无效：tables 必须为数组' });
   }
   try {
-    const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    const ds = (rows as any[])[0];
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const ds = rows[0];
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
     }
@@ -602,8 +658,8 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     invalidateExecutorPool(id);
     // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
     void invalidateQueryCache(id);
-    const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    return res.json({ success: true, touched, dataSource: rowToDataSource((updated as any[])[0]) });
+    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.json({ success: true, touched, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] update schema-meta failed:', err);
     return res.status(500).json({ error: '指标维度维护保存失败' });
@@ -615,16 +671,16 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
 router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    const [rows] = await getPool().query('SELECT id FROM data_sources WHERE id = ?', [id]);
-    if (!(rows as any[])[0]) return res.status(404).json({ error: '数据源不存在' });
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT id FROM data_sources WHERE id = ?', [id]);
+    if (!rows[0]) return res.status(404).json({ error: '数据源不存在' });
 
     const acl = sanitizeAcl(req.body);
     await getPool().query('UPDATE data_sources SET acl_json = ? WHERE id = ?', [
       acl ? JSON.stringify(acl) : null,
       id,
     ]);
-    const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
+    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] update acl failed:', err);
     return res.status(500).json({ error: '访问控制保存失败' });
@@ -636,8 +692,8 @@ router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
 router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    const [rows] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    const ds = (rows as any[])[0];
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const ds = rows[0];
     if (!ds) {
       return res.status(404).json({ error: '数据源不存在' });
     }
@@ -656,13 +712,18 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
     invalidateExecutorPool(id);
     // P0 性能优化：结构/配置/口径/范围变更后同步失效问数结果缓存（TTL 已延长至 30 分钟，失效正确性必须保证）
     void invalidateQueryCache(id);
-    const [updated] = await getPool().query('SELECT * FROM data_sources WHERE id = ?', [id]);
-    return res.json({ success: true, dataSource: rowToDataSource((updated as any[])[0]) });
+    const [updated] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
     console.error('[DataSources] update scope failed:', err);
     return res.status(500).json({ error: '问数范围保存失败' });
   }
 });
+
+/** MySQL COUNT(*) 计数行（连接测试探测表数量） */
+interface MysqlCountRow extends mysql.RowDataPacket {
+  cnt: number;
+}
 
 // POST /api/datasources/test-connection（ADMIN）
 // mysql/postgresql/greenplum 类型真实探测；其余类型保持模拟响应
@@ -722,7 +783,7 @@ router.post('/test-connection', requireRole('ADMIN'), async (req, res) => {
         connectTimeout: 5000,
       });
       await conn.query('SELECT 1');
-      const [tables] = await conn.query(
+      const [tables] = await conn.query<MysqlCountRow[]>(
         'SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE table_schema = ?',
         [config?.database || '']
       );
@@ -731,7 +792,7 @@ router.post('/test-connection', requireRole('ADMIN'), async (req, res) => {
         success: true,
         message: `成功连接 MySQL 数据源 (${config?.database || config?.host})`,
         latencyMs: Date.now() - startedAt,
-        tableCount: Number((tables as any[])[0]?.cnt || 0),
+        tableCount: Number(tables[0]?.cnt || 0),
       });
     } catch (err: any) {
       return res.status(200).json({

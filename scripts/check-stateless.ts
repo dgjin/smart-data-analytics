@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 export type StateCategory = 'redis-fallback' | 'local-accel' | 'registry' | 'statestore-impl' | 'cli-local';
 
 export interface WhitelistEntry {
-  /** 相对仓库根目录（POSIX 分隔符），如 server/queryCache.ts */
+  /** 相对仓库根目录（POSIX 分隔符），如 server/query/queryCache.ts */
   file: string;
   /** 变量名；类属性为 ClassName.propName */
   name: string;
@@ -34,26 +34,26 @@ export interface WhitelistEntry {
  */
 export const STATE_WHITELIST: WhitelistEntry[] = [
   // ---- redis-fallback：Redis 未配置时的单机内存回退（多实例部署必须配置 REDIS_URL）----
-  { file: 'server/queryPlan.ts', name: 'store', category: 'redis-fallback', reason: '问数计划一次性存储（qp:*）的内存回退；多实例经 Redis GETDEL 共享' },
-  { file: 'server/liveReport.ts', name: 'reportPlanStore', category: 'redis-fallback', reason: '报表计划存储（rqp:*）的内存回退；多实例经 Redis 共享' },
-  { file: 'server/queryCache.ts', name: 'cache', category: 'redis-fallback', reason: '问数结果缓存（qc:*）的内存回退；多实例经 Redis 共享命中' },
-  { file: 'server/queryCache.ts', name: 'semanticIndex', category: 'redis-fallback', reason: '语义缓存索引（qcidx:*）的内存回退；多实例经 Redis 共享' },
-  { file: 'server/oidc.ts', name: 'stateStore', category: 'redis-fallback', reason: 'OIDC 登录 state（oidc:st:*）的内存回退；多实例经 Redis 共享防重放' },
-  { file: 'server/rateLimiter.ts', name: 'requestLog', category: 'redis-fallback', reason: 'IP 限流窗口（rl:*）的内存回退；多实例经 Redis INCR 共享限额' },
-  { file: 'server/userQueryLimit.ts', name: 'hits', category: 'redis-fallback', reason: '用户配额窗口（uql:*）的内存回退；多实例经 Redis 共享' },
-  { file: 'server/userQueryLimit.ts', name: 'inflight', category: 'redis-fallback', reason: '用户并发槽（uqs:*）的内存回退；多实例经 Redis 分布式锁互斥' },
+  { file: 'server/query/queryPlan.ts', name: 'store', category: 'redis-fallback', reason: '问数计划一次性存储（qp:*）的内存回退；多实例经 Redis GETDEL 共享' },
+  { file: 'server/report/liveReport.ts', name: 'reportPlanStore', category: 'redis-fallback', reason: '报表计划存储（rqp:*）的内存回退；多实例经 Redis 共享' },
+  { file: 'server/query/queryCache.ts', name: 'cache', category: 'redis-fallback', reason: '问数结果缓存（qc:*）的内存回退；多实例经 Redis 共享命中' },
+  { file: 'server/query/queryCache.ts', name: 'semanticIndex', category: 'redis-fallback', reason: '语义缓存索引（qcidx:*）的内存回退；多实例经 Redis 共享' },
+  { file: 'server/auth/oidc.ts', name: 'stateStore', category: 'redis-fallback', reason: 'OIDC 登录 state（oidc:st:*）的内存回退；多实例经 Redis 共享防重放' },
+  { file: 'server/infra/rateLimiter.ts', name: 'requestLog', category: 'redis-fallback', reason: 'IP 限流窗口（rl:*）的内存回退；多实例经 Redis INCR 共享限额' },
+  { file: 'server/infra/userQueryLimit.ts', name: 'hits', category: 'redis-fallback', reason: '用户配额窗口（uql:*）的内存回退；多实例经 Redis 共享' },
+  { file: 'server/infra/userQueryLimit.ts', name: 'inflight', category: 'redis-fallback', reason: '用户并发槽（uqs:*）的内存回退；多实例经 Redis 分布式锁互斥' },
   // ---- local-accel：本地加速层（纯性能缓存，正确性不依赖跨实例共享）----
   { file: 'server/dataVersion.ts', name: 'versionCache', category: 'local-accel', reason: '数据版本指纹 10s 缓存，防多端轮询风暴；各实例独立探测无正确性问题' },
-  { file: 'server/sqlExecutor.ts', name: 'dsPools', category: 'local-accel', reason: '数据源连接池：连接是进程资源不可跨实例共享，各实例独立建池' },
-  { file: 'server/llmClient.ts', name: 'embedCache', category: 'local-accel', reason: 'embedding 文本向量缓存（带 TTL）；未命中仅多一次远程调用' },
-  { file: 'server/schemaLinking.ts', name: 'tableEmbeddingCache', category: 'local-accel', reason: '表摘要向量缓存（key 含内容指纹，schema 编辑自动失效）；未命中仅多一次 embedding 调用' },
-  { file: 'server/schemaLinking.ts', name: 'columnEmbeddingCache', category: 'local-accel', reason: '列摘要向量缓存（key 含内容指纹）；未命中仅多一次 embedding 调用' },
-  { file: 'server/sseReplayBuffer.ts', name: 'buffers', category: 'local-accel', reason: 'SSE 断线续传重放缓冲（终态 TTL 10 分钟）；多实例重连落异节点时 404 降级完整重试，正确性不依赖共享' },
+  { file: 'server/query/sqlExecutor.ts', name: 'dsPools', category: 'local-accel', reason: '数据源连接池：连接是进程资源不可跨实例共享，各实例独立建池' },
+  { file: 'server/llm/llmClient.ts', name: 'embedCache', category: 'local-accel', reason: 'embedding 文本向量缓存（带 TTL）；未命中仅多一次远程调用' },
+  { file: 'server/query/schemaLinking.ts', name: 'tableEmbeddingCache', category: 'local-accel', reason: '表摘要向量缓存（key 含内容指纹，schema 编辑自动失效）；未命中仅多一次 embedding 调用' },
+  { file: 'server/query/schemaLinking.ts', name: 'columnEmbeddingCache', category: 'local-accel', reason: '列摘要向量缓存（key 含内容指纹）；未命中仅多一次 embedding 调用' },
+  { file: 'server/query/sseReplayBuffer.ts', name: 'buffers', category: 'local-accel', reason: 'SSE 断线续传重放缓冲（终态 TTL 10 分钟）；多实例重连落异节点时 404 降级完整重试，正确性不依赖共享' },
   // ---- registry：代码级注册表（启动时注册，无运行态跨请求语义）----
-  { file: 'server/taskQueue.ts', name: 'handlers', category: 'registry', reason: '任务处理器注册表：进程启动时注册同一批 handler，各实例内容一致' },
+  { file: 'server/infra/taskQueue.ts', name: 'handlers', category: 'registry', reason: '任务处理器注册表：进程启动时注册同一批 handler，各实例内容一致' },
   // ---- statestore-impl：StateStore 内存实现本体（接口层已支持 Redis 外置）----
-  { file: 'server/stateStore.ts', name: 'MemoryStateStore.map', category: 'statestore-impl', reason: 'StateStore 内存实现的值存储；配置 REDIS_URL 后整类被 RedisStateStore 替代' },
-  { file: 'server/stateStore.ts', name: 'MemoryStateStore.counters', category: 'statestore-impl', reason: 'StateStore 内存实现的窗口计数器；同上由 Redis 替代' },
+  { file: 'server/infra/stateStore.ts', name: 'MemoryStateStore.map', category: 'statestore-impl', reason: 'StateStore 内存实现的值存储；配置 REDIS_URL 后整类被 RedisStateStore 替代' },
+  { file: 'server/infra/stateStore.ts', name: 'MemoryStateStore.counters', category: 'statestore-impl', reason: 'StateStore 内存实现的窗口计数器；同上由 Redis 替代' },
   // ---- cli-local：CLI 主入口（isDirectRun/isMain 守卫）内的一次性状态，模块被 import 时不产生 ----
   { file: 'server/eval/checkEvalSet.ts', name: 'byCategory', category: 'cli-local', reason: '评测集门禁 CLI 主入口内的分类计数汇总，进程打印后即退出；作为库被 import 时不执行' },
 ];

@@ -7,6 +7,7 @@
  */
 
 import mysql from 'mysql2/promise';
+import * as nodeReadline from 'node:readline/promises';
 
 // 显式从 .env.local 加载变量（使用 dotenvx）
 process.loadEnvFile('.env.local');
@@ -25,7 +26,7 @@ async function importComplexSqlSamples() {
   console.log(`   用户：${MYSQL_USER}`);
   console.log(`   数据源 ID: ${DATA_SOURCE_ID}\n`);
 
-  let connection;
+  let connection: mysql.Connection | undefined;
   try {
     // 建立数据库连接
     connection = await mysql.createConnection({
@@ -39,28 +40,28 @@ async function importComplexSqlSamples() {
     console.log('✅ 数据库连接成功\n');
 
     // 检查 query_feedback 表是否存在
-    const [tableExists] = await connection.query(
-      `SELECT COUNT(*) AS cnt FROM information_schema.tables 
+    const [tableExists] = await connection.query<mysql.RowDataPacket[]>(
+      `SELECT COUNT(*) AS cnt FROM information_schema.tables
        WHERE table_schema = ? AND table_name = 'query_feedback'`,
       [MYSQL_DATABASE]
     );
 
-    if (Number((tableExists as any[])[0]?.cnt) === 0) {
+    if (Number(tableExists[0]?.cnt) === 0) {
       throw new Error('❌ 表 "query_feedback" 不存在，请先初始化数据库结构');
     }
 
     console.log('✅ 表结构验证通过\n');
 
     // 查询现有样例数量
-    const [existingCount] = await connection.query(
+    const [existingCount] = await connection.query<mysql.RowDataPacket[]>(
       'SELECT COUNT(*) AS cnt FROM query_feedback WHERE data_source_id = ?',
       [DATA_SOURCE_ID]
     );
-    const existingCnt = Number((existingCount as any[])[0]?.cnt);
-    
+    const existingCnt = Number(existingCount[0]?.cnt);
+
     if (existingCnt > 0) {
       console.log(`⚠️  发现现有样例：${existingCnt} 条`);
-      const readline = require('readline').createInterface({
+      const readline = nodeReadline.createInterface({
         input: process.stdin,
         output: process.stdout,
       });
@@ -149,7 +150,7 @@ SELECT rn AS 排名，customer_name AS 客户 FROM monthly_rank WHERE rn<=10 ORD
 
     // 批量插入
     for (const sample of samples) {
-      const [result] = await connection.query(
+      const [result] = await connection.query<mysql.ResultSetHeader>(
         `INSERT INTO query_feedback (user_id, username, data_source_id, question, executed_sql, verdict, provenance) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ['test', 'admin', DATA_SOURCE_ID, sample.question, sample.sql, 'UP', 'MANUAL']
       );
@@ -158,11 +159,11 @@ SELECT rn AS 排名，customer_name AS 客户 FROM monthly_rank WHERE rn<=10 ORD
     }
 
     // 验证最终数量
-    const [finalCount] = await connection.query(
+    const [finalCount] = await connection.query<mysql.RowDataPacket[]>(
       'SELECT COUNT(*) AS cnt FROM query_feedback WHERE data_source_id = ?',
       [DATA_SOURCE_ID]
     );
-    const finalCnt = Number((finalCount as any[])[0]?.cnt);
+    const finalCnt = Number(finalCount[0]?.cnt);
 
     console.log('\n🎉 导入完成！');
     console.log(`   新增样例数：${samples.length} 条`);

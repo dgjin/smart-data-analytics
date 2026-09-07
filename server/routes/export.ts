@@ -9,11 +9,11 @@
  */
 import { Router } from 'express';
 import type { RowDataPacket } from 'mysql2';
-import { authMiddleware, requireRole } from '../auth';
-import { rateLimiter } from '../rateLimiter';
-import { getPool } from '../db';
-import { writeAudit } from '../auditLog';
-import { ERROR_CODES } from '../errorCodes';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { rateLimiter } from '../infra/rateLimiter';
+import { getPool } from '../infra/db';
+import { writeAudit } from '../infra/auditLog';
+import { ERROR_CODES } from '../infra/errorCodes';
 
 const router = Router();
 router.use(authMiddleware);

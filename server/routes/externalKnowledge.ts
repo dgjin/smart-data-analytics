@@ -4,14 +4,14 @@
  * 统一由 ADMIN 维护；问数链路自动检索注入，对所有角色的问数生效。
  */
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
+import { authMiddleware, requireRole } from '../auth/auth';
 import {
   validateExternalKbInput,
   listExternalKbSources,
   saveExternalKbSource,
   deleteExternalKbSource,
   testExternalKbEndpoint,
-} from '../externalKnowledge';
+} from '../knowledge/externalKnowledge';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -31,7 +31,7 @@ router.post('/', async (req, res) => {
   const invalid = validateExternalKbInput(input);
   if (invalid) return res.status(400).json({ error: invalid });
   try {
-    const id = await saveExternalKbSource(input, String((req as any).user?.username || 'admin'));
+    const id = await saveExternalKbSource(input, String(req.user?.username || 'admin'));
     res.json({ ok: true, id });
   } catch (err: any) {
     res.status(500).json({ error: `新增失败：${err?.message || '未知错误'}` });
@@ -45,7 +45,7 @@ router.put('/:id', async (req, res) => {
   const invalid = validateExternalKbInput(input);
   if (invalid) return res.status(400).json({ error: invalid });
   try {
-    const updated = await saveExternalKbSource(input, String((req as any).user?.username || 'admin'), id);
+    const updated = await saveExternalKbSource(input, String(req.user?.username || 'admin'), id);
     res.json({ ok: true, id: updated });
   } catch (err: any) {
     res.status(500).json({ error: `保存失败：${err?.message || '未知错误'}` });

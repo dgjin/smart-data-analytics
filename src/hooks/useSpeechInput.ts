@@ -12,17 +12,45 @@ export interface SpeechInput {
   clearSpeechError: () => void;
 }
 
+/**
+ * Web Speech API 最小类型声明（TS DOM lib 未收录 SpeechRecognition 构造器，
+ * Chrome 实现为 webkitSpeechRecognition 前缀；按本 hook 实际用到的成员收窄）。
+ */
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+
+interface SpeechRecognitionErrorEventLike {
+  error: string;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
 export function useSpeechInput(onTranscript: (text: string) => void): SpeechInput {
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   // 回调走 ref，避免调用方内联箭头函数导致识别会话重建
   const transcriptRef = useRef(onTranscript);
   transcriptRef.current = onTranscript;
 
   const toggleSpeechRecognition = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // window 上的 SpeechRecognition/webkitSpeechRecognition 无标准 DOM 类型：单次受控断言读取全局构造器
+    const w = window as { SpeechRecognition?: SpeechRecognitionCtor; webkitSpeechRecognition?: SpeechRecognitionCtor };
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
       setSpeechError('当前浏览器环境不支持 Web Speech 语音识别 API，请在 Chrome 或 Edge 浏览器中使用。');

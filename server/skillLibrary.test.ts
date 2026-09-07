@@ -7,7 +7,7 @@ const querySpy = vi.fn(async (..._args: any[]) => {
   if (!next) throw new Error('skillLibrary.test: 队列为空，SQL 调用次数超出预期');
   return next;
 });
-vi.mock('./db', () => ({ getPool: () => ({ query: (...args: any[]) => querySpy(...args) }) }));
+vi.mock('./infra/db', () => ({ getPool: () => ({ query: (...args: any[]) => querySpy(...args) }) }));
 
 import { extractPlaceholders, validateSkillInput, requestShare, approveShare, rejectShare } from './skillLibrary';
 

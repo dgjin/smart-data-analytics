@@ -23,9 +23,10 @@
  */
 
 import { Router } from 'express';
-import { authMiddleware, requireRole } from '../auth';
-import { getPool } from '../db';
-import { saveKnowledgeDoc, CHUNK_OVERLAP } from '../knowledgeBase';
+import type mysql from 'mysql2/promise';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { getPool } from '../infra/db';
+import { saveKnowledgeDoc, CHUNK_OVERLAP } from '../knowledge/knowledgeBase';
 import { DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_DS_ID } from '../seedDataResources';
 
 /**
@@ -55,18 +56,27 @@ router.use(authMiddleware);
 
 // ==================== doc/chunk 模型 CRUD ====================
 
+/** GET / 列表行：按 doc 聚合的知识文档元信息 */
+interface KbDocListRow extends mysql.RowDataPacket {
+  doc_id: string;
+  title: string;
+  chunk_count: number;
+  created_by: string;
+  created_at: Date;
+}
+
 // GET /api/knowledge?dataSourceId=xxx —— 列出某数据源的知识文档（按 doc 聚合）
 router.get('/', async (req, res) => {
   const dataSourceId = String(req.query.dataSourceId || '');
   if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   try {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<KbDocListRow[]>(
       `SELECT doc_id, title, COUNT(*) AS chunk_count, MAX(created_by) AS created_by, MAX(created_at) AS created_at
        FROM knowledge_base WHERE data_source_id = ? GROUP BY doc_id, title ORDER BY MAX(created_at) DESC`,
       [dataSourceId]
     );
     res.json({
-      docs: (rows as any[]).map((r) => ({
+      docs: rows.map((r) => ({
         docId: r.doc_id,
         title: r.title,
         chunkCount: Number(r.chunk_count),
@@ -85,7 +95,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   if (typeof dataSourceId !== 'string' || !dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: '标题必填' });
   if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: '内容必填' });
-  const username = String((req as any).user?.username || 'admin');
+  const username = String(req.user?.username || 'admin');
   try {
     const { docId, chunkCount } = await saveKnowledgeDoc(dataSourceId, title.trim(), content, username);
     if (chunkCount === 0) return res.status(400).json({ error: '内容为空，无法切块' });
@@ -131,6 +141,20 @@ router.get('/seed-entries', (req, res) => {
   }
 });
 
+/** /export 数据源名查询行 */
+interface DsNameRow extends mysql.RowDataPacket {
+  name: string;
+}
+
+/** /export 知识切块行（按 doc 聚合还原原文） */
+interface KbChunkRow extends mysql.RowDataPacket {
+  doc_id: string;
+  title: string;
+  chunk_text: string;
+  created_by: string;
+  created_at: Date;
+}
+
 /**
  * GET /api/knowledge/export?dataSourceId=xxx（ADMIN）
  * 导出指定数据源在 knowledge_base 表中的全部知识文档为 JSON 备份文件。
@@ -140,18 +164,18 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
   const dataSourceId = String(req.query.dataSourceId || '');
   if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   try {
-    const [dsRows] = await getPool().query('SELECT name FROM data_sources WHERE id = ?', [dataSourceId]);
-    const dsName = String((dsRows as any[])[0]?.name || dataSourceId);
+    const [dsRows] = await getPool().query<DsNameRow[]>('SELECT name FROM data_sources WHERE id = ?', [dataSourceId]);
+    const dsName = String(dsRows[0]?.name || dataSourceId);
 
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<KbChunkRow[]>(
       `SELECT doc_id, title, chunk_text, created_by, created_at
        FROM knowledge_base WHERE data_source_id = ? ORDER BY doc_id ASC, id ASC`,
       [dataSourceId]
     );
 
     // 按 doc 聚合（保持切块入库顺序）
-    const docMap = new Map<string, { title: string; chunks: string[]; createdBy: string; createdAt: any }>();
-    for (const r of rows as any[]) {
+    const docMap = new Map<string, { title: string; chunks: string[]; createdBy: string; createdAt: Date }>();
+    for (const r of rows) {
       const docId = String(r.doc_id);
       if (!docMap.has(docId)) {
         docMap.set(docId, {
@@ -177,7 +201,7 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
       version: '2.0',
       type: 'knowledge-docs',
       exportedAt: new Date().toISOString(),
-      exportedBy: String((req as any).user?.username || 'unknown'),
+      exportedBy: String(req.user?.username || 'unknown'),
       dataSourceId,
       dataSourceName: dsName,
       docCount: docs.length,
@@ -197,6 +221,17 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
     res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
   }
 });
+
+/** /import 目标数据源查询行 */
+interface DsRefRow extends mysql.RowDataPacket {
+  id: string;
+  name: string;
+}
+
+/** /import 现有文档标题行（冲突判定依据） */
+interface KbTitleRow extends mysql.RowDataPacket {
+  title: string;
+}
 
 /**
  * POST /api/knowledge/import（ADMIN）
@@ -251,25 +286,25 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
     if (!dataSourceId) return res.status(400).json({ error: '缺少目标数据源 dataSourceId（文件中也没有来源信息）' });
 
     // 校验目标数据源存在
-    const [dsRows] = await getPool().query('SELECT id, name FROM data_sources WHERE id = ?', [dataSourceId]);
-    if ((dsRows as any[]).length === 0) {
+    const [dsRows] = await getPool().query<DsRefRow[]>('SELECT id, name FROM data_sources WHERE id = ?', [dataSourceId]);
+    if (dsRows.length === 0) {
       return res.status(404).json({ error: `目标数据源不存在：${dataSourceId}` });
     }
 
     // 现有文档 title 集合（冲突判定依据）
-    const [titleRows] = await getPool().query(
+    const [titleRows] = await getPool().query<KbTitleRow[]>(
       'SELECT DISTINCT title FROM knowledge_base WHERE data_source_id = ?',
       [dataSourceId]
     );
-    const existingTitles = new Set((titleRows as any[]).map((r) => String(r.title)));
+    const existingTitles = new Set(titleRows.map((r) => String(r.title)));
 
-    const username = String((req as any).user?.username || 'admin');
+    const username = String(req.user?.username || 'admin');
     const result = {
       success: true,
       dryRun: !!dryRun,
       mergeStrategy,
       dataSourceId,
-      dataSourceName: String((dsRows as any[])[0].name || dataSourceId),
+      dataSourceName: String(dsRows[0].name || dataSourceId),
       importedCount: 0,
       updatedCount: 0,
       skippedCount: 0,
@@ -340,26 +375,35 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
 
 // ==================== doc/chunk 模型：参数路径路由（必须在静态路径之后） ====================
 
+/** GET /:docId 详情行：知识文档切块明细（含所属数据源） */
+interface KbDocDetailRow extends mysql.RowDataPacket {
+  doc_id: string;
+  data_source_id: string;
+  title: string;
+  chunk_text: string;
+  created_by: string;
+  created_at: Date;
+}
+
 // GET /api/knowledge/:docId —— 知识文档详情（元信息 + 切块明细，按入库顺序）
 router.get('/:docId', async (req, res) => {
   const docId = String(req.params.docId);
   try {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<KbDocDetailRow[]>(
       `SELECT doc_id, data_source_id, title, chunk_text, created_by, created_at
        FROM knowledge_base WHERE doc_id = ? ORDER BY id ASC`,
       [docId]
     );
-    const list = rows as any[];
-    if (list.length === 0) return res.status(404).json({ error: '知识文档不存在' });
+    if (rows.length === 0) return res.status(404).json({ error: '知识文档不存在' });
     res.json({
       doc: {
         docId,
-        dataSourceId: list[0].data_source_id,
-        title: list[0].title,
-        createdBy: list[0].created_by,
-        createdAt: list[0].created_at,
-        chunkCount: list.length,
-        chunks: list.map((r, i) => ({ index: i + 1, text: r.chunk_text })),
+        dataSourceId: rows[0].data_source_id,
+        title: rows[0].title,
+        createdBy: rows[0].created_by,
+        createdAt: rows[0].created_at,
+        chunkCount: rows.length,
+        chunks: rows.map((r, i) => ({ index: i + 1, text: r.chunk_text })),
       },
     });
   } catch (err: any) {
@@ -367,19 +411,24 @@ router.get('/:docId', async (req, res) => {
   }
 });
 
+/** PUT /:docId 元信息行：定位文档所属数据源 */
+interface KbDocMetaRow extends mysql.RowDataPacket {
+  data_source_id: string;
+}
+
 // PUT /api/knowledge/:docId（ADMIN）—— 编辑知识文档 {title,content}：删除旧块后按原 docId 重新切块入库
 router.put('/:docId', requireRole('ADMIN'), async (req, res) => {
   const docId = String(req.params.docId);
   const { title, content } = req.body || {};
   if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: '标题必填' });
   if (typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: '内容必填' });
-  const username = String((req as any).user?.username || 'admin');
+  const username = String(req.user?.username || 'admin');
   try {
-    const [metaRows] = await getPool().query(
+    const [metaRows] = await getPool().query<KbDocMetaRow[]>(
       'SELECT data_source_id FROM knowledge_base WHERE doc_id = ? LIMIT 1',
       [docId]
     );
-    const meta = (metaRows as any[])[0];
+    const meta = metaRows[0];
     if (!meta) return res.status(404).json({ error: '知识文档不存在' });
     // 先清旧块再以同一 docId 重新切块（embedding 重新生成）
     await getPool().query('DELETE FROM knowledge_base WHERE doc_id = ?', [docId]);
@@ -395,7 +444,7 @@ router.put('/:docId', requireRole('ADMIN'), async (req, res) => {
 router.delete('/:docId', requireRole('ADMIN'), async (req, res) => {
   const docId = String(req.params.docId);
   try {
-    const [result] = (await getPool().query('DELETE FROM knowledge_base WHERE doc_id = ?', [docId])) as any;
+    const [result] = await getPool().query<mysql.ResultSetHeader>('DELETE FROM knowledge_base WHERE doc_id = ?', [docId]);
     if (!result || result.affectedRows === 0) return res.status(404).json({ error: '知识文档不存在' });
     res.json({ ok: true });
   } catch (err: any) {

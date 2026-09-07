@@ -10,28 +10,28 @@
  */
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { ERROR_CODES } from '../errorCodes';
-import { authMiddleware, requireRole } from '../auth';
-import { rateLimiter } from '../rateLimiter';
-import { sanitizeQuestion, sanitizeHistory } from '../queryGuard';
-import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../userQueryLimit';
-import { writeAudit } from '../auditLog';
-import { loadSchemaContext } from '../schemaContext';
-import { callLLMText, validateModelSelection, setLlmOverride, ChatMessage } from '../llmClient';
-import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from '../liveQuery';
-import { runSimulatedQuery } from '../simulatedQuery';
-import { runDrill } from '../drill';
-import { executeSafeSql } from '../sqlExecutor';
-import { saveFeedback } from '../queryFeedback';
-import { checkDataSourceAccess } from '../accessControl';
-import { recordConversation } from '../conversationHistory';
-import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from '../queryCache';
-import { maskQueryPayload, maskRows } from '../dlp';
-import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from '../queryTrace';
-import { generateQueryPlan, storePlan, consumePlan, QueryPlan } from '../queryPlan';
-import { emitBeforeQuery, emitAfterQuery } from '../queryHooks';
-import { appendQueryEvent, getEventsAfter, getTraceOwner, isTerminal, isTerminalEvent, subscribeTrace, BufferedSseEvent } from '../sseReplayBuffer';
-import { generateFallbackQueryResult } from '../../serverFallbacks';
+import { ERROR_CODES } from '../infra/errorCodes';
+import { authMiddleware, requireRole } from '../auth/auth';
+import { rateLimiter } from '../infra/rateLimiter';
+import { sanitizeQuestion, sanitizeHistory } from '../query/queryGuard';
+import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
+import { writeAudit } from '../infra/auditLog';
+import { loadSchemaContext } from '../query/schemaContext';
+import { callLLMText, validateModelSelection, setLlmOverride, ChatMessage } from '../llm/llmClient';
+import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from '../query/liveQuery';
+import { runSimulatedQuery } from '../query/simulatedQuery';
+import { runDrill } from '../query/drill';
+import { executeSafeSql } from '../query/sqlExecutor';
+import { saveFeedback } from '../query/queryFeedback';
+import { checkDataSourceAccess } from '../auth/accessControl';
+import { recordConversation } from '../query/conversationHistory';
+import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from '../query/queryCache';
+import { maskQueryPayload, maskRows } from '../query/dlp';
+import { newTraceId, recordTraceStep, getTraceSteps, TraceMeta } from '../query/queryTrace';
+import { generateQueryPlan, storePlan, consumePlan, QueryPlan } from '../query/queryPlan';
+import { emitBeforeQuery, emitAfterQuery } from '../query/queryHooks';
+import { appendQueryEvent, getEventsAfter, getTraceOwner, isTerminal, isTerminalEvent, subscribeTrace, BufferedSseEvent } from '../query/sseReplayBuffer';
+import { generateFallbackQueryResult } from '../serverFallbacks';
 import { normalizeQueryResult } from '../../src/utils/queryResultNormalizer';
 
 const router = Router();
@@ -278,7 +278,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
           // L1 精确 + L2 语义索引一并写入（含原问题与 embedding，供同义改写命中）
           await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount }, { dataSourceId, question: query, variant: cacheVariant });
           // 对话历史服务端落库：成功问答 fire-and-forget 落库（历史面板 + 个人 few-shot 自学习），失败不阻断主链路
-          recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String((normalized as any).aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+          recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(normalized.aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
           // P2-12 DLP：缓存已写入原始数据（上方 setCachedQuery），响应出口按角色脱敏
           return respond(maskQueryPayload({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt }, user));
         }
@@ -437,15 +437,14 @@ router.get('/stream-replay/:traceId', authMiddleware, async (req, res) => {
   if (isTerminal(traceId)) { finish(); return; }
 
   // 未终态：订阅增量推送，直到终态到达或 5 分钟兜底超时
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timer = setTimeout(() => finish(unsubscribe), 5 * 60 * 1000);
+  timer.unref?.();
   const unsubscribe = subscribeTrace(traceId, (e) => {
     if (writeEvent(e)) finish(unsubscribe, timer);
   });
   // 订阅挂上后补一次漏（回放与订阅之间可能到达的新事件）
   for (const e of getEventsAfter(traceId, lastSent)?.events ?? []) writeEvent(e);
-  if (isTerminal(traceId)) { finish(unsubscribe); return; }
-  timer = setTimeout(() => finish(unsubscribe), 5 * 60 * 1000);
-  timer.unref?.();
+  if (isTerminal(traceId)) { finish(unsubscribe, timer); return; }
   req.on('close', () => finish(unsubscribe, timer));
 });
 

@@ -3,6 +3,11 @@
  */
 import { ChatMessage } from '../types/analytics';
 
+/** 旧版本持久化消息中的遗留字段（generatedSQL 已迁移至独立存储） */
+interface LegacyMessageResult {
+  result?: { generatedSQL?: string };
+}
+
 /** 构建对话导出 Markdown 文本（纯函数，便于单测） */
 export function buildConversationMarkdown(messages: ChatMessage[], dsName: string): string {
   const lines: string[] = [
@@ -17,7 +22,7 @@ export function buildConversationMarkdown(messages: ChatMessage[], dsName: strin
     lines.push(`## ${idx + 1}. ${msg.role === 'user' ? '用户提问' : '系统回答'}`);
     lines.push('');
     lines.push(String(msg.content || '').trim() || '（无内容）');
-    const sql = (msg as any).result?.generatedSQL;
+    const sql = (msg as ChatMessage & LegacyMessageResult).result?.generatedSQL;
     if (msg.role === 'assistant' && typeof sql === 'string' && sql.trim()) {
       lines.push('', '```sql', sql.trim(), '```');
     }

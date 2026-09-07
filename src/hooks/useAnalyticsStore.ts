@@ -715,8 +715,11 @@ export const useAnalyticsStore = create<AnalyticsState>()(
             m.dataSourceId ? m : { ...m, dataSourceId: fallbackDs }
           );
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return state as any;
+        // 旧版本快照按上方迁移补齐后，以 partialize 持久化契约回填（缺失字段由 persist 浅合并默认值兜底）：单次受控断言
+        return state as Pick<
+          AnalyticsState,
+          'dataSources' | 'activeDataSourceId' | 'activeTableId' | 'chatMessages' | 'demoReportDismissed' | 'activeTab'
+        >;
       },
       partialize: (state) => ({
         dataSources: state.dataSources,

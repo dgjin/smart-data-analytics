@@ -12,9 +12,12 @@ interface Props {
   dataSourceId?: string;
 }
 
+/** 同名知识冲突处理策略（select 的三个选项值） */
+type MergeStrategy = 'skip' | 'overwrite' | 'append';
+
 export const KnowledgeManagementPanel: React.FC<Props> = ({ dataSourceId }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [mergeStrategy, setMergeStrategy] = useState<'skip' | 'overwrite' | 'append'>('skip');
+  const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('skip');
   const [dryRun, setDryRun] = useState(false);
   const [importStatus, setImportStatus] = useState<{
     type: 'success' | 'error' | 'warning' | null;
@@ -35,8 +38,8 @@ export const KnowledgeManagementPanel: React.FC<Props> = ({ dataSourceId }) => {
       const response = await apiFetch(`/api/knowledge/export?dataSourceId=${encodeURIComponent(dataSourceId)}`);
 
       if (!response.ok) {
-        const d = await response.json().catch(() => ({}));
-        throw new Error((d as any).error || '导出失败');
+        const d: { error?: string } = await response.json().catch(() => ({}));
+        throw new Error(d.error || '导出失败');
       }
 
       // 触发浏览器下载
@@ -189,7 +192,7 @@ export const KnowledgeManagementPanel: React.FC<Props> = ({ dataSourceId }) => {
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
           <select
             value={mergeStrategy}
-            onChange={(e) => setMergeStrategy(e.target.value as any)}
+            onChange={(e) => setMergeStrategy(e.target.value as MergeStrategy)}
             disabled={isLoading}
             className="flex-1 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:border-blue-500"
           >

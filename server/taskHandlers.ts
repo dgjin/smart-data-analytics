@@ -5,16 +5,17 @@
  */
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { registerTaskHandler } from './taskQueue';
-import { writeAudit } from './auditLog';
-import { loadSchemaContext } from './schemaContext';
-import { runLiveReport, consumeReportPlan } from './liveReport';
-import { runSimulatedReport } from './simulatedReport';
-import { getFallbackExecutiveReport } from '../serverFallbacks';
+import type mysql from 'mysql2/promise';
+import { registerTaskHandler } from './infra/taskQueue';
+import { writeAudit } from './infra/auditLog';
+import { loadSchemaContext } from './query/schemaContext';
+import { runLiveReport, consumeReportPlan } from './report/liveReport';
+import { runSimulatedReport } from './report/simulatedReport';
+import { getFallbackExecutiveReport } from './serverFallbacks';
 import { normalizeReport } from '../src/utils/queryResultNormalizer';
-import { normalizeExportData, buildExportFilename } from './reportExport';
-import { runPdfGenerator } from './pdfExport';
-import { getPool } from './db';
+import { normalizeExportData, buildExportFilename } from './report/reportExport';
+import { runPdfGenerator } from './report/pdfExport';
+import { getPool } from './infra/db';
 
 /** 处理器内统一的用户快照（提交时冻结，worker 执行时不再依赖会话） */
 export interface TaskUserSnapshot {
@@ -118,8 +119,8 @@ async function runReportFromQuery(payload: any, reportProgress: (t: string) => P
   let templateName = '';
   let templateIdNum: number | null = null;
   if (typeof payload.templateId === 'number' && payload.templateId > 0) {
-    const [rows] = await getPool().query('SELECT * FROM report_templates WHERE id = ?', [payload.templateId]);
-    const template = (rows as any[])[0];
+    const [rows] = await getPool().query<mysql.RowDataPacket[]>('SELECT * FROM report_templates WHERE id = ?', [payload.templateId]);
+    const template = rows[0];
     if (template) {
       templateType = template.name;
       templateName = template.name;

@@ -107,6 +107,21 @@ describe('P0-1 六类分层扩展', () => {
     expect(suite.cases.find((c) => c.id === 'sa01')?.expect).toBe('result');
   });
 
+  it('permission 权限类：存在、逐用例 dataSourceId 覆盖且 golden 含部门谓词（P0 扩容）', () => {
+    const suite = loadEvalCases();
+    expect(suite.cases.length).toBeGreaterThanOrEqual(140);
+    const pm = suite.cases.filter((c) => c.category === 'permission');
+    expect(pm.length).toBeGreaterThanOrEqual(10);
+    for (const c of pm) {
+      expect(c.dataSourceId).toBe('ds_eval_crm_dept1');
+      expect(c.expect).toBe('result');
+      // golden 与受限数据源 rowFilters 同口径（ownerId / ownerName 部门谓词），保证注入后结果等价
+      expect(/ownerId IN|ownerName IN/.test(c.goldenSql)).toBe(true);
+    }
+    // 非 permission 用例不携带 per-case 数据源（走评测集默认源）
+    expect(suite.cases.find((c) => c.id === 'sa01')?.dataSourceId).toBeUndefined();
+  });
+
   it('computeCategoryStats 按 category 聚合 total/pass/accuracy', () => {
     const cases = [
       { id: 'a', question: '', goldenSql: 'SELECT 1', category: 'single_agg', expect: 'result' as const },
