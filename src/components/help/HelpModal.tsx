@@ -1,11 +1,12 @@
 /**
- * 系统帮助弹窗：实时读取 docs/用户使用指南.md（GET /api/help/manual）并渲染。
- * 帮助面向终端用户回答「系统怎么用」（服务端在指南缺失时回退功能说明书）。
+ * 系统帮助弹窗：实时读取 docs 下帮助文档（GET /api/help/manual、/api/help/changelog）并渲染。
+ * 「使用指南」面向终端用户回答「系统怎么用」（服务端在指南缺失时回退功能说明书）；
+ * 「更新日志」按版本记录主要更新内容，供用户备查（v0.9.36）。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
 import React, { useEffect, useState } from 'react';
-import { X, BookOpen, RefreshCw, FileText } from 'lucide-react';
+import { X, BookOpen, RefreshCw, FileText, History } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 
 // ---------- 轻量 Markdown 渲染 ----------
@@ -236,30 +237,46 @@ export const MarkdownView: React.FC<{ markdown: string }> = ({ markdown }) => {
 
 // ---------- 帮助弹窗 ----------
 
+type HelpTab = 'manual' | 'changelog';
+
+const TAB_META: Record<HelpTab, { title: string; endpoint: string; icon: typeof BookOpen }> = {
+  manual: { title: '使用指南', endpoint: '/api/help/manual', icon: BookOpen },
+  changelog: { title: '更新日志', endpoint: '/api/help/changelog', icon: History },
+};
+
+interface DocContent {
+  markdown: string;
+  updatedAt: string | null;
+}
+
 export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [markdown, setMarkdown] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [tab, setTab] = useState<HelpTab>('manual');
+  // 按页签缓存内容：切换页签不重复请求，刷新按钮强制重拉当前页签
+  const [contents, setContents] = useState<Partial<Record<HelpTab, DocContent>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (target: HelpTab, force = false) => {
+    if (!force && contents[target]) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch('/api/help/manual');
+      const res = await apiFetch(TAB_META[target].endpoint);
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || '加载使用指南失败');
-      setMarkdown(data.markdown || '');
-      setUpdatedAt(data.updatedAt || null);
+      if (!res.ok) throw new Error(data.error || `加载${TAB_META[target].title}失败`);
+      setContents((prev) => ({
+        ...prev,
+        [target]: { markdown: data.markdown || '', updatedAt: data.updatedAt || null },
+      }));
     } catch (err: any) {
-      setError(err.message || '加载使用指南失败');
+      setError(err.message || `加载${TAB_META[target].title}失败`);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    load();
+    load('manual');
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -267,6 +284,14 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const switchTab = (t: HelpTab) => {
+    setTab(t);
+    setError(null);
+    void load(t);
+  };
+
+  const current = contents[tab];
 
   return (
     <div
@@ -278,42 +303,67 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900/90">
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center">
-              <BookOpen className="w-4 h-4 text-white" />
+        <div className="px-5 pt-4 border-b border-slate-800 bg-slate-900/90">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center">
+                <BookOpen className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-100">帮助中心</h2>
+                <p className="text-[11px] text-slate-500">
+                  {current?.updatedAt ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}` : '实时读取最新文档'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-slate-100">使用指南</h2>
-              <p className="text-[11px] text-slate-500">
-                {updatedAt ? `文档更新于 ${new Date(updatedAt).toLocaleString('zh-CN')}` : '实时读取最新文档'}
-              </p>
+            <div className="flex items-center space-x-1.5">
+              <button
+                onClick={() => load(tab, true)}
+                title="重新加载"
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={onClose}
+                title="关闭（Esc）"
+                className="p-2 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
-          <div className="flex items-center space-x-1.5">
-            <button
-              onClick={load}
-              title="重新加载"
-              className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={onClose}
-              title="关闭（Esc）"
-              className="p-2 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+
+          {/* 页签：使用指南 / 更新日志 */}
+          <div className="flex space-x-1 mt-3">
+            {(Object.keys(TAB_META) as HelpTab[]).map((key) => {
+              const meta = TAB_META[key];
+              const Icon = meta.icon;
+              const active = tab === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => switchTab(key)}
+                  className={`flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${
+                    active
+                      ? 'text-cyan-300 border-cyan-400 bg-slate-800/60'
+                      : 'text-slate-500 border-transparent hover:text-slate-300 hover:bg-slate-800/40'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{meta.title}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* 内容 */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading && !markdown && (
+          {loading && !current && (
             <div className="flex flex-col items-center justify-center py-16 text-slate-500">
               <RefreshCw className="w-6 h-6 animate-spin mb-3" />
-              <p className="text-xs">正在加载使用指南…</p>
+              <p className="text-xs">正在加载{TAB_META[tab].title}…</p>
             </div>
           )}
           {error && (
@@ -321,19 +371,19 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <FileText className="w-6 h-6 mb-3" />
               <p className="text-xs">{error}</p>
               <button
-                onClick={load}
+                onClick={() => load(tab, true)}
                 className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
               >
                 重试
               </button>
             </div>
           )}
-          {markdown !== null && !loading && <MarkdownView markdown={markdown} />}
+          {current && !error && <MarkdownView markdown={current.markdown} />}
         </div>
 
         {/* 底部 */}
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
-          <span>面向使用者的操作指南，随功能更新同步维护</span>
+          <span>{tab === 'manual' ? '面向使用者的操作指南，随功能更新同步维护' : '按版本记录主要更新内容，供备查'}</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"

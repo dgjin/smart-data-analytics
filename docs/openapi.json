@@ -2351,6 +2351,24 @@
         }
       }
     },
+    "/api/help/changelog": {
+      "get": {
+        "tags": [
+          "Help"
+        ],
+        "operationId": "getChangelog",
+        "summary": "更新日志（公开）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "更新日志内容"
+          },
+          "404": {
+            "description": "更新日志文件不存在"
+          }
+        }
+      }
+    },
     "/api/auth/oidc/login": {
       "get": {
         "tags": [
