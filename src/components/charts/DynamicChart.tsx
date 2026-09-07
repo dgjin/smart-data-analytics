@@ -159,6 +159,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
   if (!data || data.length === 0) {
     return (
       <div
+        data-chart-capture-root
         className="flex items-center justify-center text-slate-400 text-xs bg-slate-900/40 border border-slate-800 rounded-xl"
         style={{ height }}
       >
@@ -499,6 +500,8 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
           <PieChart>
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
+            {/* 关闭饼图动画：recharts 在父组件重渲染时会重放动画，期间 label 被 isAnimationFinished
+                门控隐藏（约 4s）——页面闪失标签，且导出快照在此窗口期丢失百分比标签 */}
             <Pie
               data={data}
               dataKey={pieValueKey}
@@ -508,6 +511,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
               innerRadius={type === 'donut' ? 60 : 0}
               outerRadius={95}
               paddingAngle={3}
+              isAnimationActive={false}
               label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
               labelLine={false}
             >
@@ -908,9 +912,10 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
         </div>
       </div>
 
-      {/* Main Chart Container */}
+      {/* Main Chart Container（data-chart-capture-root：报告 PDF/PPT 导出按此 DOM 原样快照，与 charts 数组一一对齐） */}
       <div
         ref={containerRef}
+        data-chart-capture-root
         className="w-full h-full"
       >
         {type === 'heatmap' ? (
