@@ -8,24 +8,19 @@ import {
   Play,
   Pin,
   Save,
-  Trash2,
   Database,
   Loader2,
   Filter,
   ArrowUpDown,
   RotateCcw,
-  Bookmark,
   Search,
   Download,
-  History,
   Percent,
   LayoutGrid,
   Check,
   Plus,
   ChevronDown,
   ChevronUp,
-  Eye,
-  EyeOff,
   Maximize2,
   Minimize2,
 } from 'lucide-react';
@@ -53,26 +48,9 @@ import {
 } from '../../utils/flexQueryBuilder';
 import { useEffectiveAmountUnit, AMOUNT_UNIT_DIVISORS } from '../../hooks/useAmountUnitStore';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
-
-/** 已保存的固定报表（灵活查询定义），v0.9.24 起服务端 flex_queries 表持久化 */
-interface SavedFlexQuery {
-  id: string;
-  name: string;
-  dataSourceId: string;
-  config: FlexQueryConfig;
-  chartType: ChartType;
-  createdAt: string;
-}
-
-/** 最近执行查询历史，v0.9.24 起服务端 flex_query_history 表持久化（仅本人可见） */
-interface FlexHistoryItem {
-  id: string;
-  name: string;
-  dataSourceId: string;
-  config: FlexQueryConfig;
-  chartType: ChartType;
-  ranAt: string;
-}
+import { JoinConfigPanel } from './JoinConfigPanel';
+import { SqlPreviewPanel } from './SqlPreviewPanel';
+import { FlexQueryLibrary, FlexHistoryItem, SavedFlexQuery } from './FlexQueryLibrary';
 
 /** v0.9.24 迁移遗留键：服务端持久化后仅存留一次性迁移源，迁移成功即清除 */
 const SAVED_KEY = 'app-flex-queries';
@@ -696,94 +674,14 @@ export const FlexQueryBuilder: React.FC = () => {
               )}
             </div>
 
-            {/* v0.4.14：关联表配置（可选，多表 JOIN） */}
-            {tableSchema && (
-              <div className="rounded-xl bg-slate-800/40 border border-slate-700/50 p-2.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center space-x-1">
-                    <Database className="w-3 h-3 text-cyan-400" />
-                    <span>关联表（可选）</span>
-                  </span>
-                  <button
-                    onClick={() => setJoins([...joins, { table: '', type: 'INNER', on: { left: '', right: '' } }])}
-                    className="text-[10px] px-2 py-0.5 rounded bg-indigo-600/40 text-indigo-200 hover:bg-indigo-600/60 transition-colors"
-                  >
-                    + 添加关联
-                  </button>
-                </div>
-                {joins.length > 0 && (
-                  <div className="space-y-1.5">
-                    {joins.map((j, idx) => (
-                      <div key={idx} className="flex items-center space-x-1.5 text-[10px] bg-slate-900/60 rounded-lg p-1.5">
-                        <select
-                          value={j.table}
-                          onChange={(e) => {
-                            const next = [...joins];
-                            next[idx] = { ...j, table: e.target.value };
-                            setJoins(next);
-                          }}
-                          className="flex-1 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200"
-                        >
-                          <option value="">选表…</option>
-                          {tables.filter((t) => t.name !== selectedTable).map((t) => (
-                            <option key={t.id} value={t.name}>{t.displayName || t.name}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={j.type}
-                          onChange={(e) => {
-                            const next = [...joins];
-                            next[idx] = { ...j, type: e.target.value as 'INNER' | 'LEFT' };
-                            setJoins(next);
-                          }}
-                          className="bg-slate-800 border border-slate-700 rounded px-1 py-1 text-slate-200"
-                        >
-                          <option value="INNER">INNER</option>
-                          <option value="LEFT">LEFT</option>
-                        </select>
-                        {/* v0.4.15：JOIN 条件下拉化（主表字段/关联表字段） */}
-                        <select
-                          value={j.on.left}
-                          onChange={(e) => {
-                            const next = [...joins];
-                            next[idx] = { ...j, on: { ...j.on, left: e.target.value } };
-                            setJoins(next);
-                          }}
-                          className="flex-1 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200"
-                        >
-                          <option value="">主表字段…</option>
-                          {tableSchema?.columns.map((c) => (
-                            <option key={c.name} value={c.name}>{c.name}</option>
-                          ))}
-                        </select>
-                        <span className="text-slate-500">=</span>
-                        <select
-                          value={j.on.right}
-                          onChange={(e) => {
-                            const next = [...joins];
-                            next[idx] = { ...j, on: { ...j.on, right: e.target.value } };
-                            setJoins(next);
-                          }}
-                          disabled={!j.table}
-                          className="flex-1 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 disabled:opacity-50"
-                        >
-                          <option value="">关联表字段…</option>
-                          {j.table && tables.find((t) => t.name === j.table)?.columns.map((c) => (
-                            <option key={c.name} value={c.name}>{c.name}</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => setJoins(joins.filter((_, i) => i !== idx))}
-                          className="p-1 text-rose-400 hover:text-rose-300"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* v0.4.14：关联表配置（P0-1 拆至 JoinConfigPanel，多表 JOIN） */}
+            <JoinConfigPanel
+              tableSchema={tableSchema}
+              joins={joins}
+              onChange={setJoins}
+              tables={tables}
+              selectedTable={selectedTable}
+            />
 
             {tableSchema && (
               <>
@@ -1233,29 +1131,8 @@ export const FlexQueryBuilder: React.FC = () => {
               </select>
             </div>
 
-            {/* SQL 预览（v0.4.11：可折叠，收起时单行摘要） */}
-            <div className="rounded-xl bg-slate-950 border border-slate-800 p-2.5">
-              <button
-                onClick={() => setSqlOpen((v) => !v)}
-                className="w-full flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase"
-              >
-                <span>生成 SQL（实时预览）</span>
-                {sqlOpen ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-              </button>
-              {sqlOpen ? (
-                <code className="block mt-1 text-[11px] text-emerald-300 font-mono break-all whitespace-pre-wrap">
-                  {built?.ok === true ? built.sql : (built?.ok === false ? built.error : '选择数据表并拖入字段后自动生成')}
-                </code>
-              ) : (
-                <code
-                  className={`block mt-1 text-[10px] font-mono truncate ${
-                    built?.ok ? 'text-slate-500' : 'text-rose-400'
-                  }`}
-                >
-                  {built?.ok === true ? built.sql : (built?.ok === false ? built.error : '选择数据表并拖入字段后自动生成')}
-                </code>
-              )}
-            </div>
+            {/* SQL 预览（v0.4.11 可折叠）：P0-1 拆至 SqlPreviewPanel */}
+            <SqlPreviewPanel built={built} sqlOpen={sqlOpen} onToggle={() => setSqlOpen((v) => !v)} />
 
             <button
               onClick={() => void runQuery()}
@@ -1451,103 +1328,18 @@ export const FlexQueryBuilder: React.FC = () => {
               )}
             </div>
 
-            {/* v0.4.13：固定报表与查询历史全宽下并排 */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-            {/* 已保存固定报表 */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5 shadow-lg">
-              <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
-                <Bookmark className="w-3.5 h-3.5 text-indigo-400" />
-                <span>我的固定报表（{savedQueries.length}）</span>
-              </span>
-              {savedQueries.length === 0 ? (
-                <p className="text-[11px] text-slate-500 py-3 text-center">
-                  暂无保存的报表。配置查询后点击「保存为固定报表」，下次一键载入执行。
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {savedQueries.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs text-slate-200 font-semibold truncate">{item.name}</p>
-                        <p className="text-[10px] text-slate-500">
-                          {item.config.table} · {item.createdAt}
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-1.5 shrink-0">
-                        <button
-                          onClick={() => loadSaved(item)}
-                          className="text-[10px] px-2 py-1 rounded-lg bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 hover:bg-indigo-600/50"
-                        >
-                          载入
-                        </button>
-                        <button
-                          onClick={() => void deleteSavedQuery(item.id)}
-                          className="p-1 text-slate-500 hover:text-rose-400"
-                          title="删除该固定报表"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {savedQueries.length > 0 && (
-                <button
-                  onClick={() => setActiveTab('dashboard')}
-                  className="w-full text-[10px] text-slate-400 hover:text-slate-200 flex items-center justify-center space-x-1"
-                >
-                  <Pin className="w-3 h-3" />
-                  <span>前往决策数据看板查看固化图表</span>
-                </button>
-              )}
-            </div>
-
-            {/* 最近查询历史（v0.4.10，参照 Agile Query 查询历史） */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2.5 shadow-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
-                  <History className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>最近查询历史（{history.length}）</span>
-                </span>
-                {history.length > 0 && (
-                  <button onClick={() => persistHistory([])} className="text-[10px] text-slate-500 hover:text-rose-400">
-                    清空
-                  </button>
-                )}
-              </div>
-              {history.length === 0 ? (
-                <p className="text-[11px] text-slate-500 py-2 text-center">
-                  执行成功的查询会自动记录在此，点击还原配置后可重新执行。
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {history.map((h) => (
-                    <div
-                      key={h.id}
-                      className="flex items-center justify-between bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-1.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-[11px] text-slate-200 truncate">{h.name}</p>
-                        <p className="text-[10px] text-slate-500">{h.config.table} · {h.ranAt}</p>
-                      </div>
-                      <button
-                        onClick={() =>
-                          loadConfig(h.name, h.dataSourceId, h.config, h.chartType, `已从历史还原「${h.name}」，点击执行查询重新运行`)
-                        }
-                        className="shrink-0 text-[10px] px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:border-indigo-500"
-                      >
-                        还原
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            </div>
+            {/* v0.4.13：固定报表与最近查询历史（P0-1 拆至 FlexQueryLibrary） */}
+            <FlexQueryLibrary
+              savedQueries={savedQueries}
+              history={history}
+              onLoadSaved={loadSaved}
+              onDeleteSaved={(id) => void deleteSavedQuery(id)}
+              onGoDashboard={() => setActiveTab('dashboard')}
+              onClearHistory={() => persistHistory([])}
+              onRestoreHistory={(h) =>
+                loadConfig(h.name, h.dataSourceId, h.config, h.chartType, `已从历史还原「${h.name}」，点击执行查询重新运行`)
+              }
+            />
           </div>
         </div>
       )}
