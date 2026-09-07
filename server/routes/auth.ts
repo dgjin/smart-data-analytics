@@ -17,6 +17,7 @@ import {
   fetchUserInfo,
   findOrCreateOidcUser,
 } from '../auth/oidc';
+import { logger } from '../infra/logger';
 
 /** users 表登录查询行（SELECT 指定列） */
 interface UserRow extends mysql.RowDataPacket {
@@ -70,7 +71,7 @@ router.post('/login', rateLimiter, async (req, res) => {
     };
     return res.json({ success: true, token: signToken(authUser), user: authUser });
   } catch (err) {
-    console.error('[Auth] login failed:', err);
+    logger.error('[Auth] login failed:', err);
     return res.status(500).json({ error: '登录服务异常' });
   }
 });
@@ -107,7 +108,7 @@ router.post('/change-password', authMiddleware, async (req, res) => {
     );
     return res.json({ success: true });
   } catch (err) {
-    console.error('[Auth] change-password failed:', err);
+    logger.error('[Auth] change-password failed:', err);
     return res.status(500).json({ error: '密码修改失败' });
   }
 });
@@ -123,7 +124,7 @@ router.get('/oidc/login', rateLimiter, async (_req, res) => {
   try {
     return res.redirect(await buildAuthorizeUrl());
   } catch (err) {
-    console.error('[OIDC] login redirect failed:', err);
+    logger.error('[OIDC] login redirect failed:', err);
     return res.redirect('/?sso_error=OIDC%20服务暂不可用');
   }
 });
@@ -146,7 +147,7 @@ router.get('/oidc/callback', rateLimiter, async (req, res) => {
     const token = signToken(user);
     return res.redirect(`/?sso_token=${encodeURIComponent(token)}`);
   } catch (err: any) {
-    console.error('[OIDC] callback failed:', err);
+    logger.error('[OIDC] callback failed:', err);
     return fail(err?.message || 'OIDC 登录失败');
   }
 });

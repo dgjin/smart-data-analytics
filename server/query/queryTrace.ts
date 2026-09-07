@@ -5,6 +5,7 @@
  */
 import type { RowDataPacket } from 'mysql2';
 import { getPool } from '../infra/db';
+import { logger } from '../infra/logger';
 
 export type TraceStepType =
   | 'understanding'
@@ -82,7 +83,7 @@ export function recordTraceStep(traceId: string, meta: TraceMeta, step: TraceSte
     )
     .then(() => undefined)
     .catch((err: any) => {
-      console.warn('[Trace] record failed:', String(err?.message || err).slice(0, 120));
+      logger.warn('[Trace] record failed:', String(err?.message || err).slice(0, 120));
     });
 }
 

@@ -15,6 +15,7 @@ import {
   makeLlmError,
   withRetry,
 } from './llmResilience';
+import { logger } from '../infra/logger';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -79,7 +80,7 @@ function reportOllamaFailure(url: string): void {
   if (!b) return;
   b.downUntil = Date.now() + OLLAMA_BACKEND_COOLDOWN_MS;
   if (ollamaBackends().length > 1) {
-    console.warn(`[LLM] Ollama 后端 ${url} 调用失败，已摘除（待健康检查恢复）`);
+    logger.warn(`[LLM] Ollama 后端 ${url} 调用失败，已摘除（待健康检查恢复）`);
   }
 }
 
@@ -162,7 +163,7 @@ export function startOllamaHealthChecks(intervalMs = 10_000): void {
       void probeOllamaBackend(b.url).then((ok) => {
         if (ok) {
           b.downUntil = 0;
-          console.warn(`[LLM] Ollama 后端 ${b.url} 健康检查通过，恢复接入`);
+          logger.warn(`[LLM] Ollama 后端 ${b.url} 健康检查通过，恢复接入`);
         }
       });
     }
@@ -266,7 +267,7 @@ export function resolveEngineWithFailover(
     primary === 'ollama' ? ['qwen', 'gemini'] : primary === 'qwen' ? ['ollama', 'gemini'] : ['qwen', 'ollama'];
   for (const alt of order) {
     if (engineConfigured(alt) && rs.breakers[alt].canRequest()) {
-      console.warn(`[LLM] 引擎 ${primary} 熔断开路，本次调用故障转移到 ${alt}`);
+      logger.warn(`[LLM] 引擎 ${primary} 熔断开路，本次调用故障转移到 ${alt}`);
       return { kind: alt, failovered: true, circuitOpen: false };
     }
   }
@@ -281,7 +282,7 @@ async function callChannel(kind: EngineKind, fn: () => Promise<ChannelOutcome>):
     const outcome = await withRetry(fn, {
       maxRetries: llmRetryMax(),
       onRetry: (err, attempt, delay) =>
-        console.warn(
+        logger.warn(
           `[LLM] ${kind} 调用失败，第 ${attempt} 次重试（${delay}ms 后）：${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`
         ),
     });

@@ -9,6 +9,7 @@ import { getPool } from '../infra/db';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -80,7 +81,7 @@ router.get('/', authMiddleware, async (_req, res) => {
     );
     res.json({ success: true, widgets: rows.map(toDashboardWidgetRecord) });
   } catch (err) {
-    console.error('[dashboard-widgets] 列表查询失败:', err);
+    logger.error('[dashboard-widgets] 列表查询失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '看板图表列表获取失败' });
   }
 });
@@ -105,7 +106,7 @@ router.post('/', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, re
     if ((err as { code?: string })?.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ code: ERROR_CODES.CONFLICT, error: '图表已存在' });
     }
-    console.error('[dashboard-widgets] 固化失败:', err);
+    logger.error('[dashboard-widgets] 固化失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '看板图表固化失败' });
   }
 });
@@ -125,7 +126,7 @@ router.put('/order', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req
     writeAudit({ userId: user.id, username: user.username, endpoint: 'dashboard_widget', status: 'SUCCESS', detail: `调整看板图表排序（${ids.length} 项）` });
     res.json({ success: true });
   } catch (err) {
-    console.error('[dashboard-widgets] 排序失败:', err);
+    logger.error('[dashboard-widgets] 排序失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '看板图表排序失败' });
   }
 });
@@ -152,7 +153,7 @@ router.put('/:widgetId', authMiddleware, requireRole('ADMIN', 'ANALYST'), async 
     }
     res.json({ success: true });
   } catch (err) {
-    console.error('[dashboard-widgets] 更新失败:', err);
+    logger.error('[dashboard-widgets] 更新失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '看板图表更新失败' });
   }
 });
@@ -178,7 +179,7 @@ router.delete('/:widgetId', authMiddleware, requireRole('ADMIN', 'ANALYST'), asy
     writeAudit({ userId: user.id, username: user.username, endpoint: 'dashboard_widget', status: 'SUCCESS', detail: `移除看板图表 ${widgetId}` });
     res.json({ success: true });
   } catch (err) {
-    console.error('[dashboard-widgets] 删除失败:', err);
+    logger.error('[dashboard-widgets] 删除失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '看板图表删除失败' });
   }
 });

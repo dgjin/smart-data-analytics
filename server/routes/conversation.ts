@@ -8,6 +8,7 @@ import { ERROR_CODES } from '../infra/errorCodes';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { rateLimiter } from '../infra/rateLimiter';
 import { searchConversations, deleteConversation } from '../query/conversationHistory';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -20,7 +21,7 @@ router.get('/', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res
     const conversations = await searchConversations(req.user!.id, dataSourceId, keyword);
     return res.json({ success: true, conversations });
   } catch (err) {
-    console.error('[Conversations] search failed:', err);
+    logger.error('[Conversations] search failed:', err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '对话历史查询失败' });
   }
 });
@@ -34,7 +35,7 @@ router.delete('/:id', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
     if (!ok) return res.status(404).json({ code: ERROR_CODES.NOT_FOUND, error: '对话记录不存在或无权删除' });
     return res.json({ success: true });
   } catch (err) {
-    console.error('[Conversations] delete failed:', err);
+    logger.error('[Conversations] delete failed:', err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '对话记录删除失败' });
   }
 });

@@ -17,6 +17,7 @@ import { getPool } from '../infra/db';
 import { hashPassword } from './passwords';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import type { AuthUser, UserRole } from './auth';
+import { logger } from '../infra/logger';
 
 /** users 表 JIT 命中查询行（SELECT 指定列） */
 interface UserRow extends mysql.RowDataPacket {
@@ -237,6 +238,6 @@ export async function findOrCreateOidcUser(profile: OidcProfile): Promise<AuthUs
     [username, hashPassword(randomBytes(16).toString('hex')), name, dept, role]
   );
   const id = Number(result.insertId);
-  console.log(`[OIDC] JIT 建号：${username}（${name}，部门=${dept || '未设置'}，角色=${role}）`);
+  logger.info(`[OIDC] JIT 建号：${username}（${name}，部门=${dept || '未设置'}，角色=${role}）`);
   return { id, username, displayName: name, department: dept, role };
 }

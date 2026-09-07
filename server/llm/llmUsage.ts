@@ -5,6 +5,7 @@
 import { getPool } from '../infra/db';
 import { observeLlmUsage } from '../infra/monitoring';
 import type { RowDataPacket } from 'mysql2';
+import { logger } from '../infra/logger';
 
 export type LlmChannel = 'json' | 'text' | 'text_stream' | 'embedding';
 
@@ -42,9 +43,9 @@ export function recordLlmUsage(entry: LlmUsageEntry): void {
           entry.ok ? 1 : 0,
         ]
       )
-      .catch((err: any) => console.warn('[LlmUsage] record failed:', err?.message || err));
+      .catch((err: any) => logger.warn('[LlmUsage] record failed:', err?.message || err));
   } catch (err: any) {
-    console.warn('[LlmUsage] record failed:', err?.message || err);
+    logger.warn('[LlmUsage] record failed:', err?.message || err);
   }
 }
 

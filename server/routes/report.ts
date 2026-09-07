@@ -23,6 +23,7 @@ import { normalizeReport } from '../../src/utils/queryResultNormalizer';
 import { getPool } from '../infra/db';
 import { submitTask } from '../infra/taskQueue';
 import type mysql from 'mysql2/promise';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -218,7 +219,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
     return res.json({ success: true, reportPlanId, plan: out.plan, expiresInSec: 600 });
   } catch (err: any) {
-    console.error('Report Plan Error:', err);
+    logger.error('Report Plan Error:', err);
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: '报表查询计划生成失败，请稍后重试' });
   }
@@ -362,7 +363,7 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
       dataProvenance: 'simulated',
     });
   } catch (err: any) {
-    console.error('Generate Report From Query Error:', err);
+    logger.error('Generate Report From Query Error:', err);
     writeAudit({ ...auditBase, question: auditQuestion, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '报告生成失败，请稍后重试' });
   } finally {
@@ -410,7 +411,7 @@ router.post('/generate/async', rateLimiter, authMiddleware, requireRole('ADMIN',
       user: { id: user.id, username: user.username, role: user.role, department: user.department },
     }, { id: user.id, username: user.username });
   } catch (err: any) {
-    console.error('[Report] async submit failed:', err?.message || err);
+    logger.error('[Report] async submit failed:', err?.message || err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
   }
   if (!submitted) {
@@ -465,7 +466,7 @@ router.post('/generate-from-query/async', rateLimiter, authMiddleware, requireRo
       user: { id: user.id, username: user.username, role: user.role, department: user.department },
     }, { id: user.id, username: user.username });
   } catch (err: any) {
-    console.error('[Report] async submit failed:', err?.message || err);
+    logger.error('[Report] async submit failed:', err?.message || err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
   }
   if (!submitted) {
@@ -500,7 +501,7 @@ router.post('/export-pdf/async', express.json({ limit: '20mb' }), rateLimiter, a
       user: { id: user.id, username: user.username, role: user.role, department: user.department },
     }, { id: user.id, username: user.username });
   } catch (err: any) {
-    console.error('[Report] async pdf submit failed:', err?.message || err);
+    logger.error('[Report] async pdf submit failed:', err?.message || err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
   }
   if (!submitted) {
@@ -538,7 +539,7 @@ router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddlew
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt))}`);
     return res.send(buffer);
   } catch (err: any) {
-    console.error('Report Export Error:', err);
+    logger.error('Report Export Error:', err);
     writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'PPT 生成失败，请稍后重试' });
   }
@@ -573,7 +574,7 @@ router.post('/export-pdf', express.json({ limit: '20mb' }), rateLimiter, authMid
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.pdf'))}`);
     return res.send(pdf);
   } catch (err: any) {
-    console.error('Report PDF Export Error:', err);
+    logger.error('Report PDF Export Error:', err);
     writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: String(err?.message || 'PDF 生成失败，请稍后重试').slice(0, 200) });
   }

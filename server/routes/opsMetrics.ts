@@ -7,6 +7,7 @@ import { Router } from 'express';
 import type mysql from 'mysql2/promise';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
+import { logger } from '../infra/logger';
 
 // ---------- 类型 ----------
 
@@ -317,7 +318,7 @@ router.get('/metrics', async (req, res) => {
 
     return res.json({ success: true, days, dataSourceId: dataSourceId || null, northStar, daily, weekly });
   } catch (err: any) {
-    console.error('[OpsMetrics] 聚合失败:', err?.message || err);
+    logger.error('[OpsMetrics] 聚合失败:', err?.message || err);
     return res.status(500).json({ error: '运维指标获取失败' });
   }
 });

@@ -12,6 +12,7 @@ import { summarizeSchema } from './schemaGuidance';
 import { filterSensitiveColumns } from './queryGuard';
 import type { SchemaTable } from './schemaTypes';
 import type mysql from 'mysql2/promise';
+import { logger } from '../infra/logger';
 
 /** data_sources 表上下文加载行（SELECT 指定列） */
 interface DataSourceRow extends mysql.RowDataPacket {
@@ -145,7 +146,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       dataSourceName: entry.dataSourceName,
     };
   } catch (err) {
-    console.warn('[Schema] load datasource schema failed, fallback to client schema:', err);
+    logger.warn('[Schema] load datasource schema failed, fallback to client schema:', err);
     return fromClientSchema(clientSchema);
   }
 }

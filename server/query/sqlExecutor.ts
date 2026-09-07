@@ -16,6 +16,7 @@ import { getPool } from '../infra/db';
 import { observeSqlExec, observeExplainGuard } from '../infra/monitoring';
 import { decryptSecret } from '../infra/secretsCrypto';
 import { callLLMJson } from '../llm/llmClient';
+import { logger } from '../infra/logger';
 
 const { Parser: SqlAstParser } = sqlParserPkg;
 
@@ -654,7 +655,7 @@ async function explainGuard(
   } catch (err: any) {
     // fail-open：EXPLAIN 失败（权限/方言特性等）不阻断正常执行
     observeExplainGuard('error', entry.dialect);
-    console.warn('[explain-guard] EXPLAIN 评估失败（放行执行）:', String(err?.message || err).slice(0, 120));
+    logger.warn('[explain-guard] EXPLAIN 评估失败（放行执行）:', String(err?.message || err).slice(0, 120));
     return { blocked: false };
   }
 }

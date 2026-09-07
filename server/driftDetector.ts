@@ -12,6 +12,7 @@
 import mysql from 'mysql2/promise';
 import { getPool } from './infra/db';
 import { executeSafeSql } from './query/sqlExecutor';
+import { logger } from './infra/logger';
 
 /** 标识符安全校验（表/列名来自名单配置，拼入 SQL 前必须过此校验） */
 export const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -276,8 +277,8 @@ export function startDriftSweeper(intervalMs: number = Number(process.env.DRIFT_
   const timer = setInterval(() => {
     void scanAllDataSources().then((summaries) => {
       const total = summaries.reduce((acc, s) => acc + s.newEvents, 0);
-      if (total > 0) console.log(`[Drift] 周期扫描发现 ${total} 条新漂移事件`);
-    }).catch((e) => console.error('[Drift] 周期扫描失败:', e?.message || e));
+      if (total > 0) logger.info(`[Drift] 周期扫描发现 ${total} 条新漂移事件`);
+    }).catch((e) => logger.error('[Drift] 周期扫描失败:', e?.message || e));
   }, intervalMs);
   timer.unref();
 }

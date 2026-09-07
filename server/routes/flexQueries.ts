@@ -9,6 +9,7 @@ import { getPool } from '../infra/db';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -104,7 +105,7 @@ router.get('/', authMiddleware, async (req, res) => {
         );
     res.json({ success: true, queries: rows.map(toFlexQueryRecord) });
   } catch (err) {
-    console.error('[flex-queries] 列表查询失败:', err);
+    logger.error('[flex-queries] 列表查询失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '固定报表列表获取失败' });
   }
 });
@@ -128,7 +129,7 @@ router.get('/history', authMiddleware, async (req, res) => {
     }
     res.json({ success: true, items });
   } catch (err) {
-    console.error('[flex-queries] 历史查询失败:', err);
+    logger.error('[flex-queries] 历史查询失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '查询历史获取失败' });
   }
 });
@@ -145,7 +146,7 @@ router.put('/history', authMiddleware, async (req, res) => {
     );
     res.json({ success: true, count: items.length });
   } catch (err) {
-    console.error('[flex-queries] 历史保存失败:', err);
+    logger.error('[flex-queries] 历史保存失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '查询历史保存失败' });
   }
 });
@@ -168,7 +169,7 @@ router.post('/', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, re
     if ((err as { code?: string })?.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ code: ERROR_CODES.CONFLICT, error: '固定报表已存在' });
     }
-    console.error('[flex-queries] 保存失败:', err);
+    logger.error('[flex-queries] 保存失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '固定报表保存失败' });
   }
 });
@@ -193,7 +194,7 @@ router.delete('/:queryId', authMiddleware, requireRole('ADMIN', 'ANALYST'), asyn
     writeAudit({ userId: user.id, username: user.username, endpoint: 'flex_query', status: 'SUCCESS', detail: `删除固定报表 ${queryId}` });
     res.json({ success: true });
   } catch (err) {
-    console.error('[flex-queries] 删除失败:', err);
+    logger.error('[flex-queries] 删除失败:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '固定报表删除失败' });
   }
 });

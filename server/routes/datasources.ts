@@ -16,6 +16,7 @@ import { invalidateQueryCache } from '../query/queryCache';
 import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../infra/secretsCrypto';
 import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
+import { logger } from '../infra/logger';
 
 /** P0-2：data_sources 表行（SELECT * 动态列，仅声明取用字段） */
 interface DataSourceDbRow extends mysql.RowDataPacket {
@@ -281,7 +282,7 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: DbConnC
       [schema]
     );
     
-    console.log(`[Schema Extract] Found ${tableRows.length} objects in schema "${schema}"`);
+    logger.info(`[Schema Extract] Found ${tableRows.length} objects in schema "${schema}"`);
     
     // 列查询统一走 pg_catalog（pg_attribute + pg_description）：
     // 1) 避免 col_description + ::regclass 名称解析失败（大写/特殊字符表名）导致注释为 NULL
@@ -319,7 +320,7 @@ async function extractPgSchema(type: 'postgresql' | 'greenplum', config: DbConnC
       ORDER BY c.relname, a.attnum`;
        
     const { rows: colRows } = await client.query(colQuery, [schema]);
-    console.log(`[Schema Extract] Extracted ${colRows.length} columns, ${colRows.filter((r) => r.comment).length} with comments`);
+    logger.info(`[Schema Extract] Extracted ${colRows.length} columns, ${colRows.filter((r) => r.comment).length} with comments`);
     return assembleTables(tableRows, colRows, mapPgType);
   } finally {
     await client.end().catch(() => undefined);
@@ -385,7 +386,7 @@ router.get('/', async (req, res) => {
       }),
     });
   } catch (err) {
-    console.error('[DataSources] list failed:', err);
+    logger.error('[DataSources] list failed:', err);
     return res.status(500).json({ error: '数据源列表获取失败' });
   }
 });
@@ -401,7 +402,7 @@ router.get('/:id/data-version', async (req, res) => {
     if (out.reason === 'NOT_FOUND') return res.status(404).json({ error: '数据源不存在' });
     return res.json({ version: out.version, checkedAt: new Date().toISOString(), ...(out.reason ? { reason: out.reason } : {}) });
   } catch (err) {
-    console.error('[DataSources] data-version failed:', err);
+    logger.error('[DataSources] data-version failed:', err);
     return res.status(500).json({ error: '数据版本探测失败' });
   }
 });
@@ -424,7 +425,7 @@ router.get('/:id/flex-schema', requireRole('ADMIN', 'ANALYST'), async (req, res)
     }
     return res.json({ success: true, tables: ds.tables || [] });
   } catch (err) {
-    console.error('[DataSources] flex-schema failed:', err);
+    logger.error('[DataSources] flex-schema failed:', err);
     return res.status(500).json({ error: 'Schema 获取失败' });
   }
 });
@@ -466,7 +467,7 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
     const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.status(201).json({ success: true, id, dataSource: rowToDataSource(rows[0]) });
   } catch (err) {
-    console.error('[DataSources] create failed:', err);
+    logger.error('[DataSources] create failed:', err);
     return res.status(500).json({ error: '数据源创建失败' });
   }
 });
@@ -536,7 +537,7 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
-    console.error('[DataSources] sync-schema failed:', err);
+    logger.error('[DataSources] sync-schema failed:', err);
     return res.status(500).json({ error: 'Schema 同步失败' });
   }
 });
@@ -607,7 +608,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
     void invalidateQueryCache(id);
     return res.json({ success: true });
   } catch (err) {
-    console.error('[DataSources] update failed:', err);
+    logger.error('[DataSources] update failed:', err);
     return res.status(500).json({ error: '数据源更新失败' });
   }
 });
@@ -626,7 +627,7 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
     void invalidateQueryCache(id);
     return res.json({ success: true });
   } catch (err) {
-    console.error('[DataSources] delete failed:', err);
+    logger.error('[DataSources] delete failed:', err);
     return res.status(500).json({ error: '数据源删除失败' });
   }
 });
@@ -693,7 +694,7 @@ router.put('/:id/schema-meta', requireRole('ADMIN'), async (req, res) => {
     const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, touched, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
-    console.error('[DataSources] update schema-meta failed:', err);
+    logger.error('[DataSources] update schema-meta failed:', err);
     return res.status(500).json({ error: '指标维度维护保存失败' });
   }
 });
@@ -714,7 +715,7 @@ router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
     const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
-    console.error('[DataSources] update acl failed:', err);
+    logger.error('[DataSources] update acl failed:', err);
     return res.status(500).json({ error: '访问控制保存失败' });
   }
 });
@@ -747,7 +748,7 @@ router.put('/:id/scope', requireRole('ADMIN'), async (req, res) => {
     const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
   } catch (err) {
-    console.error('[DataSources] update scope failed:', err);
+    logger.error('[DataSources] update scope failed:', err);
     return res.status(500).json({ error: '问数范围保存失败' });
   }
 });

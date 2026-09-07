@@ -1,3 +1,4 @@
+import { logger } from '../infra/logger';
 /**
  * P2-10 问数生命周期钩子（Vanna 2.0 lifecycle hooks 轻版抽象）。
  * 在问数链路的「进入前 / 结束后」两个切面广播事件，审计、缓存写入等横切逻辑
@@ -43,7 +44,7 @@ export function emitBeforeQuery(ctx: QueryHookContext): void {
     try {
       h(ctx);
     } catch (err) {
-      console.warn('[QueryHooks] before hook error:', err);
+      logger.warn('[QueryHooks] before hook error:', err);
     }
   }
 }
@@ -54,7 +55,7 @@ export function emitAfterQuery(ctx: QueryHookContext, outcome: QueryOutcome): vo
     try {
       h(ctx, outcome);
     } catch (err) {
-      console.warn('[QueryHooks] after hook error:', err);
+      logger.warn('[QueryHooks] after hook error:', err);
     }
   }
 }

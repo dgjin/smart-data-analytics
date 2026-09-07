@@ -11,6 +11,7 @@ import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -75,7 +76,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const templates = (rows as ReportTemplateRow[]).map(toTemplateRecord);
     res.json({ ok: true, templates });
   } catch (err: any) {
-    console.error('GET /api/report-templates error:', err);
+    logger.error('GET /api/report-templates error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取模板列表失败' });
   }
 });
@@ -125,7 +126,7 @@ router.post('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
     const template = toTemplateRecord((rows as ReportTemplateRow[])[0]);
     res.json({ ok: true, template });
   } catch (err: any) {
-    console.error('POST /api/report-templates error:', err);
+    logger.error('POST /api/report-templates error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '新增模板失败' });
   }
 });
@@ -196,7 +197,7 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
 
     res.json({ ok: true });
   } catch (err: any) {
-    console.error('PUT /api/report-templates/:id error:', err);
+    logger.error('PUT /api/report-templates/:id error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '编辑模板失败' });
   }
 });
@@ -243,7 +244,7 @@ router.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => 
 
     res.json({ ok: true });
   } catch (err: any) {
-    console.error('DELETE /api/report-templates/:id error:', err);
+    logger.error('DELETE /api/report-templates/:id error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '删除模板失败' });
   }
 });

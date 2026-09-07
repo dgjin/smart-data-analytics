@@ -54,7 +54,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
-| 测试 | Vitest（78 文件 / 875 用例）+ NL2SQL 评测集（server/eval，148 用例：六类分层 + 行级权限类；`npm run eval:seed` 一键重建可复现评测数据源） |
+| 测试 | Vitest（81 文件 / 905 用例）+ NL2SQL 评测集（server/eval，148 用例：六类分层 + 行级权限类；`npm run eval:seed` 一键重建可复现评测数据源） |
 
 ## 快速开始
 
@@ -179,7 +179,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides）
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（875 用例）
+npm test             # Vitest（905 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

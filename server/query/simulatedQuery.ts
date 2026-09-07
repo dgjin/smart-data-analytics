@@ -6,6 +6,7 @@
 import { callLLMJson, ChatMessage } from '../llm/llmClient';
 import { buildColumnNames, parseRefusal } from './liveQuery';
 import { normalizeQueryResult, safeParseJson } from '../../src/utils/queryResultNormalizer';
+import { logger } from '../infra/logger';
 
 export interface SimulatedQueryInput {
   query: string;
@@ -106,7 +107,7 @@ export async function runSimulatedQuery(input: SimulatedQueryInput): Promise<Sim
     }
     return { ok: true, parsed, result: normalized };
   } catch (err: any) {
-    console.error('NL Query API error:', err?.message || err);
+    logger.error('NL Query API error:', err?.message || err);
     return { ok: false, error: String(err?.message || err) };
   }
 }

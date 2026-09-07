@@ -6,6 +6,7 @@
 import { getPool } from '../infra/db';
 import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { KnowledgeBaseItem } from '../../src/types/analytics';
+import { logger } from '../infra/logger';
 
 /**
  * 将数据库行对象转换为前端使用的 KnowledgeBaseItem 格式
@@ -242,13 +243,13 @@ export async function seedKnowledgeBase(
           ]
         );
       } catch (err: any) {
-        console.error(`[KB Seed] Failed to insert ${entry.id}:`, err.message);
+        logger.error(`[KB Seed] Failed to insert ${entry.id}:`, err.message);
         // 继续处理下一个条目
       }
     }
     
     await conn.commit();
-    console.log(`[KB Seed] Successfully seeded ${entries.length} entries for ${dataSourceId}`);
+    logger.info(`[KB Seed] Successfully seeded ${entries.length} entries for ${dataSourceId}`);
   } catch (err: any) {
     await conn.rollback();
     throw err;

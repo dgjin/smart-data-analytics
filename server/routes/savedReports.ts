@@ -12,6 +12,7 @@ import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -99,7 +100,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const reports = (rows as SavedReportRow[]).map(toSavedReportRecord);
     res.json({ ok: true, reports });
   } catch (err: any) {
-    console.error('GET /api/saved-reports error:', err);
+    logger.error('GET /api/saved-reports error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取历史报表列表失败' });
   }
 });
@@ -133,7 +134,7 @@ router.post('/', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, re
       // 幂等：本地存量迁移或多端重复提交时视为已保存
       return res.status(409).json({ code: ERROR_CODES.CONFLICT, error: '报表已存在', reportId: report.id });
     }
-    console.error('POST /api/saved-reports error:', err);
+    logger.error('POST /api/saved-reports error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '保存报表失败' });
   }
 });
@@ -184,7 +185,7 @@ router.put('/:reportId', authMiddleware, requireRole('ADMIN', 'ANALYST'), async 
     });
     res.json({ ok: true });
   } catch (err: any) {
-    console.error('PUT /api/saved-reports/:reportId error:', err);
+    logger.error('PUT /api/saved-reports/:reportId error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '更新报表失败' });
   }
 });
@@ -211,7 +212,7 @@ router.put('/:reportId/comments', authMiddleware, async (req, res) => {
     await pool.query('UPDATE saved_reports SET report_data = ? WHERE report_id = ?', [JSON.stringify(parsed), reportId]);
     res.json({ ok: true });
   } catch (err: any) {
-    console.error('PUT /api/saved-reports/:reportId/comments error:', err);
+    logger.error('PUT /api/saved-reports/:reportId/comments error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '保存批注失败' });
   }
 });
@@ -249,7 +250,7 @@ router.delete('/:reportId', authMiddleware, async (req, res) => {
     });
     res.json({ ok: true });
   } catch (err: any) {
-    console.error('DELETE /api/saved-reports/:reportId error:', err);
+    logger.error('DELETE /api/saved-reports/:reportId error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '删除报表失败' });
   }
 });

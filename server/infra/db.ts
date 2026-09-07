@@ -9,6 +9,7 @@ import { encryptSecret, isEncrypted } from './secretsCrypto';
 import { BUILTIN_SKILLS } from '../skills';
 import { ensureTaskTable } from './taskQueue';
 import { DEFAULT_DASHBOARD_WIDGET_SEEDS } from '../defaultWidgets';
+import { logger } from './logger';
 
 // 注意：ESM import 提升会使模块级 process.env 读取早于 dotenv.config()，
 // 因此所有环境变量必须在使用时惰性读取。
@@ -293,7 +294,7 @@ export async function initSchema(): Promise<void> {
       "ALTER TABLE conversation_history MODIFY COLUMN status ENUM('SUCCESS','FALLBACK','REFUSED') NOT NULL DEFAULT 'SUCCESS'"
     );
   } catch (err: any) {
-    console.warn('[DB] conversation_history status migration skipped:', err?.message || err);
+    logger.warn('[DB] conversation_history status migration skipped:', err?.message || err);
   }
 
   // P1-A 知识库 RAG：管理员登记的业务知识（指标口径/术语），切块后向量检索注入问数 prompt
@@ -712,7 +713,7 @@ export async function initSchema(): Promise<void> {
       'INSERT INTO users (username, password_hash, display_name, role, must_change_password) VALUES (?, ?, ?, ?, 1)',
       [defaultAdminUsername(), hashPassword(defaultAdminPassword()), '系统管理员', 'ADMIN']
     );
-    console.log(`[DB] Seeded default admin account: ${defaultAdminUsername()} (首次登录将强制修改初始密码)`);
+    logger.info(`[DB] Seeded default admin account: ${defaultAdminUsername()} (首次登录将强制修改初始密码)`);
   }
 
   // P0 安全告警：管理员仍在使用默认密码时每次启动提醒；仅对从未登录过的账号置强制改密标记
@@ -724,9 +725,9 @@ export async function initSchema(): Promise<void> {
   if (adminRows[0] && verifyPassword(defaultAdminPassword(), String(adminRows[0].password_hash))) {
     if (adminRows[0].last_login_at == null) {
       await pool.query('UPDATE users SET must_change_password = 1 WHERE id = ?', [adminRows[0].id]);
-      console.warn('[Security] ⚠️ 管理员账号使用默认密码且从未登录，首次登录将强制修改密码！');
+      logger.warn('[Security] ⚠️ 管理员账号使用默认密码且从未登录，首次登录将强制修改密码！');
     } else {
-      console.warn('[Security] ⚠️ 管理员账号仍在使用默认密码，请尽快修改！');
+      logger.warn('[Security] ⚠️ 管理员账号仍在使用默认密码，请尽快修改！');
     }
   }
 
@@ -747,7 +748,7 @@ export async function initSchema(): Promise<void> {
         ]
       );
     }
-    console.log(`[DB] Seeded ${INITIAL_DATA_SOURCES.length} demo data sources`);
+    logger.info(`[DB] Seeded ${INITIAL_DATA_SOURCES.length} demo data sources`);
   }
 
   // 6. P0 存量迁移：明文数据源密码就地加密（enc:v1: 前缀幂等跳过）
@@ -762,8 +763,8 @@ export async function initSchema(): Promise<void> {
     if (!config?.password || isEncrypted(config.password)) continue;
     config.password = encryptSecret(String(config.password));
     await pool.query('UPDATE data_sources SET config_json = ? WHERE id = ?', [JSON.stringify(config), row.id]);
-    console.log(`[DB] Encrypted stored credential for data source ${row.id}`);
+    logger.info(`[DB] Encrypted stored credential for data source ${row.id}`);
   }
 
-  console.log(`[DB] MySQL ready: ${base.host}:${base.port}/${database}`);
+  logger.info(`[DB] MySQL ready: ${base.host}:${base.port}/${database}`);
 }

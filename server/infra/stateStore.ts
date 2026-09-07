@@ -5,6 +5,7 @@
  * 键命名约定：qp:（问数计划）rqp:（报表计划）qc:（问数缓存）uql:（用户配额）uqs:（并发槽）rl:（IP限流）
  */
 import Redis from 'ioredis';
+import { logger } from './logger';
 
 export interface StateStore {
   get(key: string): Promise<string | null>;
@@ -175,7 +176,7 @@ export function getStateStore(): StateStore {
         retryStrategy: (times) => Math.min(times * 200, 3000),
       });
       client.on('error', (err) => {
-        console.warn('[stateStore] Redis 连接异常:', err?.message || err);
+        logger.warn('[stateStore] Redis 连接异常:', err?.message || err);
       });
       current = new RedisStateStore(client);
     } else {

@@ -28,6 +28,7 @@ import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { saveKnowledgeDoc, CHUNK_OVERLAP } from '../knowledge/knowledgeBase';
 import { DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_DS_ID } from '../seedDataResources';
+import { logger } from '../infra/logger';
 
 /**
  * 将知识文档的切块序列还原为完整原文：
@@ -217,7 +218,7 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
     );
     res.send(JSON.stringify(exportData, null, 2));
   } catch (err: any) {
-    console.error('[KB Export Error]', err);
+    logger.error('[KB Export Error]', err);
     res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
   }
 });
@@ -357,7 +358,7 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
     }
 
     result.success = result.errorCount === 0;
-    console.log('[KB Import]', {
+    logger.info('[KB Import]', {
       dryRun: result.dryRun,
       strategy: mergeStrategy,
       dataSourceId,
@@ -368,7 +369,7 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
     });
     res.json(result);
   } catch (err: any) {
-    console.error('[KB Import Error]', err);
+    logger.error('[KB Import Error]', err);
     res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
   }
 });

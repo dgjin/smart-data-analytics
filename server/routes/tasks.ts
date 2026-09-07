@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { authMiddleware } from '../auth/auth';
 import { getTask, listUserTasks } from '../infra/taskQueue';
 import { taskResultFile } from '../taskHandlers';
+import { logger } from '../infra/logger';
 
 /** 任务结果负载：JSON 类任务为任意对象；文件类任务（PDF 导出）形如 { file: true, filename, size }，见 taskHandlers.runExportPdf */
 interface TaskResultPayload {
@@ -29,7 +30,7 @@ router.get('/mine', authMiddleware, async (req, res) => {
     const tasks = await listUserTasks(req.user!.id, limit);
     return res.json({ tasks });
   } catch (err) {
-    console.error('[Tasks] list failed:', err);
+    logger.error('[Tasks] list failed:', err);
     return res.status(500).json({ error: '任务列表获取失败' });
   }
 });
@@ -49,7 +50,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     }
     return res.json(task);
   } catch (err) {
-    console.error('[Tasks] get failed:', err);
+    logger.error('[Tasks] get failed:', err);
     return res.status(500).json({ error: '任务状态获取失败' });
   }
 });
@@ -76,7 +77,7 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(String(result.filename || 'report.pdf'))}`);
     return res.sendFile(file);
   } catch (err) {
-    console.error('[Tasks] download failed:', err);
+    logger.error('[Tasks] download failed:', err);
     return res.status(500).json({ error: '任务结果下载失败' });
   }
 });

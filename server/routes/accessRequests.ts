@@ -12,6 +12,7 @@ import { getPool } from '../infra/db';
 import { rateLimiter } from '../infra/rateLimiter';
 import { checkDataSourceAccess, grantUserAccess } from '../auth/accessControl';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import { logger } from '../infra/logger';
 
 const router = Router();
 router.use(authMiddleware);
@@ -62,7 +63,7 @@ router.post('/', rateLimiter, async (req, res) => {
     );
     return res.status(201).json({ success: true, id: Number(result.insertId) });
   } catch (err) {
-    console.error('[AccessRequests] create failed:', err);
+    logger.error('[AccessRequests] create failed:', err);
     return res.status(500).json({ error: '申请提交失败' });
   }
 });
@@ -78,7 +79,7 @@ router.get('/mine', async (req, res) => {
     );
     return res.json({ success: true, requests: rows.map(rowToRequest) });
   } catch (err) {
-    console.error('[AccessRequests] mine failed:', err);
+    logger.error('[AccessRequests] mine failed:', err);
     return res.status(500).json({ error: '申请列表获取失败' });
   }
 });
@@ -97,7 +98,7 @@ router.get('/', requireRole('ADMIN'), async (req, res) => {
     );
     return res.json({ success: true, requests: rows.map(rowToRequest) });
   } catch (err) {
-    console.error('[AccessRequests] list failed:', err);
+    logger.error('[AccessRequests] list failed:', err);
     return res.status(500).json({ error: '审批列表获取失败' });
   }
 });
@@ -125,7 +126,7 @@ async function decide(req: any, res: any, action: 'APPROVED' | 'REJECTED') {
     );
     return res.json({ success: true });
   } catch (err: any) {
-    console.error(`[AccessRequests] ${action} failed:`, err);
+    logger.error(`[AccessRequests] ${action} failed:`, err);
     return res.status(500).json({ error: err?.message === '数据源不存在' ? '数据源已被删除，无法授权' : '审批操作失败' });
   }
 }

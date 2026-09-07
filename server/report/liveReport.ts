@@ -14,6 +14,7 @@ import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { budgetText, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from '../query/schemaGuidance';
 import type { SchemaTable } from '../query/schemaTypes';
+import { logger } from '../infra/logger';
 
 const MAX_REPORT_QUERIES = 4;
 const SAMPLE_ROWS_PER_CHART = 10;
@@ -370,7 +371,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     parsed.plans.map(async (plan) => {
       const outcome = await executeSafeSql(dataSourceId, plan.sql, schema, sensitiveRemoved, 500, rowFilters || {}, input.scenario ?? 'chain');
       if (outcome.ok !== true) {
-        console.warn(`[LiveReport] 查询失败已跳过: ${outcome.reason} | sql: ${plan.sql.slice(0, 200)}`);
+        logger.warn(`[LiveReport] 查询失败已跳过: ${outcome.reason} | sql: ${plan.sql.slice(0, 200)}`);
         return null;
       }
       return { plan, result: outcome.result };
@@ -444,11 +445,11 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     const text2 = await callLLMJson(buildReportStage2System(schema), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
     if (Object.keys(analysis).length === 0) {
-      console.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));
+      logger.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));
     }
   } catch (err) {
     // v0.5.0：阶段二失败不再静默——记录原因便于诊断（报表降级为兑底摘要，KPI/洞察缺失）
-    console.warn('[LiveReport] 阶段二 LLM 调用失败（kpiList/insights 将缺失）:', err instanceof Error ? err.message : err);
+    logger.warn('[LiveReport] 阶段二 LLM 调用失败（kpiList/insights 将缺失）:', err instanceof Error ? err.message : err);
     analysis = {};
   }
   

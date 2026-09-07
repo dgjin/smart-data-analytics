@@ -9,6 +9,7 @@ import { authMiddleware, requireRole } from '../auth/auth';
 import { loadSchemaContext } from '../query/schemaContext';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { MAX_TABLES_IN_PROMPT } from '../query/schemaLinking';
+import { logger } from '../infra/logger';
 
 const router = Router();
 router.use(authMiddleware);
@@ -48,7 +49,7 @@ router.get('/context', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
     const ctx = await loadSchemaContext(dataSourceId, []);
     return res.json(buildContextSummary(ctx, req.user?.role === 'ADMIN'));
   } catch (err) {
-    console.error('[QueryContext] failed:', err);
+    logger.error('[QueryContext] failed:', err);
     return res.status(500).json({ error: '问数上下文获取失败' });
   }
 });

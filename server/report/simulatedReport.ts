@@ -5,6 +5,7 @@
  */
 import { callLLMJson } from '../llm/llmClient';
 import { normalizeReport, safeParseJson } from '../../src/utils/queryResultNormalizer';
+import { logger } from '../infra/logger';
 
 export interface SimulatedReportInput {
   templateType: string;
@@ -68,7 +69,7 @@ export async function runSimulatedReport(input: SimulatedReportInput): Promise<S
     }
     return { ok: true, report };
   } catch (err: any) {
-    console.error('Report Generation Error:', err);
+    logger.error('Report Generation Error:', err);
     return { ok: false, error: String(err?.message || err) };
   }
 }

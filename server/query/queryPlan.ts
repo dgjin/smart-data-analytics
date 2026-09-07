@@ -8,6 +8,7 @@ import { callLLMJson } from '../llm/llmClient';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { serializeSchemaForPrompt } from './schemaGuidance';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
+import { logger } from '../infra/logger';
 
 export interface QueryPlanStep {
   type: string;
@@ -164,7 +165,7 @@ export async function generateQueryPlan(question: string, schema: any[]): Promis
   const plan = parseQueryPlan(text, question);
   if (plan) return plan;
   // 模型偶发输出偏移（非 JSON / 缺字段）：记录原文片段便于诊断，纠偏重试一次自愈
-  console.error('[Plan] invalid structure, raw output head:', text.slice(0, 300));
+  logger.error('[Plan] invalid structure, raw output head:', text.slice(0, 300));
   const retryText = await callLLMJson(system, question, [
     { role: 'assistant', content: text.slice(0, 2000) },
     {
@@ -175,7 +176,7 @@ export async function generateQueryPlan(question: string, schema: any[]): Promis
   ]);
   const retryPlan = parseQueryPlan(retryText, question);
   if (!retryPlan) {
-    console.error('[Plan] retry invalid, raw output head:', retryText.slice(0, 300));
+    logger.error('[Plan] retry invalid, raw output head:', retryText.slice(0, 300));
     throw new Error('计划生成结果未通过结构校验');
   }
   return retryPlan;

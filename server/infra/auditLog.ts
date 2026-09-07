@@ -5,6 +5,7 @@
  */
 import { getPool } from './db';
 import { observeAudit } from './monitoring';
+import { logger } from './logger';
 
 export type AuditStatus =
   | 'SUCCESS'
@@ -55,6 +56,6 @@ export function writeAudit(entry: AuditEntry): void {
       ]
     )
     .catch((err) => {
-      console.warn('[Audit] 审计日志写入失败:', err?.message || err);
+      logger.warn('[Audit] 审计日志写入失败:', err?.message || err);
     });
 }

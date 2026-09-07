@@ -9,6 +9,7 @@ import { authMiddleware } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -64,7 +65,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const reports = (rows as QueryReportRow[]).map(toQueryReportRecord);
     res.json({ ok: true, reports });
   } catch (err: any) {
-    console.error('GET /api/query-reports error:', err);
+    logger.error('GET /api/query-reports error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取报告列表失败' });
   }
 });
@@ -97,7 +98,7 @@ router.get('/:reportId', authMiddleware, async (req, res) => {
 
     res.json({ ok: true, report: toQueryReportRecord(report) });
   } catch (err: any) {
-    console.error('GET /api/query-reports/:reportId error:', err);
+    logger.error('GET /api/query-reports/:reportId error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取报告详情失败' });
   }
 });
@@ -140,7 +141,7 @@ router.delete('/:reportId', authMiddleware, async (req, res) => {
 
     res.json({ ok: true });
   } catch (err: any) {
-    console.error('DELETE /api/query-reports/:reportId error:', err);
+    logger.error('DELETE /api/query-reports/:reportId error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '删除报告失败' });
   }
 });

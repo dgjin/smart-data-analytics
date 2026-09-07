@@ -31,6 +31,7 @@ import {
 } from './analysisChain';
 import { AVAILABLE_TEMPLATES, validateTemplateParams } from './sqlTemplates';
 import type { TemplateId } from './sqlTemplates';
+import { logger } from '../infra/logger';
 
 const SAMPLE_ROWS_FOR_LLM = 15;
 export const VALID_STAGE1_CHARTS = ['bar', 'line', 'area', 'pie', 'donut', 'radar', 'scatter', 'treemap', 'heatmap'] as const;
@@ -1044,7 +1045,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
   } catch (err: any) {
     analysis = {};
     analysisFailed = true;
-    console.warn('[Analysis] 阶段二解读失败，降级规则化解读:', err?.message || err);
+    logger.warn('[Analysis] 阶段二解读失败，降级规则化解读:', err?.message || err);
   }
 
   // 降级：LLM 失败或返回空 aiExplanation 时，用 stats + rows 构造有数据支撑的解读

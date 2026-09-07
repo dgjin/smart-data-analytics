@@ -7,6 +7,7 @@ import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { hashPassword, validatePasswordStrength } from '../auth/passwords';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import { logger } from '../infra/logger';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -32,7 +33,7 @@ router.get('/users', async (_req, res) => {
     );
     return res.json({ success: true, users: rows });
   } catch (err) {
-    console.error('[Admin] list users failed:', err);
+    logger.error('[Admin] list users failed:', err);
     return res.status(500).json({ error: '用户列表获取失败' });
   }
 });
@@ -69,7 +70,7 @@ router.post('/users', async (req, res) => {
     if (err?.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: '用户名已存在' });
     }
-    console.error('[Admin] create user failed:', err);
+    logger.error('[Admin] create user failed:', err);
     return res.status(500).json({ error: '用户创建失败' });
   }
 });
@@ -142,7 +143,7 @@ router.put('/users/:id', async (req, res) => {
     }
     return res.json({ success: true });
   } catch (err) {
-    console.error('[Admin] update user failed:', err);
+    logger.error('[Admin] update user failed:', err);
     return res.status(500).json({ error: '用户更新失败' });
   }
 });
@@ -170,7 +171,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
     }
     return res.json({ success: true });
   } catch (err) {
-    console.error('[Admin] reset password failed:', err);
+    logger.error('[Admin] reset password failed:', err);
     return res.status(500).json({ error: '密码重置失败' });
   }
 });
@@ -201,7 +202,7 @@ router.delete('/users/:id', async (req, res) => {
     await getPool().query('DELETE FROM users WHERE id = ?', [targetId]);
     return res.json({ success: true });
   } catch (err) {
-    console.error('[Admin] delete user failed:', err);
+    logger.error('[Admin] delete user failed:', err);
     return res.status(500).json({ error: '用户删除失败' });
   }
 });
@@ -226,7 +227,7 @@ router.get('/env-config', async (req, res) => {
 
     res.json({ success: true, data: sanitizedData });
   } catch (error: any) {
-    console.error('[EnvConfig] GET failed:', error.message);
+    logger.error('[EnvConfig] GET failed:', error.message);
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 });
@@ -285,7 +286,7 @@ router.put('/env-config', async (req, res) => {
       }
     });
   } catch (error: any) {
-    console.error('[EnvConfig] PUT failed:', error.message);
+    logger.error('[EnvConfig] PUT failed:', error.message);
     res.status(500).json({ success: false, error: error.message || 'Internal server error' });
   }
 });

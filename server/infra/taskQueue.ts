@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import type mysql from 'mysql2/promise';
 import { getPool } from './db';
+import { logger } from './logger';
 
 export type TaskType = 'report_generate' | 'report_generate_from_query' | 'report_export_pdf';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
@@ -294,10 +295,10 @@ async function runOneTask(task: { id: string; type: TaskType; payload: any }): P
   try {
     const result = await Promise.race([handler(task.payload, { taskId: task.id, reportProgress }), timeoutPromise]);
     await completeTask(task.id, result);
-    console.log(`[TaskQueue] ${task.type} ${task.id} 完成`);
+    logger.info(`[TaskQueue] ${task.type} ${task.id} 完成`);
   } catch (err: any) {
     await failTask(task.id, err?.message || String(err));
-    console.warn(`[TaskQueue] ${task.type} ${task.id} 失败:`, err?.message || err);
+    logger.warn(`[TaskQueue] ${task.type} ${task.id} 失败:`, err?.message || err);
   } finally {
     clearInterval(hbTimer);
     if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -309,7 +310,7 @@ async function workerTick(): Promise<void> {
   tickCount += 1;
   if (tickCount % 15 === 1) {
     const recovered = await recoverOrphanTasks().catch(() => 0);
-    if (recovered > 0) console.warn(`[TaskQueue] 回收孤儿任务 ${recovered} 个`);
+    if (recovered > 0) logger.warn(`[TaskQueue] 回收孤儿任务 ${recovered} 个`);
   }
   while (runningCount < taskWorkerConcurrency()) {
     const task = await claimNextTask(workerId);
@@ -327,13 +328,13 @@ let tickCount = 0;
 export function startTaskWorker(intervalMs = 2000): void {
   if (workerTimer) return;
   void recoverOrphanTasks().then((n) => {
-    if (n > 0) console.warn(`[TaskQueue] 启动回收孤儿任务 ${n} 个`);
-  }).catch((err) => console.warn('[TaskQueue] 启动孤儿回收失败:', err?.message || err));
+    if (n > 0) logger.warn(`[TaskQueue] 启动回收孤儿任务 ${n} 个`);
+  }).catch((err) => logger.warn('[TaskQueue] 启动孤儿回收失败:', err?.message || err));
   workerTimer = setInterval(() => {
-    void workerTick().catch((err) => console.warn('[TaskQueue] worker tick 失败:', err?.message || err));
+    void workerTick().catch((err) => logger.warn('[TaskQueue] worker tick 失败:', err?.message || err));
   }, intervalMs);
   workerTimer.unref?.();
-  console.log(`[TaskQueue] worker 已启动（并发上限 ${taskWorkerConcurrency()}，workerId=${workerId}）`);
+  logger.info(`[TaskQueue] worker 已启动（并发上限 ${taskWorkerConcurrency()}，workerId=${workerId}）`);
 }
 
 /** 测试/停机用 */

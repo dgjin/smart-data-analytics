@@ -5,6 +5,7 @@
  */
 import { randomBytes } from 'crypto';
 import type express from 'express';
+import { logger } from './logger';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -28,7 +29,7 @@ export function requestLogger(
   res.on('finish', () => {
     if (!req.path.startsWith('/api/')) return;
     const user = req.user ? ` user=${req.user.username}` : '';
-    console.log(`[HTTP] [${requestId}] ${req.method} ${req.originalUrl} -> ${res.statusCode} ${Date.now() - startedAt}ms${user}`);
+    logger.info(`[HTTP] [${requestId}] ${req.method} ${req.originalUrl} -> ${res.statusCode} ${Date.now() - startedAt}ms${user}`);
   });
   next();
 }

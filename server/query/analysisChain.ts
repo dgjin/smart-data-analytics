@@ -11,6 +11,7 @@ import { callLLMJson, sqlStageRoute } from '../llm/llmClient';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { serializeSchemaForPrompt } from './schemaGuidance';
 import type { TraceStep } from './queryTrace';
+import { logger } from '../infra/logger';
 
 export const CHAIN_MAX_ROWS = 5000;
 export const CHAIN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -392,7 +393,7 @@ export async function cleanupExpiredIntermediateTables(): Promise<number> {
   for (const row of rows) {
     await dropIntermediateTable(String(row.id), String(row.table_name));
   }
-  if (rows.length > 0) console.log(`[Chain] 清理过期中间表 ${rows.length} 张`);
+  if (rows.length > 0) logger.info(`[Chain] 清理过期中间表 ${rows.length} 张`);
   return rows.length;
 }
 
@@ -402,7 +403,7 @@ let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 export function startChainCleanupScheduler(): void {
   if (cleanupTimer) return;
   cleanupTimer = setInterval(() => {
-    cleanupExpiredIntermediateTables().catch((err) => console.warn('[Chain] 定时清理失败:', err?.message || err));
+    cleanupExpiredIntermediateTables().catch((err) => logger.warn('[Chain] 定时清理失败:', err?.message || err));
   }, 60 * 60 * 1000);
   cleanupTimer.unref?.();
 }

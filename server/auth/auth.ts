@@ -8,6 +8,7 @@ import jwt from 'jsonwebtoken';
 import type mysql from 'mysql2/promise';
 import { getPool } from '../infra/db';
 import { setLlmUserContext } from '../llm/llmClient';
+import { logger } from '../infra/logger';
 
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
 
@@ -50,7 +51,7 @@ const jwtSecret = (): string => {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
   if (!devJwtSecret) {
     devJwtSecret = randomBytes(32).toString('hex');
-    console.warn('[Security] ⚠️ JWT_SECRET 未配置，已生成进程级临时密钥（重启后所有登录态失效）；生产环境必须配置固定强密钥');
+    logger.warn('[Security] ⚠️ JWT_SECRET 未配置，已生成进程级临时密钥（重启后所有登录态失效）；生产环境必须配置固定强密钥');
   }
   return devJwtSecret;
 };
@@ -106,7 +107,7 @@ export async function authMiddleware(
     }
     next();
   } catch (err) {
-    console.error('[Auth] user lookup failed:', err);
+    logger.error('[Auth] user lookup failed:', err);
     return res.status(500).json({ error: '认证服务异常' });
   }
 }

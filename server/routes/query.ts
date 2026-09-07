@@ -33,6 +33,7 @@ import { emitBeforeQuery, emitAfterQuery } from '../query/queryHooks';
 import { appendQueryEvent, getEventsAfter, getTraceOwner, isTerminal, isTerminalEvent, subscribeTrace, BufferedSseEvent } from '../query/sseReplayBuffer';
 import { generateFallbackQueryResult } from '../serverFallbacks';
 import { normalizeQueryResult } from '../../src/utils/queryResultNormalizer';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -258,7 +259,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
         const refuseReason = enrichRefusalReason(live.reason, effectiveSchema);
         writeAudit({ ...auditBase, question: query, status: 'REFUSED', detail: refuseReason.slice(0, 200), durationMs: Date.now() - startedAt });
         emitAfterQuery(hookCtx, { status: 'REFUSED', durationMs: Date.now() - startedAt });
-        recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+        recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
         return respond({
           success: true,
           executionTimeMs: Date.now() - startedAt,
@@ -278,7 +279,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
           // L1 精确 + L2 语义索引一并写入（含原问题与 embedding，供同义改写命中）
           await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount }, { dataSourceId, question: query, variant: cacheVariant });
           // 对话历史服务端落库：成功问答 fire-and-forget 落库（历史面板 + 个人 few-shot 自学习），失败不阻断主链路
-          recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(normalized.aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+          recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(normalized.aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
           // P2-12 DLP：缓存已写入原始数据（上方 setCachedQuery），响应出口按角色脱敏
           return respond(maskQueryPayload({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt }, user));
         }
@@ -294,7 +295,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       });
       emitAfterQuery(hookCtx, { status: 'FALLBACK', durationMs: Date.now() - startedAt });
       // 对话历史落库：降级路径同样留痕（状态 FALLBACK，不参与个人 few-shot 检索）
-      recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(live.ok === true ? 'LLM 分析结果结构校验失败' : live.error).slice(0, 200), status: 'FALLBACK', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+      recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(live.ok === true ? 'LLM 分析结果结构校验失败' : live.error).slice(0, 200), status: 'FALLBACK', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
       const fallbackRaw = generateFallbackQueryResult(query, effectiveSchema);
       return respond({
         success: true,
@@ -330,7 +331,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       // 拒答：问题与数据源无关/超出能力，如实反馈（不生成演示数据托底）；小模型照抄模板句时兜底增强理由
       const refuseReason = enrichRefusalReason(sim.reason, effectiveSchema);
       writeAudit({ ...auditBase, question: query, status: 'REFUSED', detail: refuseReason.slice(0, 200), durationMs: Date.now() - startedAt });
-      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
       return res.json({
         success: true,
         executionTimeMs: Date.now() - startedAt,
@@ -346,7 +347,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       // P0 性能优化：演示模式成功结果写缓存（与 live 同机制，含 L2 语义索引），相似提问直接复用
       await setCachedQuery(simCk, { success: true, result: sim.result, defense, dataProvenance: 'simulated' }, { dataSourceId, question: query, variant: cacheVariant });
       // 对话历史落库：演示模式问答同样留痕（provenance=simulated，不参与个人 few-shot 检索）
-      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(sim.parsed?.generatedSQL || ''), answerSummary: String(sim.parsed?.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(sim.parsed?.generatedSQL || ''), answerSummary: String(sim.parsed?.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
       return res.json({
         success: true,
         executionTimeMs: Date.now() - startedAt,
@@ -358,7 +359,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
 
     // L6 审计层：降级落账（记录触发降级的错误）
     writeAudit({ ...auditBase, question: query, status: 'FALLBACK', detail: sim.error.slice(0, 200), durationMs: Date.now() - startedAt });
-    recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: sim.error.slice(0, 200), status: 'FALLBACK', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => console.error('[Conversation] record failed:', e?.message || e));
+    recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: sim.error.slice(0, 200), status: 'FALLBACK', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
     return res.json({
       success: true,
       executionTimeMs: Date.now() - startedAt,
@@ -370,7 +371,7 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
   } catch (err: any) {
     // 兜底：链路未捕获异常（LLM 通道 / DB / StateStore 等）。槽释放由 finally 保证；
     // 此处补齐响应，避免请求挂起与 unhandledRejection（Express 4 不会自动接管 async 路由异常）
-    console.error('[Query] natural-language failed:', err?.message || err);
+    logger.error('[Query] natural-language failed:', err?.message || err);
     writeAudit({ ...auditBase, question: query, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     emitAfterQuery(hookCtx, { status: 'ERROR', durationMs: Date.now() - startedAt });
     if (sseStarted) {
@@ -463,7 +464,7 @@ router.get('/trace/:traceId', authMiddleware, async (req, res) => {
     }
     return res.json({ traceId, steps });
   } catch (err) {
-    console.error('[Trace] fetch failed:', err);
+    logger.error('[Trace] fetch failed:', err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '推导记录获取失败' });
   }
 });
@@ -513,7 +514,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     writeAudit({ ...auditBase, question: clean.question, status: 'SUCCESS', detail: `分析计划 ${plan.steps.length} 步（${plan.complexity}）`, durationMs: Date.now() - startedAt });
     return res.json({ success: true, plan, expiresInSec: 600 });
   } catch (err: any) {
-    console.error('[Plan] generate failed:', err?.message || err);
+    logger.error('[Plan] generate failed:', err?.message || err);
     writeAudit({ ...auditBase, question: clean.question, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: '分析计划生成失败，请稍后重试' });
   } finally {
@@ -543,7 +544,7 @@ router.post('/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
     });
     return res.json({ success: true });
   } catch (err) {
-    console.error('[Feedback] save failed:', err);
+    logger.error('[Feedback] save failed:', err);
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '反馈保存失败' });
   }
 });
@@ -639,7 +640,7 @@ router.post('/sql-assist', rateLimiter, authMiddleware, requireRole('ADMIN', 'AN
     const text = (await callLLMText(system, sql.trim())).trim();
     return res.json({ success: true, text: text || '（AI 未返回内容）' });
   } catch (err: any) {
-    console.error('[SqlAssist] failed:', err?.message || err);
+    logger.error('[SqlAssist] failed:', err?.message || err);
     return res.status(502).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: 'AI 服务暂时不可用，请稍后重试' });
   }
 });

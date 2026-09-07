@@ -4,6 +4,7 @@
  */
 
 import { KnowledgeBaseItem, KnowledgeExportFormat, KnowledgeImportResult } from '../../src/types/analytics';
+import { logger } from '../infra/logger';
 
 /**
  * 导出指定数据源的知识库内容为 JSON 文件
@@ -188,7 +189,7 @@ export function executeKnowledgeImport(
     result.success = false;
   }
   
-  console.log('[KB Import]', {
+  logger.info('[KB Import]', {
     dryRun,
     strategy,
     summary: result.summary,
