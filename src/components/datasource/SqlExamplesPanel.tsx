@@ -4,7 +4,7 @@
  * 点赞反馈自动沉淀的样例也在此统一治理；支持批量粘贴 SQL 反推问题冷启动导入。
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { FileCode2, Plus, Trash2, Pencil, Upload, Sparkles, X } from 'lucide-react';
+import { FileCode2, Plus, Trash2, Pencil, Upload, Sparkles, X, Download, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { DataSource } from '../../types/analytics';
@@ -49,12 +49,23 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
   const [sql, setSql] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // 批量导入
+  // 批量导入（粘贴 SQL 反推问题冷启动）
   const [showImport, setShowImport] = useState(false);
   const [importSqls, setImportSqls] = useState('');
   const [importPairs, setImportPairs] = useState<{ question: string; sql: string }[]>([]);
   const [generating, setGenerating] = useState(false);
   const [importSaving, setImportSaving] = useState(false);
+
+  // 备份导入导出（ADMIN）：JSON 备份文件的导出下载与导入恢复
+  const [exporting, setExporting] = useState(false);
+  const [showBackupImport, setShowBackupImport] = useState(false);
+  const [backupFile, setBackupFile] = useState<File | null>(null);
+  const [backupStrategy, setBackupStrategy] = useState<'skip' | 'overwrite' | 'append'>('skip');
+  const [backupDryRun, setBackupDryRun] = useState(true);
+  const [backupImporting, setBackupImporting] = useState(false);
+  const [backupResult, setBackupResult] = useState<any>(null);
+
+  const selectedDs = dataSources.find((d) => d.id === selectedId);
 
   const loadExamples = useCallback(async () => {
     if (!selectedId) return;
@@ -125,6 +136,74 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       loadExamples();
     } catch (err: any) {
       setError(err.message || '删除失败');
+    }
+  };
+
+  // 导出当前数据源的全部样例为 JSON 备份文件
+  const handleExport = async () => {
+    if (!selectedId || exporting) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`/api/sql-examples/export?dataSourceId=${encodeURIComponent(selectedId)}`);
+      if (!res.ok) {
+        const d: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(d.error || '导出失败');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `SQL样例库-${selectedDs?.name || selectedId}-${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setNotice(`样例库已导出（${selectedDs?.name || selectedId}，共 ${examples.length} 条样例）。`);
+    } catch (err: any) {
+      setError(err.message || '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 从 JSON 备份文件导入样例到当前选中的数据源
+  const handleBackupImport = async () => {
+    if (!backupFile || backupImporting) return;
+    setBackupImporting(true);
+    setError(null);
+    setBackupResult(null);
+    try {
+      const text = await backupFile.text();
+      let fileData: any;
+      try {
+        fileData = JSON.parse(text);
+      } catch {
+        throw new Error('文件不是有效的 JSON，请选择样例库导出文件');
+      }
+      const res = await apiFetch('/api/sql-examples/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileData,
+          dataSourceId: selectedId,
+          mergeStrategy: backupStrategy,
+          dryRun: backupDryRun,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '导入失败');
+      setBackupResult(data);
+      if (!backupDryRun && data.success) {
+        setNotice(`导入完成：新增 ${data.importedCount} 条，覆盖更新 ${data.updatedCount} 条，跳过 ${data.skippedCount} 条。`);
+        setShowBackupImport(false);
+        loadExamples();
+      }
+    } catch (err: any) {
+      setError(err.message || '导入失败');
+    } finally {
+      setBackupImporting(false);
     }
   };
 
@@ -211,6 +290,30 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
           {isAdmin && (
             <>
               <button
+                onClick={handleExport}
+                disabled={exporting || !selectedId}
+                title="导出当前数据源的全部样例为 JSON 备份文件"
+                className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold rounded-lg transition-colors"
+              >
+                <Download className={`w-3.5 h-3.5 ${exporting ? 'animate-pulse' : ''}`} />
+                <span>{exporting ? '导出中…' : '导出'}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowBackupImport(true);
+                  setBackupFile(null);
+                  setBackupResult(null);
+                  setBackupStrategy('skip');
+                  setBackupDryRun(true);
+                }}
+                disabled={!selectedId}
+                title="从 JSON 备份文件导入样例到当前数据源"
+                className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold rounded-lg transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>导入备份</span>
+              </button>
+              <button
                 onClick={() => {
                   setShowImport((v) => !v);
                   setShowForm(false);
@@ -243,6 +346,115 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       )}
       {notice && (
         <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2">{notice}</div>
+      )}
+
+      {/* 备份导入弹窗（ADMIN）：JSON 备份文件恢复样例 */}
+      {showBackupImport && isAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !backupImporting && setShowBackupImport(false)}>
+          <div
+            className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-100">
+                导入样例库备份 · {selectedDs?.name || ''}
+              </h3>
+              <button onClick={() => !backupImporting && setShowBackupImport(false)} className="text-slate-400 hover:text-slate-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 文件选择 */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">备份文件（样例库导出 JSON）</label>
+              <input
+                type="file"
+                accept=".json,application/json"
+                disabled={backupImporting}
+                onChange={(e) => {
+                  setBackupFile(e.target.files?.[0] || null);
+                  setBackupResult(null);
+                }}
+                className="w-full text-xs text-slate-300 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-violet-600 file:text-white file:text-xs file:font-semibold hover:file:bg-violet-500 file:cursor-pointer"
+              />
+            </div>
+
+            {/* 冲突策略 */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">同问题样例冲突处理</label>
+              <select
+                value={backupStrategy}
+                onChange={(e) => setBackupStrategy(e.target.value as 'skip' | 'overwrite' | 'append')}
+                disabled={backupImporting}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-violet-500"
+              >
+                <option value="skip">跳过：保留现有样例，忽略文件中的同问题条目</option>
+                <option value="overwrite">覆盖：用文件中的 SQL 替换现有同问题样例（重算向量）</option>
+                <option value="append">新增：同问题也照常导入（产生重复条目）</option>
+              </select>
+            </div>
+
+            {/* 预检开关 */}
+            <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={backupDryRun}
+                onChange={(e) => setBackupDryRun(e.target.checked)}
+                disabled={backupImporting}
+                className="rounded border-slate-600 bg-slate-950 text-violet-500 focus:ring-violet-500"
+              />
+              <span>仅预检（Dry Run）：只统计将发生的变更，不实际写入</span>
+            </label>
+
+            {/* 导入结果 */}
+            {backupResult && (
+              <div className={`p-3 rounded-xl border text-xs space-y-1 ${
+                backupResult.success
+                  ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-800/60 text-rose-300'
+              }`}>
+                <div className="font-semibold">
+                  {backupResult.dryRun ? '预检结果（未写入）' : backupResult.success ? '导入完成' : '导入完成（部分失败）'}
+                </div>
+                <div>
+                  文件共 {backupResult.summary.totalItems} 条：
+                  {backupResult.dryRun ? '将' : ''}新增 {backupResult.importedCount} 条，
+                  {backupResult.dryRun ? '将' : ''}覆盖更新 {backupResult.updatedCount} 条，
+                  跳过 {backupResult.skippedCount} 条
+                  {backupResult.errorCount > 0 && `，失败 ${backupResult.errorCount} 条`}
+                </div>
+                {backupResult.summary.invalidItems > 0 && (
+                  <div className="text-amber-300">另有 {backupResult.summary.invalidItems} 条未通过校验被拒绝（仅支持 SELECT 且长度不超限）</div>
+                )}
+                {backupResult.errors?.length > 0 && (
+                  <ul className="list-disc list-inside text-rose-300 mt-1">
+                    {backupResult.errors.slice(0, 5).map((e: any, i: number) => (
+                      <li key={i}>{e.question}：{e.message}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowBackupImport(false)}
+                disabled={backupImporting}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold"
+              >
+                关闭
+              </button>
+              <button
+                onClick={handleBackupImport}
+                disabled={!backupFile || backupImporting}
+                className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-bold shadow flex items-center space-x-1"
+              >
+                {backupImporting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>{backupImporting ? '处理中...' : backupDryRun ? '开始预检' : '开始导入'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 新增/编辑表单 */}

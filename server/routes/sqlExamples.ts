@@ -4,6 +4,7 @@
  * 保证 few-shot 语料质量可由管理员持续治理（劣质样例可剔除）。
  */
 import { Router } from 'express';
+import type { RowDataPacket } from 'mysql2';
 import { authMiddleware, requireRole } from '../auth/auth';
 import {
   listSqlExamples,
@@ -12,7 +13,11 @@ import {
   deleteSqlExample,
   validateExampleInput,
   generateQuestionsForSqls,
+  buildSqlExamplesExport,
+  importSqlExamples,
 } from '../query/queryFeedback';
+import { getPool } from '../infra/db';
+import { logger } from '../infra/logger';
 
 const router = Router();
 router.use(authMiddleware);
@@ -77,6 +82,78 @@ router.post('/bulk', requireRole('ADMIN'), async (req, res) => {
     res.json({ ok: true, saved });
   } catch (err: any) {
     res.status(500).json({ error: `批量保存失败：${err?.message || '未知错误'}` });
+  }
+});
+
+// GET /api/sql-examples/export?dataSourceId=xxx（ADMIN）—— 导出指定数据源的全部样例为 JSON 备份文件
+router.get('/export', requireRole('ADMIN'), async (req, res) => {
+  const dataSourceId = String(req.query.dataSourceId || '');
+  if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
+  try {
+    const [dsRows] = await getPool().query<RowDataPacket[]>('SELECT name FROM data_sources WHERE id = ?', [dataSourceId]);
+    if (dsRows.length === 0) return res.status(404).json({ error: `数据源不存在：${dataSourceId}` });
+    const dsName = String(dsRows[0].name || dataSourceId);
+    const examples = await listSqlExamples(dataSourceId);
+    const exportData = buildSqlExamplesExport(dataSourceId, dsName, examples, String(req.user?.username || 'unknown'));
+    const dateStr = new Date().toISOString().split('T')[0];
+    const fileName = `SQL样例库-${dsName}-${dateStr}.json`;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="sql-examples-${dataSourceId}-${dateStr}.json"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+    );
+    res.send(JSON.stringify(exportData, null, 2));
+  } catch (err: any) {
+    logger.error('[SQL Examples Export Error]', err);
+    res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
+  }
+});
+
+/**
+ * POST /api/sql-examples/import（ADMIN）—— 从 JSON 备份文件恢复样例到指定数据源。
+ * body: {
+ *   fileData: object,                                  // 导出文件的完整 JSON 内容（必填，type='sql-examples'）
+ *   dataSourceId?: string,                             // 目标数据源（缺省用文件中的来源数据源）
+ *   mergeStrategy?: 'skip' | 'overwrite' | 'append',   // 同问题冲突处理：跳过/覆盖/重复新增（默认 skip）
+ *   dryRun?: boolean                                   // 仅预检不写库（默认 false）
+ * }
+ */
+router.post('/import', requireRole('ADMIN'), async (req, res) => {
+  try {
+    const { fileData, mergeStrategy = 'skip', dryRun = false } = req.body || {};
+    if (!fileData || typeof fileData !== 'object') {
+      return res.status(400).json({ error: '缺少 fileData（备份文件的 JSON 内容）' });
+    }
+    if (!['skip', 'overwrite', 'append'].includes(mergeStrategy)) {
+      return res.status(400).json({ error: 'mergeStrategy 必须是 skip / overwrite / append' });
+    }
+    if (fileData.type !== 'sql-examples' || !Array.isArray(fileData.examples)) {
+      return res.status(400).json({ error: '无法识别的文件格式：应为 SQL 样例库导出文件（type=sql-examples）' });
+    }
+    if (fileData.examples.length === 0) {
+      return res.status(400).json({ error: '文件中没有可导入的样例' });
+    }
+    const dataSourceId = String(req.body.dataSourceId || fileData.dataSourceId || '');
+    if (!dataSourceId) return res.status(400).json({ error: '缺少目标数据源 dataSourceId（文件中也没有来源信息）' });
+
+    const [dsRows] = await getPool().query<RowDataPacket[]>('SELECT id, name FROM data_sources WHERE id = ?', [dataSourceId]);
+    if (dsRows.length === 0) return res.status(404).json({ error: `目标数据源不存在：${dataSourceId}` });
+
+    const username = String(req.user?.username || 'admin');
+    const result = await importSqlExamples(dataSourceId, fileData.examples, mergeStrategy, !!dryRun, username);
+    logger.info('[SQL Examples Import]', {
+      dryRun: result.dryRun,
+      strategy: mergeStrategy,
+      dataSourceId,
+      imported: result.importedCount,
+      updated: result.updatedCount,
+      skipped: result.skippedCount,
+      errors: result.errorCount,
+    });
+    res.json({ ...result, dataSourceId, dataSourceName: String(dsRows[0].name || dataSourceId) });
+  } catch (err: any) {
+    logger.error('[SQL Examples Import Error]', err);
+    res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
   }
 });
 

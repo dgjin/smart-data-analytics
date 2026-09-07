@@ -16,3 +16,6 @@ server/eval/reports/
 # 异步任务结果文件（v0.9.2，运行时生成）
 data/task-results/
 dump.rdb
+
+# 数据库全量备份产物（mysqldump 导出，含敏感数据，不入库）
+backups/

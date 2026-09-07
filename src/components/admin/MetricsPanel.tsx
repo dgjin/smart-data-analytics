@@ -9,6 +9,9 @@ import {
   History,
   AlertCircle,
   RotateCcw,
+  Download,
+  Upload,
+  X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
@@ -79,6 +82,15 @@ export const MetricsPanel: React.FC = () => {
   // 版本历史弹窗
   const [versionsFor, setVersionsFor] = useState<MetricItem | null>(null);
   const [versions, setVersions] = useState<VersionEntry[]>([]);
+
+  // 导入导出（ADMIN）：JSON 备份文件的导出下载与导入恢复
+  const [exporting, setExporting] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importStrategy, setImportStrategy] = useState<'skip' | 'overwrite'>('skip');
+  const [importDryRun, setImportDryRun] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -228,6 +240,73 @@ export const MetricsPanel: React.FC = () => {
     }
   };
 
+  // 导出当前数据源的全部指标定义为 JSON 备份文件
+  const handleExport = async () => {
+    if (!dataSourceId || exporting) return;
+    setExporting(true);
+    try {
+      const res = await apiFetch(`/api/metrics/export?dataSourceId=${encodeURIComponent(dataSourceId)}`);
+      if (!res.ok) {
+        const d: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(d.error || '导出失败');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const dsName = dataSources.find((d) => d.id === dataSourceId)?.name || dataSourceId;
+      a.href = url;
+      a.download = `指标库-${dsName}-${dateStr}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showNotice('success', `指标库已导出（${dsName}，共 ${metrics.length} 条指标）。`);
+    } catch (err: any) {
+      showNotice('error', err.message || '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // 从 JSON 备份文件导入指标定义到当前选中的数据源
+  const handleImport = async () => {
+    if (!importFile || importing) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await importFile.text();
+      let fileData: any;
+      try {
+        fileData = JSON.parse(text);
+      } catch {
+        throw new Error('文件不是有效的 JSON，请选择指标库导出文件');
+      }
+      const res = await apiFetch('/api/metrics/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileData,
+          dataSourceId,
+          mergeStrategy: importStrategy,
+          dryRun: importDryRun,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '导入失败');
+      setImportResult(data);
+      if (!importDryRun && data.success) {
+        showNotice('success', `导入完成：新增 ${data.importedCount} 条，覆盖更新 ${data.updatedCount} 条，跳过 ${data.skippedCount} 条。`);
+        setShowImport(false);
+        loadMetrics();
+      }
+    } catch (err: any) {
+      showNotice('error', err.message || '导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const pendingCount = metrics.filter((m) => m.status === 'PENDING').length;
 
   return (
@@ -261,6 +340,34 @@ export const MetricsPanel: React.FC = () => {
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             <span>刷新</span>
           </button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={handleExport}
+                disabled={exporting || !dataSourceId}
+                title="导出当前数据源的全部指标定义为 JSON 备份文件"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold transition-colors"
+              >
+                <Download className={`w-3.5 h-3.5 ${exporting ? 'animate-pulse' : ''}`} />
+                <span>{exporting ? '导出中…' : '导出'}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowImport(true);
+                  setImportFile(null);
+                  setImportResult(null);
+                  setImportStrategy('skip');
+                  setImportDryRun(true);
+                }}
+                disabled={!dataSourceId}
+                title="从 JSON 备份文件导入指标定义到当前数据源"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>导入</span>
+              </button>
+            </>
+          )}
           <button
             onClick={() => setIsCreating((v) => !v)}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all"
@@ -407,6 +514,114 @@ export const MetricsPanel: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* 导入弹窗（ADMIN） */}
+      {showImport && isAdmin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !importing && setShowImport(false)}>
+          <div
+            className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-100">
+                导入指标库 · {dataSources.find((d) => d.id === dataSourceId)?.name || ''}
+              </h3>
+              <button onClick={() => !importing && setShowImport(false)} className="text-slate-400 hover:text-slate-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 文件选择 */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">备份文件（指标库导出 JSON）</label>
+              <input
+                type="file"
+                accept=".json,application/json"
+                disabled={importing}
+                onChange={(e) => {
+                  setImportFile(e.target.files?.[0] || null);
+                  setImportResult(null);
+                }}
+                className="w-full text-xs text-slate-300 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-xs file:font-semibold hover:file:bg-indigo-500 file:cursor-pointer"
+              />
+            </div>
+
+            {/* 冲突策略 */}
+            <div>
+              <label className="block text-xs text-slate-400 mb-1.5">同名指标冲突处理</label>
+              <select
+                value={importStrategy}
+                onChange={(e) => setImportStrategy(e.target.value as 'skip' | 'overwrite')}
+                disabled={importing}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="skip">跳过：保留现有指标，忽略文件中的同名条目</option>
+                <option value="overwrite">覆盖：用文件内容替换现有同名指标（版本 +1 留历史）</option>
+              </select>
+            </div>
+
+            {/* 预检开关 */}
+            <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={importDryRun}
+                onChange={(e) => setImportDryRun(e.target.checked)}
+                disabled={importing}
+                className="rounded border-slate-600 bg-slate-950 text-indigo-500 focus:ring-indigo-500"
+              />
+              <span>仅预检（Dry Run）：只统计将发生的变更，不实际写入</span>
+            </label>
+
+            {/* 导入结果 */}
+            {importResult && (
+              <div className={`p-3 rounded-xl border text-xs space-y-1 ${
+                importResult.success
+                  ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-800/60 text-rose-300'
+              }`}>
+                <div className="font-semibold">
+                  {importResult.dryRun ? '预检结果（未写入）' : importResult.success ? '导入完成' : '导入完成（部分失败）'}
+                </div>
+                <div>
+                  文件共 {importResult.summary.totalItems} 条：
+                  {importResult.dryRun ? '将' : ''}新增 {importResult.importedCount} 条，
+                  {importResult.dryRun ? '将' : ''}覆盖更新 {importResult.updatedCount} 条，
+                  跳过 {importResult.skippedCount} 条
+                  {importResult.errorCount > 0 && `，失败 ${importResult.errorCount} 条`}
+                </div>
+                {importResult.summary.invalidItems > 0 && (
+                  <div className="text-amber-300">另有 {importResult.summary.invalidItems} 条未通过校验被拒绝</div>
+                )}
+                {importResult.errors?.length > 0 && (
+                  <ul className="list-disc list-inside text-rose-300 mt-1">
+                    {importResult.errors.slice(0, 5).map((e: any, i: number) => (
+                      <li key={i}>{e.name}：{e.message}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowImport(false)}
+                disabled={importing}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold"
+              >
+                关闭
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={!importFile || importing}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow flex items-center space-x-1"
+              >
+                {importing && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>{importing ? '处理中...' : importDryRun ? '开始预检' : '开始导入'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 版本历史弹窗 */}
       {versionsFor && (

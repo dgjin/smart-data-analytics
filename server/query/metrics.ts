@@ -375,3 +375,156 @@ export async function restoreMetricVersion(id: number, version: number, actor: s
   await recordVersion(id, nextVersion, { ...cleaned.metric, status }, 'RESTORE', actor);
   return { ok: true };
 }
+
+// ---------- 导入导出（管理员备份/迁移，与知识库导入导出同模式） ----------
+
+/** 导出文件中的单条指标（剥离库内 id/版本/审批痕迹，仅保留口径与治理状态） */
+export interface MetricExportItem {
+  name: string;
+  aliases: string[];
+  description: string;
+  expr: string;
+  tableName: string;
+  filters: string;
+  dimensions: string[];
+  status: MetricStatus;
+}
+
+/** 指标库导出文件格式（JSON 备份） */
+export interface MetricsExportFile {
+  version: '1.0';
+  type: 'metric-definitions';
+  exportedAt: string;
+  exportedBy: string;
+  dataSourceId: string;
+  dataSourceName: string;
+  metricCount: number;
+  metrics: MetricExportItem[];
+}
+
+/** 组装指标库导出文件（纯函数可单测） */
+export function buildMetricsExport(
+  dataSourceId: string,
+  dataSourceName: string,
+  metrics: MetricDefinition[],
+  exportedBy: string
+): MetricsExportFile {
+  return {
+    version: '1.0',
+    type: 'metric-definitions',
+    exportedAt: new Date().toISOString(),
+    exportedBy,
+    dataSourceId,
+    dataSourceName,
+    metricCount: metrics.length,
+    metrics: metrics.map((m) => ({
+      name: m.name,
+      aliases: m.aliases,
+      description: m.description,
+      expr: m.expr,
+      tableName: m.tableName,
+      filters: m.filters,
+      dimensions: m.dimensions,
+      status: m.status,
+    })),
+  };
+}
+
+/** 指标导入冲突处理策略：同名指标跳过 / 覆盖更新（指标名在数据源内唯一，不支持 append 重复新增） */
+export type MetricMergeStrategy = 'skip' | 'overwrite';
+
+export interface MetricImportResult {
+  success: boolean;
+  dryRun: boolean;
+  mergeStrategy: MetricMergeStrategy;
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors: Array<{ name: string; message: string }>;
+  summary: { totalItems: number; newItems: number; conflictItems: number; invalidItems: number };
+}
+
+/** 单次导入文件条目上限（防滥用；指标库治理量级远小于此） */
+const MAX_IMPORT_ITEMS = 500;
+
+/**
+ * 从导出文件恢复指标定义到指定数据源（仅 ADMIN 经路由调用）。
+ * - 每条经 sanitizeMetricInput 校验（与手工创建同一安全口径；PENDING/REJECTED 状态归一为 ACTIVE，
+ *   因导入即管理员直接生效，不绕过治理状态机）；
+ * - 冲突判定：目标数据源下同指标名；skip 跳过，overwrite 经 updateMetric 覆盖（版本 +1 留历史）；
+ * - 新增经 createMetric autoApprove 直接生效（version=1 写 CREATE 快照）；
+ * - 文件内部同名：首条处理后记入冲突集合，后续按冲突策略处理（与知识库导入语义一致）；
+ * - dryRun 仅统计不写库。
+ */
+export async function importMetrics(
+  dataSourceId: string,
+  items: unknown[],
+  strategy: MetricMergeStrategy,
+  dryRun: boolean,
+  actor: string
+): Promise<MetricImportResult> {
+  const result: MetricImportResult = {
+    success: true,
+    dryRun,
+    mergeStrategy: strategy,
+    importedCount: 0,
+    updatedCount: 0,
+    skippedCount: 0,
+    errorCount: 0,
+    errors: [],
+    summary: { totalItems: items.length, newItems: 0, conflictItems: 0, invalidItems: 0 },
+  };
+
+  // 冲突判定依据：目标数据源现有 指标名 → id 映射
+  const [rows] = await getPool().query<RowDataPacket[]>(
+    'SELECT id, name FROM metric_definitions WHERE data_source_id = ?',
+    [dataSourceId]
+  );
+  const existingByName = new Map<string, number>(rows.map((r: any) => [String(r.name), Number(r.id)]));
+
+  for (const raw of items.slice(0, MAX_IMPORT_ITEMS)) {
+    const name = typeof (raw as any)?.name === 'string' ? String((raw as any).name).trim() : '';
+    const cleaned = sanitizeMetricInput({ ...(raw as object), dataSourceId });
+    if (cleaned.ok !== true) {
+      result.summary.invalidItems++;
+      result.errorCount++;
+      result.errors.push({ name: name || '(未命名)', message: cleaned.error });
+      continue;
+    }
+    const conflictId = existingByName.get(cleaned.metric.name);
+    try {
+      if (conflictId !== undefined) {
+        result.summary.conflictItems++;
+        if (strategy === 'skip') {
+          result.skippedCount++;
+          continue;
+        }
+        // overwrite：覆盖更新（版本 +1 留历史；PENDING 指标被 updateMetric 拒绝时记错误）
+        if (!dryRun) {
+          const { dataSourceId: _ignored, ...rest } = cleaned.metric;
+          const r = await updateMetric(conflictId, rest, actor);
+          if (r.ok !== true) throw new Error(r.error);
+        }
+        result.updatedCount++;
+        continue;
+      }
+      result.summary.newItems++;
+      if (!dryRun) {
+        const r = await createMetric(cleaned.metric, actor, { autoApprove: true });
+        if (r.ok !== true) throw new Error(r.error);
+        // 文件内部同名：首条入库后记入冲突集合，后续同名条目按冲突策略处理（overwrite 可命中更新）
+        existingByName.set(cleaned.metric.name, r.id);
+      } else {
+        existingByName.set(cleaned.metric.name, -1);
+      }
+      result.importedCount++;
+    } catch (err: any) {
+      result.errorCount++;
+      result.errors.push({ name: cleaned.metric.name, message: err?.message || '未知错误' });
+    }
+  }
+
+  result.success = result.errorCount === 0;
+  return result;
+}

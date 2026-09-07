@@ -4,6 +4,7 @@
  * P1-8 指标层治理：分析师可提议（PENDING）；创建直接生效 / 审批 / 驳回 / 编辑 / 删除 / 版本回溯仅 ADMIN。
  */
 import { Router } from 'express';
+import type { RowDataPacket } from 'mysql2';
 import { authMiddleware, requireRole } from '../auth/auth';
 import {
   listMetrics,
@@ -18,7 +19,11 @@ import {
   restoreMetricVersion,
   findMetricById,
   buildMetricQuerySql,
+  buildMetricsExport,
+  importMetrics,
 } from '../query/metrics';
+import { getPool } from '../infra/db';
+import { logger } from '../infra/logger';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { checkUserQueryLimit } from '../infra/userQueryLimit';
 import { loadSchemaContext } from '../query/schemaContext';
@@ -125,6 +130,78 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: `指标查询失败：${err?.message || '未知错误'}` });
+  }
+});
+
+// GET /api/metrics/export?dataSourceId=xxx（ADMIN）—— 导出指定数据源的全部指标定义为 JSON 备份文件
+router.get('/export', requireRole('ADMIN'), async (req, res) => {
+  const dataSourceId = String(req.query.dataSourceId || '');
+  if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
+  try {
+    const [dsRows] = await getPool().query<RowDataPacket[]>('SELECT name FROM data_sources WHERE id = ?', [dataSourceId]);
+    if (dsRows.length === 0) return res.status(404).json({ error: `数据源不存在：${dataSourceId}` });
+    const dsName = String(dsRows[0].name || dataSourceId);
+    const metrics = await listMetrics(dataSourceId);
+    const exportData = buildMetricsExport(dataSourceId, dsName, metrics, String(req.user?.username || 'unknown'));
+    const dateStr = new Date().toISOString().split('T')[0];
+    const fileName = `指标库-${dsName}-${dateStr}.json`;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="metrics-${dataSourceId}-${dateStr}.json"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+    );
+    res.send(JSON.stringify(exportData, null, 2));
+  } catch (err: any) {
+    logger.error('[Metrics Export Error]', err);
+    res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
+  }
+});
+
+/**
+ * POST /api/metrics/import（ADMIN）—— 从 JSON 备份文件恢复指标定义到指定数据源。
+ * body: {
+ *   fileData: object,                             // 导出文件的完整 JSON 内容（必填，type='metric-definitions'）
+ *   dataSourceId?: string,                        // 目标数据源（缺省用文件中的来源数据源）
+ *   mergeStrategy?: 'skip' | 'overwrite',         // 同名指标冲突处理（默认 skip；指标名数据源内唯一，不支持 append）
+ *   dryRun?: boolean                              // 仅预检不写库（默认 false）
+ * }
+ */
+router.post('/import', requireRole('ADMIN'), async (req, res) => {
+  try {
+    const { fileData, mergeStrategy = 'skip', dryRun = false } = req.body || {};
+    if (!fileData || typeof fileData !== 'object') {
+      return res.status(400).json({ error: '缺少 fileData（备份文件的 JSON 内容）' });
+    }
+    if (mergeStrategy !== 'skip' && mergeStrategy !== 'overwrite') {
+      return res.status(400).json({ error: 'mergeStrategy 必须是 skip / overwrite' });
+    }
+    if (fileData.type !== 'metric-definitions' || !Array.isArray(fileData.metrics)) {
+      return res.status(400).json({ error: '无法识别的文件格式：应为指标库导出文件（type=metric-definitions）' });
+    }
+    if (fileData.metrics.length === 0) {
+      return res.status(400).json({ error: '文件中没有可导入的指标' });
+    }
+    const dataSourceId = String(req.body.dataSourceId || fileData.dataSourceId || '');
+    if (!dataSourceId) return res.status(400).json({ error: '缺少目标数据源 dataSourceId（文件中也没有来源信息）' });
+
+    const [dsRows] = await getPool().query<RowDataPacket[]>('SELECT id, name FROM data_sources WHERE id = ?', [dataSourceId]);
+    if (dsRows.length === 0) return res.status(404).json({ error: `目标数据源不存在：${dataSourceId}` });
+
+    const username = String(req.user?.username || 'admin');
+    const result = await importMetrics(dataSourceId, fileData.metrics, mergeStrategy, !!dryRun, username);
+    logger.info('[Metrics Import]', {
+      dryRun: result.dryRun,
+      strategy: mergeStrategy,
+      dataSourceId,
+      imported: result.importedCount,
+      updated: result.updatedCount,
+      skipped: result.skippedCount,
+      errors: result.errorCount,
+    });
+    res.json({ ...result, dataSourceId, dataSourceName: String(dsRows[0].name || dataSourceId) });
+  } catch (err: any) {
+    logger.error('[Metrics Import Error]', err);
+    res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
   }
 });
 

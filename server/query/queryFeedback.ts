@@ -331,3 +331,140 @@ export async function generateQuestionsForSqls(sqls: string[]): Promise<{ sql: s
   }
   return out;
 }
+
+// ---------- SQL 样例库导入导出（管理员备份/迁移，与知识库导入导出同模式） ----------
+
+/** 样例库导出文件格式（JSON 备份） */
+export interface SqlExamplesExportFile {
+  version: '1.0';
+  type: 'sql-examples';
+  exportedAt: string;
+  exportedBy: string;
+  dataSourceId: string;
+  dataSourceName: string;
+  exampleCount: number;
+  examples: Array<{ question: string; sql: string; source: string; createdBy: string; createdAt: string }>;
+}
+
+/** 组装样例库导出文件（纯函数可单测；剥离库内 id，保留来源标记供追溯） */
+export function buildSqlExamplesExport(
+  dataSourceId: string,
+  dataSourceName: string,
+  examples: SqlExampleRecord[],
+  exportedBy: string
+): SqlExamplesExportFile {
+  return {
+    version: '1.0',
+    type: 'sql-examples',
+    exportedAt: new Date().toISOString(),
+    exportedBy,
+    dataSourceId,
+    dataSourceName,
+    exampleCount: examples.length,
+    examples: examples.map((ex) => ({
+      question: ex.question,
+      sql: ex.sql,
+      source: ex.source,
+      createdBy: ex.createdBy,
+      createdAt: ex.createdAt,
+    })),
+  };
+}
+
+/** 样例导入冲突处理策略：同问题样例 跳过 / 覆盖更新 / 重复新增 */
+export type SqlExampleMergeStrategy = 'skip' | 'overwrite' | 'append';
+
+export interface SqlExampleImportResult {
+  success: boolean;
+  dryRun: boolean;
+  mergeStrategy: SqlExampleMergeStrategy;
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors: Array<{ question: string; message: string }>;
+  summary: { totalItems: number; newItems: number; conflictItems: number; invalidItems: number };
+}
+
+/** 单次导入文件条目上限（防滥用；few-shot 语料库治理量级远小于此） */
+const MAX_IMPORT_EXAMPLES = 500;
+
+/**
+ * 从导出文件恢复 SQL 样例到指定数据源（仅 ADMIN 经路由调用）。
+ * - 每条经 validateExampleInput 校验（与手工登记同一口径：仅 SELECT、长度限制）；
+ * - 冲突判定：目标数据源下相同问题（trim 后）；skip 跳过 / overwrite 覆盖 SQL（重算向量）/ append 照常新建；
+ * - 新增样例 source 统一记 IMPORT（无论文件中 source 是什么，导入行为本身即来源）；
+ * - 文件内部同问题：首条处理后记入冲突集合，后续按冲突策略处理（与知识库导入语义一致）；
+ * - dryRun 仅统计不写库（也不触发 embedding 调用）。
+ */
+export async function importSqlExamples(
+  dataSourceId: string,
+  items: unknown[],
+  strategy: SqlExampleMergeStrategy,
+  dryRun: boolean,
+  actor: string
+): Promise<SqlExampleImportResult> {
+  const result: SqlExampleImportResult = {
+    success: true,
+    dryRun,
+    mergeStrategy: strategy,
+    importedCount: 0,
+    updatedCount: 0,
+    skippedCount: 0,
+    errorCount: 0,
+    errors: [],
+    summary: { totalItems: items.length, newItems: 0, conflictItems: 0, invalidItems: 0 },
+  };
+
+  // 冲突判定依据：目标数据源现有 问题 → id 映射
+  const [rows] = await getPool().query<RowDataPacket[]>(
+    'SELECT id, question FROM sql_examples WHERE data_source_id = ?',
+    [dataSourceId]
+  );
+  const existingByQuestion = new Map<string, number>(rows.map((r: any) => [String(r.question), Number(r.id)]));
+
+  for (const raw of items.slice(0, MAX_IMPORT_EXAMPLES)) {
+    const question = typeof (raw as any)?.question === 'string' ? String((raw as any).question).trim() : '';
+    const sql = typeof (raw as any)?.sql === 'string' ? String((raw as any).sql).trim() : '';
+    const invalid = validateExampleInput({ question, sql });
+    if (invalid) {
+      result.summary.invalidItems++;
+      result.errorCount++;
+      result.errors.push({ question: question || '(空问题)', message: invalid });
+      continue;
+    }
+    const conflictId = existingByQuestion.get(question);
+    try {
+      if (conflictId !== undefined && strategy !== 'append') {
+        result.summary.conflictItems++;
+        if (strategy === 'skip') {
+          result.skippedCount++;
+          continue;
+        }
+        // overwrite：覆盖更新（updateSqlExample 同步重算问题向量）
+        if (!dryRun) {
+          const ok = await updateSqlExample(conflictId, { question, sql });
+          if (!ok) throw new Error('样例不存在或已被删除');
+        }
+        result.updatedCount++;
+        continue;
+      }
+      if (conflictId !== undefined) result.summary.conflictItems++; // append：同问题照常新建
+      else result.summary.newItems++;
+      if (!dryRun) {
+        const created = await createSqlExample({ dataSourceId, question, sql }, actor, 'IMPORT');
+        existingByQuestion.set(question, created.id);
+      } else {
+        existingByQuestion.set(question, -1);
+      }
+      result.importedCount++;
+    } catch (err: any) {
+      result.errorCount++;
+      result.errors.push({ question, message: err?.message || '未知错误' });
+    }
+  }
+
+  result.success = result.errorCount === 0;
+  return result;
+}
+

@@ -24,6 +24,8 @@ import {
   buildMetricPrompt,
   isAmountMetric,
   findMetricById,
+  buildMetricsExport,
+  importMetrics,
   MetricDefinition,
 } from './metrics';
 
@@ -326,5 +328,106 @@ describe('v0.9.21 指标直查金额单位换算（isAmountMetric / buildMetricQ
     }
     const nonAmount = buildMetricQuerySql({ ...validInput, name: '平均项目规模', expr: 'AVG(scale)', status: 'ACTIVE' }, [], 100, wan);
     if (nonAmount.ok) expect(nonAmount.unitApplied).toBe(false);
+  });
+});
+
+describe('buildMetricsExport: 指标库导出文件组装', () => {
+  it('剥离库内 id/审批痕迹，保留口径与治理状态', () => {
+    const metric: MetricDefinition = { ...validInput, id: 3, status: 'DISABLED', dimensions: ['region'], approvedBy: 'admin', createdBy: 'alice' };
+    const file = buildMetricsExport('ds1', '业务库', [metric], 'admin');
+    expect(file.type).toBe('metric-definitions');
+    expect(file.metricCount).toBe(1);
+    expect(file.exportedBy).toBe('admin');
+    expect(file.metrics[0]).toEqual({
+      name: validInput.name,
+      aliases: validInput.aliases,
+      description: validInput.description,
+      expr: validInput.expr,
+      tableName: validInput.tableName,
+      filters: validInput.filters,
+      dimensions: ['region'],
+      status: 'DISABLED',
+    });
+    expect((file.metrics[0] as any).id).toBeUndefined();
+    expect((file.metrics[0] as any).approvedBy).toBeUndefined();
+  });
+});
+
+describe('importMetrics: 指标库备份导入', () => {
+  const newItem = { name: '销售额', aliases: [], description: '', expr: 'SUM(amount)', tableName: 'orders', filters: '', dimensions: [] };
+
+  it('skip 策略：同名跳过、新指标创建生效（autoApprove + CREATE 快照）', async () => {
+    queue.push(
+      [[{ id: 1, name: '有效客户数' }]], // 现有指标名
+      [[]],                              // createMetric 同名检查（无冲突）
+      [{ insertId: 42 }],                // INSERT metric_definitions
+      [{}],                              // INSERT metric_versions（CREATE 快照）
+    );
+    const r = await importMetrics('ds1', [validInput, newItem], 'skip', false, 'admin');
+    expect(r.success).toBe(true);
+    expect(r.skippedCount).toBe(1);
+    expect(r.importedCount).toBe(1);
+    expect(r.summary).toEqual({ totalItems: 2, newItems: 1, conflictItems: 1, invalidItems: 0 });
+    expect(querySpy).toHaveBeenCalledTimes(4);
+    // INSERT 参数：status 列应为 ACTIVE（导入即管理员直接生效）
+    expect(querySpy.mock.calls[2][1][8]).toBe('ACTIVE');
+  });
+
+  it('overwrite 策略：同名覆盖更新（version+1 留历史）', async () => {
+    queue.push(
+      [[{ id: 7, name: '有效客户数' }]], // 现有指标名
+      [[metricRow({ id: 7 })]],          // updateMetric 读取现指标
+      [[]],                              // updateMetric 同名检查
+      [{}],                              // UPDATE metric_definitions
+      [{}],                              // INSERT metric_versions（UPDATE 快照）
+    );
+    const r = await importMetrics('ds1', [{ ...validInput, expr: 'COUNT(id)' }], 'overwrite', false, 'admin');
+    expect(r.updatedCount).toBe(1);
+    expect(r.importedCount).toBe(0);
+    expect(querySpy).toHaveBeenCalledTimes(5);
+    expect(String(querySpy.mock.calls[3][0])).toContain('UPDATE metric_definitions');
+  });
+
+  it('dryRun 仅统计不写库（只有初始 SELECT）', async () => {
+    queue.push([[]]);
+    const r = await importMetrics('ds1', [newItem], 'skip', true, 'admin');
+    expect(r.dryRun).toBe(true);
+    expect(r.importedCount).toBe(1);
+    expect(querySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('非法条目被拒绝并计入错误（不触发写库）', async () => {
+    queue.push([[]]);
+    const r = await importMetrics('ds1', [{ ...newItem, expr: 'x; DROP TABLE t' }], 'skip', false, 'admin');
+    expect(r.success).toBe(false);
+    expect(r.errorCount).toBe(1);
+    expect(r.summary.invalidItems).toBe(1);
+    expect(querySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('文件中 PENDING 状态归一为 ACTIVE 导入（治理状态机不被绕过）', async () => {
+    queue.push(
+      [[]],
+      [[]],               // createMetric 同名检查
+      [{ insertId: 9 }],
+      [{}],
+    );
+    const r = await importMetrics('ds1', [{ ...newItem, status: 'PENDING' }], 'skip', false, 'admin');
+    expect(r.importedCount).toBe(1);
+    expect(querySpy.mock.calls[2][1][8]).toBe('ACTIVE');
+  });
+
+  it('文件内部同名：首条入库后，后续同名条目按冲突策略处理', async () => {
+    queue.push(
+      [[]],               // 库内无现有指标
+      [[]],               // createMetric 同名检查
+      [{ insertId: 5 }],
+      [{}],
+    );
+    const r = await importMetrics('ds1', [newItem, { ...newItem }], 'skip', false, 'admin');
+    expect(r.importedCount).toBe(1);
+    expect(r.skippedCount).toBe(1);
+    expect(r.summary.conflictItems).toBe(1);
+    expect(querySpy).toHaveBeenCalledTimes(4);
   });
 });

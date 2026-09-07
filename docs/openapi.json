@@ -1889,6 +1889,92 @@
         }
       }
     },
+    "/api/sql-examples/export": {
+      "get": {
+        "tags": [
+          "SqlExamples"
+        ],
+        "operationId": "exportSqlExamples",
+        "summary": "SQL 样例库导出（仅 ADMIN；JSON 备份，含问题/SQL/来源标记）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "required": true,
+            "description": "数据源 ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/sql-examples/import": {
+      "post": {
+        "tags": [
+          "SqlExamples"
+        ],
+        "operationId": "importSqlExamples",
+        "summary": "SQL 样例库导入（仅 ADMIN；同问题冲突 skip/overwrite/append，新增记 IMPORT 来源；支持 dryRun 预检）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fileData"
+                ],
+                "properties": {
+                  "fileData": {
+                    "type": "object"
+                  },
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "mergeStrategy": {
+                    "type": "string",
+                    "enum": [
+                      "skip",
+                      "overwrite",
+                      "append"
+                    ]
+                  },
+                  "dryRun": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/sql-examples/{id}": {
       "parameters": [
         {
@@ -2949,6 +3035,91 @@
           },
           "Forbidden": {
             "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/metrics/export": {
+      "get": {
+        "tags": [
+          "Metrics"
+        ],
+        "operationId": "exportMetrics",
+        "summary": "指标库导出（仅 ADMIN；JSON 备份，含口径/同义词/维度/治理状态，剥离库内 id 与审批痕迹）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "required": true,
+            "description": "数据源 ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/metrics/import": {
+      "post": {
+        "tags": [
+          "Metrics"
+        ],
+        "operationId": "importMetrics",
+        "summary": "指标库导入（仅 ADMIN；同名冲突 skip/overwrite，overwrite 版本 +1 留历史；支持 dryRun 预检）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fileData"
+                ],
+                "properties": {
+                  "fileData": {
+                    "type": "object"
+                  },
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "mergeStrategy": {
+                    "type": "string",
+                    "enum": [
+                      "skip",
+                      "overwrite"
+                    ]
+                  },
+                  "dryRun": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }

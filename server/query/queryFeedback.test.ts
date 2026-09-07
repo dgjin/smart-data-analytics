@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { bigramOverlap, normalizeSql, loadFewShotExamples, loadNegativeExamples, saveFeedback } from './queryFeedback';
+import { bigramOverlap, normalizeSql, loadFewShotExamples, loadNegativeExamples, saveFeedback, importSqlExamples, buildSqlExamplesExport } from './queryFeedback';
 import { getPool } from '../infra/db';
 import { callEmbedding } from '../llm/llmClient';
 
@@ -169,5 +169,100 @@ describe('loadNegativeExamples: 自主学习之点踩反例沉淀', () => {
     expect(out.length).toBe(2);
     const qs = out.map((n) => n.question);
     expect(new Set(qs).size).toBe(qs.length); // 归一化同 SQL 去重后不出现重复问题
+  });
+});
+
+describe('buildSqlExamplesExport: 样例库导出文件组装', () => {
+  it('剥离库内 id，保留问题/SQL/来源标记与元数据', () => {
+    const file = buildSqlExamplesExport('ds1', '业务库', [
+      { id: 9, dataSourceId: 'ds1', question: 'q1', sql: 'SELECT 1 FROM t', source: 'FEEDBACK_UP', createdBy: 'alice', createdAt: '2026-09-01T00:00:00.000Z' },
+    ], 'admin');
+    expect(file.type).toBe('sql-examples');
+    expect(file.exampleCount).toBe(1);
+    expect(file.exportedBy).toBe('admin');
+    expect(file.examples[0]).toEqual({ question: 'q1', sql: 'SELECT 1 FROM t', source: 'FEEDBACK_UP', createdBy: 'alice', createdAt: '2026-09-01T00:00:00.000Z' });
+    expect((file.examples[0] as any).id).toBeUndefined();
+  });
+});
+
+describe('importSqlExamples: 样例库备份导入', () => {
+  /** 队列式 mock：按 SQL 调用顺序返回预设结果 */
+  function queueMock(...responses: any[]) {
+    const query = vi.fn();
+    for (const r of responses) query.mockResolvedValueOnce(r);
+    (getPool as any).mockReturnValue({ query });
+    return query;
+  }
+
+  const validItem = { question: '本月销售额', sql: 'SELECT SUM(amount) FROM orders' };
+
+  it('skip 策略：同问题跳过、新问题入库（source 记 IMPORT）', async () => {
+    const query = queueMock(
+      [[{ id: 1, question: '各客户类型的数量' }]], // 现有样例
+      [{ insertId: 10 }], // INSERT 新样例
+      [[{ id: 10, data_source_id: 'ds1', question: validItem.question, sql_text: validItem.sql, source: 'IMPORT', created_by: 'admin', created_at: null }]],
+    );
+    const r = await importSqlExamples('ds1', [{ question: '各客户类型的数量', sql: 'SELECT type FROM customers' }, validItem], 'skip', false, 'admin');
+    expect(r.success).toBe(true);
+    expect(r.skippedCount).toBe(1);
+    expect(r.importedCount).toBe(1);
+    expect(r.summary).toEqual({ totalItems: 2, newItems: 1, conflictItems: 1, invalidItems: 0 });
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[1][1][3]).toBe('IMPORT'); // INSERT source 列
+  });
+
+  it('overwrite 策略：同问题覆盖更新（UPDATE）', async () => {
+    const query = queueMock(
+      [[{ id: 7, question: 'q1' }]],
+      [{ affectedRows: 1 }], // UPDATE
+    );
+    const r = await importSqlExamples('ds1', [{ question: 'q1', sql: 'SELECT 1 FROM t' }], 'overwrite', false, 'admin');
+    expect(r.updatedCount).toBe(1);
+    expect(r.importedCount).toBe(0);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(String(query.mock.calls[1][0])).toContain('UPDATE sql_examples');
+  });
+
+  it('append 策略：同问题照常新建（允许重复条目）', async () => {
+    const query = queueMock(
+      [[{ id: 7, question: 'q1' }]],
+      [{ insertId: 11 }],
+      [[{ id: 11, data_source_id: 'ds1', question: 'q1', sql_text: 'SELECT 1 FROM t', source: 'IMPORT', created_by: 'admin', created_at: null }]],
+    );
+    const r = await importSqlExamples('ds1', [{ question: 'q1', sql: 'SELECT 1 FROM t' }], 'append', false, 'admin');
+    expect(r.importedCount).toBe(1);
+    expect(r.summary.conflictItems).toBe(1);
+    expect(query).toHaveBeenCalledTimes(3);
+  });
+
+  it('dryRun 仅统计不写库（只有初始 SELECT）', async () => {
+    const query = queueMock([[]]);
+    const r = await importSqlExamples('ds1', [validItem], 'skip', true, 'admin');
+    expect(r.dryRun).toBe(true);
+    expect(r.importedCount).toBe(1);
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it('非法条目（非 SELECT）被拒绝并计入错误', async () => {
+    const query = queueMock([[]]);
+    const r = await importSqlExamples('ds1', [{ question: '恶意', sql: 'DELETE FROM t' }], 'skip', false, 'admin');
+    expect(r.success).toBe(false);
+    expect(r.errorCount).toBe(1);
+    expect(r.summary.invalidItems).toBe(1);
+    expect(r.errors[0].message).toContain('SELECT');
+    expect(query).toHaveBeenCalledTimes(1); // 非法条目不触发写库
+  });
+
+  it('文件内部同问题：首条入库后，后续条目按冲突策略处理', async () => {
+    const query = queueMock(
+      [[]], // 库内无现有样例
+      [{ insertId: 12 }],
+      [[{ id: 12, data_source_id: 'ds1', question: validItem.question, sql_text: validItem.sql, source: 'IMPORT', created_by: 'admin', created_at: null }]],
+    );
+    const r = await importSqlExamples('ds1', [validItem, { ...validItem }], 'skip', false, 'admin');
+    expect(r.importedCount).toBe(1);
+    expect(r.skippedCount).toBe(1);
+    expect(r.summary.conflictItems).toBe(1);
+    expect(query).toHaveBeenCalledTimes(3);
   });
 });
