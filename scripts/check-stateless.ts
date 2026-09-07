@@ -45,7 +45,7 @@ export const STATE_WHITELIST: WhitelistEntry[] = [
   // ---- local-accel：本地加速层（纯性能缓存，正确性不依赖跨实例共享）----
   { file: 'server/dataVersion.ts', name: 'versionCache', category: 'local-accel', reason: '数据版本指纹 10s 缓存，防多端轮询风暴；各实例独立探测无正确性问题' },
   { file: 'server/query/sqlExecutor.ts', name: 'dsPools', category: 'local-accel', reason: '数据源连接池：连接是进程资源不可跨实例共享，各实例独立建池' },
-  { file: 'server/llm/llmClient.ts', name: 'embedCache', category: 'local-accel', reason: 'embedding 文本向量缓存（带 TTL）；未命中仅多一次远程调用' },
+  { file: 'server/llm/llmEmbedding.ts', name: 'embedCache', category: 'local-accel', reason: 'embedding 文本向量缓存（带 TTL）；未命 中仅多一次远程调用' },
   { file: 'server/query/schemaLinking.ts', name: 'tableEmbeddingCache', category: 'local-accel', reason: '表摘要向量缓存（key 含内容指纹，schema 编辑自动失效）；未命中仅多一次 embedding 调用' },
   { file: 'server/query/schemaLinking.ts', name: 'columnEmbeddingCache', category: 'local-accel', reason: '列摘要向量缓存（key 含内容指纹）；未命中仅多一次 embedding 调用' },
   { file: 'server/query/sseReplayBuffer.ts', name: 'buffers', category: 'local-accel', reason: 'SSE 断线续传重放缓冲（终态 TTL 10 分钟）；多实例重连落异节点时 404 降级完整重试，正确性不依赖共享' },
