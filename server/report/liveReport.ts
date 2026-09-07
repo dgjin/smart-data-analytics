@@ -1,8 +1,16 @@
 /**
- * P1 报表真实化：双阶段高管报表编排。
- * 阶段一：LLM 按报表主题生成 2-4 条聚合查询计划（仅 SQL，不编造数据）；
- * 执行：逐条过安全执行层（允许部分失败，至少 1 条成功才继续）；
- * 阶段二：全部真实 rows 摘要回喂 LLM 生成高管摘要、洞察、KPI 与各图解读。
+ * 可视化决策报表双阶段真实生成编排（HTTP 入口见 routes/report.ts）。
+ *
+ * 核心流程：
+ * - 阶段一：LLM 按报表主题生成 2-4 条聚合查询计划（仅 SQL，不编造数据）；
+ *   生成前注入 Schema 业务备注 + 语义指标口径（命中才注入）+ 铁律规则（全量恒注入，v0.9.35）
+ *   + 知识库 RAG 片段（v0.9.19，与问数同一检索函数与 token 预算）。
+ * - 执行：多条计划并行过安全执行层（v0.9.20，允许部分失败，至少 1 条成功才继续）。
+ * - 阶段二：全部真实 rows 摘要回喂 LLM 生成高管摘要、洞察、KPI 与各图解读；
+ *   组装后统一做英文标识符中文化兜底替换（v0.5.1）。
+ *
+ * 关键设计：与问数链路（query/liveQuery.ts）共享同一套语义资产与安全执行层，
+ * 凡问数新增的 prompt 注入项（指标/知识库/铁律等）必须同步核对本链路（见说明书「多链路注入一致性」）。
  */
 import { analysisStageRoute, callLLMJson } from '../llm/llmClient';
 import { executeSafeSql, QueryScenario } from '../query/sqlExecutor';
@@ -17,7 +25,9 @@ import { serializeSchemaForPrompt } from '../query/schemaGuidance';
 import type { SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
 
+/** 单份报表的查询计划条数上限：控制生成时长与执行资源占用（与连接池 chain 场景配额对齐） */
 const MAX_REPORT_QUERIES = 4;
+/** 阶段二每图回喂 LLM 的真实行采样上限（token 预算保护） */
 const SAMPLE_ROWS_PER_CHART = 10;
 
 /**
@@ -99,13 +109,19 @@ export function sanitizeReportNarrative<T extends Record<string, unknown>>(repor
 }
 
 export interface LiveReportInput {
+  /** 报表主题模板 ID（预置/自定义模板，见系统管理「报告模板」） */
   templateType: string;
+  /** 用户自定义补充要求（可为空串，与模板提示词合并注入阶段一） */
   customPrompt: string;
+  /** 数据源完整 Schema（安全白名单用全量） */
   schema: SchemaTable[];
+  /** 业务口径指引文本（注入阶段一系统提示词） */
   guidance: string;
+  /** 数据源 ID（指标/铁律/知识库检索均按此隔离） */
   dataSourceId: string;
   /** 数据源类型（mysql/postgresql/greenplum），用于阶段一 SQL 方言提示 */
   dsType?: string;
+  /** 已被 DLP 剔除的敏感列名（执行层二次拦截） */
   sensitiveRemoved: string[];
   /** P1-3 行级权限（实际表名 → 谓词）：执行层 AST 强制注入 */
   rowFilters?: Record<string, string>;
@@ -117,10 +133,15 @@ export interface LiveReportInput {
   scenario?: QueryScenario;
 }
 
+/**
+ * 报表生成结果二分支：成功（report 为可直接渲染的完整报告 JSON）/ 失败（error 为诊断文案）；
+ * 两种分支均携带 executedSqls（已实际执行的 SQL 列表，供下钻与审计追溯，与 charts 索引对齐）。
+ */
 export type LiveReportOutcome =
   | { ok: true; report: Record<string, any>; executedSqls: string[]; totalRows: number }
   | { ok: false; error: string; executedSqls: string[] };
 
+/** 报表单条查询计划：阶段一 LLM 输出契约（purpose 用于阶段二解读时说明该图的分析意图） */
 interface ReportQueryPlan {
   title: string;
   sql: string;
@@ -363,6 +384,11 @@ function buildReportStage2System(schema: SchemaTable[]): string {
 请只输出纯 JSON，不要包含 markdown 代码块标记或其他说明文字。`;
 }
 
+/**
+ * 执行一次报表生成：阶段一生成查询计划（或复用已批准计划）→ 并行安全执行 → 阶段二生成文案。
+ * @param input 报表入参（模板/自定义要求/Schema/数据源/权限等，字段含义见 LiveReportInput）
+ * @returns 成功或失败二分支结果（executedSqls 与报告 charts 索引对齐，供图表下钻使用）
+ */
 export async function runLiveReport(input: LiveReportInput): Promise<LiveReportOutcome> {
   const { templateType, customPrompt, schema, guidance, dataSourceId, dsType, sensitiveRemoved, rowFilters, amountUnit } = input;
   const executedSqls: string[] = [];

@@ -1,9 +1,17 @@
 /**
- * P0 核心改造：双阶段真实查询编排。
- * 阶段一：LLM 仅生成 SQL 与图表配置（不编造数据）；
- * 执行：sqlExecutor 安全执行层（SELECT-only + 白名单 + LIMIT + 超时）；
- * 阶段二：真实 rows（采样 + 列统计）回喂 LLM 生成分析解读与 KPI。
- * 任一步骤失败由调用方降级到演示模式，保证可用性。
+ * 智能问数双阶段真实查询编排（系统核心链路，HTTP 入口见 routes/query.ts）。
+ *
+ * 核心流程：
+ * - 阶段一：LLM 仅生成 SQL 计划与图表配置（不编造数据）；生成前并行构建七路上下文
+ *   （few-shot 样例 / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀 / 铁律规则），
+ *   模板命中时改走确定性 SQL 拼装；复杂问题多候选并行生成 + 多数表决择优，澄清/拒答竞速返回。
+ * - 执行：executeSafeSql 安全执行层（SELECT-only + 表白名单 + 行级权限 + 超时）；失败把原因
+ *   回喂 LLM 重试（最多 3 次），EXPLAIN 防线拦截仅给一次「收窄条件」自纠错机会（防自纠错空转）。
+ * - 阶段二：真实 rows（采样 + 列统计）回喂 LLM 生成解读与 KPI；LLM 异常时规则化降级解读兜底。
+ *
+ * 关键设计：任一步骤失败由调用方降级到演示模式，保证可用性（降级不撒谎，结果带明确标识）。
+ * 本文件仅保留接口定义与主编排：prompt 组装 / 响应解析 / 工具函数拆分至
+ * liveQueryPrompts / liveQueryParsers / liveQueryUtils，经下方 re-export 保持统一入口 API 面不变。
  */
 import { callLLMJson, sqlStageRoute, analysisStageRoute, ChatMessage } from '../llm/llmClient';
 import { executeSafeSql } from './sqlExecutor';
@@ -63,18 +71,25 @@ import {
   extractBusinessNotes,
 } from './liveQueryPrompts';
 
+/** 阶段二回喂 LLM 的真实行采样上限：兼顾 token 预算与统计代表性（列统计另由 buildColumnStats 提供） */
 const SAMPLE_ROWS_FOR_LLM = 15;
 
 export interface LiveQueryInput {
+  /** 用户自然语言问题 */
   query: string;
+  /** 多轮对话历史（按 token 预算截断后注入阶段一） */
   history: ChatMessage[];
+  /** 数据源完整 Schema（安全白名单用全量；prompt 注入前经圈表/列裁剪） */
   schema: SchemaTable[];
+  /** 业务口径指引文本（注入阶段一系统提示词） */
   guidance: string;
+  /** 数据源 ID（few-shot/知识库/指标/铁律等上下文均按此隔离加载） */
   dataSourceId: string;
   /** 数据源显示名（注入 prompt 防止 LLM 把库名当数据过滤值） */
   dataSourceName?: string;
   /** 数据源类型（mysql/postgresql/greenplum），用于阶段一 SQL 方言提示 */
   dsType?: string;
+  /** 已被 DLP 剔除的敏感列名（执行层二次拦截，prompt 中亦声明避免 LLM 引用） */
   sensitiveRemoved: string[];
   /** P1-3 行级权限（实际表名 → 谓词）：执行层 AST 强制注入，LLM 无法绕过 */
   rowFilters?: Record<string, string>;
@@ -113,6 +128,7 @@ export interface LiveQueryFailure {
 }
 
 
+/** 歧义澄清：问题存在多种合理解读时返回，由前端渲染选项供用户确认后重发（仅首轮首个候选接受） */
 export interface LiveQueryClarify {
   ok: 'clarify';
   clarification: Clarification;
@@ -159,6 +175,12 @@ export {
   extractBusinessNotes,
 } from './liveQueryPrompts';
 
+/**
+ * 执行一次真实问数：阶段一生成 SQL → 安全执行 → 阶段二生成解读，全程推导留痕（onTrace）。
+ * @param input 问数入参（问题/历史/Schema/数据源/权限/回调等，字段含义见 LiveQueryInput）
+ * @returns 四分支结果：成功（ok=true）/ 失败（ok=false，附错误诊断）/ 歧义澄清（ok='clarify'）/ 拒答（ok='refuse'）；
+ *          澄清与拒答仅在首轮首个候选上接受，重试与计划模式下按 SQL 契约直接执行
+ */
 export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutcome> {
   const { query, history, schema, guidance, dataSourceId, dsType, sensitiveRemoved } = input;
   const trace = (step: TraceStep) => {

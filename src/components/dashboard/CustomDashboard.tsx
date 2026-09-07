@@ -1,3 +1,18 @@
+/**
+ * 自定义看板：固化图表的个性化网格工作区。
+ *
+ * 核心职责：
+ * - 固化图表管理：服务端持久化（v0.9.24 起挂载时迁移本地遗留并拉取服务端权威列表）、移除、排序；
+ * - 布局编排：拖拽排序（HTML5 DnD）、右下角抓手鼠标缩放（列宽 1~3 档 × 高度 200~520px）、三套预设布局；
+ * - 全局外观：配色主题与智能高对比度开关，统一下发至每张 DynamicChart；
+ * - 语义指标直查面板（P2-14，仅 ADMIN/ANALYST）：选指标+维度走统一查询端点，结果可一键固化；
+ * - 自主更新（v0.4.8）：监测固化图表所属数据源指纹，数据变化时重放原聚合 SQL 自动刷新看板。
+ *
+ * 关键设计：
+ * - 所有写操作统一走 store 的 *Remote 方法（服务端持久化），失败自动回滚（回滚即视觉反馈）；
+ * - 高频交互防抖策略：拖拽缩放的 mousemove 仅本地预览（localOnly），mouseup 才一次性同步远端；
+ * - 自动重放的快照同步对 VIEWER（无写权限）/网络异常仅本地生效、不回滚，避免看板数字闪回。
+ */
 import React, { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard,
@@ -63,11 +78,11 @@ export const CustomDashboard: React.FC = () => {
   const [globalAutoContrast, setGlobalAutoContrast] = useState<boolean>(true);
   const [isEditingLayout, setIsEditingLayout] = useState<boolean>(true);
 
-  // Drag and Drop state
+  // 拖拽排序状态
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  // Mouse Resize state
+  // 鼠标缩放状态（右下角抓手）
   const [resizingWidgetId, setResizingWidgetId] = useState<string | null>(null);
 
   // v0.4.8 自主更新：监测固化图表所属数据源，检测到数据变化时重放原聚合 SQL 刷新看板
@@ -240,11 +255,11 @@ export const CustomDashboard: React.FC = () => {
     initialHeight: number;
   } | null>(null);
 
-  // Handle Drag Start
+  // 拖拽开始
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = 'move';
-    // Transparent drag image or default handle
+    // setData 是部分浏览器（如 Firefox）触发 HTML5 拖拽的必要条件，内容本身不参与逻辑
     e.dataTransfer.setData('text/plain', String(index));
   };
 
@@ -257,7 +272,8 @@ export const CustomDashboard: React.FC = () => {
   };
 
   const handleDragLeave = () => {
-    // Keep dragOverIndex until drop or exit
+    // 注意：dragLeave 时故意保留 dragOverIndex——在卡片子元素间移动也会触发 leave，
+    // 提前清空会导致目标高亮闪烁；统一在 drop / dragEnd 中清理
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
@@ -283,7 +299,7 @@ export const CustomDashboard: React.FC = () => {
     setDragOverIndex(null);
   };
 
-  // Mouse Resize Handler
+  // 鼠标缩放处理：记录起始坐标与初始尺寸，后续 mousemove/mouseup 在 window 级监听
   const handleResizeStart = (
     e: React.MouseEvent<HTMLDivElement>,
     widget: DashboardWidget
@@ -314,7 +330,7 @@ export const CustomDashboard: React.FC = () => {
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
 
-      // ColSpan calculation: ~120px horizontal drag changes colSpan
+      // 列宽档位计算：横向拖动超约 140px 升/降一档，超 280px 跨两档
       let newColSpan = initialColSpan;
       if (dx > 140 && initialColSpan < 3) {
         newColSpan = (initialColSpan + 1) as 1 | 2 | 3;
@@ -326,7 +342,7 @@ export const CustomDashboard: React.FC = () => {
         newColSpan = 1;
       }
 
-      // Height calculation: clamped between 200px and 520px
+      // 高度计算：随纵向拖动增减，限制在 200~520px 之间
       const newHeight = Math.max(200, Math.min(520, Math.round(initialHeight + dy)));
 
       // v0.9.24：拖拽缩放 mousemove 高频调用仅本地预览（localOnly），mouseup 再一次性同步远端
@@ -361,7 +377,7 @@ export const CustomDashboard: React.FC = () => {
     };
   }, [resizingWidgetId, updateDashboardWidgetRemote]);
 
-  // Apply Layout Presets
+  // 应用布局预设（等分三列 / 双列网格 / 主图聚焦）
   const applyPresetLayout = (preset: 'three' | 'two' | 'hero') => {
     const updated = dashboardWidgets.map((w, idx) => {
       if (preset === 'three') {
@@ -388,7 +404,7 @@ export const CustomDashboard: React.FC = () => {
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-8 space-y-6">
-      {/* Top Header */}
+      {/* 顶部标题栏 */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
         <div className="space-y-1">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold uppercase tracking-wider">
@@ -424,10 +440,10 @@ export const CustomDashboard: React.FC = () => {
         </button>
       </div>
 
-      {/* Interactive Grid Layout Control & Theme Toolbar */}
+      {/* 网格布局控制与配色工具栏 */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-lg">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
-          {/* Layout Editing Mode Toggle */}
+          {/* 布局编辑模式开关 */}
           <div className="flex items-center space-x-2 flex-wrap gap-y-2">
             <button
               onClick={() => setIsEditingLayout(!isEditingLayout)}
@@ -450,7 +466,7 @@ export const CustomDashboard: React.FC = () => {
               )}
             </button>
 
-            {/* Layout Quick Presets */}
+            {/* 布局快捷预设 */}
             {isEditingLayout && (
               <div className="flex items-center space-x-1 border border-slate-800 bg-slate-950 p-1 rounded-xl">
                 <span className="text-[10px] text-slate-400 font-bold px-1.5">网格预设:</span>
@@ -482,7 +498,7 @@ export const CustomDashboard: React.FC = () => {
             )}
           </div>
 
-          {/* Theme Palette & Contrast */}
+          {/* 配色主题与智能对比度 */}
           <div className="flex items-center space-x-3 shrink-0 flex-wrap gap-y-2">
             <div className="flex items-center space-x-2">
               <Palette className="w-4 h-4 text-indigo-400 shrink-0" />
@@ -529,7 +545,7 @@ export const CustomDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Layout Mode Helper Banner */}
+        {/* 布局编辑模式操作指引横幅 */}
         {isEditingLayout && (
           <div className="p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-[11px] text-indigo-200 flex items-center justify-between gap-2 animate-fadeIn">
             <div className="flex items-center space-x-2">
@@ -681,7 +697,7 @@ export const CustomDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Grid Layout Container */}
+      {/* 网格布局容器 */}
       {dashboardWidgets.length > 0 ? (
         <div
           className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative transition-all ${
@@ -722,7 +738,7 @@ export const CustomDashboard: React.FC = () => {
                     : 'border-slate-800 hover:border-slate-700'
                 }`}
               >
-                {/* Drag Target Highlight overlay */}
+                {/* 拖拽目标高亮遮罩 */}
                 {isDragOverThis && (
                   <div className="absolute inset-0 bg-emerald-500/10 border-2 border-emerald-400 border-dashed rounded-2xl z-40 pointer-events-none flex items-center justify-center">
                     <span className="px-3 py-1.5 rounded-xl bg-emerald-950 text-emerald-300 font-bold text-xs border border-emerald-400 shadow-xl">
@@ -731,10 +747,10 @@ export const CustomDashboard: React.FC = () => {
                   </div>
                 )}
 
-                {/* Card Top Header */}
+                {/* 卡片头部 */}
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
                   <div className="flex items-center space-x-2">
-                    {/* Drag Handle */}
+                    {/* 拖拽柄 */}
                     {isEditingLayout ? (
                       <div
                         className="cursor-grab active:cursor-grabbing p-1 rounded-lg bg-slate-800 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-colors"
@@ -758,7 +774,7 @@ export const CustomDashboard: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Header Actions & Column Span quick toggles */}
+                  {/* 头部操作区与列宽快捷切换 */}
                   <div className="flex items-center space-x-2">
                     {isEditingLayout && (
                       <div className="flex items-center space-x-1 bg-slate-950 border border-slate-800 p-0.5 rounded-lg text-[10px]">
@@ -806,7 +822,7 @@ export const CustomDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Chart Render */}
+                {/* 图表渲染区 */}
                 <div className="w-full relative">
                   <DynamicChart
                     config={widget.chartConfig}
@@ -817,14 +833,14 @@ export const CustomDashboard: React.FC = () => {
                   />
                 </div>
 
-                {/* Card Footer & Mouse Corner Resize Handle */}
+                {/* 卡片底部与右下角缩放抓手 */}
                 {isEditingLayout && (
                   <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[10px] text-slate-400 font-mono">
                     <span className="flex items-center space-x-1">
                       <span>尺寸: {colSpan}列宽 × {height}px高</span>
                     </span>
 
-                    {/* Interactive Drag Handle at Bottom Right */}
+                    {/* 右下角交互式缩放抓手 */}
                     <div
                       onMouseDown={(e) => handleResizeStart(e, widget)}
                       className="cursor-se-resize p-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-slate-300 hover:text-white transition-all flex items-center space-x-1 border border-slate-700 shadow-sm"

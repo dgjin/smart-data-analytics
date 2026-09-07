@@ -1,12 +1,18 @@
 /**
- * P1-4 问数路由（从 server.ts 拆出，挂载于 /api/query 前缀下，与 queryContext.ts 并列）：
- * - POST /natural-language 智能问数主链路（L1-L6 六层防护 + live/simulated 双链路 + SSE）
- * - GET  /trace/:traceId  M1 推导过程回放
- * - POST /plan            M2 计划模式（先出计划后批准执行）
- * - POST /feedback        P1 反馈闭环（点赞沉淀 few-shot 样例）
- * - POST /execute-sql     SQL 重跑（SELECT-only 安全执行层）
- * - POST /sql-assist      SQL AI 助手（解释/优化）
- * - POST /drill           P2-2 图表点击下钻
+ * 问数路由（挂载于 /api/query 前缀，与 queryContext.ts 并列）。
+ *
+ * 端点清单：
+ * - POST /natural-language      智能问数主链路（L1-L6 六层防护 + live/simulated 双链路 + SSE 流式）
+ * - GET  /stream-replay/:traceId SSE 断线续传（重放缓冲事件，不重新执行 SQL）
+ * - GET  /trace/:traceId         推导过程回放（仅本人或管理员）
+ * - POST /plan                   计划模式（先出计划，用户批准后执行）
+ * - POST /feedback               反馈闭环（点赞沉淀 few-shot 样例）
+ * - POST /execute-sql            SQL 重跑（SELECT-only 安全执行层）
+ * - POST /sql-assist             SQL AI 助手（解释/优化）
+ * - POST /drill                  图表点击下钻
+ *
+ * 关键设计：除 stream-replay/trace 只读端点外，其余均经 rateLimiter + authMiddleware + 角色白名单；
+ * 所有 SQL 执行一律走 executeSafeSql 安全执行层，路由层不直接拼 SQL。
  */
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -37,7 +43,7 @@ import { logger } from '../infra/logger';
 
 const router = Router();
 
-// 3. API Endpoint: Natural Language Query to Analysis (NL2SQL / Analytics)
+// 3. 智能问数主端点（NL2SQL / 分析）：自然语言 → SQL → 真实执行 → 图表/解读
 router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const startedAt = Date.now();
   const user = req.user!;

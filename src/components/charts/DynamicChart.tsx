@@ -1,3 +1,17 @@
+/**
+ * 动态图表渲染器：全站统一的图表渲染核心（基于 recharts）。
+ *
+ * 核心职责：
+ * - 按 ChartConfig 渲染柱状/折线/面积/饼环/雷达/散点/Treemap/热力图八类图表；
+ * - 交互增强：缩放刷与滚轮缩放、配色主题切换、数据属性驱动的对比度自动优化、
+ *   同比（YoY）/环比（MoM）对比与差异百分比徽标、点击维度下钻回调；
+ * - 根节点带 data-chart-capture-root：报表 PDF/PPT 导出按此 DOM 原样快照，与 charts 数组一一对齐。
+ *
+ * 关键设计：
+ * - 同/环比仅限时间序列 x 轴，且必须存在真实历史基线——无基线的数据点留空不编造（v0.4.2 修复）；
+ * - 数字格式化不做万/亿二次缩写：金额单位已由问数侧 SQL 换算并在表头标明，二次缩写会与所选单位冲突；
+ * - 饼图动画常驻关闭：recharts 在父组件重渲染时重放动画，期间 label 隐藏（约 4s），导出快照会丢百分比标签。
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ResponsiveContainer,
@@ -44,15 +58,23 @@ import {
 import { CHART_THEMES, getAutoOptimizedColors, ChartTheme } from '../../utils/chartThemes';
 import { detectTemporalAxis } from '../../utils/temporalAxis';
 
+/** 同/环比对比模式：none 原值展示 / yoy 同比（与去年同期对比）/ mom 环比（与上期对比） */
 export type ComparisonMode = 'none' | 'yoy' | 'mom';
 
 interface DynamicChartProps {
+  /** 图表配置（类型/x 轴键/y 轴键组/轴中文名/是否堆叠），由问数或报表链路生成 */
   config: ChartConfig;
+  /** 图表数据行（对象数组，键与 config 的 xAxisKey/yAxisKeys 对应） */
   data: Record<string, any>[];
+  /** 图表容器高度（px），默认 320 */
   height?: number;
+  /** 全局配色主题 id（CHART_THEMES 键名），默认 cyber；组件内可临时切换 */
   globalThemeId?: string;
+  /** 是否按数据属性自动优化配色对比度，默认 true */
   autoOptimizeContrast?: boolean;
+  /** 初始同/环比对比模式，默认 none；数据集不支持时自动回落 none */
   comparisonMode?: ComparisonMode;
+  /** 是否显示差异百分比徽标，默认 true */
   showDiffBadges?: boolean;
   /** P2-2 点击下钻：点击图表维度时回调（维度键、维度值） */
   onDrill?: (dimensionKey: string, dimensionValue: string | number) => void;
@@ -101,7 +123,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
     }
   }, [data]);
 
-  // Reset comparison mode when the dataset no longer supports it
+  // 数据集变更后若不再支持当前对比模式（如换成非时间维度），自动回落原值展示
   useEffect(() => {
     const len = data?.length || 0;
     // 仅时间序列 x 轴允许同/环比：分类维度（机构名等）下偏移基线是维度错配的伪数据
@@ -137,7 +159,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
     setEndIndex(dataLen - 1);
   };
 
-  // Mouse wheel zoom — attached natively with passive:false so preventDefault works
+  // 滚轮缩放：必须原生绑定且 passive:false，否则浏览器忽略 preventDefault 导致页面跟着滚动
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !isCartesian || dataLen <= 3) return;
@@ -170,7 +192,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   const { type, xAxisKey, yAxisKeys, stacked } = config;
 
-  // Compute colors based on active theme & auto contrast setting
+  // 按当前主题与「自动对比度」开关计算实际生效色板（含给用户的说明文案）
   const activeTheme: ChartTheme = CHART_THEMES[activeThemeId] || CHART_THEMES.cyber;
   const { colors: effectiveColors, explanation: autoContrastNote } = isAutoContrast
     ? getAutoOptimizedColors(data, yAxisKeys, activeThemeId)
@@ -179,22 +201,21 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
   const gridColor = activeTheme.gridColor || '#334155';
   const textColor = activeTheme.textColor || '#94a3b8';
 
-  // Filtered data based on zoom window
+  // 按缩放窗口（startIndex/endIndex）截取可视数据
   const visibleData = isCartesian && data.length > 1
     ? data.slice(startIndex, endIndex + 1)
     : data;
 
-  // YoY / MoM comparison availability — never fabricate baselines.
-  // MoM needs at least 3 points; YoY needs a full prior cycle (offset 4 or 12).
-  // 且仅限时间序列 x 轴：分类维度下「上一条/周期偏移条」不是历史同期，
-  // 对其计算同/环比会把其他分类的值误当基线（v0.4.2 修复）。
+  // 同/环比可用性判断：MoM 至少 3 个数据点；YoY 需完整上一周期（偏移量 4 或 12）。
+  // 注意：仅限时间序列 x 轴——分类维度下「上一条/周期偏移条」不是历史同期，
+  // 对其计算同/环比会把其他分类的值误当基线（v0.4.2 修复）；宁可不对比，也不编造基线。
   const yoyOffset = data.length >= 13 ? 12 : 4;
   const isTemporalX = detectTemporalAxis(data.map((d) => d?.[xAxisKey]));
   const canCompareMom = isTemporalX && data.length >= 3;
   const canCompareYoy = isTemporalX && data.length > yoyOffset;
 
-  // Calculate YoY / MoM comparison baselines & difference percentages.
-  // Points without a real historical baseline are left undefined (no fabricated data).
+  // 计算同/环比基线值（_prior 字段）与差异百分比（_diff_pct 字段）附加到每行数据；
+  // 无真实历史基线的点保持 undefined（不编造数据），基线系列与徽标自动跳过该点
   const processComparisonData = (rawData: Record<string, any>[], mode: ComparisonMode) => {
     if (!rawData || rawData.length === 0 || mode === 'none') {
       return rawData;
@@ -232,7 +253,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   const chartData = processComparisonData(visibleData, activeComparisonMode);
 
-  // Format number in tooltip/axis：千分位 + 非整数补足两位小数（整数不补零）；
+  // 提示框与坐标轴数字格式化：千分位 + 非整数补足两位小数（整数不补零）；
   // 不再自动缩写为万/亿——金额单位已由问数侧选定（SQL 按单位换算、表头带单位），二次缩写会与所选单位冲突
   const formatValue = (val: any) => {
     if (typeof val === 'number') {
@@ -243,7 +264,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
     return val;
   };
 
-  // Custom Badge Renderer for Difference Percentages
+  // 差异百分比徽标渲染器（recharts LabelList content 回调，SVG 手绘圆角标签）
   const renderDiffBadge = (props: any) => {
     const { x, y, value, width } = props;
     if (value === undefined || value === null || !isDiffBadgeVisible) return null;
@@ -322,7 +343,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             );
           })}
 
-          {/* Display comparison diff percentage inside Tooltip */}
+          {/* 提示框内追加同/环比差异百分比区块 */}
           {activeComparisonMode !== 'none' && payload[0]?.payload && yAxisKeys.length > 0 && (
             <div className="border-t border-slate-800 pt-1.5 space-y-1">
               {yAxisKeys.map((key) => {
@@ -693,7 +714,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   return (
     <div className="w-full relative group space-y-1" style={{ height }}>
-      {/* Interactive Toolbar with Color Scheme Switcher, YoY/MoM Comparison Toggle & Zoom */}
+      {/* 交互工具栏：配色方案切换 + 同/环比开关 + 缩放控制 */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-400 px-1 py-0.5 gap-1.5">
         <div className="flex items-center space-x-2 truncate flex-wrap gap-y-1">
           {isCartesian && data.length > 2 && (
@@ -711,7 +732,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             </span>
           )}
 
-          {/* Active Palette Preview Indicator */}
+          {/* 当前生效色板预览指示 */}
           <div className="flex items-center space-x-1 border border-slate-800 bg-slate-900 px-2 py-0.5 rounded-lg shrink-0">
             <div className="flex items-center space-x-0.5">
               {effectiveColors.slice(0, 4).map((c, i) => (
@@ -729,7 +750,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
         </div>
 
         <div className="flex items-center space-x-1.5 relative shrink-0 flex-wrap gap-y-1">
-          {/* YoY / MoM Analysis Toggle Buttons */}
+          {/* 同/环比分析切换按钮组 */}
           {isCartesian && (
             <div className="flex items-center bg-slate-900 border border-slate-800 p-0.5 rounded-lg">
               <button
@@ -778,7 +799,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             </div>
           )}
 
-          {/* Toggle Difference Percentage Badges */}
+          {/* 差异百分比徽标开关 */}
           {activeComparisonMode !== 'none' && (
             <button
               type="button"
@@ -795,7 +816,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             </button>
           )}
 
-          {/* Theme Palette Picker Button */}
+          {/* 配色主题选择按钮 */}
           <div className="relative">
             <button
               onClick={() => setShowThemePicker(!showThemePicker)}
@@ -806,7 +827,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
               <span>智能配色</span>
             </button>
 
-            {/* Theme Picker Dropdown Popover */}
+            {/* 主题选择下拉弹层 */}
             {showThemePicker && (
               <div className="absolute right-0 top-7 z-50 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-3 space-y-2.5 text-xs">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
@@ -822,7 +843,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                   </button>
                 </div>
 
-                {/* Auto Contrast Toggle */}
+                {/* 自动对比度优化开关 */}
                 <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-indigo-300 text-[11px] flex items-center space-x-1">
@@ -841,7 +862,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                   </p>
                 </div>
 
-                {/* Theme Options */}
+                {/* 主题列表 */}
                 <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
                   {Object.values(CHART_THEMES).map((theme) => {
                     const isSelected = activeThemeId === theme.id;
@@ -863,7 +884,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                           <div className="text-[9px] text-slate-400 truncate">{theme.description}</div>
                         </div>
 
-                        {/* Color Swatch */}
+                        {/* 主题色样预览 */}
                         <div className="flex items-center space-x-0.5 shrink-0 ml-2">
                           {theme.colors.slice(0, 4).map((c, idx) => (
                             <span
@@ -881,7 +902,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             )}
           </div>
 
-          {/* Zoom controls */}
+          {/* 缩放控制按钮组 */}
           {isCartesian && data.length > 2 && (
             <div className="flex items-center space-x-1 bg-slate-900 border border-slate-800 p-1 rounded-lg">
               <button

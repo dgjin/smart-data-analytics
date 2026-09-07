@@ -1,3 +1,15 @@
+/**
+ * 高管决策简报卡片：报表中心与问数报告中心的核心渲染组件。
+ *
+ * 核心职责：
+ * - 渲染报告全文（标题/高管摘要/KPI 网格/战略洞察/图表组），支持全局图表主题与同/环比对比模式；
+ * - 数据异常扫描（scanReportForAnomalies 本地规则引擎）与异常标注、批注协同（评论/回复/解决）；
+ * - 导出与分享：PDF（服务端 ReportLab 排版，异步任务轮询下载）、PPT（服务端 pptxgenjs 组装）、打印（切换打印主题）；
+ * - 图表下钻（仅 live 报表且有原始 SQL 的图开放入口）。
+ *
+ * 关键设计：组件内部维护 activeReport 本地副本——批注/重扫异常等交互先写 store 持久化（服务端），
+ * 再同步本地 state 即时回显，避免等待网络往返。
+ */
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FileText,
@@ -39,7 +51,9 @@ import { apiFetch } from '../../api/client';
 import { pollTask, downloadTaskResult } from '../../utils/asyncTask';
 
 interface ExecutiveReportCardProps {
+  /** 报告完整数据（含标题/摘要/KPI/洞察/图表/批注/异常） */
   report: SavedReport;
+  /** 删除回调（历史报表维护入口，v0.9.22 起在历史列表暴露） */
   onDelete?: () => void;
 }
 
@@ -55,7 +69,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   const [globalComparisonMode, setGlobalComparisonMode] = useState<ComparisonMode>('none');
   const [globalShowDiffBadges, setGlobalShowDiffBadges] = useState<boolean>(true);
 
-  // PDF Export States
+  // PDF 导出状态（v0.5.3 起服务端 ReportLab 排版 + v0.9.2 异步任务轮询）
   const [showPdfExportModal, setShowPdfExportModal] = useState<boolean>(false);
   const [isExportingPDF, setIsExportingPDF] = useState<boolean>(false);
   const [pdfExportSuccess, setPdfExportSuccess] = useState<boolean>(false);
@@ -80,6 +94,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     });
   }, [report]);
 
+  // 新增批注：先写 store 持久化，再同步本地副本即时回显（双写模式）
   const handleAddComment = (comment: ChartComment) => {
     addReportComment(activeReport.id, comment);
     setActiveReport((prev) => ({
@@ -88,6 +103,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }));
   };
 
+  // 回复批注：同双写模式，定位到目标评论追加 reply
   const handleAddReply = (commentId: string, reply: ChartCommentReply) => {
     addReportCommentReply(activeReport.id, commentId, reply);
     setActiveReport((prev) => ({
@@ -99,6 +115,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }));
   };
 
+  // 切换批注「已解决」状态：同双写模式
   const handleToggleResolve = (commentId: string) => {
     toggleReportCommentResolve(activeReport.id, commentId);
     setActiveReport((prev) => ({
@@ -110,6 +127,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }));
   };
 
+  // 重新扫描异常：600ms 延迟为扫描动画留出感知时间（本地规则引擎实际执行为微秒级）
   const handleReScanAnomalies = () => {
     setIsScanning(true);
     setTimeout(() => {
@@ -122,6 +140,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   const [drillOpen, setDrillOpen] = useState(false);
   const [drillTarget, setDrillTarget] = useState<{ idx: number; dimKey: string; dimValue: string | number } | null>(null);
 
+  // 打印：先切换为打印友好主题，150ms 后唤起系统打印（等待主题重渲染完成，避免打印出深色背景）
   const handlePrint = () => {
     setGlobalThemeId('print');
     setTimeout(() => {
@@ -358,7 +377,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
           : 'bg-slate-900 border-slate-800 text-slate-100'
       }`}
     >
-      {/* Report Header */}
+      {/* 报告头部：标题/日期/异常徽标 */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div className="space-y-1">
           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
@@ -381,7 +400,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
           </h2>
         </div>
 
-        {/* Action Buttons */}
+        {/* 操作按钮组：重扫异常/导出 PDF/下载 PPT/打印（打印时隐藏） */}
         <div className="flex items-center space-x-2 print:hidden shrink-0 flex-wrap gap-y-2">
           <button
             onClick={handleReScanAnomalies}
@@ -392,7 +411,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
             <span>{isScanning ? 'AI算法扫描中...' : '重新扫描异常'}</span>
           </button>
 
-          {/* High Quality PDF Export Button */}
+          {/* 高清 PDF 导出按钮（打开导出配置弹窗） */}
           <button
             onClick={() => setShowPdfExportModal(true)}
             className="flex items-center space-x-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white border border-indigo-400/30 text-xs font-bold transition-all shadow-md shadow-indigo-600/20"
@@ -430,7 +449,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       )}
 
-      {/* Global Chart Theme & YoY/MoM Comparison Toolbar */}
+      {/* 全局图表主题与同/环比对比工具栏 */}
       <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 flex flex-col xl:flex-row xl:items-center justify-between gap-3 text-xs print:hidden">
         <div className="flex items-center space-x-2 overflow-x-auto">
           <Palette className="w-4 h-4 text-indigo-400 shrink-0" />
@@ -465,7 +484,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
 
         <div className="flex items-center space-x-3 shrink-0 text-[11px] text-slate-400 flex-wrap gap-y-2">
-          {/* Global YoY / MoM Analysis Mode Switcher */}
+          {/* 全局同/环比分析模式切换 */}
           <div className="flex items-center space-x-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
             <span className="text-[11px] font-bold text-slate-300 px-1 flex items-center space-x-1">
               <GitCompare className="w-3.5 h-3.5 text-indigo-400" />
@@ -534,7 +553,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       </div>
 
-      {/* Executive Summary */}
+      {/* 高管摘要 */}
       <div
         className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-1.5"
         style={{ breakInside: 'avoid' }}
@@ -548,7 +567,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </p>
       </div>
 
-      {/* AI Anomaly Highlight Callout Panel */}
+      {/* AI 异常高亮提示面板 */}
       {allAnomalies.length > 0 && showAnomalyPanel && (
         <div
           className="p-4 rounded-2xl bg-slate-950 border border-amber-500/40 space-y-3 shadow-lg shadow-amber-500/5"
@@ -626,7 +645,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       )}
 
-      {/* KPI Grid with Anomaly Badges */}
+      {/* KPI 网格（含异常徽标） */}
       {activeReport.kpiList && activeReport.kpiList.length > 0 && (
         <div className="space-y-2" style={{ breakInside: 'avoid' }}>
           <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1 flex items-center justify-between">
@@ -681,7 +700,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       )}
 
-      {/* Strategic Insights */}
+      {/* 战略洞察 */}
       {activeReport.insights && activeReport.insights.length > 0 && (
         <div className="space-y-3" style={{ breakInside: 'avoid' }}>
           <h3 className="font-bold text-sm text-slate-200 uppercase tracking-wider">
@@ -723,7 +742,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       )}
 
-      {/* Visual Charts with Anomaly Annotations */}
+      {/* 图表组（含异常标注） */}
       {activeReport.charts && activeReport.charts.length > 0 && (
         <div className="space-y-6">
           <h3 className="font-bold text-sm text-slate-200 uppercase tracking-wider flex items-center justify-between">
@@ -761,7 +780,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                     )}
                   </div>
 
-                  {/* Render Dynamic Chart */}
+                  {/* 渲染动态图表 */}
                   <DynamicChart
                     config={chartBlock.chartConfig}
                     data={chartBlock.data}
@@ -782,7 +801,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                     </div>
                   )}
 
-                  {/* Anomaly Callout Badges below chart */}
+                  {/* 图下方异常标注徽标 */}
                   {chartAnomalies.length > 0 && (
                     <div className="space-y-1.5 pt-1">
                       <div className="text-[10px] font-bold text-amber-400 flex items-center space-x-1">
@@ -816,7 +835,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                     </p>
                   )}
 
-                  {/* Collaborative Comments & Annotations */}
+                  {/* 协同批注区 */}
                   {includeComments && (
                     <ChartCommentSection
                       reportId={activeReport.id}
@@ -837,7 +856,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       )}
 
-      {/* Interactive PDF Export Modal / Configuration Panel */}
+      {/* PDF 导出配置弹窗：纸张方向/是否含批注/提交异步任务 */}
       {showPdfExportModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-slate-900 border border-indigo-500/40 rounded-3xl p-6 md:p-8 max-w-lg w-full space-y-6 shadow-2xl relative">
@@ -861,9 +880,9 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
               </p>
             </div>
 
-            {/* Config Form */}
+            {/* 配置表单 */}
             <div className="space-y-4 text-xs">
-              {/* Paper Orientation */}
+              {/* 纸张方向 */}
               <div className="space-y-1.5">
                 <label className="font-bold text-slate-200">1. PDF 页面版式方向 (Page Orientation)</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -897,7 +916,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                 2. 渲染引擎已升级为服务端原生排版（ReportLab）：标题/摘要/KPI/洞察为矢量文字，图表按 2x 高清嵌入，不再存在截图错位与遮挡。
               </div>
 
-              {/* Include Options */}
+              {/* 附加内容选项 */}
               <div className="space-y-2 pt-1 border-t border-slate-800">
                 <label className="font-bold text-slate-200">3. 附带组件内容设置</label>
                 <label
@@ -914,7 +933,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
               </div>
             </div>
 
-            {/* Export Success Message */}
+            {/* 导出成功提示 */}
             {pdfExportSuccess && (
               <div className="p-3 bg-emerald-950 border border-emerald-500/50 rounded-xl text-emerald-300 text-xs font-bold flex items-center space-x-2 animate-fadeIn">
                 <FileCheck2 className="w-4 h-4 text-emerald-400 shrink-0 animate-bounce" />
@@ -922,7 +941,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
               </div>
             )}
 
-            {/* Action Buttons */}
+            {/* 弹窗操作按钮：取消/确认导出 */}
             <div className="flex items-center justify-end space-x-3 pt-2 border-t border-slate-800">
               <button
                 type="button"
