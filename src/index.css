@@ -21,6 +21,8 @@ html.light {
   --color-indigo-400: #4f46e5;
   --color-cyan-300: #0e7490;
   --color-cyan-400: #0891b2;
+  --color-violet-300: #7c3aed;
+  --color-violet-400: #7c3aed;
   --color-emerald-300: #059669;
   --color-emerald-400: #059669;
   --color-rose-300: #e11d48;
@@ -31,6 +33,7 @@ html.light {
   --color-indigo-100: #4338ca;
   --color-indigo-200: #4338ca;
   --color-cyan-200: #0e7490;
+  --color-violet-200: #6d28d9;
   --color-amber-200: #b45309;
   --color-rose-200: #be123c;
   --color-emerald-200: #047857;
@@ -43,6 +46,8 @@ html.light {
   --color-indigo-900: #c7d2fe;
   --color-cyan-950: #cffafe;
   --color-cyan-900: #a5f3fc;
+  --color-violet-950: #ede9fe;
+  --color-violet-900: #ddd6fe;
   --color-amber-950: #fef3c7;
   --color-amber-900: #fde68a;
   --color-sky-950: #e0f2fe;
