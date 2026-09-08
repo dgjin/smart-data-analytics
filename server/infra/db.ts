@@ -639,6 +639,26 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 问数专家角色库（v0.9.40）：阶段二解读的 persona 路由配置（角色标签/触发关键词/rolePrompt）。
+  // 内置 5 角色（risk/customer/finance/npl/default）启动时播种，可编辑不可删除；
+  // default 为路由兜底（不参与关键词匹配），禁禁用禁删。仅 ADMIN 维护。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expert_personas (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      persona_key VARCHAR(40) NOT NULL,
+      label VARCHAR(50) NOT NULL,
+      keywords TEXT NOT NULL,
+      role_prompt VARCHAR(500) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 100,
+      status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+      is_builtin TINYINT(1) NOT NULL DEFAULT 0,
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_persona_key (persona_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // P2-4 LLM 用量埋点：按引擎/模型/通道记录 token 与耗时，支撑多引擎成本对比；
   // fire-and-forget 写入，失败不阻断主链路
   await pool.query(`

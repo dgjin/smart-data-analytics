@@ -15,7 +15,7 @@
  */
 import { callLLMJson, sqlStageRoute, analysisStageRoute, ChatMessage } from '../llm/llmClient';
 import { executeSafeSql } from './sqlExecutor';
-import { resolveExpertPersona } from '../llm/expertPersona';
+import { resolveExpertPersonaAsync } from '../llm/expertPersona';
 import { selectRelevantTablesAsync, pruneWideTableColumnsAsync, metricColumnsByTable } from './schemaLinking';
 import { loadFewShotExamples, FewShotExample, loadNegativeExamples, NegativeExample } from './queryFeedback';
 import { loadConversationFewShot } from './conversationHistory';
@@ -326,8 +326,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs, input.dataSourceName, ironRulesPrompt);
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
-  // 专家角色路由：财务/客户/风险/不良关键词命中对应专家，否则默认金融数据分析师
-  const persona = resolveExpertPersona(query);
+  // 专家角色路由：库化配置按 sortOrder 升序关键词匹配（仅 ADMIN 维护，v0.9.40），库异常时回退内置常量
+  const persona = await resolveExpertPersonaAsync(query);
 
   let retries = 0;
   let plan: Stage1Plan | null = null;

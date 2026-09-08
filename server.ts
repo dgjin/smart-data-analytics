@@ -35,6 +35,7 @@ import externalKnowledgeRoutes from './server/routes/externalKnowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
 import ironRuleRoutes from './server/routes/ironRules';
+import expertPersonaRoutes from './server/routes/expertPersonas';
 import skillRoutes from './server/routes/skills';
 import queryContextRoutes from './server/routes/queryContext';
 import accessRequestRoutes from './server/routes/accessRequests';
@@ -96,6 +97,14 @@ async function startServer() {
 
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
+
+  // v0.9.40 问数专家角色库播种：表为空时写入内置 5 角色（幂等；失败仅告警，问数回退内置常量路由）
+  try {
+    const { ensureExpertPersonasSeeded } = await import('./server/llm/expertPersona');
+    await ensureExpertPersonasSeeded();
+  } catch (err) {
+    console.warn('[ExpertPersonas] 种子播种失败（问数将使用内置常量路由）:', (err as Error)?.message || err);
+  }
 
   // P2-13 多实例：启动时预热 Redis 连接（消除 offlineQueue 禁用在连接建立窗口内的
   // 限流 fail-closed 429 / 缓存全未命中冷启动抖动）；超时仅告警不阻断（降级路径安全）
@@ -220,6 +229,7 @@ async function startServer() {
   app.use('/api/knowledge-external', externalKnowledgeRoutes);
   app.use('/api/metrics', metricRoutes);
   app.use('/api/iron-rules', ironRuleRoutes);
+  app.use('/api/expert-personas', expertPersonaRoutes);
   app.use('/api/sql-examples', sqlExampleRoutes);
   app.use('/api/skills', skillRoutes);
   app.use('/api/query', queryContextRoutes);

@@ -4523,6 +4523,96 @@
           }
         }
       }
+    },
+    "/api/expert-personas": {
+      "get": {
+        "tags": [
+          "ExpertPersonas"
+        ],
+        "operationId": "listExpertPersonas",
+        "summary": "问数专家角色列表（含禁用，按匹配优先级排序，仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "角色列表"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ExpertPersonas"
+        ],
+        "operationId": "createExpertPersona",
+        "summary": "新建自定义专家角色（创建即生效，仅 ADMIN）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "创建结果"
+          }
+        }
+      }
+    },
+    "/api/expert-personas/{id}": {
+      "put": {
+        "tags": [
+          "ExpertPersonas"
+        ],
+        "operationId": "updateExpertPersona",
+        "summary": "更新专家角色（default 仅可改标签与 rolePrompt，仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新结果"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ExpertPersonas"
+        ],
+        "operationId": "deleteExpertPersona",
+        "summary": "删除自定义专家角色（内置角色拒绝，仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除结果"
+          }
+        }
+      }
     }
   },
   "components": {
