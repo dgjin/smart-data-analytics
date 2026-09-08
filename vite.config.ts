@@ -1,12 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readFileSync } from 'fs';
 import {defineConfig} from 'vitest/config';
+
+/** 应用版本号：构建期从 package.json 读取，经 define 注入为全局常量（统一版本唯一事实源） */
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as { version: string };
 
 export default defineConfig(() => {
   return {
     // 资产路径基准（顶层配置项，不可放 build 内）
     base: '/',
+    define: {
+      // 版本常量经 import.meta.env 通道注入：Vite 6 dev 模式跳过 client 环境的顶层 define 替换，
+      // 仅 import.meta.env.* 键会并入 /@vite/env 注入（build 下两路径均生效），保证 dev/生产行为一致
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+    },
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
