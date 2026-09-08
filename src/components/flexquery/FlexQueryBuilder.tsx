@@ -751,6 +751,13 @@ export const FlexQueryBuilder: React.FC = () => {
                                     {isJoined && <span className="text-cyan-500 mr-1">[{c.table}]</span>}
                                     {c.description || c.name}
                                   </span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); addField(c.fullName, 'filter'); }}
+                                    title="添加为筛选条件"
+                                    className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-amber-500/20"
+                                  >
+                                    <Filter className="w-3 h-3 text-amber-400" />
+                                  </button>
                                   <Plus className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 shrink-0" />
                                 </div>
                               );
@@ -799,6 +806,13 @@ export const FlexQueryBuilder: React.FC = () => {
                                     {isJoined && <span className="text-emerald-500 mr-1">[{c.table}]</span>}
                                     {c.description || c.name}
                                   </span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); addField(c.fullName, 'having'); }}
+                                    title="添加为 HAVING 指标过滤"
+                                    className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 rounded hover:bg-fuchsia-500/20"
+                                  >
+                                    <Filter className="w-3 h-3 text-fuchsia-400" />
+                                  </button>
                                   <Plus className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 shrink-0" />
                                 </div>
                               );
@@ -962,7 +976,7 @@ export const FlexQueryBuilder: React.FC = () => {
                 className={zoneClass('filter')}
               >
                 {filters.length === 0 ? (
-                  <p className="text-[10px] text-slate-500 text-center py-1.5">拖入字段添加筛选（支持 = / IN / BETWEEN / IS NULL）</p>
+                  <p className="text-[10px] text-slate-500 text-center py-1.5">点击上方字段的筛选图标，或选择字段添加条件</p>
                 ) : (
                   <div className="space-y-1.5">
                     {filters.map((f, idx) => (
@@ -1005,6 +1019,22 @@ export const FlexQueryBuilder: React.FC = () => {
                         </button>
                       </div>
                     ))}
+                    {/* 独立入口：选择字段添加 WHERE 条件 */}
+                    <div className="pt-1">
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v) { addField(v, 'filter'); e.target.value = ''; }
+                        }}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-amber-500"
+                      >
+                        <option value="">+ 添加筛选条件（选择字段）…</option>
+                        {allFields.map((c) => (
+                          <option key={c.fullName} value={c.fullName}>{c.description || c.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1023,7 +1053,7 @@ export const FlexQueryBuilder: React.FC = () => {
                 className={zoneClass('having')}
               >
                 {havings.length === 0 ? (
-                  <p className="text-[10px] text-slate-500 text-center py-1.5">拖入指标添加聚合后条件（如 SUM(投放金额) &gt; 1000）</p>
+                  <p className="text-[10px] text-slate-500 text-center py-1.5">点击上方字段的过滤图标，或选择指标添加 HAVING 条件</p>
                 ) : (
                   <div className="space-y-1.5">
                     {havings.map((h, idx) => (
@@ -1077,6 +1107,22 @@ export const FlexQueryBuilder: React.FC = () => {
                         </button>
                       </div>
                     ))}
+                    {/* 独立入口：选择指标字段添加 HAVING 条件 */}
+                    <div className="pt-1">
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v) { addField(v, 'having'); e.target.value = ''; }
+                        }}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-300 focus:outline-none focus:border-fuchsia-500"
+                      >
+                        <option value="">+ 添加 HAVING 条件（选择指标字段）…</option>
+                        {measureCols.map((c) => (
+                          <option key={c.fullName} value={c.fullName}>{c.description || c.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>
