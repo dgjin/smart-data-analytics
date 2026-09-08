@@ -104,7 +104,7 @@ export const Header: React.FC = () => {
               智能问数分析系统
             </h1>
             <span className="hidden xl:inline-block px-2 py-0.5 text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-full whitespace-nowrap">
-              NL2SQL Pro v0.5.3
+              NL2SQL Pro v0.9.38
             </span>
           </div>
           <p className="text-xs text-slate-400 hidden sm:block whitespace-nowrap">
