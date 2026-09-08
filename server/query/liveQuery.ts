@@ -52,6 +52,7 @@ import {
   normalizeAmountUnit,
   rectifyChartKeys,
   resultSignature,
+  sanitizeQueryResultChinese,
   selfCorrectCandidates,
 } from './liveQueryUtils';
 import {
@@ -154,10 +155,13 @@ export {
   buildColumnNames,
   buildColumnStats,
   buildFallbackAnalysis,
+  buildIdentifierNameMap,
   coerceNumericColumns,
   normalizeAmountUnit,
   rectifyChartKeys,
+  replaceIdentifiersWithChinese,
   resultSignature,
+  sanitizeQueryResultChinese,
   selfCorrectCandidates,
 } from './liveQueryUtils';
 export {
@@ -651,7 +655,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
       executedSql: finalSql,
       rowCount: 0,
       retries,
-      result: {
+      result: sanitizeQueryResultChinese({
         generatedSQL: finalSql,
         thoughtProcess: plan.thoughtProcess,
         aiExplanation: '查询已成功执行，但当前条件下没有匹配的数据。可尝试放宽筛选条件或更换维度重新提问。',
@@ -661,7 +665,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
         kpiMetrics: [],
         suggestedQuestions: [],
         expertPersona: persona.label,
-      },
+      }, schema),
     };
   }
 
@@ -719,7 +723,8 @@ Schema: ${serializeSchemaForPrompt(schema)}
     executedSql: finalSql,
     rowCount: exec.result.rowCount,
     retries,
-    result: {
+    // 铁律「表头及说明必须中文」服务端兜底：LLM 未遵守时强制替换残留英文标识符（v0.9.39）
+    result: sanitizeQueryResultChinese({
       generatedSQL: finalSql,
       thoughtProcess: plan.thoughtProcess,
       aiExplanation: analysis.aiExplanation,
@@ -734,6 +739,6 @@ Schema: ${serializeSchemaForPrompt(schema)}
         ? analysis.suggestedQuestions.filter((s: unknown): s is string => typeof s === 'string').slice(0, 5)
         : [],
       expertPersona: persona.label,
-    },
+    }, schema),
   };
 }

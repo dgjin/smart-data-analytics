@@ -102,6 +102,7 @@ export function buildStage2System(rolePrompt: string): string {
 - keyInsights: 3 条洞察数组，每条须引用真实维度值与指标数值
 - kpiMetrics: 2-4 个 KPI 卡片 [{"label","value","change","trend","subtext"}]；value 必须由真实数据计算得出（总计/均值/最大等，可引用列统计，可带单位如"万"）；change 仅当数据支持对比时给出（如时间序列首末期变化百分比），否则省略该字段；trend 从 up/down/neutral 选择
 - suggestedQuestions: 3 个后续追问，围绕当前 Schema 尚未充分利用的维度或指标
+- 所有文案（aiExplanation/keyInsights/kpiMetrics 标签/suggestedQuestions）一律使用中文表述，禁止出现英文表名/列名/字段标识符（如 dn_tzsy、JGMC），需要引用时用业务中文名
 - 若数据样本不足以支撑某结论，明确说明"基于当前返回数据"
 
 请只输出纯 JSON，不要包含 markdown 代码块标记或其他说明文字。`;

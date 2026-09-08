@@ -1,6 +1,7 @@
 /**
  * liveQuery 纯函数工具层：金额单位口径、真实 rows 后处理与统计、自纠错候选数、
- * 结果签名（多数表决）、阶段二规则化降级解读。零 LLM/IO 依赖，供编排层与测试复用。
+ * 结果签名（多数表决）、阶段二规则化降级解读、英文标识符中文化兜底（v0.5.1 自报表链路下沉复用）。
+ * 零 LLM/IO 依赖，供编排层与测试复用。
  */
 import type { SchemaTable } from './schemaTypes';
 
@@ -129,10 +130,107 @@ export function buildColumnNames(
     if (!map || typeof map !== 'object') continue;
     for (const col of cols) {
       const v = map[col];
-      if (typeof v === 'string' && v.trim()) out[col] = v.trim().slice(0, 50);
+      if (typeof v !== 'string' || !v.trim()) continue;
+      const val = v.trim().slice(0, 50);
+      // 铁律兜底：override 值不含中文时，不允许盖掉已有的中文表头（防 LLM 英文占位值盖 schema 中文底）
+      if (!/[\u4e00-\u9fff]/.test(val) && out[col] && /[\u4e00-\u9fff]/.test(out[col])) continue;
+      out[col] = val;
     }
   }
   return out;
+}
+
+/**
+ * v0.5.1 报表文案中文化（自 report/liveReport 下沉，问数/报表双链路复用）：
+ * 从 schema 提取「英文标识符 → 中文名」映射。覆盖表名（name → displayName）与列名（name → description），
+ * 供 prompt 注入与服务端兜底替换。
+ */
+export function buildIdentifierNameMap(schema: SchemaTable[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const t of Array.isArray(schema) ? schema : []) {
+    if (!t || typeof t.name !== 'string' || !t.name.trim()) continue;
+    const tableCn = typeof t.displayName === 'string' && t.displayName.trim() ? t.displayName.trim() : '';
+    if (tableCn && tableCn !== t.name) map[t.name] = tableCn;
+    for (const c of Array.isArray(t.columns) ? t.columns : []) {
+      if (!c || typeof c.name !== 'string' || !c.name.trim()) continue;
+      const colCn = typeof c.description === 'string' && c.description.trim() ? c.description.trim() : '';
+      // 列名映射不覆盖已有表名映射；同名取先出现者
+      if (colCn && colCn !== c.name && !map[c.name]) map[c.name] = colCn;
+    }
+  }
+  return map;
+}
+
+/** 转义正则元字符 */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 文案中文化兜底：将文本中出现的英文表名/列名替换为中文名。
+ * 规则：
+ * - 标识符边界匹配（前后不能是字母/数字/下划线），避免误伤包含关系
+ * - 长标识符优先替换（防短名先替换导致长名残留）
+ * - 优先连同【】/[]/引号包裹符一起替换（如【dn_tzsy】→ 中文名，而非【中文名】）
+ */
+export function replaceIdentifiersWithChinese(text: string, nameMap: Record<string, string>): string {
+  if (!text || typeof text !== 'string') return text;
+  const keys = Object.keys(nameMap).sort((a, b) => b.length - a.length);
+  if (keys.length === 0) return text;
+  let out = text;
+  for (const key of keys) {
+    const cn = nameMap[key];
+    if (!cn) continue;
+    // 注意：字符串层 \[ / \] 会产生正则层的转义方括号，避免字符类提前闭合
+    const wrapped = new RegExp('[【\\[\u300c\'"]' + escapeRegExp(key) + '[\\]】\u300d\'"]', 'g');
+    out = out.replace(wrapped, cn);
+    const bare = new RegExp('(?<![A-Za-z0-9_])' + escapeRegExp(key) + '(?![A-Za-z0-9_])', 'g');
+    out = out.replace(bare, cn);
+  }
+  return out;
+}
+
+/**
+ * 铁律「表头及说明必须中文」服务端兜底（v0.9.39）：LLM 未遵守时，
+ * 将问数结果中残留的英文表名/列名替换为 schema 业务中文名。
+ * 覆盖表头值、图表轴名/标题、推导过程与阶段二全部文案字段；
+ * 无法映射的别名保持原值（如实兜底，不编造中文名）。
+ */
+export function sanitizeQueryResultChinese<T extends Record<string, any>>(result: T, schema: SchemaTable[]): T {
+  const nameMap = buildIdentifierNameMap(schema);
+  if (Object.keys(nameMap).length === 0) return result;
+  const fix = (s: unknown): unknown => (typeof s === 'string' ? replaceIdentifiersWithChinese(s, nameMap) : s);
+  /** 清洗 string 映射的每个值（columnNames / yAxisNames） */
+  const fixMap = (m: unknown): unknown => {
+    if (!m || typeof m !== 'object') return m;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(m as Record<string, unknown>)) out[k] = fix(v);
+    return out;
+  };
+  const out: Record<string, any> = { ...result };
+  out.columnNames = fixMap(out.columnNames);
+  if (out.chartConfig && typeof out.chartConfig === 'object') {
+    const cc = { ...(out.chartConfig as Record<string, unknown>) };
+    cc.title = fix(cc.title);
+    cc.xAxisName = fix(cc.xAxisName);
+    cc.yAxisNames = fixMap(cc.yAxisNames);
+    out.chartConfig = cc;
+  }
+  out.aiExplanation = fix(out.aiExplanation);
+  if (Array.isArray(out.keyInsights)) out.keyInsights = out.keyInsights.map(fix);
+  if (Array.isArray(out.suggestedQuestions)) out.suggestedQuestions = out.suggestedQuestions.map(fix);
+  if (Array.isArray(out.thoughtProcess)) out.thoughtProcess = out.thoughtProcess.map(fix);
+  if (Array.isArray(out.kpiMetrics)) {
+    out.kpiMetrics = out.kpiMetrics.map((k) => {
+      if (!k || typeof k !== 'object') return k;
+      const nk = { ...(k as Record<string, unknown>) };
+      nk.label = fix(nk.label);
+      nk.subtext = fix(nk.subtext);
+      nk.change = fix(nk.change);
+      return nk;
+    });
+  }
+  return out as T;
 }
 
 /**

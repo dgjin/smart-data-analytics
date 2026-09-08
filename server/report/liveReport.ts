@@ -15,7 +15,7 @@
 import { analysisStageRoute, callLLMJson } from '../llm/llmClient';
 import { executeSafeSql, QueryScenario } from '../query/sqlExecutor';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
-import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt } from '../query/liveQuery';
+import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese } from '../query/liveQuery';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from '../query/metrics';
 import { loadActiveIronRules, buildIronRulesPrompt } from '../query/ironRules';
@@ -30,54 +30,8 @@ const MAX_REPORT_QUERIES = 4;
 /** 阶段二每图回喂 LLM 的真实行采样上限（token 预算保护） */
 const SAMPLE_ROWS_PER_CHART = 10;
 
-/**
- * v0.5.1 报表文案中文化：从 schema 提取「英文标识符 → 中文名」映射。
- * 覆盖表名（name → displayName）与列名（name → description），供 prompt 注入与服务端兜底替换。
- */
-export function buildIdentifierNameMap(schema: SchemaTable[]): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const t of Array.isArray(schema) ? schema : []) {
-    if (!t || typeof t.name !== 'string' || !t.name.trim()) continue;
-    const tableCn = typeof t.displayName === 'string' && t.displayName.trim() ? t.displayName.trim() : '';
-    if (tableCn && tableCn !== t.name) map[t.name] = tableCn;
-    for (const c of Array.isArray(t.columns) ? t.columns : []) {
-      if (!c || typeof c.name !== 'string' || !c.name.trim()) continue;
-      const colCn = typeof c.description === 'string' && c.description.trim() ? c.description.trim() : '';
-      // 列名映射不覆盖已有表名映射；同名取先出现者
-      if (colCn && colCn !== c.name && !map[c.name]) map[c.name] = colCn;
-    }
-  }
-  return map;
-}
-
-/** 转义正则元字符 */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * v0.5.1 报表文案中文化兜底：将文本中出现的英文表名/列名替换为中文名。
- * 规则：
- * - 标识符边界匹配（前后不能是字母/数字/下划线），避免误伤包含关系
- * - 长标识符优先替换（防短名先替换导致长名残留）
- * - 优先连同【】/[]/引号包裹符一起替换（如【dn_tzsy】→ 中文名，而非【中文名】）
- */
-export function replaceIdentifiersWithChinese(text: string, nameMap: Record<string, string>): string {
-  if (!text || typeof text !== 'string') return text;
-  const keys = Object.keys(nameMap).sort((a, b) => b.length - a.length);
-  if (keys.length === 0) return text;
-  let out = text;
-  for (const key of keys) {
-    const cn = nameMap[key];
-    if (!cn) continue;
-    // 注意：字符串层 \[ / \] 会产生正则层的转义方括号，避免字符类提前闭合
-    const wrapped = new RegExp('[【\\[\u300c\'"]' + escapeRegExp(key) + '[\\]】\u300d\'"]', 'g');
-    out = out.replace(wrapped, cn);
-    const bare = new RegExp('(?<![A-Za-z0-9_])' + escapeRegExp(key) + '(?![A-Za-z0-9_])', 'g');
-    out = out.replace(bare, cn);
-  }
-  return out;
-}
+// v0.9.39 中文化函数已下沉至 query/liveQueryUtils（问数/报表双链路复用）；re-export 保持本模块 API 面不变
+export { buildIdentifierNameMap, replaceIdentifiersWithChinese };
 
 /**
  * v0.5.1 报表文案中文化：对阶段二输出的所有文案字段做英文标识符 → 中文名替换（LLM 不守约束时的服务端兜底）
