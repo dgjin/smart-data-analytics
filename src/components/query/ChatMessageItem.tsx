@@ -1,7 +1,7 @@
 // P0-1 拆分：单条对话消息卡片（用户提问 / 助手回答）——从 QueryChat.tsx 抽出的纯展示组件，
 // 涵盖反馈点赞、数据来源徽标、语义缓存、DLP 提示、歧义澄清、M2 计划卡片、报告卡片、
 // KPI/图表/明细表结果区与推荐追问；一切状态变更通过回调 props 回传父组件
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
   Bot,
@@ -12,6 +12,8 @@ import {
   HelpCircle,
   Lightbulb,
   ListChecks,
+  Maximize2,
+  Minimize2,
   Pencil,
   ShieldCheck,
   Sparkles,
@@ -70,6 +72,94 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
   onOpenReport,
 }) => {
   const isUser = msg.role === 'user';
+
+  // v0.9.38 结果全屏：图表与明细在 fixed 叠层内放大完整呈现（Esc/按钮退出），交互对齐灵活查询的 fullZone 模式
+  const [resultFull, setResultFull] = useState(false);
+  useEffect(() => {
+    if (!resultFull) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setResultFull(false);
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [resultFull]);
+
+  /** 结果区主体（KPI/洞察/图表/明细）：普通与全屏两态复用同一份 JSX，full 时图表加高、明细分页放大 */
+  const renderResultBody = (full: boolean) => {
+    const qr = msg.queryResult;
+    if (!qr) return null;
+    return (
+      <>
+        {/* KPI Cards */}
+        {qr.kpiMetrics && <KPIStats metrics={qr.kpiMetrics} />}
+
+        {/* AI Key Insights Box */}
+        {qr.keyInsights && qr.keyInsights.length > 0 && (
+          <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
+            <div className="flex items-center space-x-1.5 font-bold text-indigo-300 text-xs">
+              <Lightbulb className="w-4 h-4 text-amber-400" />
+              <span>AI 归因分析与决策提示:</span>
+            </div>
+            <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-200">
+              {qr.keyInsights.map((insight, idx) => (
+                <li
+                  key={idx}
+                  className="p-2 bg-slate-900/80 rounded-xl border border-slate-800/80 flex items-start space-x-2"
+                >
+                  <span className="w-4 h-4 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
+                    {idx + 1}
+                  </span>
+                  <span className="leading-tight">{insight}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Interactive Chart */}
+        {qr.chartConfig && (
+          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <BarChart3 className="w-4 h-4 text-cyan-400" />
+                <h4 className="font-bold text-slate-100 text-sm">
+                  {qr.chartConfig.title}
+                </h4>
+              </div>
+            </div>
+
+            {/* Chart Customizer Toolbar */}
+            <ChartCustomizer
+              config={qr.chartConfig}
+              onChange={(newConfig) => onUpdateChartConfig(msg.id, newConfig)}
+              onPinToDashboard={() => onPinChart(msg)}
+            />
+
+            {/* Render Chart（全屏时加高，保证多系列/长类目轴完整可读） */}
+            <DynamicChart
+              config={qr.chartConfig}
+              data={qr.rows}
+              height={full ? 560 : 320}
+            />
+          </div>
+        )}
+
+        {/* Data Table（全屏时每页 50 行，减少翻页即可看全明细） */}
+        {qr.rows && (
+          <DataTable
+            data={qr.rows}
+            columnNames={qr.columnNames}
+            title="明细数据集"
+            pageSize={full ? 50 : 10}
+          />
+        )}
+      </>
+    );
+  };
 
   return (
     <div
@@ -371,72 +461,45 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
           </div>
         )}
 
-        {/* Query Result Analysis Dashboard Block */}
+        {/* Query Result Analysis Dashboard Block（v0.9.38：头部工具条含全屏入口，主体两态复用 renderResultBody） */}
         {msg.queryResult && (
           <div className="space-y-4 pt-2 border-t border-slate-800">
-            {/* KPI Cards */}
-            {msg.queryResult.kpiMetrics && (
-              <KPIStats metrics={msg.queryResult.kpiMetrics} />
-            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-slate-400">
+                分析结果 · 共 {msg.queryResult.totalCount} 行
+              </span>
+              <button
+                onClick={() => setResultFull(true)}
+                title="全屏查看，图表与明细数据完整呈现（Esc 退出）"
+                className="flex items-center space-x-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-cyan-300 text-[11px] font-medium transition-colors"
+              >
+                <Maximize2 className="w-3 h-3" />
+                <span>全屏</span>
+              </button>
+            </div>
+            {renderResultBody(false)}
+          </div>
+        )}
 
-            {/* AI Key Insights Box */}
-            {msg.queryResult.keyInsights && msg.queryResult.keyInsights.length > 0 && (
-              <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
-                <div className="flex items-center space-x-1.5 font-bold text-indigo-300 text-xs">
-                  <Lightbulb className="w-4 h-4 text-amber-400" />
-                  <span>AI 归因分析与决策提示:</span>
-                </div>
-                <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-200">
-                  {msg.queryResult.keyInsights.map((insight, idx) => (
-                    <li
-                      key={idx}
-                      className="p-2 bg-slate-900/80 rounded-xl border border-slate-800/80 flex items-start space-x-2"
-                    >
-                      <span className="w-4 h-4 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
-                        {idx + 1}
-                      </span>
-                      <span className="leading-tight">{insight}</span>
-                    </li>
-                  ))}
-                </ul>
+        {/* 全屏叠层：完整呈现 KPI/洞察/图表/明细，Esc 或按钮退出 */}
+        {resultFull && msg.queryResult && (
+          <div className="fixed inset-0 z-50 bg-slate-950 overflow-y-auto">
+            <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-4 py-2.5 flex items-center justify-between gap-3">
+              <div className="min-w-0 text-sm font-bold text-slate-100 truncate" title={msg.question || undefined}>
+                {msg.question || '分析结果'}
               </div>
-            )}
-
-            {/* Interactive Chart */}
-            {msg.queryResult.chartConfig && (
-              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <BarChart3 className="w-4 h-4 text-cyan-400" />
-                    <h4 className="font-bold text-slate-100 text-sm">
-                      {msg.queryResult.chartConfig.title}
-                    </h4>
-                  </div>
-                </div>
-
-                {/* Chart Customizer Toolbar */}
-                <ChartCustomizer
-                  config={msg.queryResult.chartConfig}
-                  onChange={(newConfig) => onUpdateChartConfig(msg.id, newConfig)}
-                  onPinToDashboard={() => onPinChart(msg)}
-                />
-
-                {/* Render Chart */}
-                <DynamicChart
-                  config={msg.queryResult.chartConfig}
-                  data={msg.queryResult.rows}
-                />
-              </div>
-            )}
-
-            {/* Data Table */}
-            {msg.queryResult.rows && (
-              <DataTable
-                data={msg.queryResult.rows}
-                columnNames={msg.queryResult.columnNames}
-                title="明细数据集"
-              />
-            )}
+              <button
+                onClick={() => setResultFull(false)}
+                title="退出全屏（Esc）"
+                className="shrink-0 flex items-center space-x-1 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition-colors"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>退出全屏</span>
+              </button>
+            </div>
+            <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-4">
+              {renderResultBody(true)}
+            </div>
           </div>
         )}
 
