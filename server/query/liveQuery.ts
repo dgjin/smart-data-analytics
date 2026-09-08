@@ -174,6 +174,7 @@ export {
 export type { Clarification, ClarificationOption } from './liveQueryParsers';
 export {
   buildStage1System,
+  buildStage2System,
   candidatePrompt,
   dialectPromptOf,
   extractBusinessNotes,
@@ -672,10 +673,13 @@ Schema: ${serializeSchemaForPrompt(schema)}
   // 阶段二：真实 rows 摘要回喂 LLM 生成解读
   input.onStage?.('analyzing');
   const analyzeAt = Date.now();
+  // v0.9.41：金额单位口径注入阶段二（system 禁令 + user 事实行双保险），防 LLM 按数字规模自行换算表述
+  const stage2Unit = normalizeAmountUnit(input.amountUnit);
   const stats = buildColumnStats(rows);
   const sample = rows.slice(0, SAMPLE_ROWS_FOR_LLM);
   const stage2User = [
     `用户问题：${query}`,
+    ...(stage2Unit ? [`金额单位口径：所有金额数值均已按「${stage2Unit}」输出（SQL 已换算），解读与 KPI 必须沿用该单位`] : []),
     '',
     `真实查询结果：`,
     `- SQL: ${finalSql}`,
@@ -689,7 +693,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
   let analysisFailed = false;
   try {
     // 阶段二解读支持快速模型路由（LLM_ANALYSIS_ENGINE/LLM_ANALYSIS_MODEL）；未配置时用主模型保证质量
-    const text2 = await callLLMJson(buildStage2System(persona.rolePrompt), stage2User, [], { route: analysisStageRoute() });
+    const text2 = await callLLMJson(buildStage2System(persona.rolePrompt, stage2Unit), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
   } catch (err: any) {
     analysis = {};

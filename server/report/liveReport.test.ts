@@ -10,6 +10,7 @@ import {
   buildIdentifierNameMap,
   replaceIdentifiersWithChinese,
   sanitizeReportNarrative,
+  buildReportStage2System,
 } from './liveReport';
 
 const PLAN = {
@@ -159,5 +160,18 @@ describe('v0.5.1 sanitizeReportNarrative', () => {
   it('无映射时报告原样返回', () => {
     const raw = { title: 'dn_tzsy 报告', summary: '内容', charts: [] };
     expect(sanitizeReportNarrative(raw, [{ name: 't1', columns: [] }])).toEqual(raw);
+  });
+});
+
+describe('v0.9.41 buildReportStage2System 金额单位口径注入', () => {
+  it('带单位时注入口径禁令', () => {
+    const p = buildReportStage2System(TEST_SCHEMA, '百万元');
+    expect(p).toContain('- 【金额单位口径】');
+    expect(p).toContain('「百万元」');
+    expect(p).toContain('禁止任何换算或进位改写');
+  });
+
+  it('不带单位时无口径条款', () => {
+    expect(buildReportStage2System(TEST_SCHEMA)).not.toContain('【金额单位口径】');
   });
 });

@@ -21,11 +21,11 @@ export function normalizeAmountUnit(v: unknown): string | undefined {
   return AMOUNT_UNIT_OPTIONS[s] ? s : undefined;
 }
 
-/** 金额单位 prompt 约定：拼在阶段一用户消息首位，指令 SQL 对金额列统一除以除数并带单位后缀；v0.5.2 起导出供报表链路复用 */
+/** 金额单位 prompt 约定：拼在阶段一用户消息首位，指令 SQL 对金额列统一除以除数并带单位后缀；v0.5.2 起导出供报表链路复用；v0.9.41 补优先级声明（界面选定等同用户明确要求，解除与 system 内「金额原值保护」规则的语义冲突） */
 export function buildAmountUnitPrompt(unit?: string): string {
   const opt = unit ? AMOUNT_UNIT_OPTIONS[unit] : undefined;
   if (!opt) return '';
-  return `【金额单位约定】本次查询所有金额类指标统一以「${opt.label}」为单位输出：SQL 中对金额列聚合结果除以 ${opt.divisor} 并用 ROUND 保留两位小数（如 ROUND(SUM(金额列)/${opt.divisor}, 2)），别名带 _${opt.suffix} 后缀，列名/图表/解读沿用该单位。${opt.divisor === 1 ? '「元」为原值口径：直接 ROUND(SUM(金额列), 2)，不要除以 1。' : ''}\n\n`;
+  return `【金额单位约定】本次查询所有金额类指标统一以「${opt.label}」为单位输出：SQL 中对金额列聚合结果除以 ${opt.divisor} 并用 ROUND 保留两位小数（如 ROUND(SUM(金额列)/${opt.divisor}, 2)），别名带 _${opt.suffix} 后缀，列名/图表/解读沿用该单位。该约定由用户在界面选定，等同于用户明确要求，优先于「金额原值保护」规则。${opt.divisor === 1 ? '「元」为原值口径：直接 ROUND(SUM(金额列), 2)，不要除以 1。' : ''}\n\n`;
 }
 
 // ---------- 真实 rows 后处理与统计 ----------

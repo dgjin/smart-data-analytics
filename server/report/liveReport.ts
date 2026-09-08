@@ -319,16 +319,20 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
   };
 }
 
-function buildReportStage2System(schema: SchemaTable[]): string {
+export function buildReportStage2System(schema: SchemaTable[], amountUnit?: string): string {
   const nameMap = buildIdentifierNameMap(schema);
   const nameMapText = Object.entries(nameMap)
     .map(([en, cn]) => `${en} = ${cn}`)
     .join('；');
+  // v0.9.41 金额单位口径注入（与问数阶段二同一规则）：防 LLM 按数字规模自行换算表述
+  const unitRule = amountUnit
+    ? `\n- 【金额单位口径】所有图表的金额数值均已按「${amountUnit}」口径输出（SQL 已完成换算）：summary/insights/kpiList/commentaries 中引用金额必须逐字沿用「${amountUnit}」表述，禁止任何换算或进位改写（包括但不限于 万/百万/万亿/元，如 54505.36亿元 不得写作 5.45万亿元）`
+    : '';
   return `你是资深数据分析总监。你将收到一组真实数据库查询结果（各图表的 SQL、行数、列统计与数据样本）。基于这些真实数据撰写高管报表内容。
 
 【强制约束】
 - 仅输出 JSON 对象: {"title","summary","insights","kpiList","commentaries"}
-- 所有数值必须来自给定的真实数据与列统计，严禁编造
+- 所有数值必须来自给定的真实数据与列统计，严禁编造${unitRule}
 - title: 报表标题；summary: 200 字以内高管摘要，概括真实数据反映的经营事实
 - insights: 4 条战略洞察 [{"title","type","content","actionItem"}]，type 从 positive/warning/info/critical 选择，content 须引用真实数值
 - kpiList: 4 个核心 KPI [{"label","value","change","status"}]，value 必须由真实数据计算（可引用列统计），change 仅在数据支持时给出，status 从 good/bad/neutral 选择
@@ -425,6 +429,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   const stage2User = [
     `报表主题：${templateType}`,
     `额外要求：${customPrompt}`,
+    ...(amountUnit ? [`金额单位口径：所有图表金额数值均已按「${amountUnit}」输出（SQL 已换算），文案必须沿用该单位`] : []),
     '',
     '以下为各图表的真实查询结果：',
     ...chartDigests,
@@ -434,7 +439,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   try {
     // v0.9.20 阶段二接入快速模型路由（对照问数链路 v0.3.6：解读类任务 LLM_ANALYSIS_* 可大幅提速；
     // 未配置时 analysisStageRoute() 返回 undefined 保持主模型，口径不变可一键回退）
-    const text2 = await callLLMJson(buildReportStage2System(schema), stage2User, [], { route: analysisStageRoute() });
+    const text2 = await callLLMJson(buildReportStage2System(schema, amountUnit), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
     if (Object.keys(analysis).length === 0) {
       logger.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));

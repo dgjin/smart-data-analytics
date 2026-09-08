@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { candidatePrompt, selfCorrectCandidates, resultSignature, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats } from './liveQuery';
+import { candidatePrompt, selfCorrectCandidates, resultSignature, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats, buildStage1System, buildStage2System } from './liveQuery';
 
 describe('normalizeAmountUnit: 金额单位白名单', () => {
   it('四个白名单单位原样返回', () => {
@@ -45,6 +45,31 @@ describe('buildAmountUnitPrompt: 金额单位约定注入（v0.5.2 起报表链�
     expect(buildAmountUnitPrompt(undefined)).toBe('');
     expect(buildAmountUnitPrompt('')).toBe('');
     expect(buildAmountUnitPrompt('万亿元')).toBe('');
+  });
+
+  it('声明优先级：界面选定等同用户明确要求，优先于金额原值保护（v0.9.41）', () => {
+    expect(buildAmountUnitPrompt('亿元')).toContain('优先于「金额原值保护」');
+    expect(buildAmountUnitPrompt('元')).toContain('优先于「金额原值保护」');
+  });
+});
+
+describe('buildStage2System: 金额单位口径注入（v0.9.41）', () => {
+  it('带单位时注入口径禁令并引导 KPI 沿用该单位', () => {
+    const p = buildStage2System('你是风险专家。', '亿元');
+    expect(p).toContain('- 【金额单位口径】');
+    expect(p).toContain('「亿元」');
+    expect(p).toContain('禁止任何换算或进位改写');
+    expect(p).toContain('金额单位带「亿元」');
+  });
+
+  it('不带单位时无口径条款，KPI 单位引导回退为「万」', () => {
+    const p = buildStage2System('你是风险专家。');
+    expect(p).not.toContain('【金额单位口径】');
+    expect(p).toContain('金额单位带「万」');
+  });
+
+  it('阶段一金额原值保护条款声明单位约定例外（v0.9.41）', () => {
+    expect(buildStage1System([], '')).toContain('【金额单位约定】即为用户明确要求');
   });
 });
 
