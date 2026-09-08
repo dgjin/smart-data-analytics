@@ -4,7 +4,7 @@
  * - sanitizeQueryResultChinese 问数结果表头/轴名/解读文案标识符中文化兜底（v0.9.39）
  */
 import { describe, it, expect } from 'vitest';
-import { buildColumnNames, sanitizeQueryResultChinese } from './liveQueryUtils';
+import { buildColumnNames, inferChineseHeader, sanitizeQueryResultChinese } from './liveQueryUtils';
 import type { SchemaTable } from './schemaTypes';
 
 const TEST_SCHEMA = [
@@ -41,9 +41,38 @@ describe('buildColumnNames 防英文占位盖中文底（v0.9.39）', () => {
     expect(buildColumnNames(rows, TEST_SCHEMA, { JGMC: 'Organization' })['JGMC']).toBe('机构名称');
   });
 
-  it('英文 override 在无中文底时如实保留（不编造中文名）', () => {
+  it('英文 override 在无中文底时按词根推断转换（v0.9.42，不再原样上屏）', () => {
+    // total_amt 词根全命中：total→合计 + amt→金额
     const out = buildColumnNames(rows, TEST_SCHEMA, { total_amt: 'Total Amount' });
-    expect(out['total_amt']).toBe('Total Amount');
+    expect(out['total_amt']).toBe('合计金额');
+  });
+});
+
+describe('inferChineseHeader 英文派生列词根推断（v0.9.42）', () => {
+  it('蛇形命名全词根命中转换，pct/yoy/mom 补（%）后缀', () => {
+    expect(inferChineseHeader('recovery_ratio_pct')).toBe('回收比率（%）');
+    expect(inferChineseHeader('amount_yoy')).toBe('金额同比（%）');
+    expect(inferChineseHeader('total_amt')).toBe('合计金额');
+    expect(inferChineseHeader('avg_bal')).toBe('平均余额');
+  });
+
+  it('任一词根未识别返回 undefined（不编造中文名）', () => {
+    expect(inferChineseHeader('abc_xyz')).toBeUndefined();
+    expect(inferChineseHeader('recovery_unknown_col')).toBeUndefined();
+  });
+
+  it('非纯英文标识符（含中文/数字开头）不处理', () => {
+    expect(inferChineseHeader('机构名称')).toBeUndefined();
+    expect(inferChineseHeader('2024')).toBeUndefined();
+  });
+
+  it('buildColumnNames 集成：LLM 漏给表头的英文派生列自动推断，未识别保持原值', () => {
+    const detailRows = [{ JGMC: '总部', BNTFJE: 28.1, recovery_ratio_pct: 1061.76, custom_xyz: 1 }];
+    const out = buildColumnNames(detailRows, TEST_SCHEMA);
+    expect(out['JGMC']).toBe('机构名称');
+    expect(out['BNTFJE']).toBe('本年投放金额');
+    expect(out['recovery_ratio_pct']).toBe('回收比率（%）');
+    expect(out['custom_xyz']).toBeUndefined();
   });
 });
 

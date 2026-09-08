@@ -71,7 +71,7 @@ ${dialect.rules}
 - 窗口函数：ROW_NUMBER/RANK/LAG 等窗口函数在排名/环比取值场景可用；LAG(amt, 1) OVER (ORDER BY dt) 可提取上期值做同比
 - 注意：简单聚合可回答的问题仍输出简单 SQL，禁止为复杂而复杂（如单表单月 COUNT(*) 不要强行上 CTE）
 【图表与解释】
-- xAxisKey=SELECT 输出的维度列名/别名，yAxisKeys=指标别名数组，二者与 SQL 输出列严格一致；columnNames 覆盖 SQL 输出每一列的中文表头 {"列名/别名": "中文表头"}（维度列与聚合别名都要覆盖）
+- xAxisKey=SELECT 输出的维度列名/别名，yAxisKeys=指标别名数组，二者与 SQL 输出列严格一致；columnNames 覆盖 SQL 输出每一列的中文表头 {"列名/别名": "中文表头"}（维度列与聚合别名都要覆盖）：每个值必须是中文业务名，禁止英文/拼音/复读原列名；派生计算列（比率、占比、同比等）必须给业务化中文名，如 recovery_ratio_pct → 「回收率（%）」
 - chartType 从 bar/line/area/pie/donut/radar/scatter/treemap/heatmap 选择：时间趋势 line/area，类别对比 bar，占比结构 pie/donut，多指标多维对比 radar，两个数值指标相关性 scatter（xAxisKey 为其中一指标别名），层级/分区占比 treemap，同维度多指标横向对照 heatmap
 - thoughtProcess：3-5 步中文推理（意图识别→维度选择→指标计算→图表选择）；先从问题抽取「分组维度、统计指标、过滤条件」三要素，逐一映射到 Schema 字段（优先匹配列中文说明，其次列名语义），写明每个要素映射到的表与字段及选择依据
 【行为规则】

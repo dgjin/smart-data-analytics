@@ -137,7 +137,55 @@ export function buildColumnNames(
       out[col] = val;
     }
   }
+  // v0.9.42：英文标识符列兜底——表头缺失或不含中文（LLM 漏给/给英文占位）时按词根推断中文表头，
+  // 全部词根命中才转换；未识别则保持原值（不编造）
+  for (const col of cols) {
+    const cur = out[col];
+    if (cur && /[\u4e00-\u9fff]/.test(cur)) continue;
+    const inferred = inferChineseHeader(col);
+    if (inferred) out[col] = inferred;
+  }
   return out;
+}
+
+/** 英文列别名→中文表头的保守词根表（v0.9.42）：仅收录高频统计/金融词根，全部命中才转换（不编造） */
+const EN_HEADER_ROOTS: Record<string, string> = {
+  amt: '金额', amount: '金额', bal: '余额', balance: '余额',
+  cnt: '笔数', count: '笔数', num: '数量', qty: '数量',
+  sum: '合计', total: '合计', avg: '平均', max: '最大', min: '最小',
+  ratio: '比率', rate: '率', growth: '增长',
+  yoy: '同比', mom: '环比',
+  recovery: '回收', loan: '贷款', interest: '利息',
+  income: '收入', profit: '利润', cost: '成本', fee: '费用',
+  dt: '日期', date: '日期', year: '年', yr: '年', month: '月', mon: '月', day: '日',
+  org: '机构', name: '名称', type: '类型', status: '状态',
+  level: '等级', score: '得分', rank: '排名', diff: '差额',
+};
+
+/**
+ * 英文标识符列名推断中文表头（v0.9.42）：蛇形/驼峰拆词后逐词查词根表，
+ * 全部命中才拼接返回（含 pct/percent/yoy/mom 时补「（%）」后缀，如 recovery_ratio_pct → 回收比率（%））；
+ * 任一词根未识别返回 undefined（保持原值，不编造中文名）。
+ */
+export function inferChineseHeader(col: string): string | undefined {
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(col)) return undefined;
+  const parts = col
+    .split('_')
+    .flatMap((p) => p.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(' '))
+    .map((p) => p.toLowerCase())
+    .filter(Boolean);
+  if (parts.length === 0) return undefined;
+  let percentSuffix = false;
+  const words: string[] = [];
+  for (const p of parts) {
+    if (p === 'pct' || p === 'percent') { percentSuffix = true; continue; }
+    const zh = EN_HEADER_ROOTS[p];
+    if (!zh) return undefined;
+    if (p === 'yoy' || p === 'mom') percentSuffix = true;
+    words.push(zh);
+  }
+  if (words.length === 0) return undefined;
+  return percentSuffix ? `${words.join('')}（%）` : words.join('');
 }
 
 /**
