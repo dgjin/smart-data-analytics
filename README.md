@@ -85,8 +85,9 @@ cp .env.example .env.local       # 按实际环境修改
 ### 启动
 
 ```bash
-./start.sh           # 一键启动：自动拉起 MySQL + Ollama + 应用服务，自检通过后打开浏览器
-                     #（macOS 也可在 Finder 双击「启动应用.command」）
+./start.sh           # 一键启动：自动拉起 MySQL + Redis（.env.local 配置本机 REDIS_URL 时）+ Ollama + 应用服务，
+                     # 含 node_modules 首装/主模型与 embedding 模型/reportlab 自检提示，健康检查通过后打开浏览器
+                     #（macOS 也可在 Finder 双击「启动应用.command」，首次双击被拦截时右键 → 打开）
 npm run dev          # 或手动开发模式（tsx 直跑，前端 Vite 内嵌）
 # 打开 http://127.0.0.1:3000
 ```

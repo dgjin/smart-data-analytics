@@ -1,5 +1,7 @@
 #!/bin/bash
-# 双击启动入口（Finder）——等价于终端执行 ./start.sh
+# 智能问数据分析系统 · macOS 双击启动入口
+# Finder 双击本文件即等价于终端执行 ./start.sh
+# 首次双击若被 Gatekeeper 拦截：右键 → 打开 → 打开
 cd "$(dirname "$0")"
 ./start.sh
 echo ""
