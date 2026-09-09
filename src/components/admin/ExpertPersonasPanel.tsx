@@ -388,16 +388,16 @@ export const ExpertPersonasPanel: React.FC = () => {
                 </div>
               )}
               <div className="space-y-1">
-                <label className="text-slate-300 font-medium">角色提示词 rolePrompt（≤500字，作为 AI 解读的身份设定）:</label>
+                <label className="text-slate-300 font-medium">角色提示词 rolePrompt（≤2000字，作为 AI 解读的身份设定与分析框架）:</label>
                 <textarea
                   value={form.rolePrompt}
                   onChange={(e) => setForm({ ...form, rolePrompt: e.target.value })}
-                  rows={4}
-                  maxLength={500}
+                  rows={8}
+                  maxLength={2000}
                   placeholder="如：你是资深税务分析师。解读时聚焦税负结构、优惠政策适配与合规风险，给出税务视角的专业建议。"
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-violet-500 resize-y"
                 />
-                <div className="text-right text-[10px] text-slate-500">{form.rolePrompt.length}/500</div>
+                <div className="text-right text-[10px] text-slate-500">{form.rolePrompt.length}/2000</div>
               </div>
             </div>
             <div className="flex justify-end space-x-2">

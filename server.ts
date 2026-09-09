@@ -99,9 +99,12 @@ async function startServer() {
   await initSchema();
 
   // v0.9.40 问数专家角色库播种：表为空时写入内置 5 角色（幂等；失败仅告警，问数回退内置常量路由）
+  // v0.9.43 起播种后追加内置内容版本同步：版本升级时一次性刷新内置角色的标签/关键词/提示词
   try {
-    const { ensureExpertPersonasSeeded } = await import('./server/llm/expertPersona');
+    const { ensureExpertPersonasSeeded, syncBuiltinPersonaContent } = await import('./server/llm/expertPersona');
     await ensureExpertPersonasSeeded();
+    const synced = await syncBuiltinPersonaContent();
+    if (synced > 0) console.log(`[ExpertPersonas] 内置角色内容已同步至最新版本（更新 ${synced} 条）`);
   } catch (err) {
     console.warn('[ExpertPersonas] 种子播种失败（问数将使用内置常量路由）:', (err as Error)?.message || err);
   }

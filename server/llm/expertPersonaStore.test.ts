@@ -17,12 +17,14 @@ vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: any[]) => que
 
 import {
   BUILTIN_PERSONAS,
+  BUILTIN_PERSONA_CONTENT_VERSION,
   sanitizePersonaInput,
   resolveExpertPersonaAsync,
   createPersona,
   updatePersona,
   deletePersona,
   ensureExpertPersonasSeeded,
+  syncBuiltinPersonaContent,
   invalidateExpertPersonaCache,
 } from './expertPersona';
 
@@ -63,7 +65,14 @@ describe('sanitizePersonaInput: 入参校验', () => {
     expect(sanitizePersonaInput({ ...valid, label: '' }).ok).toBe(false);
     expect(sanitizePersonaInput({ ...valid, label: 'x'.repeat(51) }).ok).toBe(false);
     expect(sanitizePersonaInput({ ...valid, rolePrompt: '' }).ok).toBe(false);
-    expect(sanitizePersonaInput({ ...valid, rolePrompt: 'x'.repeat(501) }).ok).toBe(false);
+    // v0.9.43：rolePrompt 上限由 500 提至 2000（容纳完整分析框架提示词）
+    expect(sanitizePersonaInput({ ...valid, rolePrompt: 'x'.repeat(2001) }).ok).toBe(false);
+  });
+
+  it('2000 字以内的完整分析框架提示词合法通过', () => {
+    const r = sanitizePersonaInput({ ...valid, rolePrompt: '你是资深税务分析师。' + '解读时聚焦税负结构与合规风险。'.repeat(80) });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.persona.rolePrompt.length).toBeGreaterThan(500);
   });
 
   it('关键词去重去空白；单词超长与总数超限拒绝', () => {
@@ -182,11 +191,42 @@ describe('ensureExpertPersonasSeeded: 启动播种幂等', () => {
     const inserts = querySpy.mock.calls.slice(1);
     for (const c of inserts) expect(c[0]).toContain('INSERT IGNORE INTO expert_personas');
     expect(inserts.map((c) => c[1][0])).toEqual(['risk', 'customer', 'finance', 'npl', 'default']);
+    // v0.9.43：播种即写入当前内容版本，避免启动后立即触发一次无效同步
+    for (const c of inserts) expect(c[1][5]).toBe(BUILTIN_PERSONA_CONTENT_VERSION);
   });
 
   it('表非空时跳过（不覆盖管理员修改）', async () => {
     queue.push([[{ c: 5 }], undefined]);
     await ensureExpertPersonasSeeded();
     expect(querySpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('syncBuiltinPersonaContent: 内置内容版本同步（v0.9.43）', () => {
+  it('对每个内置角色发一条条件 UPDATE（低版本才刷新），返回实际更新条数', async () => {
+    // 模拟 risk/customer 低于当前版本被更新，其余已齐平（affectedRows=0）
+    queue.push([{ affectedRows: 1 }, undefined]);
+    queue.push([{ affectedRows: 1 }, undefined]);
+    for (let i = 0; i < BUILTIN_PERSONAS.length - 2; i++) queue.push([{ affectedRows: 0 }, undefined]);
+    const updated = await syncBuiltinPersonaContent();
+    expect(updated).toBe(2);
+    expect(querySpy).toHaveBeenCalledTimes(BUILTIN_PERSONAS.length);
+    const first = querySpy.mock.calls[0];
+    expect(first[0]).toContain('UPDATE expert_personas');
+    expect(first[0]).toContain('content_version < ?');
+    // 参数：label/keywords/rolePrompt/新版本号/persona_key/版本门限
+    expect(first[1][0]).toBe(BUILTIN_PERSONAS[0].label);
+    expect(first[1][3]).toBe(BUILTIN_PERSONA_CONTENT_VERSION);
+    expect(first[1][4]).toBe(BUILTIN_PERSONAS[0].key);
+    expect(first[1][5]).toBe(BUILTIN_PERSONA_CONTENT_VERSION);
+    // default 也同步内容（keywords 恒空）
+    const def = querySpy.mock.calls[BUILTIN_PERSONAS.length - 1];
+    expect(def[1][4]).toBe('default');
+    expect(def[1][1]).toBe('[]');
+  });
+
+  it('全部齐平时返回 0（幂等，重复执行无副作用）', async () => {
+    for (let i = 0; i < BUILTIN_PERSONAS.length; i++) queue.push([{ affectedRows: 0 }, undefined]);
+    expect(await syncBuiltinPersonaContent()).toBe(0);
   });
 });
