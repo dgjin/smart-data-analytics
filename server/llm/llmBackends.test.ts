@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import {
   callLLMJson,
+  callEmbedding,
   callEmbeddingBatch,
   clearEmbeddingCacheForTest,
   getOllamaBackendStates,
@@ -10,6 +11,10 @@ import {
   resetOllamaBackendsForTest,
   startOllamaHealthChecks,
 } from './llmClient';
+import { recordLlmUsage } from './llmUsage';
+
+// 底层用量写库打桩为可断言的 noop（避免测试环境触库；llmClient.recordUsage 包装层仍真实执行）
+vi.mock('./llmUsage', () => ({ recordLlmUsage: vi.fn() }));
 
 /**
  * P2-2 LLM 多后端路由（OLLAMA_URLS）与 embedding 批量化测试。
@@ -35,6 +40,7 @@ beforeEach(() => {
   resetLlmResilienceForTest();
   resetOllamaBackendsForTest();
   clearEmbeddingCacheForTest();
+  vi.mocked(recordLlmUsage).mockClear();
 });
 
 afterEach(() => {
@@ -126,7 +132,7 @@ describe('embedding 批量化（callEmbeddingBatch）', () => {
       captured.push({ url: u, body });
       if (u.endsWith('/api/embed')) {
         const inputs: string[] = Array.isArray(body.input) ? body.input : [body.input];
-        return { ok: true, json: async () => ({ embeddings: inputs.map((_t, i) => [i + 1, 0.5]) }), text: async () => '' };
+        return { ok: true, json: async () => ({ embeddings: inputs.map((_t, i) => [i + 1, 0.5]), prompt_eval_count: inputs.length * 10 }), text: async () => '' };
       }
       throw new Error(`unexpected url: ${u}`);
     }));
@@ -184,6 +190,38 @@ describe('embedding 批量化（callEmbeddingBatch）', () => {
     const vecs = await callEmbeddingBatch(['x', 'y'], 'document');
     expect(vecs).toEqual([[9, 9], [9, 9]]);
     expect(captured.filter((c) => c.url.endsWith('/api/embeddings'))).toHaveLength(2);
+  });
+
+  it('批量用量记录写入真实输入 token（/api/embed prompt_eval_count）', async () => {
+    const captured: { url: string; body: any }[] = [];
+    stubOllamaEmbed(captured);
+    await callEmbeddingBatch(['表A 机构', '表B 金额'], 'document');
+    // stub 返回 prompt_eval_count = 文本数 * 10 = 20
+    expect(recordLlmUsage).toHaveBeenCalledWith(expect.objectContaining({ channel: 'embedding', promptTokens: 20, completionTokens: 0 }));
+  });
+
+  it('单条 embedding 走 /api/embed 并记录 prompt_eval_count（老端点回退记 0）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.endsWith('/api/embed')) return { ok: true, json: async () => ({ embeddings: [[1, 0.5]], prompt_eval_count: 7 }), text: async () => '' };
+      throw new Error(`unexpected url: ${u}`);
+    }));
+    const v = await callEmbedding('回收率统计', 'query');
+    expect(v).toEqual([1, 0.5]);
+    expect(recordLlmUsage).toHaveBeenCalledWith(expect.objectContaining({ channel: 'embedding', promptTokens: 7 }));
+
+    // 老版本回退：/api/embed 404 → /api/embeddings，无 token 统计记 0
+    clearEmbeddingCacheForTest();
+    vi.mocked(recordLlmUsage).mockClear();
+    vi.stubGlobal('fetch', vi.fn(async (url: any) => {
+      const u = String(url);
+      if (u.endsWith('/api/embed')) return { ok: false, status: 404, text: async (): Promise<string> => 'not found' };
+      if (u.endsWith('/api/embeddings')) return { ok: true, json: async () => ({ embedding: [2, 0.5] }), text: async (): Promise<string> => '' };
+      throw new Error(`unexpected url: ${u}`);
+    }));
+    const v2 = await callEmbedding('回收率统计', 'query');
+    expect(v2).toEqual([2, 0.5]);
+    expect(recordLlmUsage).toHaveBeenCalledWith(expect.objectContaining({ channel: 'embedding', promptTokens: 0 }));
   });
 
   it('批量请求在多后端下走最少并发节点', async () => {

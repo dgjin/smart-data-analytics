@@ -10,10 +10,11 @@ interface OpenAiEmbedResponse {
   data?: Array<{ embedding?: number[]; index?: number }>;
   usage?: { total_tokens?: number };
 }
-/** Ollama embedding 响应（/api/embeddings 单条 embedding；/api/embed 批量 embeddings） */
+/** Ollama embedding 响应（旧版 /api/embeddings 单条 embedding 无 token 统计；/api/embed 返回 embeddings + prompt_eval_count） */
 interface OllamaEmbedResponse {
   embedding?: number[];
   embeddings?: number[][];
+  prompt_eval_count?: number;
 }
 
 
@@ -106,22 +107,40 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30_000);
     try {
+      // 优先 /api/embed（返回 prompt_eval_count 供用量计量）；老版本 Ollama 无此端点（404/400/405）时回退旧 /api/embeddings（无统计，诚实记 0）
+      let promptTokens = 0;
+      let emb: number[] | undefined;
       const res = await withOllamaBackend((base) =>
-        fetch(`${base}/api/embeddings`, {
+        fetch(`${base}/api/embed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
-          body: JSON.stringify({ model: embedModel(), prompt: input, keep_alive: '30m' }),
+          body: JSON.stringify({ model: embedModel(), input, keep_alive: '30m' }),
         })
       );
-      if (!res.ok) throw new Error(`Ollama embedding error: ${res.status}`);
-      const json = (await res.json()) as OllamaEmbedResponse;
-      const emb = json.embedding;
+      if (res.ok) {
+        const json = (await res.json()) as OllamaEmbedResponse;
+        emb = json.embeddings?.[0];
+        promptTokens = Number(json?.prompt_eval_count) || 0;
+      } else if (res.status === 404 || res.status === 400 || res.status === 405) {
+        const legacy = await withOllamaBackend((base) =>
+          fetch(`${base}/api/embeddings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({ model: embedModel(), prompt: input, keep_alive: '30m' }),
+          })
+        );
+        if (!legacy.ok) throw new Error(`Ollama embedding error: ${legacy.status}`);
+        emb = ((await legacy.json()) as OllamaEmbedResponse).embedding;
+      } else {
+        throw new Error(`Ollama embedding error: ${res.status}`);
+      }
       if (!Array.isArray(emb) || emb.length === 0) {
         throw new Error('Ollama 返回空向量（请确认已安装 embedding 模型，如 ollama pull nomic-embed-text）');
       }
       embedCacheSet(cacheKey, emb);
-      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
+      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens, completionTokens: 0, durationMs: Date.now() - embedT0, ok: true });
       return emb;
     } finally {
       clearTimeout(timer);
@@ -150,8 +169,8 @@ const embedBatchSize = () => {
   return Number.isFinite(n) && n >= 1 ? Math.min(64, Math.floor(n)) : 16;
 };
 
-/** Ollama 批量 embedding：/api/embed 原生支持 input 数组；老版本 404/400 时回退逐条 /api/embeddings */
-async function ollamaEmbeddingBatch(inputs: string[]): Promise<(number[] | null)[]> {
+/** Ollama 批量 embedding：/api/embed 原生支持 input 数组且返回 prompt_eval_count；老版本 404/400 时回退逐条 /api/embeddings（无 token 统计记 0） */
+async function ollamaEmbeddingBatch(inputs: string[]): Promise<{ vecs: (number[] | null)[]; promptTokens: number }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
@@ -184,21 +203,24 @@ async function ollamaEmbeddingBatch(inputs: string[]): Promise<(number[] | null)
             out.push(null);
           }
         }
-        return out;
+        return { vecs: out, promptTokens: 0 };
       }
       throw new Error(`Ollama batch embedding error: ${res.status}`);
     }
     const json = (await res.json()) as OllamaEmbedResponse;
     const embs = json?.embeddings;
     if (!Array.isArray(embs)) throw new Error('Ollama 批量返回缺少 embeddings');
-    return inputs.map((_, i) => (Array.isArray(embs[i]) && embs[i].length > 0 ? embs[i] : null));
+    return {
+      vecs: inputs.map((_, i) => (Array.isArray(embs[i]) && embs[i].length > 0 ? embs[i] : null)),
+      promptTokens: Number(json?.prompt_eval_count) || 0,
+    };
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** Qwen 批量 embedding：OpenAI 兼容协议 input 数组原生支持（按 index 归位防乱序） */
-async function qwenEmbeddingBatch(inputs: string[]): Promise<(number[] | null)[]> {
+/** Qwen 批量 embedding：OpenAI 兼容协议 input 数组原生支持（按 index 归位防乱序）；usage.total_tokens 供用量计量 */
+async function qwenEmbeddingBatch(inputs: string[]): Promise<{ vecs: (number[] | null)[]; promptTokens: number }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60_000);
   try {
@@ -224,7 +246,7 @@ async function qwenEmbeddingBatch(inputs: string[]): Promise<(number[] | null)[]
         out[idx] = d.embedding;
       }
     });
-    return out;
+    return { vecs: out, promptTokens: Number(json?.usage?.total_tokens) || 0 };
   } finally {
     clearTimeout(timer);
   }
@@ -257,10 +279,15 @@ export async function callEmbeddingBatch(texts: string[], role?: 'query' | 'docu
     const slice = misses.slice(i, i + batchSize);
     const t0 = Date.now();
     let vecs: (number[] | null)[];
+    let promptTokens = 0;
     if (kind === 'ollama') {
-      vecs = await ollamaEmbeddingBatch(slice.map((m) => m.input));
+      const r = await ollamaEmbeddingBatch(slice.map((m) => m.input));
+      vecs = r.vecs;
+      promptTokens = r.promptTokens;
     } else if (kind === 'qwen') {
-      vecs = await qwenEmbeddingBatch(slice.map((m) => m.input));
+      const r = await qwenEmbeddingBatch(slice.map((m) => m.input));
+      vecs = r.vecs;
+      promptTokens = r.promptTokens;
     } else {
       // Gemini：SDK 批量接口契约随版本变动，逐条并发（缓存与返回契约不变）
       vecs = await Promise.all(
@@ -281,7 +308,7 @@ export async function callEmbeddingBatch(texts: string[], role?: 'query' | 'docu
       }
     });
     if (kind !== 'gemini') {
-      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens: 0, completionTokens: 0, durationMs: Date.now() - t0, ok: vecs.some(Boolean) });
+      recordUsage({ engine: kind, model: embedModelName, channel: 'embedding', promptTokens, completionTokens: 0, durationMs: Date.now() - t0, ok: vecs.some(Boolean) });
     }
   }
   return results;
