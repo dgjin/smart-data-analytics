@@ -33,9 +33,12 @@ export default defineConfig(() => {
         'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:;",
       },
     },
-    // vitest 排除 Playwright E2E 用例（由 npm run test:e2e 单独运行）
+    // vitest 排除 Playwright E2E 用例（由 npm run test:e2e 单独运行）；
+    // 以及根级隐藏目录：skills CLI 会把技能包装入 .agents 并向 .claude/.qoder
+    // 等 agent 目录建立符号链接（vitest glob 会跟随），其 node:test 用例不属于
+    // 项目单测范围（项目测试均在 src/server/scripts/tests 非隐藏目录）
     test: {
-      exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**'],
+      exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**', '.*/**'],
     },
   };
 });
