@@ -1,0 +1,289 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1830" width="1200" height="1830">
+  <style>text { font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", "SimHei", sans-serif; }</style>
+  <defs>
+    <marker id="ab" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/></marker>
+    <marker id="ag" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/></marker>
+    <marker id="ap" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/></marker>
+    <marker id="agray" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/></marker>
+    <marker id="ao" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ea580c"/></marker>
+  </defs>
+  <rect width="1200" height="1830" fill="#ffffff"/>
+  <text x="40" y="36" font-size="20" font-weight="700" fill="#111827">智能问数分析系统 · 完整系统架构图</text>
+  <text x="40" y="56" font-size="12" fill="#6b7280">v0.9.46 · NL2SQL Pro · React 19 + Vite + Express 4 · 大小模型分工 AI · 90 测试文件 / 1035 用例 · 112 REST 端点 OpenAPI 契约 · 2026-09-10</text>
+  <rect x="36" y="72" width="1128" height="56" rx="10" fill="#f0f9ff" stroke="#bae6fd" stroke-width="1.5"/>
+  <text x="52" y="92" font-size="13" font-weight="600" fill="#0c4a6e">客户端 / 用户终端</text>
+  <text x="52" y="110" font-size="11" fill="#6b7280">Web 浏览器 · HTTP + SSE 流式（断线重连续传） · JWT Token · localStorage 偏好持久化（主题 / 金额单位 / 侧边栏 / 模型选择）</text>
+  <text x="900" y="110" font-size="11" fill="#0c4a6e" text-anchor="middle">→ http://127.0.0.1:3000 · Docker 容器（生产）</text>
+  <line x1="600" y1="128" x2="600" y2="152" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="36" y="156" width="1128" height="290" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="176" font-size="13" font-weight="600" fill="#374151">前端应用层（React 19 + Vite + TypeScript + Tailwind CSS 4 + Zustand + Recharts + motion）· 左侧导航七大入口</text>
+  <rect x="48" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="179" y="206" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">智能问数 QueryChat</text>
+  <text x="179" y="224" font-size="10.5" fill="#6b7280" text-anchor="middle">SSE 流式 · 推导回放 AnalysisTracePanel</text>
+  <text x="179" y="238" font-size="10.5" fill="#6b7280" text-anchor="middle">专家角色 · 结果全屏深读 (v0.9.38)</text>
+  <rect x="326" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="457" y="206" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">灵活查询 FlexQueryBuilder</text>
+  <text x="457" y="224" font-size="10.5" fill="#6b7280" text-anchor="middle">拖拽构建 · 高级筛选双入口 (v0.9.37)</text>
+  <text x="457" y="238" font-size="10.5" fill="#6b7280" text-anchor="middle">跨表 JOIN · 透视 · 1万/5万行</text>
+  <rect x="604" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="735" y="206" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">可视化决策报表</text>
+  <text x="735" y="224" font-size="10.5" fill="#6b7280" text-anchor="middle">ExecutiveReportCard · 同环比对比</text>
+  <text x="735" y="238" font-size="10.5" fill="#6b7280" text-anchor="middle">下钻 DrillModal · 批注 ChartComment</text>
+  <rect x="882" y="186" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="1013" y="206" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">问数报告中心</text>
+  <text x="1013" y="224" font-size="10.5" fill="#6b7280" text-anchor="middle">QueryReportCenter · 服务端保存</text>
+  <text x="1013" y="238" font-size="10.5" fill="#6b7280" text-anchor="middle">详情复用 · PDF/PPT 导出 (v0.9.24)</text>
+  <rect x="48" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="179" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">决策数据看板</text>
+  <text x="179" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">CustomDashboard · 图表固化</text>
+  <text x="179" y="312" font-size="10.5" fill="#ea580c" text-anchor="middle">DataVersionWatcher 60s 自主更新</text>
+  <rect x="326" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="457" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">数据源与 Schema 管理</text>
+  <text x="457" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">DataSourceManager · 文件导入落库 (v0.9.34)</text>
+  <text x="457" y="312" font-size="10.5" fill="#6b7280" text-anchor="middle">SchemaViewer · DataLineageView · 行级权限</text>
+  <rect x="604" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="735" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">知识 · 技能 · 样例 · 铁律 · 指标</text>
+  <text x="735" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">KnowledgeBasePanel · SkillLibraryModal</text>
+  <text x="735" y="312" font-size="10.5" fill="#9333ea" text-anchor="middle">IronRules · Metrics · ExpertPersonas</text>
+  <rect x="882" y="258" width="262" height="62" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="1013" y="280" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">系统管理（六大区块）</text>
+  <text x="1013" y="298" font-size="10.5" fill="#6b7280" text-anchor="middle">基础管理 · 质量监控 · 规则治理</text>
+  <text x="1013" y="312" font-size="10.5" fill="#9333ea" text-anchor="middle">权限审批 · AI 审核 · 系统配置</text>
+  <rect x="48" y="330" width="1096" height="36" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="353" font-size="11" fill="#6b7280" text-anchor="middle">Hooks（useAnalyticsStore · useAuthStore · useEngineInfo · useDataVersion · useAmountUnitStore） · Utils（sseStream · queryResultNormalizer · flexQueryBuilder · reportRegen） · lazy 懒加载</text>
+  <rect x="48" y="374" width="1096" height="32" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="395" font-size="11" fill="#6b7280" text-anchor="middle">ChatHistoryPanel · SQLPreviewModal · ChartCustomizer · KPIStats · DataTable · DynamicChart（9 种图表） · Login/ForceChangePassword · Header/Sidebar · AiReviewPanel · OpsMetricsPanel · IronRulesPanel · ExpertPersonaPanel</text>
+  <rect x="48" y="414" width="1096" height="24" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1"/>
+  <text x="596" y="430" font-size="10.5" fill="#115e59" text-anchor="middle">Vite Dev Server 中间件一体化（开发 tsx 直跑 · 生产 esbuild 打包 dist/server.cjs）</text>
+  <line x1="600" y1="446" x2="600" y2="472" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="36" y="476" width="1128" height="68" rx="10" fill="#fff7ed" stroke="#fdba74" stroke-width="1.5"/>
+  <text x="52" y="496" font-size="13" font-weight="600" fill="#9a3412">API 安全网关（Express 中间件链 · 112 REST 端点 OpenAPI 契约）</text>
+  <rect x="48" y="504" width="160" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="128" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L1 输入防护</text>
+  <rect x="216" y="504" width="150" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="291" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L2 RBAC 鉴权</text>
+  <rect x="374" y="504" width="190" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="469" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L3 Scope/敏感列/行级</text>
+  <rect x="572" y="504" width="160" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="652" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L4 SELECT-only</text>
+  <rect x="740" y="504" width="170" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="825" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L5 限流（速率+配额+并发）</text>
+  <rect x="918" y="504" width="180" height="30" rx="6" fill="#fef3c7" stroke="#fde68a"/>
+  <text x="1008" y="524" font-size="10.5" fill="#92400e" text-anchor="middle">L6 审计落账（八态）+ DLP</text>
+  <text x="600" y="540" font-size="10" fill="#9a3412" text-anchor="middle">requestLogger · 安全响应头（HSTS/CSP） · DLP 数据下载审计 (v0.9.26) · 生产 JWT_SECRET fail-fast · 默认回环 127.0.0.1</text>
+  <line x1="600" y1="544" x2="600" y2="570" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <rect x="36" y="574" width="1128" height="576" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="594" font-size="13" font-weight="600" fill="#374151">业务逻辑层（Express 4 · server/ 目录 · 27 路由模块 + 40 核心服务）</text>
+  <rect x="48" y="604" width="350" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="223" y="624" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">问数编排引擎 liveQuery.ts</text>
+  <text x="223" y="642" font-size="10.5" fill="#6b7280" text-anchor="middle">双阶段流水线 · SSE 流式进度 · 四契约</text>
+  <text x="223" y="656" font-size="10.5" fill="#6b7280" text-anchor="middle">铁律优先 · 专家角色 · 报告模式 · 深度分析</text>
+  <rect x="410" y="604" width="350" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="585" y="624" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">报表双阶段编排 liveReport.ts</text>
+  <text x="585" y="642" font-size="10.5" fill="#6b7280" text-anchor="middle">查询计划 → 真实执行 → 摘要撰写 · 并行生成 (v0.9.11)</text>
+  <text x="585" y="656" font-size="10.5" fill="#6b7280" text-anchor="middle">金额单位口径 · 服务端保存 savedReports (v0.9.19-24)</text>
+  <rect x="772" y="604" width="372" height="62" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="958" y="624" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">异步任务 taskQueue.ts + taskHandlers.ts</text>
+  <text x="958" y="642" font-size="10.5" fill="#6b7280" text-anchor="middle">报告 / 重算 / 导出入队异步执行 (v0.9.2-5)</text>
+  <text x="958" y="656" font-size="10.5" fill="#6b7280" text-anchor="middle">Redis 状态 · 断线重连 SSE 续传 (v0.9.6)</text>
+  <rect x="48" y="676" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="178" y="696" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表 schemaLinking.ts</text>
+  <text x="178" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排</text>
+  <text x="178" y="728" font-size="10.5" fill="#6b7280" text-anchor="middle">selectRelevantTablesAsync</text>
+  <rect x="320" y="676" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="450" y="696" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Schema 上下文 schemaContext.ts</text>
+  <text x="450" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">Scope 白名单 · 敏感列过滤</text>
+  <text x="450" y="728" font-size="10.5" fill="#6b7280" text-anchor="middle">5min 缓存 · 方言感知</text>
+  <rect x="592" y="676" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="722" y="696" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">SQL 执行层 sqlExecutor.ts</text>
+  <text x="722" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">SELECT-only · AST 双校验</text>
+  <text x="722" y="728" font-size="10.5" fill="#6b7280" text-anchor="middle">连接池 · 行级权限注入 · 超时 10s</text>
+  <rect x="864" y="676" width="280" height="56" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="1004" y="696" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Fallback 对抗训练 (v0.9.44-46)</text>
+  <text x="1004" y="714" font-size="10.5" fill="#6b7280" text-anchor="middle">三层自救：规则修正→精简 schema→复用审核样例</text>
+  <text x="1004" y="728" font-size="10.5" fill="#6b7280" text-anchor="middle">失败样本采集 → 人工审核 → Few-Shot 注入</text>
+  <rect x="48" y="742" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="178" y="762" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">知识库 knowledgeBase.ts</text>
+  <text x="178" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">切块+embedding+混合检索</text>
+  <text x="178" y="794" font-size="10.5" fill="#6b7280" text-anchor="middle">token 预算 · 漂移检测 (v0.9.7)</text>
+  <rect x="320" y="742" width="260" height="56" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="450" y="762" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">外部知识库 externalKnowledge.ts</text>
+  <text x="450" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">POST 检索 · Bearer 认证</text>
+  <text x="450" y="794" font-size="10.5" fill="#6b7280" text-anchor="middle">AES-256-GCM · 四容器容错</text>
+  <rect x="592" y="742" width="260" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="722" y="762" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">反馈闭环 queryFeedback.ts</text>
+  <text x="722" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">点赞 → auto_train 沉淀</text>
+  <text x="722" y="794" font-size="10.5" fill="#6b7280" text-anchor="middle">点踩 → 反面教材注入</text>
+  <rect x="864" y="742" width="280" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1004" y="762" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">对话历史 conversationHistory.ts</text>
+  <text x="1004" y="780" font-size="10.5" fill="#6b7280" text-anchor="middle">服务端落库 · 跨设备共享</text>
+  <text x="1004" y="794" font-size="10.5" fill="#6b7280" text-anchor="middle">个人 few-shot · 数据源隔离</text>
+  <rect x="48" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="148" y="828" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">语义缓存 queryCache.ts</text>
+  <text x="148" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">等价归一化 · 10min</text>
+  <text x="148" y="860" font-size="10.5" fill="#6b7280" text-anchor="middle">模型/单位缓存键隔离</text>
+  <rect x="260" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="360" y="828" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">语义指标 metrics.ts</text>
+  <text x="360" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">同义词匹配 · 口径注入</text>
+  <text x="360" y="860" font-size="10.5" fill="#6b7280" text-anchor="middle">指标直查 + filters</text>
+  <rect x="472" y="808" width="200" height="56" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="572" y="828" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">铁律规则 ironRules.ts</text>
+  <text x="572" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">业务红线约束 (v0.9.35)</text>
+  <text x="572" y="860" font-size="10.5" fill="#6b7280" text-anchor="middle">强制注入 · 优先级最高</text>
+  <rect x="684" y="808" width="200" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="784" y="828" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">专家角色 expertPersona.ts</text>
+  <text x="784" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">5 内置角色库化 (v0.9.40/43)</text>
+  <text x="784" y="860" font-size="10.5" fill="#6b7280" text-anchor="middle">角色提示词 + few-shot</text>
+  <rect x="896" y="808" width="248" height="56" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1020" y="828" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">推导留痕 queryTrace.ts</text>
+  <text x="1020" y="846" font-size="10.5" fill="#6b7280" text-anchor="middle">全链路步骤埋点</text>
+  <text x="1020" y="860" font-size="10.5" fill="#6b7280" text-anchor="middle">traceId 回放 · 本人/ADMIN</text>
+  <rect x="48" y="874" width="200" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="148" y="894" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">queryPlan.ts 计划模式</text>
+  <text x="148" y="912" font-size="10.5" fill="#6b7280" text-anchor="middle">planId 10min 一次性消费</text>
+  <rect x="260" y="874" width="200" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="360" y="894" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">promptBudget.ts 预算</text>
+  <text x="360" y="912" font-size="10.5" fill="#6b7280" text-anchor="middle">知识 1200 · 历史截断</text>
+  <rect x="472" y="874" width="200" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="572" y="894" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">drill.ts 图表下钻</text>
+  <text x="572" y="912" font-size="10.5" fill="#6b7280" text-anchor="middle">AST 提取 → SELECT *</text>
+  <rect x="684" y="874" width="200" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="784" y="894" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">fileDataSource.ts 文件落库</text>
+  <text x="784" y="912" font-size="10.5" fill="#6b7280" text-anchor="middle">CSV/Excel/JSON 真实入库 (v0.9.34)</text>
+  <rect x="896" y="874" width="248" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1020" y="894" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">driftDetector.ts 漂移检测</text>
+  <text x="1020" y="912" font-size="10.5" fill="#6b7280" text-anchor="middle">口径漂移识别 → 运营告警 (v0.9.7-8)</text>
+  <rect x="48" y="930" width="260" height="48" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="178" y="950" font-size="11.5" font-weight="600" fill="#111827" text-anchor="middle">fallbackStrategies 三层降级</text>
+  <text x="178" y="968" font-size="10" fill="#6b7280" text-anchor="middle">ruleBased → simplerPrompt → 样例复用</text>
+  <rect x="320" y="930" width="260" height="48" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="450" y="950" font-size="11.5" font-weight="600" fill="#111827" text-anchor="middle">serverFallbacks.ts 服务端兜底</text>
+  <text x="450" y="968" font-size="10" fill="#6b7280" text-anchor="middle">中文强制兜底 · 派生列中文化 (v0.9.39-42)</text>
+  <rect x="592" y="930" width="260" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="722" y="950" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">monitoring.ts 运行监控</text>
+  <text x="722" y="968" font-size="10.5" fill="#6b7280" text-anchor="middle">可用性/成功率/耗时/缓存命中 (v0.9.14-16)</text>
+  <rect x="864" y="930" width="280" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+  <text x="1004" y="950" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">abTest.ts A/B 实验 (v0.9.46)</text>
+  <text x="1004" y="968" font-size="10.5" fill="#6b7280" text-anchor="middle">降级策略对比看板 · 数据决策去留</text>
+  <rect x="48" y="986" width="1096" height="32" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="1007" font-size="10.5" fill="#6b7280" text-anchor="middle">auth.ts · oidc.ts · passwords.ts · accessControl.ts · db.ts · secretsCrypto.ts · rateLimiter.ts · auditLog.ts · requestLogger.ts · scope.ts · schemaGuidance.ts · queryGuard.ts · queryHooks.ts · llmUsage.ts</text>
+  <rect x="48" y="1026" width="1096" height="32" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="596" y="1047" font-size="10.5" fill="#6b7280" text-anchor="middle">stateStore.ts · errorCodes.ts · userQueryLimit.ts · dataVersion.ts · skills.ts · skillLibrary.ts · seedData.ts · defaultWidgets.ts · sqlTemplates.ts · liveQueryParsers.ts · liveQueryPrompts.ts · dlp.ts · introspection.ts · refusal.ts · clarification.ts</text>
+  <rect x="48" y="1066" width="1096" height="28" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
+  <text x="596" y="1085" font-size="10.5" fill="#166534" text-anchor="middle">知识注入优先级链（v0.9.35+）：铁律规则 > 语义指标 > 专家角色 > few-shot 样例 > 知识库 RAG · JSON 备份导入导出（指标/样例/知识 v0.9.33）</text>
+  <line x1="400" y1="1150" x2="400" y2="1186" stroke="#9333ea" stroke-width="1.5" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <line x1="800" y1="1150" x2="800" y2="1186" stroke="#9333ea" stroke-width="1.5" marker-start="url(#ap)" marker-end="url(#ap)"/>
+  <text x="410" y="1174" font-size="10.5" fill="#9333ea">LLM 调用 / 向量</text>
+  <rect x="36" y="1190" width="1128" height="146" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="1210" font-size="13" font-weight="600" fill="#374151">AI 引擎层（llmClient.ts · 大小模型分工 v0.8 · 引擎选择：用户自选 > AI_ENGINE > 密钥自动 > Ollama）</text>
+  <rect x="48" y="1220" width="210" height="76" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="153" y="1240" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">通义千问 Qwen（大模型）</text>
+  <text x="153" y="1258" font-size="10.5" fill="#6b7280" text-anchor="middle">百炼兼容端点 · SQL 生成主力</text>
+  <text x="153" y="1272" font-size="10.5" fill="#6b7280" text-anchor="middle">复杂推理 · 深度分析</text>
+  <rect x="270" y="1220" width="210" height="76" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+  <text x="375" y="1240" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Ollama 本地（小模型）</text>
+  <text x="375" y="1258" font-size="10.5" fill="#6b7280" text-anchor="middle">快速任务 · 解读 · 兜底</text>
+  <text x="375" y="1272" font-size="10.5" fill="#6b7280" text-anchor="middle">本地私有化 · keep_alive=30m</text>
+  <rect x="492" y="1220" width="160" height="76" rx="8" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="572" y="1240" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Gemini API</text>
+  <text x="572" y="1258" font-size="10.5" fill="#6b7280" text-anchor="middle">备用引擎</text>
+  <rect x="664" y="1220" width="200" height="76" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+  <text x="764" y="1240" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Embedding 向量</text>
+  <text x="764" y="1258" font-size="10.5" fill="#6b7280" text-anchor="middle">nomic-embed-text（本地）</text>
+  <text x="764" y="1272" font-size="10.5" fill="#6b7280" text-anchor="middle">text-embedding-v4（云）</text>
+  <rect x="876" y="1220" width="268" height="76" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+  <text x="1010" y="1240" font-size="12.5" font-weight="600" fill="#111827" text-anchor="middle">Python ReportLab 子进程</text>
+  <text x="1010" y="1258" font-size="10.5" fill="#6b7280" text-anchor="middle">spawn python3 · stdin JSON 管道</text>
+  <text x="1010" y="1272" font-size="10.5" fill="#6b7280" text-anchor="middle">stdout PDF · CID 中文字体</text>
+  <text x="596" y="1322" font-size="10.5" fill="#374151" text-anchor="middle">大小模型分工：SQL 生成走大模型保准确率，解读 / 澄清 / 兜底走小模型保响应速度；主引擎失败自动切换备用引擎（llmResilience.ts）</text>
+  <line x1="300" y1="1336" x2="300" y2="1368" stroke="#16a34a" stroke-width="1.5" marker-start="url(#ag)" marker-end="url(#ag)"/>
+  <line x1="600" y1="1336" x2="600" y2="1368" stroke="#16a34a" stroke-width="1.5" marker-start="url(#ag)" marker-end="url(#ag)"/>
+  <line x1="900" y1="1336" x2="900" y2="1368" stroke="#16a34a" stroke-width="1.5" marker-start="url(#ag)" marker-end="url(#ag)"/>
+  <text x="310" y="1360" font-size="10.5" fill="#16a34a">元数据/留痕</text>
+  <text x="610" y="1360" font-size="10.5" fill="#16a34a">真实 SQL</text>
+  <text x="910" y="1360" font-size="10.5" fill="#16a34a">状态/外部</text>
+  <rect x="36" y="1372" width="1128" height="210" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="1392" font-size="13" font-weight="600" fill="#374151">数据与存储层</text>
+  <path d="M 48,1408 A 120,10 0 0 1 288,1408 L 288,1494 A 120,10 0 0 1 48,1494 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="168" cy="1408" rx="120" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="168" y="1432" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">应用库 MySQL smart_analytics</text>
+  <text x="168" y="1448" font-size="10" fill="#6b7280" text-anchor="middle">users/datasources/scope/knowledge_chunks</text>
+  <text x="168" y="1462" font-size="10" fill="#6b7280" text-anchor="middle">sql_examples/metrics/skills/audit_log</text>
+  <text x="168" y="1476" font-size="10" fill="#6b7280" text-anchor="middle">iron_rules (v0.9.35) · expert_personas</text>
+  <text x="168" y="1490" font-size="10" fill="#6b7280" text-anchor="middle">fallback_samples · ab_experiments</text>
+  <text x="168" y="1504" font-size="10" fill="#6b7280" text-anchor="middle">saved_reports · tasks · query_trace</text>
+  <text x="168" y="1518" font-size="10" fill="#6b7280" text-anchor="middle">conversation_history/report_templates</text>
+  <path d="M 320,1408 A 110,10 0 0 1 540,1408 L 540,1494 A 110,10 0 0 1 320,1494 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="430" cy="1408" rx="110" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="430" y="1432" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">用户源数据库</text>
+  <text x="430" y="1448" font-size="10" fill="#6b7280" text-anchor="middle">MySQL / PostgreSQL / Greenplum</text>
+  <text x="430" y="1462" font-size="10" fill="#6b7280" text-anchor="middle">业务宽表 127万行 · 财务 1139万行</text>
+  <text x="430" y="1476" font-size="10" fill="#6b7280" text-anchor="middle">CSV / Excel / JSON 文件落库 (v0.9.34)</text>
+  <text x="430" y="1490" font-size="10" fill="#6b7280" text-anchor="middle">20个月末快照 · API 数据源</text>
+  <path d="M 568,1408 A 80,10 0 0 1 728,1408 L 728,1494 A 80,10 0 0 1 568,1494 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
+  <ellipse cx="648" cy="1408" rx="80" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
+  <text x="648" y="1432" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Redis / StateStore</text>
+  <text x="648" y="1448" font-size="10" fill="#6b7280" text-anchor="middle">限流计数 / 配额 / 并发槽位</text>
+  <text x="648" y="1462" font-size="10" fill="#6b7280" text-anchor="middle">planId 消费 · 任务队列状态</text>
+  <text x="648" y="1476" font-size="10" fill="#6b7280" text-anchor="middle">SSE 续传缓冲 (v0.9.6)</text>
+  <text x="648" y="1490" font-size="10" fill="#6b7280" text-anchor="middle">未配 → 进程内</text>
+  <path d="M 756,1408 A 90,10 0 0 1 936,1408 L 936,1494 A 90,10 0 0 1 756,1494 Z" fill="#faf5ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <ellipse cx="846" cy="1408" rx="90" ry="10" fill="#ede9fe" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="846" y="1432" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">外部知识库服务</text>
+  <text x="846" y="1448" font-size="10" fill="#6b7280" text-anchor="middle">Dify / RAGFlow / 自建 RAG</text>
+  <text x="846" y="1462" font-size="10" fill="#6b7280" text-anchor="middle">POST {query, topK} · Bearer 认证</text>
+  <text x="846" y="1476" font-size="10" fill="#6b7280" text-anchor="middle">API Key AES-256-GCM 加密</text>
+  <rect x="960" y="1408" width="184" height="96" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.2"/>
+  <text x="1052" y="1430" font-size="11" font-weight="600" fill="#111827" text-anchor="middle">评测集 server/eval</text>
+  <text x="1052" y="1448" font-size="10" fill="#6b7280" text-anchor="middle">NL2SQL 准确率评测</text>
+  <text x="1052" y="1462" font-size="10" fill="#6b7280" text-anchor="middle">差评回流 · evalCases.json</text>
+  <text x="1052" y="1476" font-size="10" fill="#6b7280" text-anchor="middle">主动学习排序 (v0.9.45.2)</text>
+  <text x="1052" y="1490" font-size="10" fill="#6b7280" text-anchor="middle">频次/复杂度/影响用户</text>
+  <text x="596" y="1530" font-size="10.5" fill="#9ca3af" text-anchor="middle">对话历史服务端落库（跨设备共享） · JSON 备份导入导出（知识/指标/样例 v0.9.33） · 数据源隔离</text>
+  <line x1="600" y1="1582" x2="600" y2="1608" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#agray)"/>
+  <rect x="36" y="1612" width="1128" height="136" rx="10" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <text x="52" y="1632" font-size="13" font-weight="600" fill="#374151">基础设施 / 部署 / 质量</text>
+  <rect x="48" y="1642" width="200" height="90" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="148" y="1660" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Node.js 运行时</text>
+  <text x="148" y="1678" font-size="10" fill="#6b7280" text-anchor="middle">tsx 开发 · esbuild 打包</text>
+  <text x="148" y="1692" font-size="10" fill="#6b7280" text-anchor="middle">dist/server.cjs 生产产物</text>
+  <text x="148" y="1706" font-size="10" fill="#6b7280" text-anchor="middle">PORT 3000 · HOST 127.0.0.1</text>
+  <text x="148" y="1720" font-size="10" fill="#6b7280" text-anchor="middle">Vite dev 中间件一体化</text>
+  <rect x="260" y="1642" width="200" height="90" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="360" y="1660" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Docker 容器</text>
+  <text x="360" y="1678" font-size="10" fill="#6b7280" text-anchor="middle">多阶段构建 · 非 root</text>
+  <text x="360" y="1692" font-size="10" fill="#6b7280" text-anchor="middle">HEALTHCHECK 探活</text>
+  <text x="360" y="1706" font-size="10" fill="#6b7280" text-anchor="middle">docker-compose 单/多实例</text>
+  <text x="360" y="1720" font-size="10" fill="#6b7280" text-anchor="middle">Prometheus/Grafana 监控栈</text>
+  <rect x="472" y="1642" width="200" height="90" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="572" y="1660" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">测试与门禁</text>
+  <text x="572" y="1678" font-size="10" fill="#6b7280" text-anchor="middle">Vitest 90 文件 1035 用例</text>
+  <text x="572" y="1692" font-size="10" fill="#6b7280" text-anchor="middle">tsc 三档编译 0 错误</text>
+  <text x="572" y="1706" font-size="10" fill="#6b7280" text-anchor="middle">Playwright E2E 10 用例</text>
+  <text x="572" y="1720" font-size="10" fill="#6b7280" text-anchor="middle">pre-push 7 道自动化门禁</text>
+  <rect x="684" y="1642" width="200" height="90" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="784" y="1660" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">Git 双远程</text>
+  <text x="784" y="1678" font-size="10" fill="#6b7280" text-anchor="middle">origin: GitHub (HTTPS)</text>
+  <text x="784" y="1692" font-size="10" fill="#6b7280" text-anchor="middle">gitee: Gitee (SSH)</text>
+  <text x="784" y="1706" font-size="10" fill="#6b7280" text-anchor="middle">main 分支 · 禁止 force</text>
+  <text x="784" y="1720" font-size="10" fill="#6b7280" text-anchor="middle">修改前 pull · 完成后双推</text>
+  <rect x="896" y="1642" width="200" height="90" rx="8" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1.2"/>
+  <text x="996" y="1660" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">文档即产品</text>
+  <text x="996" y="1678" font-size="10" fill="#6b7280" text-anchor="middle">系统功能说明书（单一事实源）</text>
+  <text x="996" y="1692" font-size="10" fill="#6b7280" text-anchor="middle">系统内帮助实时读取</text>
+  <text x="996" y="1706" font-size="10" fill="#6b7280" text-anchor="middle">变更记录 v0.1→v0.9.46</text>
+  <text x="996" y="1720" font-size="10" fill="#6b7280" text-anchor="middle">OpenAPI · 培训 PPT · 架构图</text>
+  <text x="52" y="1772" font-size="12" font-weight="600" fill="#374151">图例</text>
+  <line x1="52" y1="1790" x2="82" y2="1790" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
+  <text x="90" y="1794" font-size="10.5" fill="#6b7280">主流程 / 请求</text>
+  <line x1="180" y1="1790" x2="210" y2="1790" stroke="#16a34a" stroke-width="1.5" marker-end="url(#ag)"/>
+  <text x="218" y="1794" font-size="10.5" fill="#6b7280">数据读写</text>
+  <line x1="290" y1="1790" x2="320" y2="1790" stroke="#9333ea" stroke-width="1.5" marker-end="url(#ap)"/>
+  <text x="328" y="1794" font-size="10.5" fill="#6b7280">LLM 调用 / 向量</text>
+  <line x1="430" y1="1790" x2="460" y2="1790" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#agray)"/>
+  <text x="468" y="1794" font-size="10.5" fill="#6b7280">基础设施</text>
+  <line x1="540" y1="1790" x2="570" y2="1790" stroke="#ea580c" stroke-width="1.5" marker-end="url(#ao)"/>
+  <text x="578" y="1794" font-size="10.5" fill="#6b7280">橙色 = v0.6+ 新增能力</text>
+  <text x="52" y="1816" font-size="10.5" fill="#9ca3af">架构分层：客户端 → 前端应用层（七大导航） → API 安全网关（6 层纵深 + DLP） → 业务逻辑层（27 路由 + 40 服务） → AI 引擎层（大小模型分工） → 数据与存储层 → 基础设施</text>
+  <text x="52" y="1832" font-size="10.5" fill="#9ca3af">v0.6→v0.9.46 新增：异步任务 · SSE 断线续传 · 漂移检测 · 并行生成 · 运行监控 · 报表口径与服务端保存 · JSON 备份 · 文件数据源落库 · 铁律规则库 · 高级筛选双入口 · 结果全屏 · 中文强制兜底 · 专家角色库化 · Fallback 对抗训练（三层自救/审核队列/Few-Shot 注入/主动学习/A-B 实验）</text>
+</svg>

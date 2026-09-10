@@ -86,6 +86,33 @@
   <div class="notes">先建立整体认知。智能问数分析系统是一个自然语言数据分析平台，业内叫 NL2SQL。传统取数流程是：业务提需求、分析师写 SQL、跑数、做图、写结论，一个来回常常要半天。这个系统把链路压缩成一句中文提问——系统自动理解你要什么、在几十上百张表里圈出相关的表、生成 SQL、真实执行，再把结果转成图表和解读，最后还能一键产出报告和简报。五个核心能力请记住：多源集成、自然语言交互、拖拽自助查询、报告简报、企业级安全。下面这排色块是左侧导航的七大入口，今天按这个顺序讲：智能问答与查询、可视化决策报表、问数报告中心、决策数据看板、灵活查询，加上管理员专属的数据源与 Schema、系统管理。一句话理解：它把「提数 → 写 SQL → 做图 → 写结论」这条原本要跨三四个岗位的链路，压缩成一次中文对话。</div>
 </section>
 
+<!-- ============ 系统功能流程全景（一图流 · 模块一） ============ -->
+<section class="slide" data-mod="1">
+  <div class="kicker">MODULE 01 · 系统全景</div>
+  <h2>整体功能流程图：从用户角色到存储层</h2>
+  <div style="display:grid;grid-template-columns:max-content 1fr;gap:32px;flex:1;min-height:0;margin-top:14px;align-items:start;">
+    <a href="assets/images/func-flow.svg" target="_blank" title="点击打开矢量原图" data-anim="zoom-in" style="display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;box-shadow:var(--shadow-1);">
+      <img src="assets/images/func-flow.svg" alt="系统整体功能流程图" style="display:block;height:474px;width:auto;border-radius:8px;">
+    </a>
+    <div>
+      <div class="card" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:10px;">🔎 读图要点</h3>
+        <ul class="plain" style="font-size:13.5px;color:var(--text-2);line-height:1.72;">
+          <li>· <b>五段穿透</b>：用户角色 → 前端七大入口 → API 安全网关（L1 输入防护 → L6 审计落账）→ 智能分析引擎 → AI 引擎 / 存储层</li>
+          <li>· <b>紫色标注</b> = 各入口的权限边界（ADMIN / ANALYST / VIEWER 分别能看到什么，与下一页「三种角色」对照）</li>
+          <li>· <b>橙色高亮</b> = v0.6 之后新增的能力（铁律规则库、专家角色、Fallback 闭环、异步任务、SSE 断线续传……）</li>
+          <li>· <b>底部紫色回环</b>：失败自愈闭环——问数失败 → 自动采集 → 人工审核标注 → 注入 Few-Shot 样例 → 同类问题自动修复</li>
+        </ul>
+      </div>
+      <div class="card tinted" style="margin-top:14px;" data-anim="fade-up">
+        <p style="font-size:13.5px;color:var(--accent-2);line-height:1.65;">一句话记住：<b>入口不同、底座相同</b>——七个入口共用一条安全网关与一套分析引擎，权限、审计与降级策略在全系统保持统一。</p>
+      </div>
+      <p class="small muted" style="margin-top:10px;">💡 左侧为矢量图，点击可打开原图放大细读（矢量不失真）。</p>
+    </div>
+  </div>
+  <div class="notes">这张图把整个系统从用户到存储全部串起来，是全场最重要的一张总览图。看五个层次：最上面是三种角色；第二层是你们登录后能看到的七大入口；中间是 API 安全网关，所有请求先过 L1 到 L6 六道关；再往下是智能分析引擎，也就是问数、报表、监控这些能力真正干活的地方；最底下是 AI 引擎和存储层。图里紫色小字标出每个入口的权限边界，橙色的是 v0.6 以后新增的能力。请特别留意最下方那条紫色回环——失败自愈闭环：问数失败会自动采集样本，管理员审核标注后注入样例库，下次同类问题系统就会做了。整张图一句话：入口不同、底座相同，所以全系统的安全、审计与降级是统一的。这张图建议会后细看，矢量版可以放大。</div>
+</section>
+
 <!-- ============ P4 角色与权限 ============ -->
 <section class="slide" data-mod="1">
   <div class="kicker">MODULE 01 · 角色与权限</div>
@@ -175,6 +202,34 @@
     <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">🧾 推导过程回放</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">圈表、知识库命中、自省、SQL 生成/重试、执行、解读各带 SQL、行数与耗时；查询中显示横向步骤器，完成后可展开垂直时间线。</p></div>
   </div>
   <div class="notes">很多同学好奇，回车之后那十几秒系统在干什么。看这条链路。第一关是输入防护，超长截断、注入检测；第二关鉴权限流，只有管理员和分析师能问数，每个用户还有查询配额，进行中的查询会互斥占槽，防止一个人把引擎打满。第三关查语义缓存，十分钟内同款问题直接秒回。第四关圈表，先用关键词粗排，再用向量精排，从上百张表里挑出真正相关的几张。第五关生成 SQL，这一步会把样例库里的相似问答、知识库里的业务口径注入给模型，如果语义有歧义，就在这里暂停反问用户；生成异常系统会自我纠错重试。第六关安全执行，只放行 SELECT，行级权限强制注入；万一失败，自动进入降级链路——也就是模块三要讲的对抗训练。最后生成解读并审计落账。这几年链路上还叠了一整套提速自愈机制：大小模型分工、多候选并行、断线续传，等待时间比早期缩短了一大截。整条链路每一步都带 traceId，结果出来后可以展开推导过程时间线回放，全程透明可审计。</div>
+</section>
+
+<!-- ============ 问数推导全过程（一图流 · 模块二） ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 处理链路</div>
+  <h2>推导全过程：一次提问的完整流水线</h2>
+  <div style="display:grid;grid-template-columns:max-content 1fr;gap:32px;flex:1;min-height:0;margin-top:14px;align-items:start;">
+    <a href="assets/images/nl2sql-pipeline.svg" target="_blank" title="点击打开矢量原图" data-anim="zoom-in" style="display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;box-shadow:var(--shadow-1);">
+      <img src="assets/images/nl2sql-pipeline.svg" alt="智能问数详细推导过程图" style="display:block;height:474px;width:auto;border-radius:8px;">
+    </a>
+    <div>
+      <div class="card" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:10px;">🔎 读图要点</h3>
+        <ul class="plain" style="font-size:13.5px;color:var(--text-2);line-height:1.72;">
+          <li>· <b>主链路</b>：输入防护 → Schema 上下文与语义缓存 → 八源上下文并行构建 → 阶段一生成 SQL → 安全执行校验 → 阶段二解读 → 输出组装</li>
+          <li>· <b>八源注入有优先级</b>：铁律规则 → 语义指标 → 专家角色 → Few-Shot → 知识库 RAG；任一源失败仅降级、不阻断主流程</li>
+          <li>· <b>阶段一的四契约</b>：直接生成 / 歧义澄清（暂停反问）/ 数据自省（探查取值）/ 拒绝（无相关表记 REFUSED）</li>
+          <li>· <b>失败三重防线</b>：自纠错重试 ≤2 次 → 三层 Fallback 自救 → 失败样本进审核队列（闭环回流）</li>
+          <li>· <b>空结果不编造</b>：直接返回真实空结论，跳过阶段二解读</li>
+        </ul>
+      </div>
+      <div class="card tinted" style="margin-top:14px;" data-anim="fade-up">
+        <p style="font-size:13.5px;color:var(--accent-2);line-height:1.65;">与上一页「七个关键环节」互为详略：<b>每一步都写 query_trace 留痕</b>，出数后可逐步回放，口径可解释、过程可审计。</p>
+      </div>
+      <p class="small muted" style="margin-top:10px;">💡 左侧为矢量图，点击可打开原图放大细读（矢量不失真）。</p>
+    </div>
+  </div>
+  <div class="notes">上一页讲了七个关键环节，这一页是它的工程详图，建议数据管理员和分析师同学细看。主链路从上往下走一遍：先输入防护与安全校验，再加载 Schema 上下文（有五分钟缓存），语义缓存没命中就并行构建八路上下文——铁律规则、Few-Shot 样例、本地与外部知识库 RAG、语义指标、专家角色、点踩反例、金额单位约定，优先级从左到右，任何一路失败都只降级、不阻断。接着是复杂度预控：判断是不是清洗类问题，是就左转进清洗链。阶段一生成 SQL 后输出四种契约之一：正常直接生成、有歧义暂停反问、需要探查就做数据自省、涉及敏感表直接拒绝。SQL 进安全执行层：仅放行 SELECT、AST 双校验、行级权限强制注入。执行失败还有三重保护——先自纠错重试两次，再走三层 Fallback 自救，最后失败样本自动进审核队列。特别强调：空结果不编数字，直接返回真实空结论。这张图每一步都有 query_trace 留痕，会后可以按图对照回放。</div>
 </section>
 
 <!-- ============ P8 SSE 流式阶段 ============ -->
@@ -668,6 +723,34 @@
     <div class="card flat" data-anim="fade-up"><b style="font-size:14px;">📡 运行监控（v0.9.14-16）</b><p style="font-size:13.5px;color:var(--text-2);margin-top:6px;line-height:1.6;">面向运维：服务可用性、问数成功率与耗时告警、缓存命中率与三张监控仪表盘，异常主动告警；帮助中心实时读取使用指南与更新日志，文档永不过期。</p></div>
   </div>
   <div class="notes">模块四，管理员日常。系统管理页现在是六大区块，每个子模块都有清晰的卡片标题，一眼定位。基础管理是用户管理，管账号生命周期。质量监控是运营驾驶舱：北极星运营指标看成功率和反馈质量，LLM Token 用量看成本，Fallback A/B 实验看降级策略效果，还有系统运行监控。规则治理放的是让 AI 守规矩的三件套：语义指标库、铁律规则库、问数专家角色。权限审批是流程类工作台：访问申请、导出审批、报告模板。AI 审核是需要人工判断的两块：Fallback 困难样本审核——就是刚才对抗训练的队列，以及 DLP 数据下载审计。最后系统配置里是环境变量。给管理员的运营建议就一句：最小权限发放角色，需要再升，别图省事人人都给管理员。另外提醒大家帮助中心实时读取使用指南和更新日志，文档永远跟着系统走，培训后忘了随时自查。</div>
+</section>
+
+<!-- ============ 完整系统架构全景（一图流 · 模块四） ============ -->
+<section class="slide" data-mod="4">
+  <div class="kicker">MODULE 04 · 系统架构</div>
+  <h2>完整系统架构：九段技术全景</h2>
+  <div style="display:grid;grid-template-columns:max-content 1fr;gap:32px;flex:1;min-height:0;margin-top:14px;align-items:start;">
+    <a href="assets/images/arch-overview.svg" target="_blank" title="点击打开矢量原图" data-anim="zoom-in" style="display:block;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;box-shadow:var(--shadow-1);">
+      <img src="assets/images/arch-overview.svg" alt="完整系统架构图" style="display:block;height:474px;width:auto;border-radius:8px;">
+    </a>
+    <div>
+      <div class="card" data-anim="fade-up">
+        <h3 style="font-size:16px;margin-bottom:10px;">🔎 读图要点</h3>
+        <ul class="plain" style="font-size:13.5px;color:var(--text-2);line-height:1.72;">
+          <li>· <b>自上而下九段</b>：客户端 → 前端应用层 → API 安全网关 → 业务逻辑层（27 路由 + 40 核心服务）→ AI 引擎层 → 数据与存储层 → 基础设施 / 部署 / 质量</li>
+          <li>· <b>业务逻辑层按三类看</b>：编排（问数 / 报表 / 异步任务）、能力（Schema 两件套 / 执行器 / Fallback）、上下文治理（知识库 / 反馈闭环 / 指标 / 铁律 / 专家角色）</li>
+          <li>· <b>工程口径</b>：112 REST 端点 · 90 测试文件 / 1035 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
+          <li>· <b>部署形态</b>：Node 运行时一体的开发态 → esbuild 打包 + Docker 容器 → Prometheus / Grafana 监控</li>
+          <li>· <b>图例</b>：蓝=主流程、绿=数据读写、紫=LLM 调用、灰=基础设施、橙=v0.6+ 新增能力</li>
+        </ul>
+      </div>
+      <div class="card tinted" style="margin-top:14px;" data-anim="fade-up">
+        <p style="font-size:13.5px;color:var(--accent-2);line-height:1.65;">排查问题的定位法：先在这张图上确定<b>属于哪一层</b>——入口异常看前端层、越权异常看网关层、出数异常看引擎层、连接异常看基础设施层。</p>
+      </div>
+      <p class="small muted" style="margin-top:10px;">💡 左侧为矢量图，点击可打开原图放大细读（矢量不失真）。</p>
+    </div>
+  </div>
+  <div class="notes">这张是系统的技术底盘图，给管理员和运维同学建立整体坐标。从上往下一共九段：客户端浏览器、前端应用层、API 安全网关、业务逻辑层、AI 引擎层、数据与存储层，再到基础设施与部署质量。最值得关注的是业务逻辑层——27 个路由、40 多个核心服务都集中在这里，可以按三类记：编排类（问数编排、报表双阶段、异步任务）、能力类（Schema 关联与上下文、SQL 执行器、Fallback）、上下文治理类（知识库、反馈闭环、语义指标、铁律、专家角色）。图例说明：蓝箭头是主流程，绿色是数据读写，紫色是 LLM 调用，橙色是 v0.6 后新增能力。部署形态从开发态的 Node 一体，到生产的 esbuild 打包加 Docker 容器、Prometheus 加 Grafana 监控。以后排查问题，先在这张图上定位是哪一层：入口问题看前端、越权问题看网关、出数问题看引擎、连不上看基础设施。完整矢量版会后可在文档目录放大细读。</div>
 </section>
 
 <!-- ============ P26 AI 引擎 ============ -->
