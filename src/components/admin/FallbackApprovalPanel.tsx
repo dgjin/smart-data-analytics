@@ -28,7 +28,7 @@ interface ApprovalWorkItem extends AdversarialSample {
 /** 状态元数据（枚举 → 徽章样式映射） */
 const STATUS_META: Record<AdversarialSample['annotation_status'], { label: string; color: string }> = {
   PENDING: { label: '待审核', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
-  IN_REVIEW: { label: '审核中', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  IN_REVIEW: { label: '审核中', color: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
   APPROVED: { label: '已采纳', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
   REJECTED: { label: '已拒绝', color: 'bg-rose-500/20 text-rose-400 border-rose-500/30' },
 };
@@ -42,7 +42,7 @@ function highlightSQL(sql: string): React.JSX.Element {
       {tokens.map((token, i) => {
         const upper = token.toUpperCase().trim();
         if (['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'JOIN', 'ON', 'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'GROUP BY', 'ORDER BY'].includes(upper)) {
-          return <span key={i} className="text-purple-400 font-bold">{token}</span>;
+          return <span key={i} className="text-violet-400 font-bold">{token}</span>;
         }
         if (/^'.*'$|^".*"$/.test(token)) {
           return <span key={i} className="text-emerald-400">{token}</span>;
@@ -407,7 +407,7 @@ export const FallbackApprovalPanel: React.FC = () => {
                     {item.total_score !== undefined && (
                       <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${
                         item.total_score >= 80 
-                          ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' 
+                          ? 'bg-violet-500/20 text-violet-400 border-violet-500/30'
                           : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
                       }`}>
                         {item.total_score}/100

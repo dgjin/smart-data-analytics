@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: documentation
-title: documentation
+title: 项目文档与交付材料
 scope:
     - docs/
 source_files: []

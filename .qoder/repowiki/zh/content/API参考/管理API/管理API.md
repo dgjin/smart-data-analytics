@@ -8,12 +8,23 @@
 - [server/routes/auth.ts](file://server/routes/auth.ts)
 - [server/routes/datasources.ts](file://server/routes/datasources.ts)
 - [server/routes/opsDrift.ts](file://server/routes/opsDrift.ts)
+- [server/routes/abTest.ts](file://server/routes/abTest.ts)
+- [server/utils/abTest.ts](file://server/utils/abTest.ts)
+- [server/infra/createAbTestTable.ts](file://server/infra/createAbTestTable.ts)
+- [src/components/admin/ABTestDashboard.tsx](file://src/components/admin/ABTestDashboard.tsx)
 - [server/auth/accessControl.ts](file://server/auth/accessControl.ts)
 - [server/infra/monitoring.ts](file://server/infra/monitoring.ts)
 - [server/infra/auditLog.ts](file://server/infra/auditLog.ts)
 - [server/infra/logger.ts](file://server/infra/logger.ts)
 - [src/components/admin/AdminPanel.tsx](file://src/components/admin/AdminPanel.tsx)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增A/B测试管理API端点，包括统计数据获取、实验记录查询和概览信息接口
+- 添加A/B测试仪表板组件，提供可视化对比分析
+- 集成A/B测试数据库表和监控功能
+- 完善系统的监控和分析能力，支持策略效果评估
 
 ## 目录
 1. [简介](#简介)
@@ -28,20 +39,22 @@
 10. [附录：请求与响应示例](#附录请求与响应示例)
 
 ## 简介
-本文件面向系统管理员，提供“管理API”的完整说明，覆盖以下能力：
+本文件面向系统管理员，提供"管理API"的完整说明，覆盖以下能力：
 - 管理员专用接口：用户管理、系统配置、权限分配（数据源访问控制）
 - 监控指标接口：系统健康检查、性能指标、业务指标聚合
+- **新增** A/B测试管理：实验统计分析、历史记录查询、策略效果对比
 - 运维管理功能：日志查看、故障诊断、系统调优（漂移检测、审计与限流）
 - 安全与合规：管理员权限验证、操作审计、安全限制（ACL、DLP、限流）
 - 监控数据存储策略、查询优化与历史数据管理建议
 
 ## 项目结构
-后端以 Express Router 组织路由，按职责拆分为 admin、metrics、opsMetrics、auth、datasources、opsDrift 等模块；基础设施层提供鉴权、审计、日志、Prometheus 埋点、数据库连接池等。前端 AdminPanel 通过统一客户端调用上述 API。
+后端以 Express Router 组织路由，按职责拆分为 admin、metrics、opsMetrics、auth、datasources、opsDrift、abTest 等模块；基础设施层提供鉴权、审计、日志、Prometheus 埋点、数据库连接池等。前端 AdminPanel 通过统一客户端调用上述 API。
 
 ```mermaid
 graph TB
 subgraph "前端"
 AP["AdminPanel"]
+ABTD["ABTestDashboard"]
 end
 subgraph "后端路由"
 A["admin.ts<br/>用户与环境配置"]
@@ -50,6 +63,7 @@ OM["opsMetrics.ts<br/>北极星指标聚合"]
 AU["auth.ts<br/>登录/SSO/当前用户"]
 DS["datasources.ts<br/>数据源管理/ACL"]
 OD["opsDrift.ts<br/>漂移检测"]
+ABT["abTest.ts<br/>A/B测试统计"]
 end
 subgraph "基础设施"
 AC["accessControl.ts<br/>ACL校验"]
@@ -57,6 +71,7 @@ AL["auditLog.ts<br/>审计落库+埋点"]
 MO["monitoring.ts<br/>Prometheus指标"]
 LG["logger.ts<br/>统一日志"]
 DB["db.ts<br/>连接池"]
+ABTU["abTest.ts<br/>A/B测试工具"]
 end
 AP --> A
 AP --> M
@@ -64,6 +79,9 @@ AP --> OM
 AP --> AU
 AP --> DS
 AP --> OD
+ABTD --> ABT
+ABT --> ABTU
+ABTU --> DB
 A --> DB
 M --> AC
 M --> AL
@@ -76,45 +94,36 @@ M --> LG
 OM --> LG
 DS --> LG
 AU --> LG
+ABT --> LG
 ```
 
-图表来源
+**图表来源**
 - [server/routes/admin.ts:1-295](file://server/routes/admin.ts#L1-L295)
 - [server/routes/metrics.ts:1-302](file://server/routes/metrics.ts#L1-L302)
 - [server/routes/opsMetrics.ts:1-327](file://server/routes/opsMetrics.ts#L1-L327)
 - [server/routes/auth.ts:1-156](file://server/routes/auth.ts#L1-L156)
 - [server/routes/datasources.ts:1-200](file://server/routes/datasources.ts#L1-L200)
 - [server/routes/opsDrift.ts:1-80](file://server/routes/opsDrift.ts#L1-L80)
-- [server/auth/accessControl.ts:1-108](file://server/auth/accessControl.ts#L1-L108)
-- [server/infra/auditLog.ts:1-62](file://server/infra/auditLog.ts#L1-L62)
-- [server/infra/monitoring.ts:1-153](file://server/infra/monitoring.ts#L1-L153)
-- [server/infra/logger.ts:1-41](file://server/infra/logger.ts#L1-L41)
-
-章节来源
-- [server/routes/admin.ts:1-295](file://server/routes/admin.ts#L1-L295)
-- [server/routes/metrics.ts:1-302](file://server/routes/metrics.ts#L1-L302)
-- [server/routes/opsMetrics.ts:1-327](file://server/routes/opsMetrics.ts#L1-L327)
-- [server/routes/auth.ts:1-156](file://server/routes/auth.ts#L1-L156)
-- [server/routes/datasources.ts:1-200](file://server/routes/datasources.ts#L1-L200)
-- [server/routes/opsDrift.ts:1-80](file://server/routes/opsDrift.ts#L1-L80)
-- [server/auth/accessControl.ts:1-108](file://server/auth/accessControl.ts#L1-L108)
-- [server/infra/auditLog.ts:1-62](file://server/infra/auditLog.ts#L1-L62)
-- [server/infra/monitoring.ts:1-153](file://server/infra/monitoring.ts#L1-L153)
-- [server/infra/logger.ts:1-41](file://server/infra/logger.ts#L1-L41)
+- [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
+- [server/utils/abTest.ts:1-168](file://server/utils/abTest.ts#L1-L168)
+- [src/components/admin/ABTestDashboard.tsx:1-444](file://src/components/admin/ABTestDashboard.tsx#L1-L444)
 
 ## 核心组件
 - 管理员用户与环境配置管理：提供用户CRUD、密码重置、环境配置读取与更新（白名单键），并强制保留至少一个活跃管理员。
 - 语义指标管理：指标定义创建/审批/编辑/删除/导入导出、版本回溯；统一指标查询接口，复用安全SQL执行层并按角色脱敏。
 - 运维指标聚合：基于审计日志、反馈、追踪数据计算北极星指标与日/周趋势，支持按数据源过滤。
+- **新增** A/B测试框架：为fallback策略提供实验分组、效果统计、历史记录查询，支持Rule-Based vs Human Approval策略对比。
 - 认证与授权：本地登录、OIDC集成、当前用户信息；全局鉴权中间件与角色守卫。
 - 数据源与ACL：数据源管理、Schema同步、部门/个人维度访问控制。
 - 漂移检测：知识库/Schema漂移扫描、观察列登记、事件确认。
 - 审计与监控：全链路审计落库、Prometheus指标采集、统一日志输出。
 
-章节来源
+**章节来源**
 - [server/routes/admin.ts:1-295](file://server/routes/admin.ts#L1-L295)
 - [server/routes/metrics.ts:1-302](file://server/routes/metrics.ts#L1-L302)
 - [server/routes/opsMetrics.ts:1-327](file://server/routes/opsMetrics.ts#L1-L327)
+- [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
+- [server/utils/abTest.ts:1-168](file://server/utils/abTest.ts#L1-L168)
 - [server/routes/auth.ts:1-156](file://server/routes/auth.ts#L1-L156)
 - [server/routes/datasources.ts:1-200](file://server/routes/datasources.ts#L1-L200)
 - [server/routes/opsDrift.ts:1-80](file://server/routes/opsDrift.ts#L1-L80)
@@ -122,30 +131,30 @@ AU --> LG
 - [server/infra/monitoring.ts:1-153](file://server/infra/monitoring.ts#L1-L153)
 
 ## 架构总览
-管理API采用“路由层 + 领域服务 + 基础设施”的分层设计：
+管理API采用"路由层 + 领域服务 + 基础设施"的分层设计：
 - 路由层：Express Router 暴露REST端点，负责参数校验、权限拦截、结果封装。
-- 领域服务：指标管理、数据源ACL、漂移检测、查询构建等。
+- 领域服务：指标管理、数据源ACL、漂移检测、查询构建、A/B测试分析等。
 - 基础设施：数据库连接池、审计日志、Prometheus埋点、统一日志、限流器。
 
 ```mermaid
 sequenceDiagram
 participant C as "管理员客户端"
-participant R as "admin.ts 路由"
+participant R as "abTest.ts 路由"
+participant U as "abTest.ts 工具"
 participant DB as "数据库连接池"
-participant AL as "审计日志"
 participant LG as "统一日志"
-C->>R : POST /api/admin/users {username,password,...}
-R->>DB : INSERT users (加密密码, 标记首次改密)
-DB-->>R : 插入成功/冲突
-R->>AL : 可选审计(由具体实现决定)
-R->>LG : 记录错误/成功
-R-->>C : 201 {success,user}
+C->>R : GET /api/admin/ab-test/stats?days=7
+R->>U : getExperimentStats(7)
+U->>DB : SELECT from fallback_ab_tests
+DB-->>U : 统计数据
+U-->>R : {groups, days}
+R->>LG : 记录访问日志
+R-->>C : 200 {success : true, data : stats}
 ```
 
-图表来源
-- [server/routes/admin.ts:41-76](file://server/routes/admin.ts#L41-L76)
-- [server/infra/auditLog.ts:38-62](file://server/infra/auditLog.ts#L38-L62)
-- [server/infra/logger.ts:27-41](file://server/infra/logger.ts#L27-L41)
+**图表来源**
+- [server/routes/abTest.ts:17-46](file://server/routes/abTest.ts#L17-L46)
+- [server/utils/abTest.ts:102-138](file://server/utils/abTest.ts#L102-L138)
 
 ## 详细组件分析
 
@@ -174,10 +183,10 @@ CheckTarget --> |否| Update
 Update --> Done(["返回成功"])
 ```
 
-图表来源
+**图表来源**
 - [server/routes/admin.ts:78-149](file://server/routes/admin.ts#L78-L149)
 
-章节来源
+**章节来源**
 - [server/routes/admin.ts:15-208](file://server/routes/admin.ts#L15-L208)
 - [server/routes/admin.ts:210-292](file://server/routes/admin.ts#L210-L292)
 
@@ -216,12 +225,12 @@ Q-->>U : {ok, metric, groupBy, sql, rows, ...}
 end
 ```
 
-图表来源
+**图表来源**
 - [server/routes/metrics.ts:65-134](file://server/routes/metrics.ts#L65-L134)
 - [server/auth/accessControl.ts:65-73](file://server/auth/accessControl.ts#L65-L73)
 - [server/infra/auditLog.ts:38-62](file://server/infra/auditLog.ts#L38-L62)
 
-章节来源
+**章节来源**
 - [server/routes/metrics.ts:35-302](file://server/routes/metrics.ts#L35-L302)
 - [server/auth/accessControl.ts:1-108](file://server/auth/accessControl.ts#L1-L108)
 - [server/infra/auditLog.ts:1-62](file://server/infra/auditLog.ts#L1-L62)
@@ -244,11 +253,52 @@ Q4 --> P
 P --> R(["返回{northStar,daily,weekly}"])
 ```
 
-图表来源
+**图表来源**
 - [server/routes/opsMetrics.ts:257-324](file://server/routes/opsMetrics.ts#L257-L324)
 
-章节来源
+**章节来源**
 - [server/routes/opsMetrics.ts:1-327](file://server/routes/opsMetrics.ts#L1-L327)
+
+### **新增** A/B测试管理API
+- **统计数据获取**：GET /api/admin/ab-test/stats?days=7（仅ADMIN）
+  - 获取指定天数内的实验统计数据
+  - 包含两个组别（rule_based vs human_approval）的成功率、延迟等指标
+  - 支持自定义时间范围（默认7天）
+
+- **实验记录查询**：GET /api/admin/ab-test/records?limit=100（仅ADMIN）
+  - 查询历史实验记录，支持分页限制
+  - 返回实验ID、用户查询、失败SQL、分组、策略、结果、延迟等信息
+
+- **快速概览**：GET /api/admin/ab-test/overview（仅ADMIN）
+  - 最近24小时的实验概览
+  - 自动计算关键指标对比和改进建议
+  - 提供推荐策略选择
+
+- **A/B测试框架**：
+  - 实验分组：基于userId和时间戳的确定性哈希分配
+  - 流量分割：50% Rule-Based vs 50% Human Approval
+  - 效果监控：成功率、延迟、策略选择统计
+  - 数据库存储：fallback_ab_tests表记录所有实验数据
+
+```mermaid
+flowchart TD
+Start(["A/B Test 实验流程"]) --> Assign["分配实验组别<br/>Group A: Rule-Based<br/>Group B: Human Approval"]
+Assign --> Execute["执行对应策略"]
+Execute --> Record["记录实验结果<br/>experiment_id, query, failed_sql,<br/>assigned_group, selected_strategy,<br/>success, latency_ms"]
+Record --> Analyze["统计分析<br/>成功率、延迟、策略效果"]
+Analyze --> Dashboard["仪表板展示<br/>对比分析、趋势图、推荐策略"]
+```
+
+**图表来源**
+- [server/utils/abTest.ts:46-59](file://server/utils/abTest.ts#L46-L59)
+- [server/utils/abTest.ts:75-97](file://server/utils/abTest.ts#L75-L97)
+- [server/routes/abTest.ts:17-127](file://server/routes/abTest.ts#L17-L127)
+
+**章节来源**
+- [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
+- [server/utils/abTest.ts:1-168](file://server/utils/abTest.ts#L1-L168)
+- [server/infra/createAbTestTable.ts:1-68](file://server/infra/createAbTestTable.ts#L1-L68)
+- [src/components/admin/ABTestDashboard.tsx:1-444](file://src/components/admin/ABTestDashboard.tsx#L1-L444)
 
 ### 认证与权限
 - 认证
@@ -260,7 +310,7 @@ P --> R(["返回{northStar,daily,weekly}"])
   - 全局鉴权中间件与角色守卫（requireRole）
   - 数据源ACL：部门/个人维度授权，ADMIN豁免
 
-章节来源
+**章节来源**
 - [server/routes/auth.ts:1-156](file://server/routes/auth.ts#L1-L156)
 - [server/auth/accessControl.ts:1-108](file://server/auth/accessControl.ts#L1-L108)
 
@@ -268,7 +318,7 @@ P --> R(["返回{northStar,daily,weekly}"])
 - 数据源管理：增删改查、连接测试、Schema提取/同步、快速问题推荐
 - 权限分配：acl_json 维护部门与用户清单；非管理员不可见敏感配置；ACL与DataScope正交（ACL决定能否访问，scope决定可用范围）
 
-章节来源
+**章节来源**
 - [server/routes/datasources.ts:1-200](file://server/routes/datasources.ts#L1-L200)
 - [server/auth/accessControl.ts:1-108](file://server/auth/accessControl.ts#L1-L108)
 
@@ -277,7 +327,7 @@ P --> R(["返回{northStar,daily,weekly}"])
 - 故障诊断：漂移检测（opsDrift），支持手动扫描、观察列登记、事件确认
 - 系统调优：指标查询限流（userQueryLimit）、缓存命中统计、EXPLAIN防线、LLM用量与时延监控
 
-章节来源
+**章节来源**
 - [server/infra/logger.ts:1-41](file://server/infra/logger.ts#L1-L41)
 - [server/infra/auditLog.ts:1-62](file://server/infra/auditLog.ts#L1-L62)
 - [server/routes/opsDrift.ts:1-80](file://server/routes/opsDrift.ts#L1-L80)
@@ -290,6 +340,7 @@ P --> R(["返回{northStar,daily,weekly}"])
   - metrics.query → sqlExecutor.executeSafeSql → db pool
   - metrics.query → auditLog.writeAudit → monitoring.observeAudit
   - opsMetrics → db pool（多表聚合）
+  - abTest.stats → abTest.utils.getExperimentStats → db pool
   - admin.env-config → db pool + auditLog
 
 ```mermaid
@@ -299,13 +350,17 @@ MQ --> SE["sqlExecutor.ts"]
 MQ --> AL["auditLog.ts"]
 AL --> MO["monitoring.ts"]
 OM["opsMetrics.ts"] --> DB["db.ts"]
+ABT["abTest.ts"] --> ABTU["abTest utils"]
+ABTU --> DB
 AD["admin.ts"] --> DB
 DS["datasources.ts"] --> AC
 ```
 
-图表来源
+**图表来源**
 - [server/routes/metrics.ts:65-134](file://server/routes/metrics.ts#L65-L134)
 - [server/routes/opsMetrics.ts:257-324](file://server/routes/opsMetrics.ts#L257-L324)
+- [server/routes/abTest.ts:17-46](file://server/routes/abTest.ts#L17-L46)
+- [server/utils/abTest.ts:102-138](file://server/utils/abTest.ts#L102-L138)
 - [server/routes/admin.ts:210-292](file://server/routes/admin.ts#L210-L292)
 - [server/routes/datasources.ts:1-200](file://server/routes/datasources.ts#L1-L200)
 - [server/infra/auditLog.ts:38-62](file://server/infra/auditLog.ts#L38-L62)
@@ -322,15 +377,21 @@ DS["datasources.ts"] --> AC
   - 指标查询使用白名单维度与GROUP BY，避免任意SQL注入
   - 安全执行层包含表白名单、敏感列剔除、部门行级过滤
   - 金额单位换算在SQL层完成，减少前端处理开销
+- **新增** A/B测试监控
+  - 实验记录表索引优化（created_at、assigned_group、success、experiment_id）
+  - 统计数据查询按时间范围过滤，避免全表扫描
+  - 支持灵活的时间范围查询（1天、7天、30天、90天）
 - 历史数据管理建议
-  - 对 query_audit_log、query_feedback、query_trace 建立分区索引（按 created_at）
+  - 对 query_audit_log、query_feedback、query_trace、fallback_ab_tests 建立分区索引（按 created_at）
   - 定期归档旧数据至冷存储，保留最近N天在线查询
-  - 对高频查询条件（如 endpoint='query'）建立复合索引
+  - 对高频查询条件（如 endpoint='query'、assigned_group）建立复合索引
 
-章节来源
+**章节来源**
 - [server/infra/monitoring.ts:1-153](file://server/infra/monitoring.ts#L1-L153)
 - [server/infra/auditLog.ts:1-62](file://server/infra/auditLog.ts#L1-L62)
 - [server/routes/metrics.ts:65-134](file://server/routes/metrics.ts#L65-L134)
+- [server/infra/createAbTestTable.ts:18-36](file://server/infra/createAbTestTable.ts#L18-L36)
+- [server/utils/abTest.ts:104-116](file://server/utils/abTest.ts#L104-L116)
 
 ## 故障排查指南
 - 常见问题定位
@@ -338,20 +399,25 @@ DS["datasources.ts"] --> AC
   - 权限不足：确认用户角色与数据源ACL配置
   - 限流拒绝：检查用户查询速率限制
   - 漂移告警：查看漂移事件列表，必要时手动扫描并确认
+  - **新增** A/B测试数据异常：检查fallback_ab_tests表是否存在、实验记录是否正常写入、统计数据计算逻辑
 - 日志与指标
   - 通过统一日志查看错误堆栈
   - 通过Prometheus指标观察耗时分布与错误比例
   - 通过审计日志回溯具体请求的执行SQL与行数
+  - **新增** A/B测试调试：查看实验记录表中的分组分配、策略选择、成功状态、延迟数据
 
-章节来源
+**章节来源**
 - [server/infra/logger.ts:1-41](file://server/infra/logger.ts#L1-L41)
 - [server/infra/monitoring.ts:135-153](file://server/infra/monitoring.ts#L135-L153)
 - [server/routes/opsDrift.ts:25-77](file://server/routes/opsDrift.ts#L25-L77)
+- [server/utils/abTest.ts:134-137](file://server/utils/abTest.ts#L134-L137)
+- [server/utils/abTest.ts:163-166](file://server/utils/abTest.ts#L163-L166)
 
 ## 结论
-本管理API围绕“安全、可观测、可治理”的目标，提供了完善的管理员能力：
+本管理API围绕"安全、可观测、可治理"的目标，提供了完善的管理员能力：
 - 用户与环境配置管理具备强约束与审计
 - 指标治理提供从定义到查询的全生命周期管控
+- **新增** A/B测试框架支持策略效果量化评估，为决策提供数据支撑
 - 运维指标聚合帮助把握系统质量与性能
 - 审计与监控贯穿全链路，便于问题定位与持续优化
 
@@ -408,6 +474,21 @@ DS["datasources.ts"] --> AC
   - 请求：GET /api/ops/metrics?days=7&dataSourceId=xxx
   - 响应：200 { success: true, days, dataSourceId, northStar, daily, weekly }
   - 参考：[server/routes/opsMetrics.ts:257-324](file://server/routes/opsMetrics.ts#L257-L324)
+
+- **新增** A/B测试统计数据
+  - 请求：GET /api/admin/ab-test/stats?days=7
+  - 响应：200 { success: true, data: { days: 7, groups: { rule_based: {...}, human_approval: {...} } } }
+  - 参考：[server/routes/abTest.ts:17-46](file://server/routes/abTest.ts#L17-L46)
+
+- **新增** A/B测试实验记录
+  - 请求：GET /api/admin/ab-test/records?limit=100
+  - 响应：200 { success: true, data: [...], count: 100 }
+  - 参考：[server/routes/abTest.ts:52-75](file://server/routes/abTest.ts#L52-L75)
+
+- **新增** A/B测试快速概览
+  - 请求：GET /api/admin/ab-test/overview
+  - 响应：200 { success: true, data: { ..., keyMetrics: { totalRequests, successRateGap, latencyImprovement, recommendedStrategy } } }
+  - 参考：[server/routes/abTest.ts:80-127](file://server/routes/abTest.ts#L80-L127)
 
 - 登录
   - 请求：POST /api/auth/login

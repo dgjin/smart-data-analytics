@@ -3,8 +3,22 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-09-10T06:59:37Z"
+exported_at: "2026-09-10T07:58:31Z"
 modules:
+    "":
+        dir_name: 智能问数（NL2SQL）全栈平台根模块
+        title: 智能问数（NL2SQL）全栈平台根模块
+        scope: []
+        source_files: []
+        children:
+            - auth
+            - deployment_monitoring
+            - documentation
+            - frontend_app
+            - infrastructure
+            - plugin_ponytail
+        depends_on: []
+        related_to: []
     auth:
         dir_name: 认证授权与数据源访问控制
         title: 认证授权与数据源访问控制
@@ -13,7 +27,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: frontend_app
     deployment_monitoring:
         dir_name: deployment_monitoring
         title: deployment_monitoring
@@ -24,8 +39,8 @@ modules:
         depends_on: []
         related_to: []
     documentation:
-        dir_name: documentation
-        title: documentation
+        dir_name: 项目文档与交付材料
+        title: 项目文档与交付材料
         scope:
             - docs/
         source_files: []
@@ -33,8 +48,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_app:
-        dir_name: frontend_app
-        title: frontend_app
+        dir_name: 前端应用（React + Vite 聚合层）
+        title: 前端应用（React + Vite 聚合层）
         scope:
             - src/
         source_files: []
@@ -42,7 +57,9 @@ modules:
             - frontend_app/admin_panel
             - frontend_app/dashboard
         depends_on: []
-        related_to: []
+        related_to:
+            - path: auth
+            - path: infrastructure
     frontend_app/admin_panel:
         dir_name: 系统管理后台面板（Admin Panel）
         title: 系统管理后台面板（Admin Panel）
@@ -51,7 +68,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: infrastructure
     frontend_app/dashboard:
         dir_name: 自定义看板与帮助文档组件
         title: 自定义看板与帮助文档组件
@@ -62,7 +80,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: infrastructure
     infrastructure:
         dir_name: 基础设施层（数据库、状态存储、日志与限流）
         title: 基础设施层（数据库、状态存储、日志与限流）
@@ -71,7 +90,10 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: frontend_app
+            - path: frontend_app/admin_panel
+            - path: frontend_app/dashboard
     plugin_ponytail:
         dir_name: plugin_ponytail
         title: plugin_ponytail

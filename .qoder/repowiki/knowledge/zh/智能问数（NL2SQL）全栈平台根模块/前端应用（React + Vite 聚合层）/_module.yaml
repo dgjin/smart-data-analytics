@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: frontend_app
+title: 前端应用（React + Vite 聚合层）
+scope:
+    - src/
+source_files: []
+depends_on: []
+related_to:
+    - path: auth
+    - path: infrastructure

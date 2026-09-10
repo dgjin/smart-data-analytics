@@ -51,17 +51,11 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-const ROLE_BADGE: Record<UserRole, string> = {
-  ADMIN: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  ANALYST: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
-  VIEWER: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
-};
-
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
 
-  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 指标治理（P1-8）/ 铁律规则（v0.9.35）/ 专家角色（v0.9.40）/ 权限审批（P2-11）/ 报告模板（v0.5.0）/ 环境配置（v0.5.0）/ Fallback 审核（v0.9.44）/ A/B Test 实验分析（v0.9.46）
-  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'metrics' | 'iron-rules' | 'personas' | 'access' | 'templates' | 'env-config' | 'fallback-approval' | 'ab-test'>('users');
+  // 区块切换：用户管理 / 质量监控 (P0-4+ABTest) / 规则治理 (指标 + 铁律 + 专家) / 权限审批 (权限 + 报告模板) / AI 审核 (Fallback) / 系统配置 (DLP+ 环境)
+  const [section, setSection] = useState<'users' | 'quality-monitoring' | 'rule-governance' | 'permission-approval' | 'ai-audit' | 'system-config'>('users');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -210,442 +204,402 @@ export const AdminPanel: React.FC = () => {
       {/* Header Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
         <div className="space-y-1">
-          <div className="flex items-center space-x-2 text-amber-400 text-xs font-semibold uppercase tracking-wider">
+          <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold uppercase tracking-wider">
             <ShieldCheck className="w-4 h-4" />
-            <span>系统管理 · 仅管理员可见</span>
+            <span>系统管理 · Administration Console</span>
           </div>
           <h1 className="text-xl md:text-2xl font-extrabold text-slate-100 tracking-tight">
-            系统管理 (Administration)
+            统一管理与运维控制台
           </h1>
           <p className="text-xs text-slate-400">
-            管理系统账号与角色、查询各用户 LLM Token 消耗：管理员（全部权限）、分析师（查询与报表）、只读用户（仅查看）。
+            管理系统账号、监控查询质量、治理指标规则、审批权限申请、审核 Fallback 样本及配置环境参数。
           </p>
         </div>
       </div>
 
-      {/* Section Tabs：用户管理 / Token 用量查询 */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex items-center justify-between gap-2 shadow-xl">
-        <div className="flex items-center space-x-1">
+      {/* Section Tabs：精简约 6 个大类 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex items-center justify-between gap-2 shadow-xl overflow-x-auto">
+        <div className="flex items-center space-x-1 flex-shrink-0 flex-nowrap">
+          {/* 基础管理 */}
           <button
             onClick={() => setSection('users')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
               section === 'users'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>用户管理</span>
+                ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
+            }`}>
+            <Users className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span>基础管理</span>
           </button>
+          {/* 质量监控 */}
           <button
-            onClick={() => setSection('quality')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'quality'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Gauge className="w-4 h-4" />
-            <span>质量看板</span>
+            onClick={() => setSection('quality-monitoring')}
+            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              section === 'quality-monitoring'
+                ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
+            }`}>
+            <Gauge className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span>质量监控</span>
           </button>
+          {/* 规则治理 */}
           <button
-            onClick={() => setSection('usage')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'usage'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Coins className="w-4 h-4" />
-            <span>Token 用量查询</span>
+            onClick={() => setSection('rule-governance')}
+            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              section === 'rule-governance'
+                ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 text-white shadow-lg shadow-cyan-600/30 border border-cyan-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
+            }`}>
+            <BookMarked className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span>规则治理</span>
           </button>
+          {/* 权限审批 */}
           <button
-            onClick={() => setSection('metrics')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'metrics'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <BookMarked className="w-4 h-4" />
-            <span>指标治理</span>
-          </button>
-          <button
-            onClick={() => setSection('iron-rules')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'iron-rules'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Gavel className="w-4 h-4" />
-            <span>铁律规则</span>
-          </button>
-          <button
-            onClick={() => setSection('personas')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'personas'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <UserCog className="w-4 h-4" />
-            <span>专家角色</span>
-          </button>
-          <button
-            onClick={() => setSection('access')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'access'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
+            onClick={() => setSection('permission-approval')}
+            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              section === 'permission-approval'
+                ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-lg shadow-amber-600/30 border border-amber-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
+            }`}>
+            <ShieldCheck className="w-4 h-4 group-hover:scale-110 transition-transform" />
             <span>权限审批</span>
           </button>
+          {/* 系统配置 */}
           <button
-            onClick={() => setSection('templates')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'templates'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>报告模板</span>
+            onClick={() => setSection('system-config')}
+            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              section === 'system-config'
+                ? 'bg-gradient-to-r from-slate-600 to-slate-500 text-white shadow-lg shadow-slate-600/30 border border-slate-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
+            }`}>
+            <Settings className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span>系统配置</span>
           </button>
+          {/* AI 审核 */}
           <button
-            onClick={() => setSection('env-config')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'env-config'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>环境配置</span>
-          </button>
-          <button
-            onClick={() => setSection('fallback-approval')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'fallback-approval'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Search className="w-4 h-4" />
-            <span>Fallback 审核</span>
-          </button>
-          <button
-            onClick={() => setSection('ab-test')}
-            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-              section === 'ab-test'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
-          >
-            <Gauge className="w-4 h-4" />
-            <span>A/B Test 实验分析</span>
+            onClick={() => setSection('ai-audit')}
+            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              section === 'ai-audit'
+                ? 'bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-lg shadow-rose-600/30 border border-rose-400/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
+            }`}>
+            <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span>AI 审核</span>
           </button>
         </div>
-        {section === 'users' && (
-          <button
-            onClick={() => setIsCreating((v) => !v)}
-            className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all shrink-0"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>创建账号</span>
-          </button>
-        )}
       </div>
 
       {/* Notice */}
       {notice && (
-        <div
-          className={`p-3 rounded-xl border text-xs flex items-center space-x-2 ${
-            notice.type === 'success'
-              ? 'bg-emerald-950/60 border-emerald-800/60 text-emerald-300'
-              : 'bg-rose-950/60 border-rose-800/60 text-rose-300'
-          }`}
-        >
-          {notice.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-          ) : (
-            <AlertCircle className="w-4 h-4 shrink-0" />
-          )}
-          <span>{notice.text}</span>
+        <div className={`p-4 rounded-xl border ${
+          notice.type === 'success'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+        }`}>
+          <div className="flex items-center gap-2">
+            {notice.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 shrink-0" />
+            )}
+            <span>{notice.text}</span>
+          </div>
         </div>
       )}
 
       {/* ============ 区块一：用户管理 ============ */}
       {section === 'users' && (
-        <>
-      {/* Create User Form */}
-      {isCreating && (
-        <form
-          onSubmit={handleCreate}
-          className="bg-slate-900 border border-indigo-500/40 rounded-2xl p-6 space-y-4 shadow-2xl"
-        >
-          <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2 border-b border-slate-800 pb-3">
-            <UserPlus className="w-4 h-4 text-indigo-400" />
-            <span>创建新账号</span>
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">用户名 (3-20位字母/数字/下划线):</label>
-              <input
-                type="text"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                placeholder="例如: zhangsan"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">显示名称:</label>
-              <input
-                type="text"
-                value={newDisplayName}
-                onChange={(e) => setNewDisplayName(e.target.value)}
-                placeholder="例如: 张三"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">初始密码 (6-64 位):</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="初始密码"
-                autoComplete="new-password"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">部门（P2-11 授权匹配键，可选）:</label>
-              <input
-                type="text"
-                value={newDepartment}
-                onChange={(e) => setNewDepartment(e.target.value)}
-                placeholder="例如: 财务部"
-                maxLength={100}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">角色:</label>
-              <select
-                value={newRole}
-                onChange={(e) => setNewRole(e.target.value as UserRole)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
-              >
-                <option value="ANALYST">分析师（查询+报表）</option>
-                <option value="VIEWER">只读用户（仅查看）</option>
-                <option value="ADMIN">管理员（全部权限）</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-800">
-            <button
-              type="button"
-              onClick={() => setIsCreating(false)}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700"
-            >
-              取消
-            </button>
-            <button
-              type="submit"
-              disabled={
-                isSubmitting ||
-                !/^[a-zA-Z0-9_]{3,20}$/.test(newUsername.trim()) ||
-                newPassword.length < 6
-              }
-              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold shadow"
-            >
-              {isSubmitting ? '创建中…' : '确认创建'}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Users Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
-          <div className="flex items-center space-x-2 text-xs font-bold text-slate-300">
-            <Users className="w-4 h-4 text-indigo-400" />
-            <span>系统账号列表（{users.length}）</span>
-          </div>
-          <button
-            onClick={() => {
-              setIsLoading(true);
-              loadUsers();
-            }}
-            disabled={isLoading}
-            className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>刷新</span>
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-slate-400 border-b border-slate-800 bg-slate-950/50">
-                <th className="px-5 py-3 font-medium">用户名</th>
-                <th className="px-5 py-3 font-medium">显示名称</th>
-                <th className="px-5 py-3 font-medium">部门</th>
-                <th className="px-5 py-3 font-medium">角色</th>
-                <th className="px-5 py-3 font-medium">状态</th>
-                <th className="px-5 py-3 font-medium">最近登录</th>
-                <th className="px-5 py-3 font-medium text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => {
-                const isSelf = currentUser?.id === u.id;
-                return (
-                  <tr
-                    key={u.id}
-                    className="border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors"
+        <div className="space-y-6">
+          {/* 创建账号表单 */}
+          {isCreating && (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+              <div className="flex items-center space-x-2 mb-6 pb-4 border-b border-slate-800">
+                <UserPlus className="w-5 h-5 text-indigo-400" />
+                <h3 className="text-lg font-bold text-slate-100">创建新账号</h3>
+              </div>
+      
+              <form onSubmit={handleCreate}>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
+                  <div className="space-y-1.5">
+                    <label className="text-slate-400 font-medium">用户名 <span className="text-slate-500">(3-20 位)</span></label>
+                    <input
+                      type="text"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                      placeholder="zhangsan"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-slate-400 font-medium">显示名称</label>
+                    <input
+                      type="text"
+                      value={newDisplayName}
+                      onChange={(e) => setNewDisplayName(e.target.value)}
+                      placeholder="张三"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-slate-400 font-medium">初始密码</label>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••"
+                      autoComplete="new-password"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-slate-400 font-medium">部门</label>
+                    <input
+                      type="text"
+                      value={newDepartment}
+                      onChange={(e) => setNewDepartment(e.target.value)}
+                      placeholder="财务部"
+                      maxLength={100}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-slate-400 font-medium">角色</label>
+                    <select
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value as UserRole)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                    >
+                      <option value="ANALYST">分析师</option>
+                      <option value="VIEWER">只读用户</option>
+                      <option value="ADMIN">管理员</option>
+                    </select>
+                  </div>
+                </div>
+      
+                <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreating(false)}
+                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
                   >
-                    <td className="px-5 py-3 font-mono text-slate-200">
-                      {u.username}
-                      {isSelf && (
-                        <span className="ml-2 text-[10px] text-indigo-300 bg-indigo-500/15 px-1.5 py-0.5 rounded">
-                          当前账号
-                        </span>
-                      )}
-                      {u.mustChangePassword && (
-                        <span className="ml-2 text-[10px] text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded">
-                          待改密
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">{u.displayName}</td>
-                    <td className="px-5 py-3">
-                      <button
-                        onClick={() => handleEditDepartment(u)}
-                        title="点击修改部门（数据源授权按部门匹配）"
-                        className="text-slate-300 hover:text-indigo-300 transition-colors"
-                      >
-                        {u.department || <span className="text-slate-500">未设置</span>}
-                      </button>
-                    </td>
-                    <td className="px-5 py-3">
-                      <span
-                        className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${ROLE_BADGE[u.role]}`}
-                      >
-                        {ROLE_LABELS[u.role]}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                          u.status === 'ACTIVE'
-                            ? 'bg-emerald-500/15 text-emerald-300'
-                            : 'bg-rose-500/15 text-rose-300'
-                        }`}
-                      >
-                        {u.status === 'ACTIVE' ? '启用中' : '已禁用'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-slate-400">
-                      {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('zh-CN') : '从未登录'}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center justify-end space-x-1.5">
-                        <button
-                          onClick={() => handleToggleStatus(u)}
-                          disabled={isSelf}
-                          title={isSelf ? '不能禁用当前登录账号' : ''}
-                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                            u.status === 'ACTIVE'
-                              ? 'border-rose-800/60 text-rose-300 hover:bg-rose-950/40'
-                              : 'border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40'
-                          }`}
-                        >
-                          {u.status === 'ACTIVE' ? '禁用' : '启用'}
-                        </button>
-                        <button
-                          onClick={() => handleResetPassword(u)}
-                          className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium transition-colors"
-                        >
-                          <KeyRound className="w-3 h-3" />
-                          <span>重置密码</span>
-                        </button>
-                        <button
-                          onClick={() => handleDelete(u)}
-                          disabled={isSelf}
-                          title={isSelf ? '不能删除当前登录账号' : ''}
-                          className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>删除</span>
-                        </button>
-                      </div>
-                    </td>
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      isSubmitting ||
+                      !/^[a-zA-Z0-9_]{3,20}$/.test(newUsername.trim()) ||
+                      newPassword.length < 6
+                    }
+                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
+                  >
+                    {isSubmitting ? '创建中…' : '确认创建'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+      
+          {/* 用户列表卡片 */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            {/* 卡片头部 */}
+            <div className="px-6 py-5 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-400" />
+                  系统账号列表
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">共 {users.length} 个账号</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="搜索用户..."
+                    className="w-64 pl-10 pr-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-slate-300 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+                  />
+                </div>
+                <button
+                  onClick={() => setIsCreating((v) => !v)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-sm font-semibold shadow-lg shadow-indigo-600/30 transition-all group border border-indigo-500/50"
+                >
+                  <UserPlus className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                  <span>创建账号</span>
+                </button>
+              </div>
+            </div>
+      
+            {/* 表格区域 */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-800">
+                <thead className="bg-slate-950">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">用户名 / 显示名</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">部门</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">角色</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">状态</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">最近登录</th>
+                    <th className="px-6 py-3 text-right text-[10px] font-medium text-slate-500 uppercase tracking-wider">操作</th>
                   </tr>
-                );
-              })}
-              {!isLoading && users.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-slate-500">
-                    暂无用户数据
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-400" />
+                        <p className="text-sm text-slate-500">加载中...</p>
+                      </td>
+                    </tr>
+                  ) : users.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center">
+                        <Users className="w-12 h-12 mx-auto mb-3 text-slate-600" />
+                        <p className="text-sm text-slate-500">暂无用户数据</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    users.map((u) => {
+                      const isSelf = u.id === currentUser?.id;
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-lg">
+                                {u.displayName.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <div className="text-sm font-semibold text-slate-200">{u.username}</div>
+                                  {isSelf && (
+                                    <span className="text-[9px] text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                                      当前账号
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-slate-500">{u.displayName}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-400">
+                            <button
+                              onClick={() => handleEditDepartment(u)}
+                              className="hover:text-indigo-400 hover:underline transition-colors"
+                            >
+                              {u.department || <span className="text-slate-600 italic">未设置</span>}
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                              u.role === 'ADMIN'
+                                ? 'bg-violet-500/10 text-violet-300 border-violet-500/30'
+                                : u.role === 'ANALYST'
+                                ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                                : 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                            }`}>
+                              {ROLE_LABELS[u.role]}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                              u.status === 'ACTIVE'
+                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                            }`}>
+                              {u.status === 'ACTIVE' ? '启用中' : '已禁用'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500 font-mono">
+                            {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('zh-CN') : '从未登录'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleToggleStatus(u)}
+                                disabled={isSelf}
+                                title={isSelf ? '不能禁用当前登录账号' : ''}
+                                className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                  u.status === 'ACTIVE'
+                                    ? 'border-rose-800/60 text-rose-400 hover:bg-rose-950/30'
+                                    : 'border-emerald-800/60 text-emerald-400 hover:bg-emerald-950/30'
+                                }`}
+                              >
+                                {u.status === 'ACTIVE' ? '禁用' : '启用'}
+                              </button>
+                              <button
+                                onClick={() => handleResetPassword(u)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-300 text-xs font-medium transition-colors"
+                              >
+                                <KeyRound className="w-3 h-3" />
+                                <span>重置</span>
+                              </button>
+                              <button
+                                onClick={() => handleDelete(u)}
+                                disabled={isSelf}
+                                title={isSelf ? '不能删除当前登录账号' : ''}
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-rose-800/60 text-rose-400 hover:bg-rose-950/30 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>删除</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
-        </>
       )}
-
-      {/* ============ 区块二：质量看板（P0-4 北极星指标） ============ */}
-      {section === 'quality' && (
-        <div className="space-y-5">
+      
+      {/* ============ 区块二：质量监控 (P0-4 北极星 +ABTest+Token 用量) ============ */}
+      {section === 'quality-monitoring' && (
+        <div className="space-y-6">
           {/* P3-3 知识库漂移提醒（枚举值快照比对） */}
           <DriftAlertPanel />
           <OpsMetricsPanel />
+          <LlmUsagePanel />
+          <ABTestDashboard />
         </div>
       )}
-
-      {/* ============ 区块三：Token 用量查询（每个用户的 token 消耗） ============ */}
-      {section === 'usage' && <LlmUsagePanel />}
-
-      {/* ============ 区块四：指标层治理（P1-8 提议-审批-版本化） ============ */}
-      {section === 'metrics' && <MetricsPanel />}
-
-      {/* ============ 区块四点五：铁律规则库（v0.9.35 全量恒注入强制约束） ============ */}
-      {section === 'iron-rules' && <IronRulesPanel />}
       
-      {/* ============ 区块四点六：问数专家角色（v0.9.40 阶段二解读 persona 路由配置） ============ */}
-      {section === 'personas' && <ExpertPersonasPanel />}
-
-      {/* ============ 区块五：数据源权限审批（P2-11 申请-审批-授权） ============ */}
-      {section === 'access' && (
+      {/* ============ 区块三：规则治理 (指标 + 铁律 + 专家角色) ============ */}
+      {section === 'rule-governance' && (
+        <div className="space-y-6">
+          {/* 指标层治理（P1-8 提议 - 审批 - 版本化） */}
+          <MetricsPanel />
+          {/* 铁律规则库（v0.9.35 全量恒注入强制约束） */}
+          <IronRulesPanel />
+          {/* 问数专家角色（v0.9.40 阶段二解读 persona 路由配置） */}
+          <ExpertPersonasPanel />
+        </div>
+      )}
+      
+      {/* ============ 区块四：权限审批 (权限审批 + 报告模板) ============ */}
+      {section === 'permission-approval' && (
         <div className="space-y-5">
+          {/* 数据源权限审批（P2-11 申请 - 审批 - 授权） */}
           <AccessRequestsPanel />
+          {/* 报告模板管理（v0.5.0） */}
+          <ReportTemplateManager />
+        </div>
+      )}
+      
+      {/* ============ 区块五：AI 审核 (Fallback 审核 + DLP 下载审批) ============ */}
+      {section === 'ai-audit' && (
+        <div className="space-y-5">
+          {/* NL2SQL Fallback 困难样本审核（v0.9.44 Strategy C） */}
+          <FallbackApprovalPanel />
           {/* P2-12 DLP 数据导出审批（超阈值下载申请） */}
           <DlpDownloadPanel />
         </div>
       )}
-
-      {/* ============ 区块六：报告模板管理（v0.5.0） ============ */}
-      {section === 'templates' && <ReportTemplateManager />}
-
-      {/* ============ 区块七：环境配置管理（v0.5.0） ============ */}
-      {section === 'env-config' && <EnvironmentConfigPanel />}
-
-      {/* ============ 区块八：NL2SQL Fallback 困难样本审核（v0.9.44 Strategy C） ============ */}
-      {section === 'fallback-approval' && <FallbackApprovalPanel />}
-
-      {/* ============ 区块九：A/B Test 实验分析（v0.9.46 Rule-Based vs Human Approval） ============ */}
-      {section === 'ab-test' && <ABTestDashboard />}
+      
+      {/* ============ 区块六：系统配置 (环境配置 + 系统设置) ============ */}
+      {section === 'system-config' && <EnvironmentConfigPanel />}
     </div>
   );
 };

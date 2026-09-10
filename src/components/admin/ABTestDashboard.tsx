@@ -1,8 +1,12 @@
 /**
  * A/B Test Dashboard Component
- * 
+ *
  * 为管理员提供 A/B Test 实验数据的可视化仪表板
  * 展示 Rule-Based vs Human Approval 的效果对比
+ *
+ * 样式约定：与决策数据看板一致——纯 slate 深色类 + 已重映射强调色
+ * （indigo/cyan/violet/emerald/rose/amber -400/-300 系），明暗主题经
+ * html.light CSS 变量重映射自动翻转，无需 dark: 前缀。
  */
 
 import { useState, useEffect } from 'react';
@@ -12,7 +16,7 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  RefreshCcw,
+  RefreshCw,
   Database,
   Users,
 } from 'lucide-react';
@@ -52,62 +56,13 @@ interface ExperimentRecord {
   createdAt: string;
 }
 
-// Reusable UI Components
-const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <div className={`bg-white rounded-lg shadow-md border border-slate-200 ${className}`}>
-    {children}
-  </div>
-);
-
-const CardHeader: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <div className={`px-6 py-4 border-b border-slate-200 ${className}`}>
-    {children}
-  </div>
-);
-
-const CardContent: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <div className={`p-6 ${className}`}>
-    {children}
-  </div>
-);
-
-const CardTitle: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <h3 className={`text-lg font-semibold text-slate-900 ${className}`}>
-    {children}
-  </h3>
-);
-
-const Badge: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>
-    {children}
-  </span>
-);
-
-const Button: React.FC<{ 
-  children: React.ReactNode; 
-  onClick?: () => void;
-  variant?: 'default' | 'outline' | 'ghost';
-  size?: 'sm' | 'md' | 'icon';
-  className?: string;
-}> = ({ children, onClick, variant = 'default', size = 'md', className = '' }) => {
-  const baseStyle = 'rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-  const variants = {
-    default: 'bg-indigo-600 text-white hover:bg-indigo-700',
-    outline: 'border border-slate-300 text-slate-700 hover:bg-slate-50',
-    ghost: 'text-slate-600 hover:bg-slate-100',
-  };
-  const sizes = {
-    sm: 'text-xs px-3 py-1.5',
-    md: 'text-sm px-4 py-2',
-    icon: 'p-1.5 h-8 w-8',
-  };
-
-  return (
-    <button onClick={onClick} className={`${baseStyle} ${variants[variant]} ${sizes[size]} ${className}`}>
-      {children}
-    </button>
-  );
-};
+/** 查询时间范围（天）；后端 clamp 至 1-90 */
+const DAY_OPTIONS = [
+  { value: 1, label: '近 24 小时' },
+  { value: 7, label: '近 7 天' },
+  { value: 30, label: '近 30 天' },
+  { value: 90, label: '近 90 天' },
+];
 
 export function ABTestDashboard() {
   const [stats, setStats] = useState<ABTestStats | null>(null);
@@ -124,7 +79,7 @@ export function ABTestDashboard() {
       const data = await response.json();
       if (data.success) {
         setStats(data.data);
-        
+
         // 如果选择了新的天数范围，重新加载记录
         if (days !== 7) {
           loadRecentRecords(10);
@@ -164,266 +119,260 @@ export function ABTestDashboard() {
   // 格式化毫秒为秒
   const formatLatency = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
 
-  // 准备图表数据（按组对比）
-  const chartData = stats ? Object.entries(stats.groups).map(([group, data]) => ({
-    name: group === 'rule_based' ? 'Rule-Based (A)' : 'Human Approval + Few-Shot (B)',
-    requests: data.totalRequests,
-    successRate: data.successRate,
-    avgLatency: data.avgLatencyMs,
-  })) : [];
-
   // 计算关键指标提升
   const getImprovement = (groupA: any, groupB: any, field: keyof typeof groupA) => {
     if (!groupA || !groupB || !groupA[field] || !groupB[field]) return 0;
     return ((groupB[field] - groupA[field]) / groupA[field] * 100).toFixed(2);
   };
 
+  const groupA = stats?.groups.rule_based;
+  const groupB = stats?.groups.human_approval;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">A/B Test 实验分析</h2>
-          <p className="text-sm text-slate-600 mt-1">
+    <div className="space-y-4">
+      {/* 控制条：标题 + 时间范围 + 刷新 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-xl">
+        <div className="space-y-0.5">
+          <div className="flex items-center space-x-2 text-indigo-400 text-[11px] font-semibold uppercase tracking-wider">
+            <Activity className="w-3.5 h-3.5" />
+            <span>A/B Test 实验分析</span>
+          </div>
+          <p className="text-xs text-slate-400">
             对比 Rule-Based Strategy vs Human Approval + Few-Shot 策略效果
           </p>
         </div>
-        <div className="flex gap-2">
-          <select 
-            value={days.toString()} 
-            onChange={(e) => setDays(parseInt(e.target.value))}
-            className="bg-white border border-slate-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
+            {DAY_OPTIONS.map((d) => (
+              <button
+                key={d.value}
+                onClick={() => setDays(d.value)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors ${
+                  days === d.value
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/30'
+                    : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
           >
-            <option value="1">最近 24 小时</option>
-            <option value="7">最近 7 天</option>
-            <option value="30">最近 30 天</option>
-            <option value="90">最近 90 天</option>
-          </select>
-          <Button onClick={handleRefresh} variant="outline" size="icon">
-            <RefreshCcw className="h-4 w-4" />
-          </Button>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>刷新</span>
+          </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Group A Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Database className="h-4 w-4 text-blue-500" />
-              Group A - Rule-Based
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {stats?.groups.rule_based ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-2xl font-bold">{stats.groups.rule_based.totalRequests}</span>
-                  <span className="text-xs text-slate-500">总请求</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {stats.groups.rule_based.successRate}%
-                  </Badge>
-                  <span className="text-xs text-slate-500">成功率</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">{formatLatency(stats.groups.rule_based.avgLatencyMs)}</span>
-                  <Clock className="h-3 w-3 text-slate-400" />
-                </div>
+      {/* KPI 汇总卡片：Group A / Group B / 成功率对比 / 延迟对比 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Group A - Rule-Based */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center space-x-1.5 text-cyan-400 text-[11px] font-semibold uppercase tracking-wider">
+            <Database className="w-3.5 h-3.5" />
+            <span>Group A · Rule-Based</span>
+          </div>
+          {groupA ? (
+            <>
+              <div className="mt-2 text-xl font-extrabold text-slate-100 tabular-nums">
+                {groupA.totalRequests.toLocaleString('zh-CN')}
               </div>
-            ) : (
-              <div className="text-sm text-slate-500">暂无数据</div>
-            )}
-          </CardContent>
-        </Card>
+              <div className="mt-0.5 text-[11px] text-slate-500">总请求数</div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                  成功率 {groupA.successRate}%
+                </span>
+                <span className="text-[11px] text-slate-400 tabular-nums">
+                  均耗 {formatLatency(groupA.avgLatencyMs)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 text-xs text-slate-500">暂无数据</div>
+          )}
+        </div>
 
-        {/* Group B Summary */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Users className="h-4 w-4 text-purple-500" />
-              Group B - Human Approval
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {stats?.groups.human_approval ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-2xl font-bold">{stats.groups.human_approval.totalRequests}</span>
-                  <span className="text-xs text-slate-500">总请求</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    {stats.groups.human_approval.successRate}%
-                  </Badge>
-                  <span className="text-xs text-slate-500">成功率</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">{formatLatency(stats.groups.human_approval.avgLatencyMs)}</span>
-                  <Clock className="h-3 w-3 text-slate-400" />
-                </div>
+        {/* Group B - Human Approval */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center space-x-1.5 text-violet-400 text-[11px] font-semibold uppercase tracking-wider">
+            <Users className="w-3.5 h-3.5" />
+            <span>Group B · Human Approval</span>
+          </div>
+          {groupB ? (
+            <>
+              <div className="mt-2 text-xl font-extrabold text-slate-100 tabular-nums">
+                {groupB.totalRequests.toLocaleString('zh-CN')}
               </div>
-            ) : (
-              <div className="text-sm text-slate-500">暂无数据</div>
-            )}
-          </CardContent>
-        </Card>
+              <div className="mt-0.5 text-[11px] text-slate-500">总请求数</div>
+              <div className="mt-2 flex items-center justify-between">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                  成功率 {groupB.successRate}%
+                </span>
+                <span className="text-[11px] text-slate-400 tabular-nums">
+                  均耗 {formatLatency(groupB.avgLatencyMs)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 text-xs text-slate-500">暂无数据</div>
+          )}
+        </div>
 
-        {/* Success Rate Comparison */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" />
-              成功率对比
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {stats?.groups.rule_based && stats?.groups.human_approval ? (
-              <div className="space-y-2">
-                <div className="text-2xl font-bold">
-                  +{getImprovement(stats.groups.rule_based, stats.groups.human_approval, 'successRate')}%
-                </div>
-                <div className="text-xs text-slate-500">
-                  Human Approval 相对提升
-                </div>
-                <div className="flex gap-1">
-                  <Badge className="flex-1 text-center bg-blue-50 text-blue-700 border border-blue-200">
-                    {stats.groups.rule_based.successRate}%
-                  </Badge>
-                  <Badge className="flex-1 text-center bg-purple-50 text-purple-700 border border-purple-200">
-                    {stats.groups.human_approval.successRate}%
-                  </Badge>
-                </div>
+        {/* 成功率对比 */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center space-x-1.5 text-emerald-400 text-[11px] font-semibold uppercase tracking-wider">
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span>成功率对比</span>
+          </div>
+          {groupA && groupB ? (
+            <>
+              <div className="mt-2 text-xl font-extrabold text-emerald-400 tabular-nums">
+                +{getImprovement(groupA, groupB, 'successRate')}%
               </div>
-            ) : (
-              <div className="text-sm text-slate-500">等待数据...</div>
-            )}
-          </CardContent>
-        </Card>
+              <div className="mt-0.5 text-[11px] text-slate-500">Human Approval 相对提升</div>
+              <div className="mt-2 flex items-center gap-1.5">
+                <span className="inline-flex flex-1 justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-cyan-500/10 text-cyan-300 border-cyan-500/30">
+                  A {groupA.successRate}%
+                </span>
+                <span className="inline-flex flex-1 justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-violet-500/10 text-violet-300 border-violet-500/30">
+                  B {groupB.successRate}%
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 text-xs text-slate-500">等待数据…</div>
+          )}
+        </div>
 
-        {/* Latency Comparison */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              响应延迟对比
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {stats?.groups.rule_based && stats?.groups.human_approval ? (
-              <div className="space-y-2">
-                <div className="text-2xl font-bold">
-                  {getImprovement(stats.groups.human_approval, stats.groups.rule_based, 'avgLatencyMs')}%
+        {/* 响应延迟对比 */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl">
+          <div className="flex items-center space-x-1.5 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
+            <Clock className="w-3.5 h-3.5" />
+            <span>响应延迟对比</span>
+          </div>
+          {groupA && groupB ? (
+            <>
+              <div className="mt-2 text-xl font-extrabold text-rose-400 tabular-nums">
+                {getImprovement(groupB, groupA, 'avgLatencyMs')}%
+              </div>
+              <div className="mt-0.5 text-[11px] text-slate-500">相对优化（负值表示变慢）</div>
+              <div className="mt-2 space-y-0.5 text-[11px] tabular-nums">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Group A</span>
+                  <span className="text-slate-300 font-mono">{formatLatency(groupA.avgLatencyMs)}</span>
                 </div>
-                <div className="text-xs text-slate-500">
-                  Human Approval 相对优化
-                </div>
-                <div className="text-sm text-slate-600">
-                  A: {formatLatency(stats.groups.rule_based.avgLatencyMs)}
-                </div>
-                <div className="text-sm text-slate-600">
-                  B: {formatLatency(stats.groups.human_approval.avgLatencyMs)}
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Group B</span>
+                  <span className="text-slate-300 font-mono">{formatLatency(groupB.avgLatencyMs)}</span>
                 </div>
               </div>
-            ) : (
-              <div className="text-sm text-slate-500">等待数据...</div>
-            )}
-          </CardContent>
-        </Card>
+            </>
+          ) : (
+            <div className="mt-3 text-xs text-slate-500">等待数据…</div>
+          )}
+        </div>
       </div>
 
-      {/* Info Note */}
-      <Card className="bg-blue-50 border-blue-200">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-3">
-            <Activity className="h-5 w-5 text-blue-600 mt-0.5" />
-            <div className="space-y-2">
-              <h4 className="font-semibold text-blue-900">A/B Test 说明</h4>
-              <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
-                <li><strong>Group A (Rule-Based)</strong>: 基于规则的 Fallback 策略，自动尝试替代 SQL 生成</li>
-                <li><strong>Group B (Human Approval)</strong>: 人工审核 + Few-Shot 知识库增强策略</li>
-                <li>系统会自动为每次 fallback 决策分配实验组别并记录结果</li>
-                <li>通过持续监控两组的数据，可以量化不同策略的效果差异</li>
-                <li>Few-Shot 注入机制：被采纳的困难样本会自动写入知识库供后续参考</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* 实验说明卡：对齐决策看板提示横幅（indigo-950/40 浅色下自动翻转为浅靛底） */}
+      <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-2xl p-4 shadow-lg flex items-start gap-3">
+        <Activity className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+        <div className="space-y-1.5 min-w-0">
+          <h4 className="text-xs font-bold text-indigo-300">A/B Test 实验说明</h4>
+          <ul className="text-xs text-indigo-200 space-y-1 list-disc list-inside">
+            <li><strong className="text-indigo-300">Group A (Rule-Based)</strong>：基于规则的 Fallback 策略，自动尝试替代 SQL 生成</li>
+            <li><strong className="text-indigo-300">Group B (Human Approval)</strong>：人工审核 + Few-Shot 知识库增强策略</li>
+            <li>系统会自动为每次 fallback 决策分配实验组别并记录结果</li>
+            <li>通过持续监控两组的数据，可以量化不同策略的效果差异</li>
+            <li>Few-Shot 注入机制：被采纳的困难样本会自动写入知识库供后续参考</li>
+          </ul>
+        </div>
+      </div>
 
-      {/* Recent Records Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            最近实验记录
-            <Button variant="ghost" size="sm" onClick={() => loadRecentRecords(50)}>
-              加载更多
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">实验 ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">用户 Query</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">失败 SQL</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">分组</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">使用策略</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">结果</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">延迟</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">时间</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {records.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-sm text-slate-500">
-                      暂无实验记录数据
-                    </td>
-                  </tr>
-                ) : (
-                  records.map((record) => (
-                    <tr key={record.experimentId}>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-900 font-mono">
-                        {record.experimentId.substring(0, 15)}...
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-900 max-w-xs truncate" title={record.query}>
-                        {record.query}
-                      </td>
-                      <td className="px-6 py-4 text-xs text-slate-900 font-mono max-w-xs truncate" title={record.failedSQL}>
-                        {record.failedSQL}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
-                        <Badge className={record.assignedGroup === 'A' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-purple-50 text-purple-700 border border-purple-200'}>
-                          {record.assignedGroup}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">{record.selectedStrategy}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
-                        {record.success ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-rose-500" />
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-900 font-mono">
-                        {formatLatency(record.latencyMs)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-500">
-                        {new Date(record.createdAt).toLocaleString('zh-CN')}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+      {/* 最近实验记录表 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800">
+          <div className="flex items-center space-x-2 text-xs font-bold text-slate-300">
+            <Activity className="w-4 h-4 text-indigo-400" />
+            <span>最近实验记录（共 {records.length} 条）</span>
           </div>
-        </CardContent>
-      </Card>
+          <button
+            onClick={() => loadRecentRecords(50)}
+            className="px-2.5 py-1 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200 text-xs font-medium transition-colors"
+          >
+            加载更多
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-slate-400 border-b border-slate-800 bg-slate-950/50">
+                <th className="px-5 py-3 font-medium">实验 ID</th>
+                <th className="px-3 py-3 font-medium">用户 Query</th>
+                <th className="px-3 py-3 font-medium">失败 SQL</th>
+                <th className="px-3 py-3 font-medium">分组</th>
+                <th className="px-3 py-3 font-medium">使用策略</th>
+                <th className="px-3 py-3 font-medium text-center">结果</th>
+                <th className="px-3 py-3 font-medium text-right">延迟</th>
+                <th className="px-5 py-3 font-medium">时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((record) => (
+                <tr
+                  key={record.experimentId}
+                  className="border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors"
+                >
+                  <td className="px-5 py-3 whitespace-nowrap font-mono text-slate-400">
+                    {record.experimentId.substring(0, 15)}…
+                  </td>
+                  <td className="px-3 py-3 max-w-xs truncate text-slate-200" title={record.query}>
+                    {record.query}
+                  </td>
+                  <td className="px-3 py-3 max-w-xs truncate font-mono text-slate-400" title={record.failedSQL}>
+                    {record.failedSQL}
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                        record.assignedGroup === 'A'
+                          ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30'
+                          : 'bg-violet-500/10 text-violet-300 border-violet-500/30'
+                      }`}
+                    >
+                      {record.assignedGroup}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 whitespace-nowrap text-slate-300">{record.selectedStrategy}</td>
+                  <td className="px-3 py-3 text-center">
+                    {record.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-rose-400 mx-auto" />
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums font-mono text-slate-400">
+                    {formatLatency(record.latencyMs)}
+                  </td>
+                  <td className="px-5 py-3 whitespace-nowrap text-slate-400">
+                    {new Date(record.createdAt).toLocaleString('zh-CN')}
+                  </td>
+                </tr>
+              ))}
+              {records.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
+                    暂无实验记录数据
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

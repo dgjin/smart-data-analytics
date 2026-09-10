@@ -5,4 +5,7 @@ scope:
     - server/infra/
 source_files: []
 depends_on: []
-related_to: []
+related_to:
+    - path: frontend_app
+    - path: frontend_app/admin_panel
+    - path: frontend_app/dashboard
