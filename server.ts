@@ -42,6 +42,7 @@ import accessRequestRoutes from './server/routes/accessRequests';
 import exportRoutes from './server/routes/export';
 import helpRoutes from './server/routes/help';
 import fallbackApprovalRoutes from './server/routes/fallbackApproval';
+import abTestRoutes from './server/routes/abTest';
 // P1-4 路由拆分：问数主链路 / 对话历史 / 报告三条业务线从本文件迁出
 import queryRoutes from './server/routes/query';
 import conversationRoutes from './server/routes/conversation';
@@ -226,6 +227,8 @@ async function startServer() {
   app.use('/api/admin', adminRoutes);
   // v0.9.44: Fallback 困难样本审核接口（仅 ADMIN）
   app.use('/api/admin/fallback-approval', fallbackApprovalRoutes);
+  // v0.9.46: A/B Test Analytics（仅 ADMIN）
+  app.use('/api/admin/ab-test', abTestRoutes);
   app.use('/api/datasources', datasourceRoutes);
   // P3-1 知识库管理路由（新增）
   app.use('/api/knowledge', knowledgeManageRoutes);
