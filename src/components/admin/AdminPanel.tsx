@@ -15,6 +15,7 @@ import {
   Gavel,
   UserCog,
   Settings,
+  Search,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -29,6 +30,7 @@ import { ExpertPersonasPanel } from './ExpertPersonasPanel';
 import { AccessRequestsPanel } from './AccessRequestsPanel';
 import { DlpDownloadPanel } from './DlpDownloadPanel';
 import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
+import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 
 interface AdminUser {
   id: number;
@@ -57,8 +59,8 @@ const ROLE_BADGE: Record<UserRole, string> = {
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
 
-  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 指标治理（P1-8）/ 铁律规则（v0.9.35）/ 专家角色（v0.9.40）/ 权限审批（P2-11）/ 报告模板（v0.5.0）/ 环境配置（v0.5.0）
-  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'metrics' | 'iron-rules' | 'personas' | 'access' | 'templates' | 'env-config'>('users');
+  // 区块切换：用户管理 / 质量看板（P0-4）/ Token 用量查询 / 指标治理（P1-8）/ 铁律规则（v0.9.35）/ 专家角色（v0.9.40）/ 权限审批（P2-11）/ 报告模板（v0.5.0）/ 环境配置（v0.5.0）/ Fallback 审核（v0.9.44）
+  const [section, setSection] = useState<'users' | 'quality' | 'usage' | 'metrics' | 'iron-rules' | 'personas' | 'access' | 'templates' | 'env-config' | 'fallback-approval'>('users');
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -321,6 +323,17 @@ export const AdminPanel: React.FC = () => {
           >
             <Settings className="w-4 h-4" />
             <span>环境配置</span>
+          </button>
+          <button
+            onClick={() => setSection('fallback-approval')}
+            className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+              section === 'fallback-approval'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            <Search className="w-4 h-4" />
+            <span>Fallback 审核</span>
           </button>
         </div>
         {section === 'users' && (
@@ -615,6 +628,9 @@ export const AdminPanel: React.FC = () => {
 
       {/* ============ 区块七：环境配置管理（v0.5.0） ============ */}
       {section === 'env-config' && <EnvironmentConfigPanel />}
+
+      {/* ============ 区块八：NL2SQL Fallback 困难样本审核（v0.9.44 Strategy C） ============ */}
+      {section === 'fallback-approval' && <FallbackApprovalPanel />}
     </div>
   );
 };
