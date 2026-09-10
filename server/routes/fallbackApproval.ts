@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getPool } from '../infra/db.js';
 import { authMiddleware, requireRole } from '../auth/auth.js';
 import { injectFewShotSamples } from '../utils/fewShotService.js';
+import { prioritizePendingSamples, SamplePriorityScore } from '../utils/activeLearning.js';
 
 const router = Router();
 
@@ -19,28 +20,42 @@ interface AdversarialSample {
   created_at: Date;
 }
 
-/** 列表查询（管理员） */
+/** 列表查询（管理员） - 按优先级分数排序 */
 router.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const [samples] = await getPool().query(`
-      SELECT * FROM adversarial_samples 
-      ORDER BY created_at DESC
-    `) as any[];
+    const samples = await prioritizePendingSamples();
 
-    const resultSamples = (Array.isArray(samples) ? samples : []).map((s: any): AdversarialSample => ({
+    if (samples.length === 0) {
+      return res.json({ success: true, samples: [], message: '暂无待审核样本' });
+    }
+
+    // 响应简化版本（前端不需要所有内部字段）
+    const responseSamples = samples.map((s): any => ({
       id: s.id,
-      original_query: s.original_query,
-      original_sql: s.original_sql,
-      error_message: s.error_message,
-      data_source_id: s.data_source_id,
-      user_id: s.user_id,
-      annotation_status: s.annotation_status || 'PENDING',
-      expected_sql: s.expected_sql,
-      resolved_strategy: s.resolved_strategy,
-      created_at: s.created_at,
+      original_query: s.originalQuery,
+      original_sql: s.originalSQL,
+      error_message: s.errorMessage,
+      data_source_id: s.dataSourceId,
+      user_id: s.userId,
+      annotation_status: s.annotationStatus,
+      expected_sql: s.expectedSQL,
+      resolved_strategy: s.resolvedStrategy,
+      created_at: s.createdAt,
+      // Priority scores
+      total_score: s.totalScore,
+      rank: s.rank,
     }));
 
-    res.json({ success: true, samples: resultSamples });
+    res.json({ 
+      success: true, 
+      samples: responseSamples,
+      priorityInfo: {
+        totalCount: samples.length,
+        topScore: samples[0].totalScore,
+        avgScore: Math.round(samples.reduce((sum, s) => sum + s.totalScore, 0) / samples.length),
+        sortingMethod: 'active_learning_multi_factor',
+      },
+    });
   } catch (err: any) {
     console.error('[Admin] Fallback Approval Load Error:', err);
     res.status(500).json({ error: '加载样本失败：' + err.message });

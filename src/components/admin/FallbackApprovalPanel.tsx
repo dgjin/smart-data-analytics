@@ -14,6 +14,10 @@ interface AdversarialSample {
   expected_sql: string | null;
   resolved_strategy: string | null;
   created_at: string;
+  
+  // Priority scores (active learning)
+  total_score?: number;
+  rank?: number;
 }
 
 /** 审核工作区数据结构 */
@@ -262,7 +266,7 @@ export const FallbackApprovalPanel: React.FC = () => {
     }
   };
 
-  // KPI 统计
+  /** KPI 统计 */
   const stats = useMemo(() => {
     return {
       total: items.length,
@@ -271,6 +275,11 @@ export const FallbackApprovalPanel: React.FC = () => {
       rejected: items.filter(i => i.annotation_status === 'REJECTED').length,
     };
   }, [items]);
+  
+  // 优先级信息
+  const avgScore = filtered.length > 0 
+    ? Math.round(filtered.reduce((sum, i) => sum + (i.total_score || 0), 0) / filtered.length)
+    : 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -343,15 +352,17 @@ export const FallbackApprovalPanel: React.FC = () => {
         <table className="w-full">
           <thead className="bg-slate-800 text-slate-300 text-xs font-mono uppercase tracking-wider">
             <tr>
-              <th className="p-4 text-center">
-                {filtered.length > 0 && (
+              <th className="p-4 text-center">排名</th>
+              {filtered.length > 0 && (
+                <th className="p-4 text-center">
                   <button onClick={toggleAll} className="hover:text-slate-100">
                     {checkedIds.size === filtered.length ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                   </button>
-                )}
-              </th>
+                </th>
+              )}
               <th className="p-4">原始查询</th>
               <th className="p-4">错误消息</th>
+              <th className="p-4">优先级分</th>
               <th className="p-4">使用策略</th>
               <th className="p-4">状态</th>
               <th className="p-4">操作</th>
@@ -360,13 +371,13 @@ export const FallbackApprovalPanel: React.FC = () => {
           <tbody className="divide-y divide-slate-800">
             {isLoading ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-400">
+                <td colSpan={8} className="p-8 text-center text-slate-400">
                   <RefreshCw className="animate-spin mx-auto" /> 加载中...
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-400">
+                <td colSpan={8} className="p-8 text-center text-slate-400">
                   {error ? `❌ ${error}` : '暂无数据'}
                 </td>
               </tr>
@@ -391,6 +402,18 @@ export const FallbackApprovalPanel: React.FC = () => {
                       {item.error_message}
                     </div>
                   </td>
+                  {/* 优先级分 */}
+                  <td className="p-4">
+                    {item.total_score !== undefined && (
+                      <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${
+                        item.total_score >= 80 
+                          ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' 
+                          : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                      }`}>
+                        {item.total_score}/100
+                      </span>
+                    )}
+                  </td>
                   <td className="p-4">
                     <span className="text-xs font-mono text-slate-400">{item.resolved_strategy || '-'}</span>
                   </td>
@@ -407,6 +430,7 @@ export const FallbackApprovalPanel: React.FC = () => {
                       <Eye size={14} /> 审核
                     </button>
                   </td>
+                  <td className="p-4">{item.rank || '-'}</td>
                 </tr>
               ))
             )}
