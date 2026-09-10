@@ -10,15 +10,20 @@
 <div class="deck-root" id="deck-stage">
 
 <!-- ============ P1 封面 ============ -->
-<section class="slide cover" style="justify-content:center;align-items:flex-start;background:linear-gradient(118deg,#ffffff 0%,#eef4ff 32%,#e6faf6 62%,#f3edfd 100%);">
+<section class="slide cover" style="justify-content:center;background:linear-gradient(118deg,#ffffff 0%,#eef4ff 32%,#e6faf6 62%,#f3edfd 100%);">
   <div style="position:absolute;left:-80px;top:30%;width:360px;height:360px;border-radius:50%;filter:blur(70px);background:rgba(2,132,199,0.13);"></div>
   <div style="position:absolute;right:4%;bottom:-130px;width:430px;height:430px;border-radius:50%;filter:blur(64px);background:rgba(217,119,6,0.12);"></div>
-  <div data-anim="fade-up">
-    <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.9.46</div>
-    <h1 style="font-size:62px;">智能问数分析系统<br>功能培训</h1>
-    <p class="subtitle">用中文提问，让数据自己开口说话 —— 从自然语言到图表、报告、洞察与决策简报</p>
+  <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:34px;align-items:center;width:100%;">
+    <div data-anim="fade-up">
+      <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.9.46</div>
+      <h1 style="font-size:58px;">智能问数分析系统<br>功能培训</h1>
+      <p class="subtitle">用中文提问，让数据自己开口说话 —— 从自然语言到图表、报告、洞察与决策简报</p>
+    </div>
+    <div data-anim="zoom-in" style="display:flex;align-items:center;justify-content:center;">
+      <img src="assets/images/cover-hero.png" alt="" style="width:100%;max-width:400px;border-radius:28px;mix-blend-mode:multiply;">
+    </div>
   </div>
-  <div class="grid grid-3" style="margin-top:46px;max-width:960px;" data-anim="fade-up">
+  <div class="grid grid-3" style="margin-top:36px;" data-anim="fade-up">
     <div class="card flat"><div class="pill c2">面向对象</div><p class="lead" style="font-size:15px;margin-top:10px;">业务分析师 · 数据管理员 · 企业管理者</p></div>
     <div class="card flat"><div class="pill c3">培训时长</div><p class="lead" style="font-size:15px;margin-top:10px;">约 75 分钟 + 现场实操与答疑</p></div>
     <div class="card flat"><div class="pill c4">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取使用指南与更新日志</p></div>
@@ -125,6 +130,7 @@
         <h3 style="font-size:16px;margin-bottom:8px;">⏱ 语义缓存</h3>
         <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">相同或等价的问题（归一化后）10 分钟内命中缓存，秒级返回，审计状态标记为 CACHE。</p>
       </div>
+      <img src="assets/images/step-up.png" alt="" data-anim="fade-up" style="width:100%;height:132px;object-fit:cover;object-position:center 60%;border-radius:var(--radius);margin-top:14px;mix-blend-mode:multiply;">
     </div>
   </div>
   <div class="notes">现在动手。第一步登录，输入账号密码，新账号会被要求先改密码。第二步，看页面顶部的数据源切换器，选你要分析的那个库——这一点很重要，因为问数的表、历史对话、推荐问题都是跟着数据源走的，选错源问出来的就不是你要的数。第三步，在输入框用中文把需求说清楚，回车提交。屏幕上会出现流式的处理进度，最后给你 SQL、数据表、图表和一段解读。右边是提问技巧：说清维度和指标，比如「按区域统计本季度销售金额」就比「看看销售」好得多；多用业务口径里的词；简单问题直接问，复杂清洗类的开深度分析；如果你们暂时没有数据库，让管理员在数据源页上传 Excel 或 CSV 文件，导入后马上就能问；对结果满意记得点赞，系统会把这条问答自动沉淀进样例库，下次同类问题直接命中。另外重复提问十秒内必回——语义缓存十分钟有效。</div>
@@ -392,6 +398,7 @@
         <div class="step"><div class="body"><h3>全角色可见</h3><p>管理员、分析师、只读用户都能查看——管理层无需问数也能随时掌握核心指标</p></div></div>
         <div class="step"><div class="body"><h3>大屏与巡检</h3><p>适合投放到值班大屏与晨会屏幕，配合浏览器全屏模式使用</p></div></div>
       </div>
+      <img src="assets/images/dashboard-banner.png" alt="" data-anim="fade-up" style="width:100%;height:150px;object-fit:cover;object-position:center 55%;border-radius:var(--radius);margin-top:14px;mix-blend-mode:multiply;">
     </div>
     <div>
       <div class="card" data-anim="slide-left">
@@ -781,8 +788,9 @@
       <p style="font-size:13.5px;color:var(--text-2);margin-top:10px;line-height:1.65;">重要场合先开计划模式审步骤，出数后用 SQL 预览复核口径，确认 dataProvenance 为真实执行；点 👍 沉淀样例，保证下次同口径复现。</p>
     </div>
   </div>
-  <div class="card tinted" style="margin-top:18px;" data-anim="fade-up">
-    <p style="font-size:15px;color:var(--accent-2);line-height:1.6;"><b>今天就到这里：</b>登录 → 选源 → 提问，三步已经开始；每一次点赞、每一次失败被修复，都在让系统更懂你的业务。<b>现在进入答疑环节 ——</b></p>
+  <div class="card tinted" style="margin-top:18px;display:flex;align-items:center;gap:22px;" data-anim="fade-up">
+    <p style="font-size:15px;color:var(--accent-2);line-height:1.6;flex:1;"><b>今天就到这里：</b>登录 → 选源 → 提问，三步已经开始；每一次点赞、每一次失败被修复，都在让系统更懂你的业务。<b>现在进入答疑环节 ——</b></p>
+    <img src="assets/images/finale-banner.png" alt="" style="width:260px;height:92px;object-fit:cover;object-position:center 48%;border-radius:12px;flex:none;mix-blend-mode:multiply;">
   </div>
   <div class="notes">最后收个尾，四个高频问题。第一，总被要求澄清？这是系统在保护你，别嫌烦——用业务术语、说清维度指标，反复出现的词让管理员进知识库、登记成语义指标或者写成铁律，下次就不问了。第二，数字对不上？按四步排查：数据源、SQL 口径、行级权限、结果标记，九成问题出在前两步。第三，忘记密码或者只读用户想问数，都找管理员，一个重置一个升角色。第四，结果能不能直接引用？重要场合记住三件套：计划模式审步骤、SQL 预览核口径、确认真实执行标记。培训的内容就这么多。回想一下今天的主线：登录、选源、提问，三步就能开始；专家角色让解读更内行，灵活查询和报告模式补齐了固定报表和深度报告；铁律和对抗训练让系统既守红线、又从失败中进化。而每一次点赞、每一次失败被修复，都在训练这个系统更懂你们的业务。谢谢大家的时间，现在进入答疑环节，任何问题都欢迎提。</div>
 </section>
