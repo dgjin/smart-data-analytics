@@ -40,6 +40,7 @@ import { appendQueryEvent, getEventsAfter, getTraceOwner, isTerminal, isTerminal
 import { generateFallbackQueryResult } from '../serverFallbacks';
 import { normalizeQueryResult } from '../../src/utils/queryResultNormalizer';
 import { logger } from '../infra/logger';
+import { resolveStageTwoFailure } from '../utils/fallback/fallbackPipeline.js';
 
 const router = Router();
 
@@ -290,7 +291,78 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
           return respond(maskQueryPayload({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt }, user));
         }
       }
-      // 真实执行链路失败：审计留痕后降级演示模式（可用性优先）
+      // 真实执行链路失败：触发 Fallback 三层策略（rule_based → simpler_prompt → human_approval）
+      const failedSql = live.executedSql || 'unknown';
+      const fallbackStart = Date.now();
+      
+      try {
+        // Step 1: 调用 Fallback 调度器
+        const fallbackResult = await resolveStageTwoFailure(
+          query,
+          failedSql,
+          { 
+            dsId: dataSourceId, 
+            userId: String(user.id) // user.id is number, convert to string
+          },
+          {
+            logger,
+            persistHardNegative: async (sample) => {
+              // TODO: 待 Task 5.2 数据库表创建后实现 DB 持久化
+              console.log('[Hard Negative] Pending persistence:', sample);
+              return Promise.resolve('pending');
+            },
+            logFallbackAudit: async (sql: string, params: any[]) => {
+              // TODO: 待 Task 5.2 数据库表创建后实现审计日志
+              console.log('[Fallback Audit]', sql, params);
+              return Promise.resolve();
+            }
+          }
+        );
+        
+        const fallbackLatency = Date.now() - fallbackStart;
+        
+        if (fallbackResult.success) {
+          // ✅ Fallback 策略成功生成 SQL
+          const auditWithFallback = {
+            ...auditBase,
+            question: query,
+            status: 'SUCCESS' as const,
+            detail: `Fallback strategy used: ${fallbackResult.strategy}`,
+            executedSql: fallbackResult.sql!,
+            durationMs: Date.now() - startedAt,
+            rowCount: -1,
+            fallbackLatencyMs: fallbackLatency as any,
+            fallbackStrategy: fallbackResult.strategy as any
+          };
+          writeAudit(auditWithFallback);
+          
+          // 执行 fallback 生成的 SQL（需额外验证 SELECT-only）
+          const normalized = normalizeQueryResult(fallbackResult.sql!);
+          if (normalized) {
+            return respond({
+              success: true,
+              result: normalized,
+              defense,
+              dataProvenance: 'fallback',
+              isFallback: true,
+              traceId,
+              executionTimeMs: Date.now() - startedAt,
+              fallbackInfo: {
+                strategy: fallbackResult.strategy,
+                explanation: fallbackResult.explanation,
+                latencyMs: fallbackLatency
+              }
+            });
+          }
+        }
+        
+        // ❌ 所有策略均失败
+        console.warn(`[Fallback] All strategies exhausted after ${fallbackLatency}ms`, fallbackResult.error);
+      } catch (err) {
+        console.error('[Fallback] Exception during resolution:', err instanceof Error ? err.message : err);
+      }
+      
+      // 降级为演示模式（可用性优先）
       writeAudit({
         ...auditBase,
         question: query,

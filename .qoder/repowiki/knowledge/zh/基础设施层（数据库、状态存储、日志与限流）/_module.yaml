@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: infrastructure
+title: 基础设施层（数据库、状态存储、日志与限流）
+scope:
+    - server/infra/
+source_files: []
+depends_on: []
+related_to: []

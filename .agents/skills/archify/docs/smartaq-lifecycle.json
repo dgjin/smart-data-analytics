@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "问答生命周期状态流转",
+    "output": "examples/deployment-release.html",
+    "viewBox": [
+      980,
+      680
+    ],
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "promotion-rail",
+        "label": "Promotion rail",
+        "focus": [
+          "queued",
+          "building",
+          "verifying",
+          "ready",
+          "live"
+        ],
+        "note": "Follow the deployment object from accepted change to healthy production."
+      },
+      {
+        "id": "approval-gate",
+        "label": "Approval gate",
+        "focus": [
+          "verifying",
+          "approval",
+          "cancelled",
+          "ready"
+        ],
+        "note": "Approval pauses promotion and can terminate the release cleanly."
+      },
+      {
+        "id": "rollback-outcomes",
+        "label": "Rollback outcomes",
+        "focus": [
+          "ready",
+          "rollback",
+          "failed",
+          "live",
+          "paused",
+          "rolled_back"
+        ],
+        "note": "Separate pre-promotion failure from post-promotion health regression."
+      }
+    ]
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Release phases"
+    },
+    {
+      "id": "waiting",
+      "label": "Approval + health wait"
+    },
+    {
+      "id": "recovery",
+      "label": "Rollback controller"
+    },
+    {
+      "id": "terminal",
+      "label": "Terminal exits"
+    }
+  ],
+  "states": [
+    {
+      "id": "queued",
+      "type": "start",
+      "label": "排队中",
+      "sublabel": "change accepted",
+      "lane": "main",
+      "col": 0,
+      "step": "01",
+      "tag": "pending"
+    },
+    {
+      "id": "building",
+      "type": "active",
+      "label": "构建中",
+      "sublabel": "immutable image",
+      "lane": "main",
+      "col": 1,
+      "step": "02",
+      "tag": "running"
+    },
+    {
+      "id": "verifying",
+      "type": "decision",
+      "label": "验证中",
+      "sublabel": "tests + policy",
+      "lane": "main",
+      "col": 2,
+      "step": "03",
+      "tag": "gate"
+    },
+    {
+      "id": "ready",
+      "type": "waiting",
+      "label": "就绪",
+      "sublabel": "promotion pending",
+      "lane": "main",
+      "col": 3,
+      "step": "04",
+      "tag": "approved"
+    },
+    {
+      "id": "live",
+      "type": "success",
+      "label": "线上运行",
+      "sublabel": "production healthy",
+      "lane": "main",
+      "col": 4,
+      "step": "05",
+      "tag": "success"
+    },
+    {
+      "id": "approval",
+      "type": "waiting",
+      "label": "需批准",
+      "sublabel": "release owner",
+      "lane": "waiting",
+      "col": 0,
+      "tag": "pause"
+    },
+    {
+      "id": "rollback",
+      "type": "active",
+      "label": "回滚中",
+      "sublabel": "last good image",
+      "lane": "recovery",
+      "col": 1,
+      "tag": "automatic"
+    },
+    {
+      "id": "paused",
+      "type": "waiting",
+      "label": "健康暂停",
+      "sublabel": "SLO regression",
+      "lane": "waiting",
+      "col": 2,
+      "tag": "observe"
+    },
+    {
+      "id": "cancelled",
+      "type": "failure",
+      "label": "已取消",
+      "sublabel": "approval denied",
+      "lane": "terminal",
+      "col": 0,
+      "tag": "terminal"
+    },
+    {
+      "id": "failed",
+      "type": "failure",
+      "label": "失败",
+      "sublabel": "rollback failed",
+      "lane": "terminal",
+      "col": 1,
+      "tag": "terminal"
+    },
+    {
+      "id": "rolled_back",
+      "type": "success",
+      "label": "已回滚",
+      "sublabel": "service restored",
+      "lane": "terminal",
+      "col": 2,
+      "tag": "terminal"
+    }
+  ],
+  "transitions": [
+    {
+      "from": "verifying",
+      "to": "approval",
+      "variant": "security",
+      "route": "straight",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "approval",
+      "to": "cancelled",
+      "variant": "security",
+      "route": "straight",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "ready",
+      "to": "rollback",
+      "variant": "security",
+      "route": "straight",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "rollback",
+      "to": "failed",
+      "variant": "security",
+      "route": "straight",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "live",
+      "to": "paused",
+      "variant": "dashed",
+      "route": "straight",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "from": "paused",
+      "to": "rolled_back",
+      "variant": "emphasis",
+      "route": "straight",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "正常流程",
+      "items": [
+        "变更经过审核自动触发部署",
+        "质量门禁拦截不合格版本",
+        "健康检查确认发布成功"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "异常处理",
+      "items": [
+        "部署失败时自动回滚至上版本",
+        "告警通知相关人员介入",
+        "问题修复后重新触发发布"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "审计追踪",
+      "items": [
+        "每个状态变更都有日志记录",
+        "人员操作可追溯责任归属",
+        "环境切换保留完整证据链"
+      ]
+    }
+  ]
+}

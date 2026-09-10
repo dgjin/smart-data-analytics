@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: auth
+title: 认证授权与数据源访问控制
+scope:
+    - server/auth/
+source_files: []
+depends_on: []
+related_to: []

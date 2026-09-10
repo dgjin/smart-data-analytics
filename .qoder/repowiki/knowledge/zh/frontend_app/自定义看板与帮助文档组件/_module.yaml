@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: frontend_app/dashboard
+title: 自定义看板与帮助文档组件
+scope:
+    - src/components/dashboard/
+    - src/components/common/
+    - src/components/help/
+source_files: []
+depends_on: []
+related_to: []

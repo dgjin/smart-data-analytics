@@ -726,6 +726,56 @@ export async function initSchema(): Promise<void> {
   // v0.9.2 长任务队列表（改进计划 2-1）：报告生成/问数报告/PDF 导出异步执行
   await ensureTaskTable(pool);
 
+  // P2-15 Fallback 对抗训练：NL2SQL 失败样本自动收集与人工标注（adversarial_samples 表）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS adversarial_samples (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      original_query VARCHAR(500) NOT NULL COMMENT '原始用户查询',
+      original_sql VARCHAR(2000) NOT NULL COMMENT '失败的 SQL',
+      error_message VARCHAR(500) NOT NULL DEFAULT '' COMMENT '错误原因',
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT '关联数据源 ID',
+      user_id INT NOT NULL COMMENT '提问用户 ID',
+      username VARCHAR(50) NOT NULL DEFAULT '' COMMENT '提问用户名',
+      annotation_status ENUM('PENDING','IN_REVIEW','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING' COMMENT '标注状态',
+      expected_sql TEXT NULL COMMENT '期望的正确 SQL（管理员填写）',
+      resolved_strategy VARCHAR(30) NULL DEFAULT NULL COMMENT 'Resolved strategy (rule_based/simpler_prompt/human_approval)',
+      resolved_at TIMESTAMP NULL DEFAULT NULL COMMENT 'Resolution timestamp',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '采集时间',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+      INDEX idx_adv_ds_created (data_source_id, created_at),
+      INDEX idx_adv_status (annotation_status),
+      INDEX idx_adv_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT 'NL2SQL 困难样本库，用于对抗训练'
+  `);
+
+  // P2-15 Fallback 对抗训练：fallback 审计日志表（记录策略使用统计、响应延迟等指标）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fallback_audit_log (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      trace_id VARCHAR(40) NOT NULL DEFAULT '' COMMENT '查询追踪 ID',
+      query VARCHAR(500) NOT NULL DEFAULT '' COMMENT '原始用户查询',
+      failed_sql VARCHAR(2000) NOT NULL DEFAULT '' COMMENT '失败的 SQL',
+      used_strategy VARCHAR(30) NOT NULL DEFAULT 'none' COMMENT '使用的 fallback 策略',
+      latency_ms INT NOT NULL DEFAULT 0 COMMENT 'Fallback 决策耗时（ms）',
+      success TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否成功解决',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '记录时间',
+      INDEX idx_fault_strategy (used_strategy),
+      INDEX idx_fault_latency (latency_ms)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT 'Fallback 机制审计日志'
+  `);
+
+  // P2-15 Fallback 对抗训练：存量迁移 - 在 query_audit_log 中增加 fallback 相关字段
+  try {
+    await pool.query("ALTER TABLE query_audit_log ADD COLUMN fallback_latency_ms INT NULL AFTER duration_ms");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+  try {
+    await pool.query("ALTER TABLE query_audit_log ADD COLUMN fallback_strategy VARCHAR(30) NULL AFTER fallback_latency_ms");
+  } catch (err: any) {
+    if (err?.code !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // v0.9.8 知识库漂移检测（改进计划 3-3）：低基数维度列取值快照 + 漂移事件
   await pool.query(`
     CREATE TABLE IF NOT EXISTS kb_drift_watch (

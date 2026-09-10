@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>智能问数据分析系统 - 架构图集</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Archify viewer CSS (内嵌简化版) -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; display: flex; flex-direction: column; height: 100vh; }
+    .navbar { display: flex; gap: 6px; padding: 12px; background: #1e293b; border-bottom: 1px solid #334155; flex-wrap: wrap; justify-content: center; }
+    .nav-btn { padding: 8px 14px; border-radius: 8px; border: 1px solid #475569; background: #334155; color: #cbd5e1; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; }
+    .nav-btn:hover { background: #475569; }
+    .nav-btn.active { background: #6366f1; border-color: #818cf8; color: white; }
+    .viewer-container { flex: 1; position: relative; overflow: hidden; background: #0f172a; }
+    .viewer-frame { width: 100%; height: 100%; border: none; display: block; }
+    .status-bar { padding: 6px 12px; background: #1e293b; border-top: 1px solid #334155; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; }
+    @media (max-width: 768px) {
+      .navbar { padding: 8px; }
+      .nav-btn { padding: 6px 10px; font-size: 12px; }
+    }
+  </style>
+  <!-- Archify 样式引用（从内置 templates 加载） -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/archify@2/dist/viewer.css" crossorigin />
+</head>
+<body>
+  <!-- 导航栏：5 张图切换 -->
+  <nav class="navbar" id="navbar">
+    <button class="nav-btn active" data-view="architecture">架构总览</button>
+    <button class="nav-btn" data-view="workflow">NL2SQL 工作流</button>
+    <button class="nav-btn" data-view="sequence">请求时序图</button>
+    <button class="nav-btn" data-view="dataflow">数据处理流水线</button>
+    <button class="nav-btn" data-view="lifecycle">问答生命周期</button>
+  </nav>
+
+  <!-- 主视图容器 -->
+  <div class="viewer-container">
+    <iframe id="viewer-frame" class="viewer-frame" src="" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+  </div>
+
+  <!-- 状态条 -->
+  <div class="status-bar">
+    <span id="current-title">当前视图：架构总览</span>
+    <span id="footer-note">Archify v2 | 静态 HTML，支持主题切换、缩放与导出</span>
+  </div>
+
+  <!-- Archify Viewer JS -->
+  <script src="https://cdn.jsdelivr.net/npm/archify@2/dist/viewer.js" crossorigin></script>
+
+  <script>
+    // 各图的相对路径（放在同目录或 docs/子目录）
+    const VIEWS = {
+      architecture: { title: '架构总览', src: './smartaq-architecture.html' },
+      workflow: { title: 'NL2SQL 处理工作流', src: './smartaq-workflow.html' },
+      sequence: { title: '智能问数请求序列', src: './smartaq-sequence.html' },
+      dataflow: { title: '数据处理流水线', src: './smartaq-dataflow.html' },
+      lifecycle: { title: '问答生命周期', src: './smartaq-lifecycle.html' }
+    };
+
+    let currentView = 'architecture';
+
+    function switchView(viewName) {
+      if (!VIEWS[viewName]) return;
+      currentView = viewName;
+      const info = VIEWS[viewName];
+      document.getElementById('viewer-frame').src = info.src;
+      document.getElementById('current-title').textContent = `当前视图：${info.title}`;
+      
+      // 更新按钮状态
+      for (const [name] of Object.entries(VIEWS)) {
+        const btn = document.querySelector(`[data-view="${name}"]`);
+        if (btn) btn.classList.toggle('active', name === viewName);
+      }
+    }
+
+    // 绑定导航事件
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = btn.getAttribute('data-view');
+        switchView(view);
+      });
+    });
+
+    // 默认加载第一个视图（已在 HTML 中设置 iframe src）
+    window.addEventListener('load', () => {
+      switchView(currentView);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-09-10T01:17:59Z"
+modules:
+    auth:
+        dir_name: 认证授权与数据源访问控制
+        title: 认证授权与数据源访问控制
+        scope:
+            - server/auth/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    deployment_monitoring:
+        dir_name: deployment_monitoring
+        title: deployment_monitoring
+        scope:
+            - deploy/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    documentation:
+        dir_name: documentation
+        title: documentation
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app:
+        dir_name: frontend_app
+        title: frontend_app
+        scope:
+            - src/
+        source_files: []
+        children:
+            - frontend_app/admin_panel
+            - frontend_app/dashboard
+        depends_on: []
+        related_to: []
+    frontend_app/admin_panel:
+        dir_name: 系统管理后台面板（Admin Panel）
+        title: 系统管理后台面板（Admin Panel）
+        scope:
+            - src/components/admin/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/dashboard:
+        dir_name: 自定义看板与帮助文档组件
+        title: 自定义看板与帮助文档组件
+        scope:
+            - src/components/dashboard/
+            - src/components/common/
+            - src/components/help/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    infrastructure:
+        dir_name: 基础设施层（数据库、状态存储、日志与限流）
+        title: 基础设施层（数据库、状态存储、日志与限流）
+        scope:
+            - server/infra/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    plugin_ponytail:
+        dir_name: plugin_ponytail
+        title: plugin_ponytail
+        scope:
+            - plugins/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

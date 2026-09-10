@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "智能问数据分析系统架构",
+    "visual_preset": "signal-flow"
+  },
+  "components": [
+    {
+      "id": "buyers",
+      "type": "external",
+      "label": "买家客户端",
+      "sublabel": "Web + 移动端",
+      "pos": [
+        40,
+        250
+      ],
+      "size": [
+        120,
+        60
+      ]
+    },
+    {
+      "id": "edge",
+      "type": "cloud",
+      "label": "边缘网关",
+      "sublabel": "TLS + 路由",
+      "pos": [
+        220,
+        250
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "checkout",
+      "type": "backend",
+      "label": "结账 API",
+      "sublabel": "v1 服务",
+      "pos": [
+        430,
+        250
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "cache",
+      "type": "database",
+      "label": "会话缓存",
+      "sublabel": "Redis",
+      "pos": [
+        430,
+        100
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "orders",
+      "type": "database",
+      "label": "订单数据库",
+      "sublabel": "PostgreSQL",
+      "pos": [
+        640,
+        250
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "queue",
+      "type": "messagebus",
+      "label": "订单事件",
+      "sublabel": "持久队列",
+      "pos": [
+        430,
+        400
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "履约服务",
+      "sublabel": "异步 Worker",
+      "pos": [
+        640,
+        400
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "payments",
+      "type": "external",
+      "label": "支付通道",
+      "sublabel": "外部服务",
+      "pos": [
+        850,
+        250
+      ],
+      "size": [
+        130,
+        60
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Production region",
+      "wraps": [
+        "edge",
+        "checkout",
+        "cache",
+        "orders",
+        "queue",
+        "worker"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Checkout trust zone",
+      "wraps": [
+        "checkout",
+        "orders"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "buyer-request",
+      "from": "buyers",
+      "to": "edge",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "edge-checkout",
+      "from": "edge",
+      "to": "checkout"
+    },
+    {
+      "id": "session-read",
+      "from": "checkout",
+      "to": "cache",
+      "label": "session",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDy": -66
+    },
+    {
+      "id": "persist-order",
+      "from": "checkout",
+      "to": "orders",
+      "label": "SQL"
+    },
+    {
+      "id": "publish-order",
+      "from": "checkout",
+      "to": "queue",
+      "label": "accepted",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 66
+    },
+    {
+      "id": "consume-order",
+      "from": "queue",
+      "to": "worker"
+    },
+    {
+      "id": "authorize-payment",
+      "from": "orders",
+      "to": "payments",
+      "label": "authorize",
+      "variant": "security"
+    }
+  ]
+}
