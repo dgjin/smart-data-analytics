@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../infra/db.js';
+import { logger } from '../infra/logger.js';
 import { authMiddleware, requireRole } from '../auth/auth.js';
 import { injectFewShotSamples } from '../utils/fewShotService.js';
 import { prioritizePendingSamples, SamplePriorityScore } from '../utils/activeLearning.js';
@@ -57,7 +58,7 @@ router.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: 
       },
     });
   } catch (err: any) {
-    console.error('[Admin] Fallback Approval Load Error:', err);
+    logger.error('[Admin] Fallback Approval Load Error:', err);
     res.status(500).json({ error: '加载样本失败：' + err.message });
   }
 });
@@ -91,23 +92,32 @@ router.post('/batch', authMiddleware, requireRole('ADMIN'), async (req: Request,
       if (action === 'approve') {
         const sampleSet = batch.filter(id => id > 0);
         if (sampleSet.length > 0) {
+          // v0.9.47 P0 修复：占位符按 sampleSet 重建（原按 batch 构建，filter 后数量不匹配）；
+          // 参数对齐 [status, timestamp, ...] 多余错位已移除（原前两个参数顶替了 id 位置）
+          const samplePlaceholders = sampleSet.map(() => '?').join(',');
           const sampleQuery = await getPool().query(`
-            SELECT original_query, expected_sql, data_source_id 
+            SELECT id, original_query, expected_sql, data_source_id 
             FROM adversarial_samples 
-            WHERE id IN (${placeholders})
-          `, [status, timestamp, ...sampleSet]);
+            WHERE id IN (${samplePlaceholders})
+          `, [...sampleSet]);
                 
-          const samples = (sampleQuery[0] as any[]).map((s: any) => ({
-            original_query: s.original_query,
-            expected_sql: s.expected_sql || '',
-            data_source_id: s.data_source_id,
-          }));
+          const samples = (sampleQuery[0] as any[])
+            // 只注入带修正 SQL 的样本（批量采纳未填 expected_sql 的跳过，避免注入空示例）
+            .filter((s: any) => s.expected_sql)
+            .map((s: any) => ({
+              original_query: s.original_query,
+              expected_sql: s.expected_sql,
+              data_source_id: s.data_source_id,
+              sample_id: s.id,
+            }));
           
-          try {
-            await injectFewShotSamples(samples);
-          } catch (err: any) {
-            console.error('[FallbackApproval] Few-Shot injection failed:', err.message);
-            // Fail-open: 不影响审批流程的返回
+          if (samples.length > 0) {
+            try {
+              await injectFewShotSamples(samples);
+            } catch (err: any) {
+              logger.error('[FallbackApproval] Few-Shot injection failed:', err.message);
+              // Fail-open: 不影响审批流程的返回
+            }
           }
         }
       }
@@ -115,7 +125,7 @@ router.post('/batch', authMiddleware, requireRole('ADMIN'), async (req: Request,
 
     res.json({ success: true, message: `${ids.length} 个样本已${action === 'approve' ? '采纳' : '拒绝'}` });
   } catch (err: any) {
-    console.error('[Admin] Batch Action Error:', err);
+    logger.error('[Admin] Batch Action Error:', err);
     res.status(500).json({ error: '批量操作失败：' + err.message });
   }
 });
@@ -127,9 +137,10 @@ router.put('/:id/review', authMiddleware, requireRole('ADMIN'), async (req: Requ
 
   try {
     // 先查询当前状态
+    // v0.9.47 P0 修复：原 SELECT 有 ? 占位符但未传 [id] 参数 → ？原样发给 MySQL 必然 500
     const [current] = await getPool().query(`
-      SELECT annotation_status FROM adversarial_samples WHERE id = ?
-    `) as any[];
+      SELECT id, original_query, data_source_id, annotation_status FROM adversarial_samples WHERE id = ?
+    `, [id]) as any[];
 
     if (current.length === 0) {
       return res.status(404).json({ error: '样本不存在' });
@@ -142,31 +153,45 @@ router.put('/:id/review', authMiddleware, requireRole('ADMIN'), async (req: Requ
 
     const timestamp = new Date().toISOString();
     
-    // PENDING → IN_REVIEW（中间态）
-    await getPool().query(`
-      UPDATE adversarial_samples 
-      SET annotation_status = 'IN_REVIEW', updated_at = ?
-      WHERE id = ?
-    `, [timestamp, id]);
-
-    // 最终状态确认（带 expected_sql 更新）
+    // v0.9.47 P0 修复：原"先置 IN_REVIEW 再终态"两步非原子（无事务，第二步失败会卡死中间态），
+    // 合并为单步原子 UPDATE（WHERE 带状态条件，并发重复处理时 affectedRows=0）
     if (expected_sql && status === 'APPROVED') {
-      await getPool().query(`
+      const [updateResult] = await getPool().query(`
         UPDATE adversarial_samples 
         SET annotation_status = ?, expected_sql = ?, resolved_strategy = 'human_approval', updated_at = ?
-        WHERE id = ?
-      `, [status, expected_sql, timestamp, id]);
+        WHERE id = ? AND annotation_status = 'PENDING'
+      `, [status, expected_sql, timestamp, id]) as any[];
+
+      if (updateResult.affectedRows === 0) {
+        return res.status(409).json({ error: '该样本已被其他管理员处理' });
+      }
+
+      // 审核通过的修正 SQL 同步注入 Few-Shot 示例库（fail-open，不影响审批结果）
+      try {
+        await injectFewShotSamples([{
+          original_query: String((current[0] as any).original_query ?? ''),
+          expected_sql,
+          data_source_id: String((current[0] as any).data_source_id ?? ''),
+          sample_id: Number(id),
+        }]);
+      } catch (err: any) {
+        logger.error('[FallbackApproval] Few-Shot injection failed:', err.message);
+      }
     } else {
-      await getPool().query(`
+      const [updateResult] = await getPool().query(`
         UPDATE adversarial_samples 
         SET annotation_status = ?, updated_at = ?
-        WHERE id = ?
-      `, [status, timestamp, id]);
+        WHERE id = ? AND annotation_status = 'PENDING'
+      `, [status, timestamp, id]) as any[];
+
+      if (updateResult.affectedRows === 0) {
+        return res.status(409).json({ error: '该样本已被其他管理员处理' });
+      }
     }
 
     res.json({ success: true, message: '审核成功' });
   } catch (err: any) {
-    console.error('[Admin] Review Sample Error:', err);
+    logger.error('[Admin] Review Sample Error:', err);
     res.status(500).json({ error: '审核失败：' + err.message });
   }
 });

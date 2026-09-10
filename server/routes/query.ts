@@ -39,6 +39,8 @@ import { emitBeforeQuery, emitAfterQuery } from '../query/queryHooks';
 import { appendQueryEvent, getEventsAfter, getTraceOwner, isTerminal, isTerminalEvent, subscribeTrace, BufferedSseEvent } from '../query/sseReplayBuffer';
 import { generateFallbackQueryResult } from '../serverFallbacks';
 import { normalizeQueryResult } from '../../src/utils/queryResultNormalizer';
+import { getPool } from '../infra/db';
+import { retrieveBestFewShot } from '../utils/fewShotService';
 import { logger } from '../infra/logger';
 import { resolveStageTwoFailure } from '../utils/fallback/fallbackPipeline.js';
 
@@ -296,64 +298,95 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
       const fallbackStart = Date.now();
       
       try {
-        // Step 1: 调用 Fallback 调度器
+        // Step 1: 调用 Fallback 调度器（v0.9.47 P0：schema 注入 + 三项依赖真实落库，三层策略全部接通）
         const fallbackResult = await resolveStageTwoFailure(
           query,
           failedSql,
           { 
             dsId: dataSourceId, 
-            userId: String(user.id) // user.id is number, convert to string
+            userId: String(user.id), // user.id is number, convert to string
+            schema: effectiveSchema,
           },
           {
             logger,
+            // v0.9.47 P0：困难样本真实落库 adversarial_samples（表早已建好，此前为 console.log 占位）
             persistHardNegative: async (sample) => {
-              // TODO: 待 Task 5.2 数据库表创建后实现 DB 持久化
-              console.log('[Hard Negative] Pending persistence:', sample);
-              return Promise.resolve('pending');
+              const [result] = await getPool().query(
+                `INSERT INTO adversarial_samples (original_query, original_sql, error_message, data_source_id, user_id, username)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [sample.originalQuery.slice(0, 500), sample.originalSql.slice(0, 2000),
+                 (sample.errorMessage || '').slice(0, 500), sample.dataSourceId,
+                 parseInt(sample.userId, 10) || 0, user.username]
+              ) as any[];
+              return String((result as any).insertId ?? '');
             },
-            logFallbackAudit: async (sql: string, params: any[]) => {
-              // TODO: 待 Task 5.2 数据库表创建后实现审计日志
-              console.log('[Fallback Audit]', sql, params);
-              return Promise.resolve();
-            }
+            // v0.9.47 P0：策略成功审计真实落库 fallback_audit_log
+            logFallbackAudit: async (_sql: string, params: any[]) => {
+              const [dsId, q, sql, strategy] = params;
+              await getPool().query(
+                `INSERT INTO fallback_audit_log (trace_id, query, failed_sql, used_strategy, latency_ms, success)
+                 VALUES (?, ?, ?, ?, ?, 1)`,
+                [traceId, String(q).slice(0, 500), String(sql).slice(0, 2000), String(strategy), Date.now() - fallbackStart]
+              );
+            },
+            // v0.9.47 P0：human_approval 策略复用已审核 few-shot 示例（对抗训练闭环）
+            retrieveApprovedFewShot: (q, dsId) => retrieveBestFewShot(q, dsId),
           }
         );
         
         const fallbackLatency = Date.now() - fallbackStart;
         
-        if (fallbackResult.success) {
-          // ✅ Fallback 策略成功生成 SQL
-          const auditWithFallback = {
-            ...auditBase,
-            question: query,
-            status: 'SUCCESS' as const,
-            detail: `Fallback strategy used: ${fallbackResult.strategy}`,
-            executedSql: fallbackResult.sql!,
-            durationMs: Date.now() - startedAt,
-            rowCount: -1,
-            fallbackLatencyMs: fallbackLatency as any,
-            fallbackStrategy: fallbackResult.strategy as any
-          };
-          writeAudit(auditWithFallback);
-          
-          // 执行 fallback 生成的 SQL（需额外验证 SELECT-only）
-          const normalized = normalizeQueryResult(fallbackResult.sql!);
-          if (normalized) {
-            return respond({
-              success: true,
-              result: normalized,
-              defense,
-              dataProvenance: 'fallback',
-              isFallback: true,
-              traceId,
-              executionTimeMs: Date.now() - startedAt,
-              fallbackInfo: {
-                strategy: fallbackResult.strategy,
-                explanation: fallbackResult.explanation,
-                latencyMs: fallbackLatency
-              }
+        if (fallbackResult.success && fallbackResult.sql) {
+          // ✅ Fallback 策略成功生成 SQL → 真实安全执行
+          //（v0.9.47 P0：原代码把 SQL 字符串直接传 normalizeQueryResult → 必然 null，fallback 成功结果被静默丢弃）
+          // SELECT-only 白名单 + 行级权限与主链路同口径
+          const fallbackExec = await executeSafeSql(dataSourceId, fallbackResult.sql, effectiveSchema, ctx.sensitiveRemoved, 500, ctx.rowFilters);
+          if (fallbackExec.ok === true) {
+            const rows = fallbackExec.result.rows;
+            const normalized = normalizeQueryResult({
+              generatedSQL: fallbackResult.sql,
+              thoughtProcess: [`Fallback 策略（${fallbackResult.strategy}）重新生成并成功执行`],
+              aiExplanation: fallbackResult.explanation || '降级策略已为您重新生成查询结果。',
+              keyInsights: [],
+              chartConfig: null,
+              rows,
+              columnNames: buildColumnNames(rows, effectiveSchema),
             });
+            if (normalized) {
+              // 先构造再传（audit 扩展字段 fallbackLatencyMs/fallbackStrategy 不在 AuditEntry 类型上，
+              // 中间变量模式与原实现一致，规避对象字面量 excess property check）
+              const auditWithFallback = {
+                ...auditBase,
+                question: query,
+                status: 'SUCCESS' as const,
+                detail: `Fallback strategy used: ${fallbackResult.strategy}`,
+                executedSql: fallbackResult.sql,
+                durationMs: Date.now() - startedAt,
+                rowCount: rows.length,
+                fallbackLatencyMs: fallbackLatency as any,
+                fallbackStrategy: fallbackResult.strategy as any
+              };
+              writeAudit(auditWithFallback);
+              emitAfterQuery(hookCtx, { status: 'SUCCESS', durationMs: Date.now() - startedAt });
+              return respond({
+                success: true,
+                result: normalized,
+                defense,
+                dataProvenance: 'fallback',
+                isFallback: true,
+                traceId,
+                executionTimeMs: Date.now() - startedAt,
+                fallbackInfo: {
+                  strategy: fallbackResult.strategy,
+                  explanation: fallbackResult.explanation,
+                  latencyMs: fallbackLatency
+                }
+              });
+            }
           }
+          
+          // 策略生成了 SQL 但安全执行失败：落入下方统一降级
+          console.warn(`[Fallback] Strategy ${fallbackResult.strategy} produced SQL but safe execution failed`);
         }
         
         // ❌ 所有策略均失败

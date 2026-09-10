@@ -47,11 +47,13 @@ function classifyError(error: string): 'syntax_error' | 'semantic_error' | 'perm
 export async function resolveStageTwoFailure(
   query: string,
   failedSql: string,
-  context: { dsId?: string; userId?: string },
+  context: { dsId?: string; userId?: string; schema?: any[] },
   deps: {
     logger?: LoggerType;
     persistHardNegative?: (sample: Omit<HardNegativeSample, 'timestamp'>) => Promise<string>;
     logFallbackAudit?: (sql: string, params: any[]) => Promise<void>;
+    /** Group B 策略检索器：从已审核 few-shot 示例库找相似问题的修正 SQL */
+    retrieveApprovedFewShot?: (query: string, dsId: string) => Promise<{ question: string; sql: string } | null>;
   } = {}
 ): Promise<FallbackResult> {
   const logger = deps.logger || noopLogger;
@@ -73,12 +75,31 @@ export async function resolveStageTwoFailure(
           break;
           
         case 'simpler_prompt':
-          // TODO: 从上下文获取 schema 和对话历史
-          throw new Error('Simpler prompt requires schema and history context');
+          // v0.9.47 P0 接通：原分支直接 throw 占位，三层降级实际只有一层
+          result = await applySimplerPromptStrategy(query, {
+            schema: context.schema,
+            dsId: context.dsId,
+            userId: context.userId,
+          });
+          break;
           
-        case 'human_approval':
-          // TODO: 人工介入逻辑（待数据库表创建后启用）
-          throw new Error('Human approval requires annotation queue setup');
+        case 'human_approval': {
+          // v0.9.47 P0 接通：从已审核 few-shot 示例库检索相似问题的修正 SQL 直接复用
+          //（同步链路无法等待人工，"人工介入"的价值在于复用此前的人工审核成果）
+          const approved = deps.retrieveApprovedFewShot
+            ? await deps.retrieveApprovedFewShot(query, context.dsId || '')
+            : null;
+          if (!approved) {
+            throw new Error('No approved few-shot example matches this question');
+          }
+          result = {
+            success: true,
+            strategy: 'human_approval',
+            sql: approved.sql,
+            explanation: `复用人工审核通过的相似问题修正 SQL（原问题：「${approved.question.slice(0, 40)}」）`,
+          };
+          break;
+        }
           
         default:
           throw new Error(`Unknown strategy: ${strategy}`);

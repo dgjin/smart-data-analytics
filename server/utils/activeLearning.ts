@@ -67,6 +67,15 @@ export async function prioritizePendingSamples(): Promise<SamplePriorityScore[]>
       sqlTemplateMap.set(template, (sqlTemplateMap.get(template) || 0) + 1);
     });
 
+    // 统计各用户的待审失败次数（高频踩坑用户的样本优先修复）
+    // v0.9.47 P0 修复：原实现读取 row.userId（DB 列为 user_id）得 undefined → totalScore 恒为 NaN，排序失效
+    const userFailureMap = new Map<number, number>();
+    pendingRows.forEach(row => {
+      const uid = Number(row.user_id) || 0;
+      userFailureMap.set(uid, (userFailureMap.get(uid) || 0) + 1);
+    });
+    const maxUserFailures = Math.max(...Array.from(userFailureMap.values()), 1);
+
     // 为每个样本计算优先级分数
     const now = new Date();
     const scoredSamples: SamplePriorityScore[] = pendingRows.map((row): SamplePriorityScore => {
@@ -89,14 +98,25 @@ export async function prioritizePendingSamples(): Promise<SamplePriorityScore[]>
       const templateCount = sqlTemplateMap.get(sqlTemplate) || 1;
       const diversityScore = Math.round(10 * (1 - Math.log(templateCount) / Math.log(maxFrequency + 1)));
 
-      // 5. 重要用户加权分 (0-25): 假设 userId 越大权重越高（可根据实际调整）
-      const normalizedUserId = row.userId / 1000; // 假设最大用户数 1000
-      const userWeightScore = Math.round(25 * normalizedUserId);
+      // 5. 高频踩坑用户加权分 (0-25): 待审队列中该用户失败次数越多，其场景优先修复价值越高
+      const userIdNum = Number(row.user_id) || 0;
+      const userWeightScore = Math.round(25 * ((userFailureMap.get(userIdNum) || 1) / maxUserFailures));
 
       const totalScore = ageScore + frequencyScore + complexityScore + diversityScore + userWeightScore;
 
+      // v0.9.47 P0 修复：DB 行为 snake_case，此处显式映射为接口声明的 camelCase
+      //（原 {...row} 展开导致 originalQuery 等字段全为 undefined，审批 API 无法读到值）
       return {
-        ...row,
+        id: Number(row.id),
+        originalQuery: String(row.original_query || ''),
+        originalSQL: String(row.original_sql || ''),
+        errorMessage: String(row.error_message || ''),
+        dataSourceId,
+        userId: userIdNum,
+        annotationStatus: row.annotation_status,
+        expectedSQL: row.expected_sql ?? null,
+        resolvedStrategy: row.resolved_strategy ?? null,
+        createdAt: new Date(row.created_at),
         ageScore,
         frequencyScore,
         complexityScore,
@@ -133,7 +153,7 @@ export async function prioritizePendingSamples(): Promise<SamplePriorityScore[]>
  * 示例："SELECT SUM(amount) FROM sales WHERE date='2024-01-01'" 
  *   → "SELECT SUM(?) FROM sales WHERE date=?"
  */
-function normalizeSQLTemplate(sql: string): string {
+export function normalizeSQLTemplate(sql: string): string {
   return sql
     .replace(/\d+/g, '?')         // 数字占位符
     .replace(/'[^']*'/g, '?')     // 单引号字符串占位符

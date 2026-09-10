@@ -1,118 +1,120 @@
 /**
- * Fallback Few-Shot Knowledge Injection Service
- * 
- * 当人类专家采纳困难样本时，自动将 approved SQL 注入知识库作为 Few-Shot 示例
- * 后续 Simpler Prompt 策略会从知识库中检索相似 query 的历史成功 SQL 作为示例
+ * Fallback Few-Shot 示例注入与检索服务（v0.9.47 P0 重写）
+ *
+ * 闭环链路：管理员审批采纳 → injectFewShotSamples 写入独立 few_shot_examples 表 →
+ * fallback 策略（simpler_prompt / human_approval）按问题 bigram 相似度检索历史修正 SQL 复用。
+ *
+ * v0.9.45 版本将示例写入 knowledge_base，但其 INSERT 列（content/doc_type/updated_at）
+ * 与该表真实结构（chunk_text，无 doc_type/updated_at）不匹配，且会污染业务知识 RAG 检索，故独立建表。
  */
 
 import { getPool } from '../infra/db.js';
 import { logger } from '../infra/logger.js';
+import { bigramOverlap } from '../query/queryFeedback.js';
 
-/** Few-Shot 知识条目类型 */
-export interface FewShotKnowledge {
+/** Few-Shot 示例条目（检索返回） */
+export interface FewShotExample {
+  id: number;
   dataSourceId: string;
-  title: string;
-  content: string;       // 原始用户查询 + 修正 SQL 的格式化文本
-  metadata: {
-    originalQuery: string;
-    expectedSQL: string;
-    annotationStatus: 'APPROVED';
-    resolvedStrategy: 'human_approval';
-  };
-  createdAt: Date;
+  question: string;
+  expectedSQL: string;
 }
 
-/**
- * 将批准的困难样本注入 Few-Shot 知识库
- */
-export async function injectFewShotSamples(samples: Array<{
+/** 注入输入（snake_case，与审批 API 的样本形态一致） */
+export interface FewShotInjectionSample {
   original_query: string;
   expected_sql: string;
   data_source_id: string;
-}>): Promise<void> {
-  const BATCH_SIZE = 10;
-  
-  for (let i = 0; i < samples.length; i += BATCH_SIZE) {
-    const batch = samples.slice(i, i + BATCH_SIZE);
-    
-    try {
-      // 分批插入每批最多 10 个
-      const insertPromises = batch.map(sample => {
-        const fewShotContent = `
-## User Query
-${sample.original_query}
-
-## Correct SQL Response
-${sample.expected_sql}
-
-## Data Source
-${sample.data_source_id || 'default'}
-
-## Notes
-- Resolved via: human_approval
-- Status: APPROVED
-          `.trim();
-
-        const dataSourceId = sample.data_source_id || 'default';
-        const title = `Fallback-SQL-${dataSourceId}-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-        
-        return getPool().query(`
-          INSERT INTO knowledge_base (
-            data_source_id, title, content, doc_type, created_at, updated_at
-          ) VALUES (?, ?, ?, 'FEW_SHOT', NOW(), NOW())
-        `, [dataSourceId, title, fewShotContent]);
-      });
-      
-      await Promise.all(insertPromises);
-      
-      logger.info('[FewShot] Batch injected:', { count: batch.length });
-    } catch (err: any) {
-      logger.error('[FewShot] Injection failed:', err.message);
-      throw new Error(`Few-Shot 注入失败：${err.message}`);
-    }
-  }
-
-  logger.info('[FewShot] Completed:', { count: samples.length });
+  sample_id?: number;
 }
 
 /**
- * 从知识库中检索 Few-Shot 示例
+ * 将采纳的困难样本注入 few_shot_examples 表（分批插入，每批最多 10 条）
+ */
+export async function injectFewShotSamples(samples: FewShotInjectionSample[]): Promise<number> {
+  const valid = samples.filter((s) => s.original_query && s.expected_sql);
+  if (valid.length === 0) return 0;
+
+  const BATCH_SIZE = 10;
+  let inserted = 0;
+
+  for (let i = 0; i < valid.length; i += BATCH_SIZE) {
+    const batch = valid.slice(i, i + BATCH_SIZE);
+
+    try {
+      const insertPromises = batch.map((sample) =>
+        getPool().query(
+          `INSERT INTO few_shot_examples (data_source_id, question, expected_sql, sample_source, sample_id)
+           VALUES (?, ?, ?, 'fallback_approval', ?)`,
+          [sample.data_source_id || 'default', sample.original_query.slice(0, 500), sample.expected_sql, sample.sample_id ?? null]
+        )
+      );
+
+      await Promise.all(insertPromises);
+      inserted += batch.length;
+      logger.info('[FewShot] Batch injected:', { count: batch.length });
+    } catch (err: any) {
+      logger.error('[FewShot] Injection failed:', err.message);
+      throw new Error(`Few-Shot 注入失败：${err.message}`, { cause: err });
+    }
+  }
+
+  logger.info('[FewShot] Completed:', { inserted });
+  return inserted;
+}
+
+/**
+ * 检索相似 Few-Shot 示例：同数据源最近 100 条中按问题 bigram 重合打分
+ * （与个人 few-shot 检索同口径，见 conversationHistory.ts），取 top-k。
+ * 命中时异步累计 hit_count（失败不影响检索结果）。
  */
 export async function retrieveFewShotExamples(
   query: string,
   dataSourceId?: string,
-  limit: number = 5
-): Promise<FewShotKnowledge[]> {
+  limit: number = 3
+): Promise<FewShotExample[]> {
   try {
-    const [rows] = await getPool().query(`
-      SELECT id, data_source_id, title, content, created_at
-      FROM knowledge_base
-      WHERE doc_type = 'FEW_SHOT'
-        ${dataSourceId ? 'AND data_source_id = ?' : ''}
-      ORDER BY created_at DESC
-      LIMIT ?
-    `, [
-      ...(dataSourceId ? [dataSourceId] : []),
-      limit,
-    ] as any[]);
+    const [rows] = await getPool().query(
+      `SELECT id, data_source_id, question, expected_sql FROM few_shot_examples
+       WHERE data_source_id = ? ORDER BY id DESC LIMIT 100`,
+      [dataSourceId || 'default']
+    );
 
-    const results = (Array.isArray(rows) ? rows : []).map((row: any): FewShotKnowledge => ({
-      dataSourceId: row.data_source_id,
-      title: row.title,
-      content: row.content,
-      metadata: {
-        originalQuery: '',
-        expectedSQL: '',
-        annotationStatus: 'APPROVED',
-        resolvedStrategy: 'human_approval',
-      },
-      createdAt: new Date(row.created_at),
-    }));
+    const scored = (Array.isArray(rows) ? rows : [])
+      .map((row: any) => ({
+        id: Number(row.id),
+        dataSourceId: String(row.data_source_id),
+        question: String(row.question),
+        expectedSQL: String(row.expected_sql),
+        score: bigramOverlap(query, String(row.question)),
+      }))
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, limit));
 
-    logger.debug('[FewShot] Retrieved:', { count: results.length });
-    return results;
+    if (scored.length > 0) {
+      // fire-and-forget：命中计数仅用于运营观察，失败静默
+      const ids = scored.map((s) => s.id);
+      getPool()
+        .query(`UPDATE few_shot_examples SET hit_count = hit_count + 1 WHERE id IN (${ids.map(() => '?').join(',')})`, ids)
+        .catch((e: any) => logger.warn('[FewShot] hit_count update failed:', e?.message || e));
+    }
+
+    logger.debug('[FewShot] Retrieved:', { count: scored.length });
+    return scored.map(({ id, dataSourceId, question, expectedSQL }) => ({ id, dataSourceId, question, expectedSQL }));
   } catch (err: any) {
     logger.error('[FewShot] Retrieval failed:', err.message);
     return [];
   }
+}
+
+/**
+ * 检索单条最相似示例（human_approval 策略复用入口）：无相似样本返回 null
+ */
+export async function retrieveBestFewShot(
+  query: string,
+  dataSourceId?: string
+): Promise<{ question: string; sql: string } | null> {
+  const [best] = await retrieveFewShotExamples(query, dataSourceId, 1);
+  return best ? { question: best.question, sql: best.expectedSQL } : null;
 }

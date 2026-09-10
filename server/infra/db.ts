@@ -764,6 +764,23 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT 'Fallback 机制审计日志'
   `);
 
+  // P0 对抗训练闭环（v0.9.47）：Few-Shot 示例库——管理员采纳的困难样本单独建表，
+  // 不再写入 knowledge_base（v0.9.45 的 INSERT 与该表真实列结构不匹配，且会污染业务知识 RAG 检索）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS few_shot_examples (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT '关联数据源 ID',
+      question VARCHAR(500) NOT NULL COMMENT '原始用户查询',
+      expected_sql TEXT NOT NULL COMMENT '人工审核通过的正确 SQL',
+      sample_source VARCHAR(30) NOT NULL DEFAULT 'fallback_approval' COMMENT '来源（fallback_approval=对抗训练审批采纳）',
+      sample_id BIGINT NULL COMMENT '来源 adversarial_samples.id',
+      hit_count INT NOT NULL DEFAULT 0 COMMENT '被 fallback 复用次数',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '注入时间',
+      INDEX idx_fse_ds (data_source_id),
+      INDEX idx_fse_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT 'Few-Shot 示例库（对抗训练闭环）'
+  `);
+
   // P2-15 Fallback 对抗训练：存量迁移 - 在 query_audit_log 中增加 fallback 相关字段
   try {
     await pool.query("ALTER TABLE query_audit_log ADD COLUMN fallback_latency_ms INT NULL AFTER duration_ms");

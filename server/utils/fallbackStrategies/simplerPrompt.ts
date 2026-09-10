@@ -4,52 +4,68 @@
  * 适用场景：阶段二 LLM 失败后的降级生成
  * 核心策略：
  * 1. 简化 Schema 提示（仅关键表和字段）
- * 2. 添加对话历史作为 few-shot 示例
+ * 2. 添加真实 few-shot 示例（对抗训练库 + 个人对话沉淀）
  * 3. 更直白的自然语言引导
  * 优点：提高复杂查询的成功率，降低幻觉
  * 缺点：可能丢失部分语义信息
  */
 
 import type { FallbackResult } from '../fallback/types.js';
-import { callLLMJson, ChatMessage } from '../../llm/llmClient.js';
+import { callLLMText } from '../../llm/llmClient.js';
 import { logger } from '../../infra/logger.js';
+import { retrieveFewShotExamples } from '../fewShotService.js';
+import { loadConversationFewShot } from '../../query/conversationHistory.js';
 
 /**
- * 简化 Schema 提取策略（仅保留关键表和字段）
+ * 简化 Schema 提取策略（控制 token 预算：前 8 张表、每表前 12 列）
+ * v0.9.47 P0 修复：原实现按硬编码 KEY_TABLES 过滤且读 table_name/column_name
+ * （真实字段为 name），导致任何数据源都得到空 schema
  */
 export function extractMinimalSchema(schema: any[]): string[] {
-  // 仅返回用户最常访问的 5-10 张表
-  const KEY_TABLES = ['sales', 'customers', 'products', 'orders', 'users'];
-  const minimalSchema = schema.filter((table: any) => 
-    KEY_TABLES.some(key => table.table_name?.toLowerCase().includes(key))
-  );
-  
-  return minimalSchema.map(table => 
-    `${table.table_name}: ${table.columns?.map((c: any) => c.column_name).join(', ') || ''}`
-  );
+  const TABLE_BUDGET = 8;
+  const COLUMN_BUDGET = 12;
+  return schema
+    .filter((table: any) => table?.name)
+    .slice(0, TABLE_BUDGET)
+    .map((table: any) => {
+      const cols = (table?.columns || [])
+        .slice(0, COLUMN_BUDGET)
+        .map((c: any) => c?.name)
+        .filter(Boolean);
+      return `${table.name}: ${cols.join(', ')}`;
+    });
 }
 
 /**
- * 构建 Few-Shot 对话历史（最近 3 条成功问答）
+ * 构建真实 Few-Shot 对话历史：
+ * 一级取对抗训练库（管理员已采纳的困难样本，bigram 相似度检索），
+ * 二级补充个人对话沉淀（本人同数据源执行成功的问答对）。
+ * v0.9.47 P0 修复：原实现返回硬编码假示例（sales/orders 假表），会误导 LLM
  */
 export async function buildFewShotHistory(
+  query: string,
   dataSourceId: string,
   userId: string,
   maxCount: number = 3
 ): Promise<string> {
   try {
-    // TODO: 待 conversation_history 表创建后启用真实数据
-    // 当前返回模拟示例
-    return `
-【Few-Shot 示例】
-Q: "上个月的销售额是多少？"
-A: SELECT SUM(amount) as total_sales FROM sales WHERE date >= '2024-08-01' AND date <= '2024-08-31'
+    const approved = await retrieveFewShotExamples(query, dataSourceId, 2);
+    const uid = parseInt(userId, 10);
+    const personal = Number.isFinite(uid)
+      ? await loadConversationFewShot(uid, dataSourceId, query).catch(() => [])
+      : [];
 
-Q: "哪个客户购买了最多产品？"
-A: SELECT customer_id, COUNT(*) as purchase_count FROM orders GROUP BY customer_id ORDER BY purchase_count DESC LIMIT 1
+    const pairs = [
+      ...approved.map((s) => ({ question: s.question, sql: s.expectedSQL })),
+      ...personal,
+    ].slice(0, maxCount);
 
-【继续生成新 SQL】
-    `.trim();
+    if (pairs.length === 0) return '';
+    return (
+      '【Few-Shot 示例】\n' +
+      pairs.map((p) => `Q: "${p.question}"\nA: ${p.sql}`).join('\n\n') +
+      '\n\n【参考以上示例风格，生成新 SQL】'
+    );
   } catch (err) {
     logger.warn('[SimplerPrompt] Failed to build few-shot history:', err instanceof Error ? err.message : err);
     return '';
@@ -65,9 +81,7 @@ export function buildSimplerPrompt(
   fewShot: string
 ): string {
   return `你是一位数据分析专家，请根据以下简化的数据库结构生成 SELECT-only SQL。
-
-${fewShot}
-
+${fewShot ? '\n' + fewShot + '\n' : ''}
 【数据库结构（简化版）】
 ${minimalSchema.join('\n')}
 
@@ -82,7 +96,7 @@ ${query}
 }
 
 /**
- * 应用 Simplier Prompt 策略
+ * 应用 Simpler Prompt 策略
  */
 export async function applySimplerPromptStrategy(
   query: string,
@@ -94,13 +108,14 @@ export async function applySimplerPromptStrategy(
   }
 ): Promise<FallbackResult> {
   const startTime = Date.now();
-  
+
   try {
     // Step 1: 提取简化 schema
     const minimalSchema = context.schema ? extractMinimalSchema(context.schema) : [];
     
-    // Step 2: 构建 few-shot 历史
+    // Step 2: 构建真实 few-shot 历史（对抗训练库 + 个人沉淀）
     const fewShot = await buildFewShotHistory(
+      query,
       context.dsId || '',
       context.userId || '',
       3
@@ -109,40 +124,34 @@ export async function applySimplerPromptStrategy(
     // Step 3: 构建 prompt
     const prompt = buildSimplerPrompt(query, minimalSchema, fewShot);
     
-    // Step 4: 调用 LLM
+    // Step 4: 调用 LLM（纯文本通道——prompt 要求返回纯 SQL，
+    // v0.9.47 P0 修复：原 callLLMJson + JSON.parse 对纯 SQL 文本必然抛错）
     logger.info('[SimplerPrompt] Calling LLM with simplified prompt', {
       queryLength: query.length,
       schemaSize: minimalSchema.length,
       fewShotPresent: !!fewShot
     });
     
-    const resultString = await callLLMJson(
-      'You are a SQL expert. Generate only SELECT-only SQL.',
-      prompt,
-      []
+    const rawSql = await callLLMText(
+      'You are a SQL expert. Generate only a single SELECT-only SQL statement, no explanations, no markdown fences.',
+      prompt
     );
-    
-    let result: { sql: string };
-    try {
-      result = JSON.parse(resultString);
-    } catch (err) {
-      throw new Error('LLM returned invalid JSON: ' + err);
-    }
-    
-    if (!result.sql) {
-      throw new Error('LLM returned empty SQL');
+    const sql = rawSql.replace(/```(?:sql)?/gi, '').trim();
+
+    if (!sql || !/^select\b/i.test(sql)) {
+      throw new Error('LLM returned invalid SQL');
     }
     
     const latency = Date.now() - startTime;
     logger.info('[SimplerPrompt] LLM generated SQL successfully', {
       latency,
-      sqlLength: result.sql.length
+      sqlLength: sql.length
     });
     
     return {
       success: true,
       strategy: 'simpler_prompt',
-      sql: result.sql.trim(),
+      sql,
       explanation: `简化 Prompt + Few-Shot 策略生成 (${latency}ms)`
     };
     
