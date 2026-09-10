@@ -159,6 +159,17 @@ export const ReportTemplateManager: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* 标题条：子面板标识（与其他管理面板同风格） */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex items-center space-x-2 shadow-xl">
+        <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-slate-200">报告模板管理</div>
+          <div className="text-[11px] text-slate-500 truncate">
+            固定格式报告模板配置 · 供报告生成与计划任务复用
+          </div>
+        </div>
+      </div>
+
       {/* Notice */}
       {notice && (
         <div

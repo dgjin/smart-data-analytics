@@ -184,6 +184,17 @@ export const OpsMetricsPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* 标题条：子面板标识（与其他管理面板同风格） */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex items-center space-x-2 shadow-xl">
+        <Activity className="w-4 h-4 text-emerald-400 shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-slate-200">北极星运营指标</div>
+          <div className="text-[11px] text-slate-500 truncate">
+            问数成功率 / 反馈质量 / 引擎健康等核心指标 · 支持时间范围与趋势粒度切换
+          </div>
+        </div>
+      </div>
+
       {/* 控制条：时间范围 + 趋势粒度 + 刷新 */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-xl">
         <div className="flex items-center space-x-1.5">

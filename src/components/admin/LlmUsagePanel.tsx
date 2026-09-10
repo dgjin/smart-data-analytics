@@ -102,6 +102,17 @@ export const LlmUsagePanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* 标题条：子面板标识（与其他管理面板同风格） */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex items-center space-x-2 shadow-xl">
+        <Coins className="w-4 h-4 text-indigo-400 shrink-0" />
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-slate-200">LLM Token 用量</div>
+          <div className="text-[11px] text-slate-500 truncate">
+            按用户 / 引擎 / 通道维度统计 Token 消耗与调用成功率
+          </div>
+        </div>
+      </div>
+
       {/* 控制条：时间范围 + 用户搜索 + 刷新 */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-xl">
         <div className="flex items-center space-x-1.5">
