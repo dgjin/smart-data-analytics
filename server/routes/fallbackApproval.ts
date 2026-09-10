@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../infra/db.js';
 import { authMiddleware, requireRole } from '../auth/auth.js';
-import { UserRole } from '../../src/types/analytics.js';
+import { injectFewShotSamples } from '../utils/fewShotService.js';
 
 const router = Router();
 
@@ -72,21 +72,28 @@ router.post('/batch', authMiddleware, requireRole('ADMIN'), async (req: Request,
         WHERE id IN (${placeholders}) AND annotation_status = 'PENDING'
       `, [status, timestamp, ...batch]);
             
-      // 若被采纳，自动注入 Few-Shot 学习库（可选扩展：写入知识库系统）
+      // 若被采纳，自动注入 Few-Shot 学习库
       if (action === 'approve') {
         const sampleSet = batch.filter(id => id > 0);
         if (sampleSet.length > 0) {
           const sampleQuery = await getPool().query(`
-            SELECT original_query, expected_sql 
+            SELECT original_query, expected_sql, data_source_id 
             FROM adversarial_samples 
             WHERE id IN (${placeholders})
           `, [status, timestamp, ...sampleSet]);
                 
-          const samples = sampleQuery[0] as any[];
-          samples.forEach(s => {
-            // TODO: 调用知识库服务，注入 Few-Shot 示例
-            console.log(`[FewShot] Injecting approved sample:`, s);
-          });
+          const samples = (sampleQuery[0] as any[]).map((s: any) => ({
+            original_query: s.original_query,
+            expected_sql: s.expected_sql || '',
+            data_source_id: s.data_source_id,
+          }));
+          
+          try {
+            await injectFewShotSamples(samples);
+          } catch (err: any) {
+            console.error('[FallbackApproval] Few-Shot injection failed:', err.message);
+            // Fail-open: 不影响审批流程的返回
+          }
         }
       }
     }
