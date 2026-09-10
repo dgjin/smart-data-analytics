@@ -1,6 +1,7 @@
 #!/bin/sh
 # 企业级门禁（改进计划 Phase 1-1）：推送前本地强制质量检查，红灯代码不允许进入远程。
-# 快速档：tsc 三档 + ESLint（error 级）+ OpenAPI 同步 + vitest 单测（不含 E2E，E2E 由 CI 承担）。
+# 快速档：tsc 三档 + ESLint（error 级）+ OpenAPI 同步 + vitest 单测（不含 E2E：
+# CI 的 e2e 作业运行 smoke 探针集；全量 E2E 本地执行 npm run test:e2e）。
 # 紧急跳过仅限：git push --no-verify（CI 仍会拦截，务必慎用）。
 set -e
 

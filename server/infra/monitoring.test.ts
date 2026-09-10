@@ -99,6 +99,13 @@ describe('monitoring（Prometheus 埋点）', () => {
     const res3 = mkRes();
     await metricsHandler({ get: () => 'Bearer secret-x', query: {} } as any, res3);
     expect(res3.statusCode).toBe(200);
+    // P1-3 恒时比较：任意长度伪造 token（含超长）与 query 分支一律 403，不抛异常（定长摘要后 timingSafeEqual）
+    const res4 = mkRes();
+    await metricsHandler({ get: () => `Bearer ${'a'.repeat(5000)}`, query: {} } as any, res4);
+    expect(res4.statusCode).toBe(403);
+    const res5 = mkRes();
+    await metricsHandler({ get: () => undefined, query: { token: 'secret' } } as any, res5);
+    expect(res5.statusCode).toBe(403);
     delete process.env.METRICS_TOKEN;
   });
 });

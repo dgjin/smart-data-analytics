@@ -335,6 +335,20 @@ GEMINI_API_KEY=your-gemini-key
 | `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入，P1-9） | `20` |
 | `DS_POOL_MAX` | 数据源连接池上限（显式配置优先于公式 ceil(并发/4)，clamp 3-20） | 公式推导（默认 5） |
 | `APP_POOL_MAX` | 应用元数据库连接池上限（显式配置优先于公式 ceil(并发/2)，clamp 10-50） | 公式推导（默认 10） |
+| `METRICS_TOKEN` | `/metrics` 访问令牌（生产建议配置；不配置则端点公开并在启动时告警） | 无 |
+| `SHUTDOWN_TIMEOUT_MS` | 优雅停机排空限时（毫秒，区间 [1000, 120000]） | `10000` |
+
+### 4.5 健康检查与优雅停机（v0.9.47）
+
+| 端点 | 语义 | 建议用途 |
+|------|------|---------|
+| `GET /api/health/live` | 存活（浅探测）：进程可响应即 200 | 容器 liveness 探针（失败 → 重启容器） |
+| `GET /api/health/ready` | 就绪（深探测）：并行 ping MySQL（必检）与 Redis（配置 `REDIS_URL` 时必检），任一失败返回 503，响应体含各依赖逐项状态与耗时 | 负载均衡健康检查 / 容器 readiness 探针（失败 → 摘流量） |
+| `GET /api/health` | 兼容旧探针（恒 200，保留平滑过渡） | 旧集成使用 |
+
+**停机语义**：服务收到 `SIGTERM`/`SIGINT` 后按以下序列退场——停止领取异步任务 → 停止接收新连接并回收空闲 keep-alive → 等待在途请求完成（限时 `SHUTDOWN_TIMEOUT_MS`，默认 10 秒）→ 超时强制关闭剩余连接 → 关闭数据库连接池 → 退出。停机期间 `/api/health/ready` 恒返回 503，配合负载均衡可先摘流量再滚动重启；再次收到信号（如连按两次 Ctrl+C）放弃排空立即退出。在途异步任务由任务表心跳超时（90 秒）在下次启动时孤儿回收兜底。
+
+**监控端点**：`GET /metrics`（Prometheus 文本格式）。生产环境建议配置 `METRICS_TOKEN`——配置后需以 `Authorization: Bearer <token>` 或 `?token=<token>` 访问（令牌比较为防时序侧信道实现）；未配置时服务启动输出安全告警。
 
 ---
 

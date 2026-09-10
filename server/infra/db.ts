@@ -43,10 +43,22 @@ export function appPoolMax(): number {
 }
 
 let pool: mysql.Pool;
+let poolClosed = false;
 
 export function getPool(): mysql.Pool {
   if (!pool) throw new Error('Database pool not initialized. Call initSchema() first.');
   return pool;
+}
+
+/** P1-2 优雅停机：关闭连接池（幂等；未初始化时静默返回，供 shutdown 的 closeResources 步骤调用） */
+export async function closePool(): Promise<void> {
+  if (!pool || poolClosed) return;
+  poolClosed = true;
+  try {
+    await pool.end();
+  } catch (err: any) {
+    logger.warn('[DB] 连接池关闭异常（忽略）：', err?.message || err);
+  }
 }
 
 export async function initSchema(): Promise<void> {
@@ -68,6 +80,7 @@ export async function initSchema(): Promise<void> {
     connectionLimit: appPoolMax(),
     charset: 'utf8mb4',
   });
+  poolClosed = false;
 
   // 3. Tables
   await pool.query(`

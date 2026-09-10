@@ -20,19 +20,20 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   // 本机/受限网络：优先驱动系统已装 Chrome（channel），避免 Playwright CDN 下载 chromium；
-  // CI 环境可改回 browserName: 'chromium' 由 npx playwright install 预装。
+  // CI 由 `npx playwright install chromium` 预装浏览器，走默认通道（不指定 channel）。
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium', channel: 'chrome' },
+      use: { browserName: 'chromium', ...(process.env.CI ? {} : { channel: 'chrome' }) },
     },
   ],
   webServer: process.env.E2E_NO_SERVER
     ? undefined
     : {
         command: 'npx tsx server.ts',
-        url: 'http://127.0.0.1:3000/api/health',
+        // 用就绪探针等待：server.ts 启动需完成 initSchema（CI 冷启动 + MySQL service 首次建库较慢）
+        url: 'http://127.0.0.1:3000/api/health/ready',
         reuseExistingServer: !process.env.CI,
-        timeout: 60_000,
+        timeout: 120_000,
       },
 });

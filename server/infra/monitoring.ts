@@ -9,6 +9,7 @@
  * - fail-open：监控埋点异常绝不影响业务链路（全 try/catch 静默）。
  */
 import client from 'prom-client';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { AuditEntry } from './auditLog';
 import type { LlmUsageEntry } from '../llm/llmUsage';
@@ -134,11 +135,18 @@ export function observeSqlExec(durationMs: number, ok: boolean): void {
 
 // ---------- /metrics 端点（不走 JWT；可选 METRICS_TOKEN 保护） ----------
 
+/** 定长摘要后恒时比较：消除明文比较的计时侧信道（摘要后长度恒定，timingSafeEqual 不会因长度差异抛错） */
+function tokensMatch(provided: string, expected: string): boolean {
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
 export async function metricsHandler(req: Request, res: Response): Promise<void> {
   const token = process.env.METRICS_TOKEN;
   if (token) {
     const provided = (req.get('authorization') || '').replace(/^Bearer\s+/i, '') || String(req.query.token || '');
-    if (provided !== token) {
+    if (!tokensMatch(provided, token)) {
       res.status(403).end('forbidden');
       return;
     }

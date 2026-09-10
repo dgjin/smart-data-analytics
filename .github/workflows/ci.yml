@@ -3,6 +3,8 @@
 # - eval-gate 作业：评测集结构门禁（规模/六类覆盖/字段合法性，mock-free 不连 DB/LLM）；
 #   真实 LLM 准确率评测放本地/nightly（npm run eval -- --min-accuracy 85），
 #   prompt 相关文件变更时输出全量评测提醒。
+# - e2e 作业（P1-4）：Playwright smoke 探针集（健康检查/JSON 契约/知识库链路），
+#   MySQL 以 service container 提供；不需 LLM。全量 E2E 仍在本地跑（npm run test:e2e）。
 name: CI
 
 on:
@@ -64,3 +66,48 @@ jobs:
           if echo "${CHANGED}" | grep -qE 'server/(liveQuery|liveReport|llmClient|schemaLinking|schemaContext)\.ts|server/eval/'; then
             echo "::warning::检测到 prompt/评测相关文件变更，请本地执行全量评测：npm run eval -- --min-accuracy 85"
           fi
+
+  e2e:
+    name: 端到端冒烟（Playwright smoke 探针集）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci-e2e-pass
+          MYSQL_DATABASE: smart_analytics
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci-e2e-pass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: '3306'
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ci-e2e-pass
+      MYSQL_DATABASE: smart_analytics
+      JWT_SECRET: ci-e2e-only-jwt-secret
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: admin123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 安装 Playwright Chromium（含系统依赖）
+        run: npx playwright install --with-deps chromium
+      - name: 运行 smoke E2E（webServer 自动拉起 server.ts 并等待 /api/health/ready）
+        run: npx playwright test tests/e2e/smoke.spec.ts
+      - name: 失败时上传测试产物（截图 / trace）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          retention-days: 7

@@ -104,6 +104,39 @@
         }
       }
     },
+    "/api/health/live": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "operationId": "healthLive",
+        "summary": "存活检查（浅探测，进程可响应即 200）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "进程存活"
+          }
+        }
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "operationId": "healthReady",
+        "summary": "就绪检查（深探测 MySQL/Redis；依赖异常或停机中返回 503）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "依赖就绪"
+          },
+          "503": {
+            "description": "依赖异常或停机中"
+          }
+        }
+      }
+    },
     "/api/system/engine": {
       "get": {
         "tags": [

@@ -18,7 +18,7 @@ for (const dir of ENV_SEARCH_DIRS) {
   dotenv.config({ path: path.join(dir, '.env') });
 }
 
-import { initSchema } from './server/infra/db';
+import { initSchema, closePool } from './server/infra/db';
 import { isRedisEnabled, warmStateStore } from './server/infra/stateStore';
 import { authMiddleware, requireRole } from './server/auth/auth';
 import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthChecks } from './server/llm/llmClient';
@@ -59,7 +59,9 @@ import opsMetricsRoutes from './server/routes/opsMetrics';
 import opsDriftRoutes from './server/routes/opsDrift';
 // v0.9.2 异步任务队列（改进计划 2-1）
 import taskRoutes from './server/routes/tasks';
-import { startTaskWorker } from './server/infra/taskQueue';
+import { startTaskWorker, stopTaskWorker } from './server/infra/taskQueue';
+import { installGracefulShutdown } from './server/infra/shutdown';
+import { runReadiness, buildDefaultProbes } from './server/infra/health';
 import { registerBuiltinTaskHandlers } from './server/taskHandlers';
 // P2-5 SSE 断线续传：重放缓冲周期清扫（改进计划 2-5）
 import { startSseReplaySweeper } from './server/query/sseReplayBuffer';
@@ -96,6 +98,9 @@ async function startServer() {
     console.error('[Security] 生产环境必须设置 JWT_SECRET 环境变量，拒绝启动');
     process.exit(1);
   }
+
+  // P1-3 停机状态引用：ready 端点在 drain 期间返回 503；监听启动后由 shutdown controller 接管
+  const shutdownRef = { isDraining: () => false as boolean };
 
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
@@ -191,8 +196,25 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // P1-3 健康检查分级：live=存活（浅探测，编排系统判"是否重启"）；
+  // ready=就绪（深探测，并行 ping MySQL/Redis，失败 503 让上游摘流量；drain 期间恒 503）
+  app.get('/api/health/live', (_req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+  app.get('/api/health/ready', async (_req, res) => {
+    if (shutdownRef.isDraining()) {
+      res.status(503).json({ status: 'draining', timestamp: new Date().toISOString() });
+      return;
+    }
+    const report = await runReadiness(buildDefaultProbes());
+    res.status(report.ok ? 200 : 503).json(report);
+  });
+
   // Prometheus 抓取端点（不走 JWT，基础设施端点不参与 OpenAPI 校验；可选 METRICS_TOKEN 保护）
   app.get('/metrics', metricsHandler);
+  if (isProd && !process.env.METRICS_TOKEN) {
+    console.warn('[Security] 生产环境未设置 METRICS_TOKEN：/metrics 指标（含业务量级）将无鉴权公开暴露，建议配置，见 docs/DEPLOYMENT.md');
+  }
 
   // 1b. API Endpoint: 当前 AI 引擎信息（登录用户；前端按实际模型展示提示，不暴露内网地址）
   app.get('/api/system/engine', authMiddleware, (_req, res) => {
@@ -301,9 +323,20 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, HOST, () => {
+  const httpServer = app.listen(PORT, HOST, () => {
     console.log(`[Smart Data Analytics Engine] Running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   });
+
+  // P1-2 优雅停机：SIGTERM/SIGINT 时停止领任务 → 排空在途请求（限时）→ 关闭连接池后退出；
+  // 在途异步任务由任务表心跳超时（90s）孤儿回收在下次启动时兜底。
+  const shutdown = installGracefulShutdown({
+    server: httpServer,
+    beforeClose: () => {
+      stopTaskWorker();
+    },
+    closeResources: () => closePool(),
+  });
+  shutdownRef.isDraining = shutdown.controller.isDraining;
 }
 
 startServer();

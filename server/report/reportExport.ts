@@ -63,6 +63,29 @@ function clean(v: unknown, fallback = ''): string {
   return typeof v === 'string' || typeof v === 'number' ? String(v) : fallback;
 }
 
+const PNG_DATA_URI_PREFIX = 'data:image/png;base64,';
+/** PNG 文件二进制签名（8 字节魔数）：\x89PNG\r\n\x1a\n */
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/**
+ * 校验 data URI 是否为真实 PNG（前缀 + 解码后二进制魔数双重校验）。
+ * 仅前缀正则可被伪造（声明 PNG 前缀、实际塞入 ICNS/JXL/HEIF 等字节），
+ * 而 pptxgenjs 内部 image-size 解析这些格式存在无限循环 DoS（GHSA-w3rx-r6r6-pgpr /
+ * GHSA-5p2g-fcmc-qvqq，上游暂无修复版）；入口处按 PNG 魔数白名单放行可阻断该链。
+ */
+export function isPngDataUri(raw: unknown): raw is string {
+  if (typeof raw !== 'string' || !raw.startsWith(PNG_DATA_URI_PREFIX)) return false;
+  // 仅需解码前 16 个 base64 字符即可覆盖 8 字节魔数（12 个 base64 字符 = 9 字节）
+  const head = raw.slice(PNG_DATA_URI_PREFIX.length, PNG_DATA_URI_PREFIX.length + 16);
+  if (head.length < 12) return false;
+  try {
+    const bytes = Buffer.from(head, 'base64');
+    return bytes.length >= 8 && bytes.subarray(0, 8).equals(PNG_MAGIC);
+  } catch {
+    return false;
+  }
+}
+
 /** 校验并归一化前端提交的导出数据；非法结构返回 null */
 export function normalizeExportData(raw: any): ReportExportData | null {
   if (!raw || typeof raw !== 'object' || typeof raw.title !== 'string' || !raw.title.trim()) return null;
@@ -93,9 +116,7 @@ export function normalizeExportData(raw: any): ReportExportData | null {
       ? raw.charts.slice(0, 10).filter((c: any) => c && typeof c.title === 'string').map((c: any) => ({
           title: clean(c.title).slice(0, 80),
           commentary: clean(c.commentary).slice(0, 600),
-          imageBase64: typeof c.imageBase64 === 'string' && /^data:image\/png;base64,/.test(c.imageBase64)
-            ? c.imageBase64
-            : undefined,
+          imageBase64: isPngDataUri(c.imageBase64) ? c.imageBase64 : undefined,
         }))
       : [],
   };
@@ -178,7 +199,8 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
     pageNo += 1;
     s.addText(chart.title, { x: 0.5, y: 0.35, w: 12.3, h: 0.6, fontSize: 22, color: C.text, bold: true });
     s.addShape('rect', { x: 0.55, y: 0.98, w: 1.2, h: 0.05, fill: { color: C.indigo } });
-    if (chart.imageBase64) {
+    // 二次防御：即便调用方绕过 normalizeExportData 直接传参，也仅放行真实 PNG 进入 image-size 解析
+    if (isPngDataUri(chart.imageBase64)) {
       s.addImage({ data: chart.imageBase64, x: 0.6, y: 1.3, w: 12.1, h: 4.4, sizing: { type: 'contain', w: 12.1, h: 4.4 } });
     } else {
       s.addShape('roundRect', { x: 0.6, y: 1.3, w: 12.1, h: 4.4, rectRadius: 0.1, fill: { color: 'F1F5F9' }, line: { color: C.divider, width: 1 } });

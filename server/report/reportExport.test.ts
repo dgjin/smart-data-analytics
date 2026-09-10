@@ -2,7 +2,7 @@
  * M4 报告导出单测：导出数据归一化校验、PPTX 生成 smoke（含无图兜底）、文件名安全化。
  */
 import { describe, it, expect } from 'vitest';
-import { normalizeExportData, buildReportPptx, buildExportFilename } from './reportExport';
+import { normalizeExportData, buildReportPptx, buildExportFilename, isPngDataUri } from './reportExport';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -68,5 +68,43 @@ describe('buildExportFilename', () => {
   it('剔除路径分隔符与特殊字符并拼接日期', () => {
     expect(buildExportFilename('2025/Q1: 经营*简报', '2025-01-15')).toBe('2025_Q1_经营_简报_分析简报_2025-01-15.pptx');
     expect(buildExportFilename('', undefined)).toMatch(/^分析报告_分析简报\.pptx$/);
+  });
+});
+
+describe('isPngDataUri 图片魔数校验（P1-1：阻断 image-size ICNS/JXL/HEIF DoS 链）', () => {
+  const toDataUri = (buf: Buffer) => `data:image/png;base64,${buf.toString('base64')}`;
+  // 前缀均声明为 PNG，但内容分别为 ICNS / JXL / HEIF 魔数（image-size 无限循环触发格式）
+  const ICNS = toDataUri(Buffer.concat([Buffer.from('icns'), Buffer.alloc(20)]));
+  const JXL = toDataUri(Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x0c]), Buffer.from('JXL '), Buffer.alloc(12)]));
+  const HEIF = toDataUri(Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x18]), Buffer.from('ftypheic'), Buffer.alloc(12)]));
+
+  it('真实 PNG 放行', () => {
+    expect(isPngDataUri(PNG)).toBe(true);
+  });
+
+  it('前缀合法但内容为 ICNS/JXL/HEIF 字节时拒绝', () => {
+    expect(isPngDataUri(ICNS)).toBe(false);
+    expect(isPngDataUri(JXL)).toBe(false);
+    expect(isPngDataUri(HEIF)).toBe(false);
+  });
+
+  it('载荷过短、非 PNG 前缀、非字符串、空串均拒绝', () => {
+    expect(isPngDataUri('data:image/png;base64,AAAA')).toBe(false);
+    expect(isPngDataUri('data:image/jpeg;base64,/9j/4AAQSkZJRg==')).toBe(false);
+    expect(isPngDataUri(undefined)).toBe(false);
+    expect(isPngDataUri({ data: PNG })).toBe(false);
+    expect(isPngDataUri('')).toBe(false);
+  });
+
+  it('normalizeExportData 丢弃伪造载荷（声明 PNG 实为 ICNS）', () => {
+    const data = normalizeExportData({ title: 'R', charts: [{ title: '图', imageBase64: ICNS }] });
+    expect(data!.charts![0].imageBase64).toBeUndefined();
+  });
+
+  it('buildReportPptx 对伪造载荷走文字兜底且产物仍为有效 PPTX', async () => {
+    const data = normalizeExportData({ title: 'R', charts: [{ title: '图', commentary: '解读', imageBase64: ICNS }] })!;
+    const buf = await buildReportPptx(data);
+    expect(buf[0]).toBe(0x50);
+    expect(buf[1]).toBe(0x4b);
   });
 });
