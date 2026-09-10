@@ -20,6 +20,7 @@
   --m3: #d97706;   --m3-deep: #b45309;   --m3-soft: #fdf1de;
   --m4: #7c3aed;   --m4-deep: #6d28d9;   --m4-soft: #f0e9fd;
   --m5: #e11d48;   --m5-deep: #be123c;   --m5-soft: #fdecef;
+  --m6: #0284c7;   --m6-deep: #0369a1;   --m6-soft: #e0f2fe;
   --ok: #178a5b;
   --ok-soft: #e5f5ee;
   --warn: #c4710a;
@@ -79,13 +80,31 @@ body {
 .slide[data-mod="4"] { --accent: var(--m4); --accent-2: var(--m4-deep); --accent-soft: var(--m4-soft); }
 .slide[data-mod="5"] { --accent: var(--m5); --accent-2: var(--m5-deep); --accent-soft: var(--m5-soft); }
 
-/* 顶部模块色条（封面除外）——看颜色即知当前模块 */
+/* 模块伴生色：顶条 / 标题下划线用双色渐变，整页更活泼 */
+.slide[data-mod="1"], .slide[data-mod="2"] { --accent-next: #0284c7; }
+.slide[data-mod="3"] { --accent-next: #e11d48; }
+.slide[data-mod="4"] { --accent-next: #0d9488; }
+.slide[data-mod="5"] { --accent-next: #d97706; }
+
+/* 顶部模块色条（封面除外）：模块主色 → 伴生色双色渐变，看颜色即知当前模块 */
 .slide:not(.cover)::before {
   content: "";
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 5px;
-  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 46%, transparent 97%);
+  height: 6px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 32%, var(--accent-next, #0d9488) 72%, transparent 98%);
+}
+
+/* 每页右上角伴生色光斑：极浅柔和，为白底页面添一抹彩色 */
+.slide:not(.cover)::after {
+  content: "";
+  position: absolute;
+  right: -110px; top: -110px;
+  width: 300px; height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 62%);
+  opacity: 0.8;
+  pointer-events: none;
 }
 
 /* 封面装饰光斑：青 + 紫，叠加在浅蓝渐变底上 */
@@ -100,15 +119,23 @@ body {
 .slide.cover::after  { width: 470px; height: 470px; left: -130px; bottom: -190px; background: rgba(124, 58, 237, 0.13); }
 .slide.cover > * { position: relative; z-index: 1; }
 
-/* h2 模块色下划线（绝对定位，不占布局空间） */
+/* 封面主标题：蓝→青→紫 三色渐变文字 */
+.slide.cover h1 {
+  background: linear-gradient(102deg, #0e4bb3 0%, #0d9488 48%, #7c3aed 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* h2 模块色下划线（绝对定位，不占布局空间）：双色渐变 */
 .slide h2 { position: relative; }
 .slide h2::after {
   content: "";
   position: absolute;
   left: 2px; bottom: -8px;
-  width: 64px; height: 4px;
+  width: 96px; height: 4px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--accent), transparent);
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-next, #0d9488) 100%);
 }
 
 /* chrome：页眉 / 页脚 / 页码 / 进度条 */
@@ -159,7 +186,7 @@ body {
   left: 0; top: 0;
   height: 3px;
   width: 0;
-  background: linear-gradient(90deg, #1f6feb, #0d9488 30%, #d97706 55%, #7c3aed 78%, #e11d48);
+  background: linear-gradient(90deg, #1f6feb, #0d9488 22%, #d97706 43%, #7c3aed 63%, #e11d48 83%, #0284c7);
   z-index: 60;
   transition: width 0.25s ease;
 }
@@ -201,6 +228,34 @@ ul.plain { list-style: none; }
 .grid-sidebar { grid-template-columns: 2fr 1fr; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; min-height: 0; align-items: start; }
 
+/* 彩虹卡片：网格内所有卡片顶边按 蓝→青→琥珀→紫→玫红→天蓝 循环着色（含 flat / tinted） */
+.grid > .card { border-top: 3px solid #1f6feb; }
+.grid > .card:nth-child(6n+2) { border-top-color: var(--m2); }
+.grid > .card:nth-child(6n+3) { border-top-color: var(--m3); }
+.grid > .card:nth-child(6n+4) { border-top-color: var(--m4); }
+.grid > .card:nth-child(6n+5) { border-top-color: var(--m5); }
+.grid > .card:nth-child(6n+6) { border-top-color: var(--m6); }
+
+/* 系统导航一图流：七大入口色块（P3 概述页） */
+.navmap { display: flex; gap: 10px; }
+.navmap > div {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-top: 3px solid #1f6feb;
+  border-radius: 10px;
+  padding: 10px 10px 11px;
+  text-align: center;
+}
+.navmap > div:nth-child(2) { border-top-color: var(--m2); }
+.navmap > div:nth-child(3) { border-top-color: var(--m3); }
+.navmap > div:nth-child(4) { border-top-color: var(--m4); }
+.navmap > div:nth-child(5) { border-top-color: var(--m5); }
+.navmap > div:nth-child(6) { border-top-color: var(--m6); }
+.navmap > div:nth-child(7) { border-top-color: #64748b; }
+.navmap > div b { display: block; font-size: 13px; color: var(--text-1); }
+.navmap > div p { font-size: 11px; color: var(--text-3); margin-top: 3px; line-height: 1.4; }
+
 /* AGENDA（data-mod="0"）：四张卡片预告四个模块的颜色 */
 .slide[data-mod="0"] .grid > .card:nth-child(1) { border-top: 3px solid #1f6feb; }
 .slide[data-mod="0"] .grid > .card:nth-child(2) { border-top: 3px solid var(--m2); }
@@ -234,6 +289,13 @@ ul.plain { list-style: none; }
 .pill.ok { background: var(--ok-soft); color: var(--ok); }
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .pill.danger { background: var(--danger-soft); color: var(--danger); }
+/* 彩色 pill 变体：跨模块混排更多颜色（蓝→青→琥珀→紫→玫红→天蓝） */
+.pill.c1 { background: var(--accent-soft); color: var(--accent-2); }
+.pill.c2 { background: var(--m2-soft); color: var(--m2-deep); }
+.pill.c3 { background: var(--m3-soft); color: var(--m3-deep); }
+.pill.c4 { background: var(--m4-soft); color: var(--m4-deep); }
+.pill.c5 { background: var(--m5-soft); color: var(--m5-deep); }
+.pill.c6 { background: var(--m6-soft); color: var(--m6-deep); }
 
 .tag {
   display: inline-block;

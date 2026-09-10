@@ -34,7 +34,7 @@
         dot.className = 'dot';
         brand.append(dot, document.createTextNode('智能问数分析系统 · 功能培训'));
         const ver = document.createElement('span');
-        ver.textContent = 'NL2SQL Pro v0.4.0';
+        ver.textContent = 'NL2SQL Pro v0.9.46';
         hd.append(brand, ver);
         sl.appendChild(hd);
       }
