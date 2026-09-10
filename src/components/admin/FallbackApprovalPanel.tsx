@@ -211,7 +211,10 @@ export const FallbackApprovalPanel: React.FC = () => {
   const handleBatchAction = async (action: 'approve' | 'reject') => {
     setBatchAction(action);
     const sampleCount = checkedIds.size;
-    alert(`即将对 ${sampleCount} 个样本执行 ${action === 'approve' ? '采纳' : '拒绝'} 操作？`);
+    if (!window.confirm(`即将对 ${sampleCount} 个样本执行「${action === 'approve' ? '采纳' : '拒绝'}」操作，是否继续？`)) {
+      setBatchAction(null);
+      return;
+    }
     
     try {
       const res = await apiFetch('/api/admin/fallback-approval/batch', {
@@ -283,6 +286,27 @@ export const FallbackApprovalPanel: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
+      {/* 标题条：模块标识 + 说明 + 刷新（与其他管理面板同风格） */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
+        <div className="flex items-center space-x-2 min-w-0">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-slate-200">NL2SQL Fallback 困难样本审核（对抗训练）</div>
+            <div className="text-[11px] text-slate-500 truncate">
+              智能问数失败样本自动进入此队列 · 标注正确 SQL 后注入 Few-Shot 示例库，同类失败自动复用修正
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => void loadSamples()}
+          disabled={isLoading}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 shrink-0"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          <span>{isLoading ? '加载中…' : '刷新'}</span>
+        </button>
+      </div>
+
       {/* KPI 卡片 */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -352,7 +376,6 @@ export const FallbackApprovalPanel: React.FC = () => {
         <table className="w-full">
           <thead className="bg-slate-800 text-slate-300 text-xs font-mono uppercase tracking-wider">
             <tr>
-              <th className="p-4 text-center">排名</th>
               {filtered.length > 0 && (
                 <th className="p-4 text-center">
                   <button onClick={toggleAll} className="hover:text-slate-100">
@@ -366,6 +389,7 @@ export const FallbackApprovalPanel: React.FC = () => {
               <th className="p-4">使用策略</th>
               <th className="p-4">状态</th>
               <th className="p-4">操作</th>
+              <th className="p-4">排名</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -378,7 +402,7 @@ export const FallbackApprovalPanel: React.FC = () => {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={8} className="p-8 text-center text-slate-400">
-                  {error ? `❌ ${error}` : '暂无数据'}
+                  {error ? `❌ ${error}` : '暂无待审核样本 —— 智能问数失败后将自动采集进入此队列'}
                 </td>
               </tr>
             ) : (
