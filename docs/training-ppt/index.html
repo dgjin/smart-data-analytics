@@ -390,6 +390,7 @@
     <h3 style="font-size:16px;margin-bottom:8px;">🧩 与问数怎么分工</h3>
     <p style="font-size:14px;color:var(--accent-2);line-height:1.65;">AI 问数回答「一句话的问题」，灵活查询搭建「每周都要跑的固定报表」——查询结构一次配好反复执行，口径 100% 稳定；结果可固化到看板，与问数共享数据源和行级权限。</p>
   </div>
+  <img src="assets/images/flex-blocks.png" alt="" data-anim="zoom-in" style="display:block;height:150px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
   <div class="notes">很多同事问：AI 生成的 SQL 我不放心，有没有更传统一点的方式？有，就是灵活查询。它在左侧导航第五项，完全不用写 SQL，也不用跟 AI 对话——选一张表，在字段列表里点一下就把字段加进来了，v0.9.37 之后筛选区还有独立的下拉入口，两个入口随便用哪个。要跨表就在关联配置里选 JOIN 关系，table 点 column 的跨表引用都支持。筛选能力也很全：区间、空值、去重计数、甚至聚合之后再过滤的 HAVING 都有，排序字段和方向自己定。查出来的行数上限一万行，可以放宽到五万，按真实记录数输出，不会有截断。它和问数的分工很清楚：临时性的、探索性的问题交给 AI 问数；那种每周例会都要跑一遍的固定报表，用灵活查询一次配好，口径永远稳定。做好的结果同样可以固化到看板上。所以 AI 和自助工具在这套系统里是互补的，不是替代关系。</div>
 </section>
 
@@ -432,6 +433,7 @@
         <h3 style="font-size:15px;margin-bottom:8px;">📦 报告模板（管理员）</h3>
         <p style="font-size:13px;color:var(--text-2);line-height:1.6;">系统管理 → 权限审批 → 报告模板：内置 4 个预设模板，支持新增自定义模板，供问数报告模式复用。</p>
       </div>
+      <img src="assets/images/report-craft.png" alt="" data-anim="zoom-in" style="display:block;height:205px;width:auto;margin:18px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
     </div>
     <div>
       <h3 style="font-size:16px;margin-bottom:12px;">📚 问数报告中心四件事</h3>
@@ -545,6 +547,7 @@
           <li>· 注入提示词带 token 预算控制，不会撑爆上下文</li>
         </ul>
       </div>
+      <img src="assets/images/knowledge-book.png" alt="" data-anim="zoom-in" style="display:block;height:190px;width:auto;margin:18px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
     </div>
     <div>
       <div class="card tinted" data-anim="slide-left">
@@ -788,6 +791,7 @@
       <p style="font-size:13.5px;color:var(--text-2);line-height:1.65;">涉密数据源的分析全程走本地 Ollama，提示词与结果不出内网；云端引擎仅用于非敏感场景——由管理员在引擎配置中约束。</p>
     </div>
   </div>
+  <img src="assets/images/engine-chain.png" alt="" data-anim="zoom-in" style="display:block;height:165px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
   <div class="notes">AI 引擎是这个系统的大脑供给线，目前接入三家。当前主力是本地部署的 Ollama 跑 deepseek-r1 三十二 B：数据完全不出内网，推理能力也足够应付复杂口径，敏感场景放心用。云端两家，Qwen 的 qwen3.8-max 参数量大、长上下文强，适合高峰分流和高质量需求；Gemini 作为第三选择扩展多样性。这里最值得讲的是故障转移：主引擎挂了，系统按管理员配置的顺序自动切到下一个可用引擎，用户几乎无感；万一全挂了，还有演示数据兜底，界面照常出结果但明确标识降级，审计记 FALLBACK。涉密数据的用法也强调一下：让管理员把敏感源的分析锁定在本地引擎上，提示词不出去，数据不出去，合规安心。</div>
 </section>
 
@@ -850,6 +854,7 @@
       <p style="font-size:14px;color:var(--accent-2);line-height:1.7;">React + TypeScript 前端 · Node 服务端 · SSE 流式 · MySQL/PG/GP 多源 · Ollama 本地推理 · JWT 鉴权 · Docker Compose；推送前 7 道自动化门禁（编译 / 契约 / 状态巡检 / 全量测试）把关。</p>
     </div>
   </div>
+  <img src="assets/images/deploy-rocket.png" alt="" data-anim="zoom-in" style="display:block;height:170px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
   <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：一千零三十五个单元测试全部通过，覆盖了最要命的安全校验、权限注入，以及最新的 Fallback 对抗训练链路；十个端到端用例分三套套件，模拟真实用户的完整操作路径；一百一十二个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前端、服务端加空值检查三档 TypeScript 严格模式编译零错误。而且这些不是摆设——每次代码推送前有七道自动化门禁，任何一道红灯都会被拒绝，质量不是口号，是门禁。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地推理。对企业来说，这意味着低运维成本和长期可维护性。</div>
 </section>
 
