@@ -40,7 +40,7 @@
       }
       const ft = document.createElement('div');
       ft.className = 'deck-footer';
-      ft.append(Object.assign(document.createElement('span'), { textContent: '内部培训材料' }), Object.assign(document.createElement('span'), { textContent: '← → 翻页 · S 演讲者视图 · O 总览 · N 备注' }));
+      ft.append(Object.assign(document.createElement('span'), { textContent: '内部培训材料' }), Object.assign(document.createElement('span'), { textContent: '← → 翻页 · S 演讲者视图 · O 总览 · N 备注 · T 字体' }));
       sl.appendChild(ft);
       const no = document.createElement('div');
       no.className = 'slide-number';
@@ -74,8 +74,45 @@
     chan.onmessage = (e) => {
       const d = e.data || {};
       if (d.type === 'goto' && d.from !== who) goto(d.idx, false);
+      else if (d.type === 'font' && d.from !== who) applyFont(d.id);
     };
   } catch { /* BroadcastChannel 不可用时退化为单窗口 */ }
+
+  /* ---------- 字体主题（T 键切换，localStorage 记忆） ---------- */
+  const FONT_THEMES = [
+    { id: 'modern', name: '现代黑体', tip: '清晰通用 · 日常培训' },
+    { id: 'serif', name: '典雅宋体', tip: '正式汇报 · 书卷气质' },
+  ];
+  const FONT_KEY = 'sdas-font';
+  let fontId = 'modern';
+  try { fontId = localStorage.getItem(FONT_KEY) || 'modern'; } catch {}
+  if (!FONT_THEMES.some((f) => f.id === fontId)) fontId = 'modern';
+
+  let toastEl = null;
+  let toastTimer = 0;
+  function applyFont(id, announce = false) {
+    fontId = FONT_THEMES.some((f) => f.id === id) ? id : 'modern';
+    if (fontId === 'modern') delete document.documentElement.dataset.font;
+    else document.documentElement.dataset.font = fontId;
+    try { localStorage.setItem(FONT_KEY, fontId); } catch {}
+    if (!announce) return;
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.className = 'font-toast';
+      document.body.appendChild(toastEl);
+    }
+    const th = FONT_THEMES.find((f) => f.id === fontId);
+    toastEl.textContent = `字体主题：${th.name} · ${th.tip}（再按 T 切换）`;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+  }
+  function cycleFont() {
+    const i = FONT_THEMES.findIndex((f) => f.id === fontId);
+    const nx = FONT_THEMES[(i + 1) % FONT_THEMES.length].id;
+    applyFont(nx, true);
+    if (chan) chan.postMessage({ type: 'font', id: nx, from: who });
+  }
 
   /* iframe 预览控制：父窗口（演讲者）向 iframe postMessage 切页 */
   addEventListener('message', (e) => {
@@ -129,6 +166,7 @@
     else if (k === 'o' || k === 'O') toggleOverview();
     else if (k === 'n' || k === 'N') toggleDrawer();
     else if (k === 's' || k === 'S') openPresenter();
+    else if (k === 't' || k === 'T') cycleFont();
     else if (k === 'Escape') {
       document.body.classList.remove('overview');
       drawer && drawer.classList.remove('open');
@@ -268,6 +306,7 @@
   /* ---------- 启动 ---------- */
   injectChrome();
   fit();
+  applyFont(fontId);
 
   if (PRESENTER) {
     buildPresenter();

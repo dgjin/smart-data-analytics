@@ -175,7 +175,7 @@ src/
 docs/用户使用指南.md      # 终端用户操作向导（系统内帮助实时读取）
 docs/更新日志.md            # 用户视角版本更新记录（帮助面板「更新日志」实时读取）
 docs/系统功能说明书.md    # 功能单一事实源（开发/评审侧，变更记录）
-docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides）
+docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T 键切换字体主题）
 ```
 
 ## 测试与检查
