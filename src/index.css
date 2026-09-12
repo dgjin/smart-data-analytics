@@ -31,6 +31,9 @@ html.light {
   --color-amber-400: #d97706;
   --color-orange-300: #ea580c;
   --color-orange-400: #ea580c;
+  /* Agent 编排专属色系（fuchsia）：计划卡/执行结果卡标题、序号与开关文字 */
+  --color-fuchsia-300: #c026d3;
+  --color-fuchsia-400: #c026d3;
   /* 100/200 档文字同样提深（提示卡、徽章内的浅色文字） */
   --color-indigo-100: #4338ca;
   --color-indigo-200: #4338ca;
@@ -39,6 +42,7 @@ html.light {
   --color-amber-200: #b45309;
   --color-rose-200: #be123c;
   --color-emerald-200: #047857;
+  --color-fuchsia-200: #a21caf;
   /* 950/900 档半透明深底（提示卡/徽章）翻转为对应浅色调底 */
   --color-rose-950: #fff1f2;
   --color-rose-900: #ffe4e6;
@@ -54,6 +58,7 @@ html.light {
   --color-amber-900: #fde68a;
   --color-sky-950: #e0f2fe;
   --color-sky-900: #bae6fd;
+  --color-fuchsia-950: #fae8ff;
 }
 
 html.light body {
