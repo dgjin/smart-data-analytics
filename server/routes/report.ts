@@ -18,6 +18,8 @@ import { normalizeAmountUnit } from '../query/liveQuery';
 import { runSimulatedReport } from '../report/simulatedReport';
 import { getFallbackExecutiveReport } from '../serverFallbacks';
 import { normalizeExportData, buildReportPptx, buildExportFilename } from '../report/reportExport';
+import { buildReportExcel } from '../report/reportExportExcel';
+import { buildReportWord } from '../report/reportExportWord';
 import { runPdfGenerator } from '../report/pdfExport';
 import { normalizeReport } from '../../src/utils/queryResultNormalizer';
 import { getPool } from '../infra/db';
@@ -577,6 +579,72 @@ router.post('/export-pdf', express.json({ limit: '20mb' }), rateLimiter, authMid
     logger.error('Report PDF Export Error:', err);
     writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: String(err?.message || 'PDF 生成失败，请稍后重试').slice(0, 200) });
+  }
+});
+
+// 4e. P0-2 报告 Excel 导出：服务端用 exceljs 组装 XLSX（摘要/核心 KPI/图表嵌入），图表由前端转 base64 PNG 提交
+router.post('/export-excel', express.json({ limit: '20mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
+
+  // L2 权限层：Service 侧复核
+  if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告导出权限`, durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告导出权限' });
+  }
+
+  const data = normalizeExportData(req.body?.report ?? req.body);
+  if (!data) {
+    writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告导出参数无效' });
+  }
+  // P2-12 DLP 导出水印：服务端注入导出人（覆盖前端传入，防伪造）
+  data.exportedBy = `${user.username}${user.department ? `（${user.department}）` : ''} · ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
+
+  try {
+    const buffer = await buildReportExcel(data);
+    writeAudit({ ...auditBase, question: `export-excel:${data.title}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.xlsx'))}`);
+    return res.send(buffer);
+  } catch (err: any) {
+    logger.error('Report Excel Export Error:', err);
+    writeAudit({ ...auditBase, question: `export-excel:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'Excel 生成失败，请稍后重试' });
+  }
+});
+
+// 4f. P0-2 报告 Word 导出：服务端用 docx 组装 DOCX（摘要/KPI 表格/图表嵌入/结论），图表由前端转 base64 PNG 提交
+router.post('/export-word', express.json({ limit: '20mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
+
+  // L2 权限层：Service 侧复核
+  if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无报告导出权限`, durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有报告导出权限' });
+  }
+
+  const data = normalizeExportData(req.body?.report ?? req.body);
+  if (!data) {
+    writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '报告导出参数非法（缺少标题或结构错误）', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '报告导出参数无效' });
+  }
+  // P2-12 DLP 导出水印：服务端注入导出人（覆盖前端传入，防伪造）
+  data.exportedBy = `${user.username}${user.department ? `（${user.department}）` : ''} · ${new Date().toLocaleString('zh-CN', { hour12: false })}`;
+
+  try {
+    const buffer = await buildReportWord(data);
+    writeAudit({ ...auditBase, question: `export-word:${data.title}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.docx'))}`);
+    return res.send(buffer);
+  } catch (err: any) {
+    logger.error('Report Word Export Error:', err);
+    writeAudit({ ...auditBase, question: `export-word:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'Word 生成失败，请稍后重试' });
   }
 });
 

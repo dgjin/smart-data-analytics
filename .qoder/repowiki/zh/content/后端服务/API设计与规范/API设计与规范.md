@@ -11,10 +11,27 @@
 - [server/infra/requestLogger.ts](file://server/infra/requestLogger.ts)
 - [server/infra/monitoring.ts](file://server/infra/monitoring.ts)
 - [server/routes/query.ts](file://server/routes/query.ts)
+- [server/routes/abTest.ts](file://server/routes/abTest.ts)
+- [server/routes/accessRequests.ts](file://server/routes/accessRequests.ts)
+- [server/routes/export.ts](file://server/routes/export.ts)
+- [server/routes/fallbackApproval.ts](file://server/routes/fallbackApproval.ts)
+- [server/routes/opsMetrics.ts](file://server/routes/opsMetrics.ts)
+- [server/routes/opsDrift.ts](file://server/routes/opsDrift.ts)
+- [server/routes/help.ts](file://server/routes/help.ts)
+- [server/routes/queryContext.ts](file://server/routes/queryContext.ts)
+- [server/routes/savedReports.ts](file://server/routes/savedReports.ts)
 - [docs/openapi.json](file://docs/openapi.json)
 - [scripts/checkOpenapi.mjs](file://scripts/checkOpenapi.mjs)
 - [scripts/sync-openapi.py](file://scripts/sync-openapi.py)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 路由数量从19个扩展至27个，新增A/B测试分析、权限申请审批流、DLP导出通道、回退样本审核、运维指标看板、知识库漂移检测等核心功能模块
+- OpenAPI契约端点从基础接口扩展至112个完整端点，覆盖系统管理、数据源、问数、报告、知识、运维等全业务域
+- 新增多个专业领域路由：AB测试分析（/api/admin/ab-test）、权限申请（/api/access-requests）、DLP导出（/api/export）、运维监控（/api/ops）等
+- 强化安全与合规能力：引入数据防泄漏机制、访问控制审批流、审计日志追踪
+- 完善可观测性体系：北极星指标聚合、知识库漂移检测、在线准确率度量
 
 ## 目录
 1. [简介](#简介)
@@ -29,7 +46,9 @@
 10. [附录](#附录)
 
 ## 简介
-本文件面向“智能问数据分析系统”的后端API，基于Express.js构建RESTful服务，系统化说明路由组织、中间件机制、错误处理策略；统一API版本与请求响应格式、状态码与错误码体系；认证授权（JWT、RBAC）、请求限流、CORS与安全头；OpenAPI文档生成与同步校验；接口测试策略；并给出最佳实践、性能优化与安全加固建议。
+本文件面向"智能问数据分析系统"的后端API，基于Express.js构建RESTful服务，系统化说明路由组织、中间件机制、错误处理策略；统一API版本与请求响应格式、状态码与错误码体系；认证授权（JWT、RBAC）、请求限流、CORS与安全头；OpenAPI文档生成与同步校验；接口测试策略；并给出最佳实践、性能优化与安全加固建议。
+
+**更新** 本次更新反映系统API成熟度的显著提升，路由数量从19个增长到27个，OpenAPI契约端点从基础接口扩展到112个完整端点，涵盖完整的企业管理级功能。
 
 ## 项目结构
 后端以单入口 server.ts 启动 Express 应用，集中注册全局中间件与安全头，挂载各业务路由模块；认证与鉴权集中在 server/auth；通用基础设施（日志、监控、限流、错误码）在 server/infra；业务路由按领域拆分至 server/routes；OpenAPI 规范位于 docs/openapi.json，并提供脚本进行同步校验与补齐。
@@ -43,7 +62,12 @@ A --> E["限流器<br/>server/infra/rateLimiter.ts"]
 A --> F["路由集合<br/>server/routes/*"]
 F --> F1["认证路由<br/>server/routes/auth.ts"]
 F --> F2["问数主链路<br/>server/routes/query.ts"]
-F --> F3["其他业务路由..."]
+F --> F3["A/B测试分析<br/>server/routes/abTest.ts"]
+F --> F4["权限申请审批<br/>server/routes/accessRequests.ts"]
+F --> F5["DLP导出通道<br/>server/routes/export.ts"]
+F --> F6["运维指标看板<br/>server/routes/opsMetrics.ts"]
+F --> F7["知识库漂移检测<br/>server/routes/opsDrift.ts"]
+F --> F8["其他业务路由..."]
 A --> G["OpenAPI规范<br/>docs/openapi.json"]
 A --> H["OpenAPI校验脚本<br/>scripts/checkOpenapi.mjs"]
 ```
@@ -54,10 +78,11 @@ A --> H["OpenAPI校验脚本<br/>scripts/checkOpenapi.mjs"]
 - [server/infra/requestLogger.ts:19-35](file://server/infra/requestLogger.ts#L19-L35)
 - [server/infra/monitoring.ts:80-88](file://server/infra/monitoring.ts#L80-L88)
 - [server/infra/rateLimiter.ts:14-42](file://server/infra/rateLimiter.ts#L14-L42)
-- [server/routes/auth.ts:41-156](file://server/routes/auth.ts#L41-L156)
-- [server/routes/query.ts:46-200](file://server/routes/query.ts#L46-L200)
-- [docs/openapi.json:1-84](file://docs/openapi.json#L1-L84)
-- [scripts/checkOpenapi.mjs:1-75](file://scripts/checkOpenapi.mjs#L1-L75)
+- [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
+- [server/routes/accessRequests.ts:1-141](file://server/routes/accessRequests.ts#L1-L141)
+- [server/routes/export.ts:1-226](file://server/routes/export.ts#L1-L226)
+- [server/routes/opsMetrics.ts:1-327](file://server/routes/opsMetrics.ts#L1-L327)
+- [server/routes/opsDrift.ts:1-80](file://server/routes/opsDrift.ts#L1-L80)
 
 **章节来源**
 - [server.ts:82-296](file://server.ts#L82-L296)
@@ -70,6 +95,8 @@ A --> H["OpenAPI校验脚本<br/>scripts/checkOpenapi.mjs"]
 - 错误处理：统一错误响应体与错误码体系，便于前端精准分支。
 - 可观测性：结构化访问日志、Prometheus指标（HTTP耗时、LLM调用、SQL执行等）。
 - OpenAPI：规范文档与同步校验脚本，保障代码与文档一致。
+
+**更新** 新增企业级功能组件：A/B测试分析引擎、权限申请审批工作流、数据防泄漏(DLP)机制、运维指标聚合分析、知识库漂移检测等。
 
 **章节来源**
 - [server.ts:133-280](file://server.ts#L133-L280)
@@ -263,6 +290,54 @@ R-->>U : JSON或SSE事件
 **章节来源**
 - [server/routes/query.ts:46-200](file://server/routes/query.ts#L46-L200)
 
+### A/B测试分析模块
+- 实验统计：获取A/B测试统计数据，支持按天数范围查询。
+- 历史记录：查询历史实验记录，支持分页限制。
+- 快速概览：提供最近24小时的关键指标对比，包括成功率差距和延迟改进。
+
+**章节来源**
+- [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
+
+### 权限申请审批流
+- 申请提交：登录用户可申请特定数据源的访问权限，支持理由说明。
+- 审批管理：管理员可查看待审批申请，支持通过/驳回操作。
+- 自动授权：审批通过后自动授予用户相应数据源访问权限。
+
+**章节来源**
+- [server/routes/accessRequests.ts:1-141](file://server/routes/accessRequests.ts#L1-L141)
+
+### DLP数据防泄漏通道
+- CSV导出：统一CSV导出接口，支持水印嵌入和行数限制。
+- 审批机制：超过阈值的导出需要管理员审批，支持一次性授权。
+- 审计追踪：所有导出操作记录审计日志，支持溯源分析。
+
+**章节来源**
+- [server/routes/export.ts:1-226](file://server/routes/export.ts#L1-L226)
+
+### 运维指标看板
+- 北极星指标：聚合点赞/点踩/澄清/拒答/自纠错触发/缓存命中率等关键指标。
+- 趋势分析：支持日级和周级趋势分析，可筛选特定数据源。
+- 实时统计：近N天统计数据，支持动态天数查询。
+
+**章节来源**
+- [server/routes/opsMetrics.ts:1-327](file://server/routes/opsMetrics.ts#L1-L327)
+
+### 知识库漂移检测
+- 事件监控：检测知识库表结构的变更事件，支持观察列登记。
+- 手动扫描：支持对指定或全部数据源进行漂移扫描。
+- 事件确认：管理员可确认漂移事件，跟踪处理状态。
+
+**章节来源**
+- [server/routes/opsDrift.ts:1-80](file://server/routes/opsDrift.ts#L1-L80)
+
+### 回退样本审核
+- 困难样本：识别和处理问数系统中的困难样本，支持优先级排序。
+- 批量操作：支持批量批准/拒绝样本，自动注入Few-Shot学习库。
+- 人工标注：管理员可为样本标注期望SQL，提升模型准确性。
+
+**章节来源**
+- [server/routes/fallbackApproval.ts:1-200](file://server/routes/fallbackApproval.ts#L1-L200)
+
 ## 依赖关系分析
 - 外部依赖：express、jsonwebtoken、mysql2、prom-client、ioredis等。
 - 内部依赖：server.ts 聚合各路由与中间件；auth 模块被多个路由复用；infra 提供通用能力。
@@ -272,17 +347,28 @@ R-->>U : JSON或SSE事件
 graph LR
 ST["server.ts"] --> AR["routes/auth.ts"]
 ST --> QR["routes/query.ts"]
+ST --> ABT["routes/abTest.ts"]
+ST --> ARQ["routes/accessRequests.ts"]
+ST --> EXP["routes/export.ts"]
+ST --> OPS["routes/opsMetrics.ts"]
+ST --> DRIFT["routes/opsDrift.ts"]
 ST --> IR["infra/*"]
 AR --> AU["auth/auth.ts"]
 QR --> AU
-QR --> IR
-AR --> IR
+ABT --> AU
+ARQ --> AU
+EXP --> AU
+OPS --> AU
+DRIFT --> AU
 ```
 
 **图表来源**
 - [server.ts:22-64](file://server.ts#L22-L64)
-- [server/routes/auth.ts:1-20](file://server/routes/auth.ts#L1-L20)
-- [server/routes/query.ts:17-43](file://server/routes/query.ts#L17-L43)
+- [server/routes/abTest.ts:1-10](file://server/routes/abTest.ts#L1-L10)
+- [server/routes/accessRequests.ts:1-15](file://server/routes/accessRequests.ts#L1-L15)
+- [server/routes/export.ts:1-17](file://server/routes/export.ts#L1-L17)
+- [server/routes/opsMetrics.ts:1-11](file://server/routes/opsMetrics.ts#L1-L11)
+- [server/routes/opsDrift.ts:1-21](file://server/routes/opsDrift.ts#L1-L21)
 
 **章节来源**
 - [server.ts:22-64](file://server.ts#L22-L64)
@@ -296,7 +382,7 @@ AR --> IR
 - 并发控制：用户级并发槽串行化昂贵操作，降低抖动。
 - 多实例：Redis限流与状态外置，消除冷启动抖动与计数不一致。
 
-[本节为通用指导，不直接分析具体文件]
+**更新** 新增企业级性能优化：A/B测试统计分析采用异步处理、权限申请审批流支持批量操作、DLP导出支持流式处理、运维指标聚合优化查询性能。
 
 ## 故障排查指南
 - 登录失败/令牌无效：检查JWT_SECRET配置与过期时间；确认用户状态ACTIVE且未被禁用。
@@ -304,6 +390,8 @@ AR --> IR
 - 429限流：检查RATE_LIMIT_MAX与客户端重试策略；Redis模式下关注连接稳定性。
 - 404/500：查看全局错误兜底日志；确认路由挂载与OpenAPI同步校验通过。
 - 监控与日志：通过 /metrics 抓取指标；利用 X-Request-Id 关联请求日志。
+
+**更新** 新增故障排查要点：A/B测试结果异常检查、权限申请审批状态跟踪、DLP导出审批流程监控、运维指标数据完整性验证。
 
 **章节来源**
 - [server/auth/auth.ts:66-127](file://server/auth/auth.ts#L66-L127)
@@ -313,9 +401,9 @@ AR --> IR
 - [server/infra/monitoring.ts:135-153](file://server/infra/monitoring.ts#L135-L153)
 
 ## 结论
-本系统采用清晰的Express中间件链路与模块化路由设计，配合JWT+RBAC、统一错误码、限流与可观测性，形成高可用、可运维、可扩展的API体系。通过OpenAPI规范与自动化校验，确保接口契约稳定可靠。建议在后续迭代中持续完善CORS策略、细化限流维度、增强审计与合规能力。
+本系统采用清晰的Express中间件链路与模块化路由设计，配合JWT+RBAC、统一错误码、限流与可观测性，形成高可用、可运维、可扩展的API体系。通过OpenAPI规范与自动化校验，确保接口契约稳定可靠。
 
-[本节为总结性内容，不直接分析具体文件]
+**更新** 经过大幅扩展，系统现已具备完整的企业级API能力，涵盖19个基础路由扩展至27个专业路由，OpenAPI契约端点达到112个，支持A/B测试分析、权限审批、数据防泄漏、运维监控等企业核心需求。建议在后续迭代中持续完善CORS策略、细化限流维度、增强审计与合规能力。
 
 ## 附录
 
@@ -356,16 +444,35 @@ AR --> IR
 - 输入净化与注入拒绝；金额单位白名单校验。
 - 数据源ACL与部门维度授权；敏感列自动剔除。
 
+**更新** 新增安全能力：DLP数据防泄漏机制、权限申请审批流程、审计日志追踪、知识库漂移检测等企业级安全措施。
+
 **章节来源**
 - [server.ts:91-96](file://server.ts#L91-L96)
 - [server.ts:145-167](file://server.ts#L145-L167)
-- [server/routes/query.ts:70-94](file://server/routes/query.ts#L70-L94)
+- [server/routes/query.ts:70-94](file://server/routes/query.ts#L70-94)
 
 ### 接口测试策略
 - 单元测试：针对关键函数与工具模块（如queryGuard、sqlExecutor等）编写用例。
 - 端到端测试：使用Playwright对关键用户流程进行冒烟测试。
 - OpenAPI校验：CI中运行 npm run docs:check 保证文档与代码一致。
 
+**更新** 新增测试覆盖：A/B测试分析、权限审批流程、DLP导出、运维指标等新增功能的测试用例。
+
 **章节来源**
 - [package.json:15-24](file://package.json#L15-L24)
 - [scripts/checkOpenapi.mjs:1-75](file://scripts/checkOpenapi.mjs#L1-L75)
+
+### 新增路由模块概览
+系统现已支持以下专业领域路由模块：
+
+- **A/B测试分析** (`/api/admin/ab-test`)：实验统计、历史记录、快速概览
+- **权限申请审批** (`/api/access-requests`)：申请提交、审批管理、自动授权
+- **DLP导出通道** (`/api/export`)：CSV导出、水印嵌入、审批机制
+- **运维指标看板** (`/api/ops/metrics`)：北极星指标、趋势分析、实时监控
+- **知识库漂移检测** (`/api/ops/drift`)：事件监控、手动扫描、事件确认
+- **回退样本审核** (`/api/admin/fallback-approval`)：困难样本、批量操作、人工标注
+- **帮助文档** (`/api/help`)：使用指南、更新日志、文档管理
+- **问数上下文** (`/api/query/context`)：Schema上下文、权限控制、表范围管理
+- **保存报表** (`/api/saved-reports`)：报表持久化、协同批注、版本管理
+
+这些新增模块体现了系统从基础问数工具向企业级数据分析平台的演进，提供了完整的权限管理、数据安全、运维监控和企业协作能力。

@@ -12,6 +12,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   SlidersHorizontal,
+  Radar,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -92,6 +93,13 @@ export const Sidebar: React.FC = () => {
       sublabel: '智能问数报告模式生成的报告',
       icon: FileText,
       badge: '报告模式',
+    },
+    {
+      id: 'patrol',
+      label: '异常巡检',
+      sublabel: '数据源级自动巡检与异常预警',
+      icon: Radar,
+      badge: '主动预警',
     },
     {
       id: 'dashboard',

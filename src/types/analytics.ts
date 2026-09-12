@@ -14,7 +14,7 @@ export interface AuthUser {
   mustChangePassword?: boolean;
 }
 
-export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery';
+export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery' | 'patrol';
 
 export interface ColumnSchema {
   name: string;
@@ -368,4 +368,34 @@ export interface QueryReport {
   templateName: string;
   reportData: SavedReport; // 复用现有 SavedReport 类型
   createdAt: string;
+}
+
+// P0-1 异常巡检订阅：数据源级巡检计划（到期扫描该数据源最新 live 决策报表的异常）
+export interface PatrolPlan {
+  patrolId: string;
+  userId: number;
+  username: string;
+  dataSourceId: string;
+  name: string;
+  intervalMinutes: number;
+  status: 'ACTIVE' | 'PAUSED';
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastRunStatus: '' | 'ANOMALY' | 'CLEAN' | 'NO_DATA' | 'ERROR';
+  lastAnomalyCount: number;
+  createdAt: string | null;
+}
+
+// P0-1 巡检运行记录（含异常明细 Top10）
+export interface PatrolRun {
+  id: number;
+  patrolId: string;
+  runAt: string | null;
+  status: 'ANOMALY' | 'CLEAN' | 'NO_DATA' | 'ERROR';
+  reportId: string;
+  reportTitle: string;
+  anomalyCount: number;
+  highCount: number;
+  anomalies: AnomalyItem[];
+  error: string;
 }

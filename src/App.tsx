@@ -15,6 +15,8 @@ const CustomDashboard = lazy(() => import('./components/dashboard/CustomDashboar
 const FlexQueryBuilder = lazy(() => import('./components/flexquery/FlexQueryBuilder').then((m) => ({ default: m.FlexQueryBuilder })));
 // v0.5.0：智能问数报告中心（问数报告模式生成的报告列表与详情）
 const QueryReportCenter = lazy(() => import('./components/reports/QueryReportCenter').then((m) => ({ default: m.QueryReportCenter })));
+// P0-1 异常巡检中心（数据源级巡检计划配置与异常预警结果）
+const PatrolCenter = lazy(() => import('./components/reports/PatrolCenter').then((m) => ({ default: m.PatrolCenter })));
 
 export default function App() {
   const { activeTab, setActiveTab, loadDataSources } = useAnalyticsStore();
@@ -68,6 +70,8 @@ export default function App() {
         return <ReportGenerator />;
       case 'query-reports':
         return <QueryReportCenter />;
+      case 'patrol':
+        return <PatrolCenter />;
       case 'datasources':
         return user.role === 'ADMIN' ? <DataSourceManager /> : <CustomDashboard />;
       case 'admin':

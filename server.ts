@@ -66,6 +66,9 @@ import { registerBuiltinTaskHandlers } from './server/taskHandlers';
 // P2-5 SSE 断线续传：重放缓冲周期清扫（改进计划 2-5）
 import { startSseReplaySweeper } from './server/query/sseReplayBuffer';
 import { startDriftSweeper } from './server/driftDetector';
+// P0-1 异常巡检订阅：数据源级巡检计划 + 内置低频调度器
+import patrolRoutes from './server/routes/patrols';
+import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -105,6 +108,9 @@ async function startServer() {
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
 
+  // P0-1 异常巡检订阅：建表（幂等）——先于调度器启动，确保首个 tick 可用
+  await ensurePatrolTables();
+
   // v0.9.40 问数专家角色库播种：表为空时写入内置 5 角色（幂等；失败仅告警，问数回退内置常量路由）
   // v0.9.43 起播种后追加内置内容版本同步：版本升级时一次性刷新内置角色的标签/关键词/提示词
   try {
@@ -136,6 +142,8 @@ async function startServer() {
   // P2-5 SSE 断线续传：重放缓冲周期清扫（终态 TTL 10 分钟 / 进行中 30 分钟）
   startSseReplaySweeper();
   startDriftSweeper();
+  // P0-1 异常巡检订阅：低频调度器（到期计划扫描最新 live 决策报表的异常）
+  startPatrolScheduler();
 
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });
@@ -291,6 +299,8 @@ async function startServer() {
   app.use('/api/export', exportRoutes);
   // v0.9.2 异步任务查询/下载（见 server/routes/tasks.ts）
   app.use('/api/tasks', taskRoutes);
+  // P0-1 异常巡检订阅（见 server/routes/patrols.ts）
+  app.use('/api/patrols', patrolRoutes);
 
   // API 兜底 404：所有未匹配的 /api/* 请求（任意方法）统一返回 JSON，
   // 避免 Express 默认 404 HTML 页面导致前端 res.json() 抛出 "Unexpected token '<', <!DOCTYPE..."

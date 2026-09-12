@@ -28,15 +28,17 @@
 - **多源接入**：MySQL / PostgreSQL / Greenplum / CSV / API / JSON
 - **Scope 白名单 + 敏感列过滤**：问数仅访问授权表，敏感字段自动剔除
 - **行级权限**：scope 登记表级行过滤谓词，所有真实执行链路由 AST 强制注入为过滤派生表（fail-closed）
-- **语义指标层**：管理员登记指标口径（同义词/聚合表达式/固定过滤），问数命中即模板化注入，口径全系统一致
+- **语义指标层**：管理员登记指标口径（同义词/聚合表达式/固定过滤，带审批状态 PENDING/ACTIVE/REJECTED/DISABLED 与版本历史，仅 ACTIVE 参与注入），问数命中即模板化注入，口径全系统一致；使用侧在三级溯源的指标口径卡同步可见审批状态与版本历史（P0-4）
 - **知识库**：业务术语、指标口径、字段含义检索注入（带 token 预算）；可接入外部 RAG 知识服务（POST 检索协议 + 无/Bearer 认证，API Key 加密落库不出明文，接口配置仅管理员，支持生效范围与连通测试）
 - **SQL 样例库**：训练语料 CRUD，支持批量粘贴 SQL 由 LLM 反推问题冷启动导入
 - **技能库**：个人/系统提示模板，支持分享-审核流
 - **数据血缘**：数据流向与依赖可视化
 
 ### 分析与呈现
-- **可视化决策报表**：一键生成高管分析简报，支持报告计划模式（批准后生成）、PPT 下载（服务端 pptxgenjs）、PDF 导出、图表批注与图表点击下钻明细（LIMIT 50）；图表同/环比对比仅限时间序列维度（分类维度自动禁用，防维度错配伪数据）；历史报表服务端持久化（团队共享），支持修改条件重新生成与删除维护
-- **问数报告中心**：智能问数报告模式生成的报告集中展示与管理（列表/详情/删除/导出 PDF/PPT），支持自定义报告模板（管理员维护，预设模板不可改删）
+- **可视化决策报表**：一键生成高管分析简报，支持报告计划模式（批准后生成）、PPT 下载（服务端 pptxgenjs）、PDF 导出、Excel/Word 下载（P0-2 服务端 exceljs / docx 组装）、图表批注与图表点击下钻明细（LIMIT 50）；图表同/环比对比仅限时间序列维度（分类维度自动禁用，防维度错配伪数据）；历史报表服务端持久化（团队共享），支持修改条件重新生成与删除维护
+- **异常巡检中心**（P0-1）：数据源级巡检计划（每小时~每周）按期自动扫描最新真实数据报表，复用异常检测引擎（Z-Score/阈值）主动预警，含立即巡检、暂停/启用、运行历史与异常明细（严重度分级）；内置调度器多实例原子领取不重复执行
+- **三级数据溯源**（P0-3）：问数结果「查看生成的 SQL」逐级展开「指标口径卡（口径/审批状态/版本历史）→ 表关联图（主表+JOIN 链）→ SQL 与原始数据」
+- **问数报告中心**：智能问数报告模式生成的报告集中展示与管理（列表/详情/删除/导出 PDF/PPT/Excel/Word），支持自定义报告模板（管理员维护，预设模板不可改删）
 - **决策数据看板**：固化指标图表（服务端持久化、团队共享同一看板），适合日常巡检与大屏投放；支持拖拽排序、拽拉调尺寸与出厂默认图表
 - **灵活查询**：拖拉拽定制固定报表（服务端持久化、团队共享复用），最近查询历史跨设备同步
 - **深浅色主题**：一键切换，偏好持久化
@@ -54,7 +56,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
-| 测试 | Vitest（81 文件 / 905 用例）+ NL2SQL 评测集（server/eval，148 用例：六类分层 + 行级权限类；`npm run eval:seed` 一键重建可复现评测数据源） |
+| 测试 | Vitest（95 文件 / 1064 用例）+ NL2SQL 评测集（server/eval，148 用例：六类分层 + 行级权限类；`npm run eval:seed` 一键重建可复现评测数据源） |
 
 ## 快速开始
 
@@ -166,9 +168,10 @@ server/
   sqlExecutor.ts           # 只读安全 SQL 执行
   auditLog.ts              # 问数审计
   llmClient.ts             # Ollama/Gemini 统一 LLM 通道
+  anomalyPatrol.ts         # P0-1 异常巡检引擎（巡检计划/内置调度器/复用报表异常检测）
   pdfExport.ts             # 报告 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
   pdfgen/report_pdf.py     # ReportLab 排版脚本（A4 竖/横版、中文 CID 字体、图表 PNG 嵌入）
-  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/metrics/conversations/help
+  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help
 src/
   components/              # query/charts/reports/dashboard/datasource/help/admin/auth
   hooks/  utils/  types/   # 状态管理（Zustand）与工具
@@ -181,7 +184,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（905 用例）
+npm test             # Vitest（1064 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

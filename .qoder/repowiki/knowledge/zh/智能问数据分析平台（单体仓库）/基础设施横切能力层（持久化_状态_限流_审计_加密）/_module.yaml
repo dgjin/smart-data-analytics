@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: infrastructure
-title: 基础设施层（数据库、状态存储、日志与限流）
+title: 基础设施横切能力层（持久化/状态/限流/审计/加密）
 scope:
     - server/infra/
 source_files: []

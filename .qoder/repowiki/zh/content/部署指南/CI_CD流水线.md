@@ -14,7 +14,18 @@
 - [scripts/check-stateless.ts](file://scripts/check-stateless.ts)
 - [server/eval/checkEvalSet.ts](file://server/eval/checkEvalSet.ts)
 - [tests/e2e/smoke.spec.ts](file://tests/e2e/smoke.spec.ts)
+- [tests/e2e/flexquery.spec.ts](file://tests/e2e/flexquery.spec.ts)
+- [server/infra/health.ts](file://server/infra/health.ts)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 新增端到端测试作业（e2e），使用Playwright对真实MySQL数据库服务容器进行测试
+- 添加MySQL 8.0服务容器配置，包含健康检查和环境变量设置
+- 集成Node.js 22环境配置和Playwright Chromium浏览器安装
+- 实现就绪探针等待机制，使用/api/health/ready端点确保服务完全启动
+- 更新Playwright配置，增加超时时间和重试机制
+- 增强E2E测试覆盖范围，包括灵活查询功能测试
 
 ## 目录
 1. [简介](#简介)
@@ -29,7 +40,9 @@
 10. [附录](#附录)
 
 ## 简介
-本文件面向“智能问数据分析系统”的持续集成与持续交付（CI/CD）流水线，聚焦 GitHub Actions 工作流配置、自动化测试策略、代码质量门禁、制品构建与发布、部署与回滚策略、通知与失败处理等。内容基于仓库中现有配置与脚本进行说明，确保读者可据此理解并扩展流水线。
+本文件面向"智能问数据分析系统"的持续集成与持续交付（CI/CD）流水线，聚焦 GitHub Actions 工作流配置、自动化测试策略、代码质量门禁、制品构建与发布、部署与回滚策略、通知与失败处理等。内容基于仓库中现有配置与脚本进行说明，确保读者可据此理解并扩展流水线。
+
+**更新** 新增了完整的端到端测试作业，支持真实MySQL数据库环境的E2E测试，提升了测试的准确性和可靠性。
 
 ## 项目结构
 仓库采用前后端同仓管理：前端使用 Vite + React + Tailwind，后端为 Express + TypeScript；测试覆盖单元（Vitest）、端到端（Playwright），并通过自定义脚本完成 OpenAPI 同步校验与进程内状态巡检。制品通过多阶段 Docker 构建，运行期仅包含生产依赖。
@@ -44,30 +57,35 @@ C --> F["OpenAPI 同步校验<br/>scripts/checkOpenapi.mjs"]
 C --> G["进程内状态巡检<br/>scripts/check-stateless.ts"]
 C --> H["Vitest 单测全量"]
 B --> I["评测集结构校验<br/>server/eval/checkEvalSet.ts"]
-C --> J["E2E 冒烟用例<br/>tests/e2e/smoke.spec.ts"]
-C --> K["Docker 镜像构建<br/>Dockerfile 多阶段构建"]
+B --> J["E2E 冒烟用例<br/>tests/e2e/smoke.spec.ts"]
+J --> K["MySQL 8.0 服务容器"]
+J --> L["Playwright Chromium 浏览器"]
+J --> M["就绪探针等待<br/>/api/health/ready"]
+B --> N["Docker 镜像构建<br/>Dockerfile 多阶段构建"]
 ```
 
 **图表来源**
-- [.github/workflows/ci.yml:15-38](file://.github/workflows/ci.yml#L15-L38)
-- [.github/workflows/ci.yml:40-67](file://.github/workflows/ci.yml#L40-L67)
-- [package.json:6-24](file://package.json#L6-L24)
-- [Dockerfile:18-46](file://Dockerfile#L18-L46)
+- [.github/workflows/ci.yml:16-114](file://.github/workflows/ci.yml#L16-L114)
+- [playwright.config.ts:30-39](file://playwright.config.ts#L30-L39)
+- [server/infra/health.ts:1-87](file://server/infra/health.ts#L1-L87)
 
 **章节来源**
-- [.github/workflows/ci.yml:1-67](file://.github/workflows/ci.yml#L1-L67)
-- [package.json:1-76](file://package.json#L1-L76)
+- [.github/workflows/ci.yml:1-114](file://.github/workflows/ci.yml#L1-L114)
+- [package.json:1-80](file://package.json#L1-L80)
 
 ## 核心组件
 - 质量门禁作业（quality）：在 push/PR 到 main 时执行 TypeScript 类型检查（前端主配置、服务端严格模式、前端 strictNullChecks）、ESLint 检查、OpenAPI 文档一致性校验、进程内状态巡检、Vitest 全量单测。
 - 评测集门禁作业（eval-gate）：对评测集进行规模与分层覆盖校验，并在检测到 prompt/评测相关文件变更时输出本地全量评测提醒。
+- **新增** 端到端测试作业（e2e）：使用 Playwright 对真实 MySQL 数据库服务容器进行端到端测试，包含登录验证、API 响应检查、知识库面板加载等功能测试。
 - 制品构建：Docker 多阶段构建，构建期编译前端与打包 server.cjs，运行期仅安装生产依赖并以非 root 用户启动，内置健康检查探针。
-- E2E 冒烟：Playwright 自动拉起服务或复用已有实例，验证登录、核心 API JSON 返回、知识库面板加载等关键路径。
+- E2E 冒烟：Playwright 自动拉起服务或复用已有实例，验证登录、核心 API JSON 返回、知识库面板加载等关键路径，支持真实数据库环境测试。
+
+**更新** 新增了完整的E2E测试作业，提供真实的数据库环境测试能力。
 
 **章节来源**
-- [.github/workflows/ci.yml:15-67](file://.github/workflows/ci.yml#L15-L67)
-- [Dockerfile:18-46](file://Dockerfile#L18-L46)
-- [playwright.config.ts:1-39](file://playwright.config.ts#L1-L39)
+- [.github/workflows/ci.yml:16-114](file://.github/workflows/ci.yml#L16-L114)
+- [Dockerfile:18-47](file://Dockerfile#L18-L47)
+- [playwright.config.ts:1-40](file://playwright.config.ts#L1-L40)
 
 ## 架构总览
 下图展示 CI 流水线从代码提交到制品产出的整体流程，以及各阶段的关键工具与产物。
@@ -84,6 +102,7 @@ participant STA as "状态巡检"
 participant VIT as "Vitest"
 participant EVAL as "评测集校验"
 participant PW as "Playwright E2E"
+participant MYSQL as "MySQL 8.0 服务"
 participant DOCK as "Docker 构建"
 Dev->>GH : 推送/创建 PR
 GH->>NPM : npm ci
@@ -93,15 +112,20 @@ NPM->>DOC : npm run docs : check
 NPM->>STA : npm run state : check
 NPM->>VIT : npm test
 GH->>EVAL : npx tsx checkEvalSet.ts (主集/宽表集)
+GH->>MYSQL : 启动 MySQL 8.0 服务容器
 GH->>PW : playwright test (E2E 冒烟)
+PW->>PW : 安装 Playwright Chromium
+PW->>PW : 启动服务并等待 /api/health/ready
+PW->>MYSQL : 连接真实数据库进行测试
+PW-->>GH : 测试结果与失败附件
 GH->>DOCK : docker build (多阶段)
 DOCK-->>Dev : 镜像产物
 ```
 
 **图表来源**
-- [.github/workflows/ci.yml:15-67](file://.github/workflows/ci.yml#L15-L67)
-- [package.json:6-24](file://package.json#L6-L24)
-- [Dockerfile:18-46](file://Dockerfile#L18-L46)
+- [.github/workflows/ci.yml:16-114](file://.github/workflows/ci.yml#L16-L114)
+- [playwright.config.ts:30-39](file://playwright.config.ts#L30-L39)
+- [server/infra/health.ts:1-87](file://server/infra/health.ts#L1-L87)
 
 ## 详细组件分析
 
@@ -166,30 +190,69 @@ E --> F
 - [vite.config.ts:36-39](file://vite.config.ts#L36-L39)
 
 ### 端到端测试策略（Playwright）
-- 默认复用已运行的开发/生产服务，CI 环境下可自动拉起 tsx server.ts。
-- 超时、重试、截图与追踪在失败时保留，便于定位问题。
-- 冒烟用例覆盖登录、核心 API JSON 返回、知识库面板加载等关键路径。
+- **新增** 完整E2E测试作业，使用真实MySQL数据库服务容器进行测试
+- 默认复用已运行的开发/生产服务，CI 环境下可自动拉起 tsx server.ts
+- **新增** MySQL 8.0 服务容器配置，包含健康检查和环境变量设置
+- **新增** Node.js 22 环境配置和 Playwright Chromium 浏览器安装
+- **新增** 就绪探针等待机制，使用 /api/health/ready 端点确保服务完全启动
+- 超时、重试、截图与追踪在失败时保留，便于定位问题
+- 冒烟用例覆盖登录、核心 API JSON 返回、知识库面板加载等关键路径
+- **新增** 灵活查询功能测试，包括数据源选择、字段添加、SQL预览、查询执行等功能
 
 ```mermaid
 sequenceDiagram
 participant CI as "CI 环境"
 participant PW as "Playwright"
 participant Srv as "Node 服务"
+participant MYSQL as "MySQL 8.0"
 participant UI as "浏览器"
 CI->>PW : playwright test
-PW->>Srv : 启动/复用服务/api/health
+PW->>PW : 安装 Playwright Chromium
+PW->>Srv : 启动服务并等待 /api/health/ready
+PW->>MYSQL : 连接真实数据库
 PW->>UI : 打开页面并执行冒烟用例
 UI-->>PW : 断言结果登录/API/面板
 PW-->>CI : 测试结果与失败附件
 ```
 
+**更新** 增强了E2E测试能力，支持真实数据库环境测试。
+
 **图表来源**
-- [playwright.config.ts:1-39](file://playwright.config.ts#L1-L39)
+- [.github/workflows/ci.yml:70-114](file://.github/workflows/ci.yml#L70-L114)
+- [playwright.config.ts:1-40](file://playwright.config.ts#L1-L40)
 - [tests/e2e/smoke.spec.ts:1-87](file://tests/e2e/smoke.spec.ts#L1-L87)
+- [tests/e2e/flexquery.spec.ts:1-128](file://tests/e2e/flexquery.spec.ts#L1-L128)
 
 **章节来源**
-- [playwright.config.ts:1-39](file://playwright.config.ts#L1-L39)
+- [.github/workflows/ci.yml:70-114](file://.github/workflows/ci.yml#L70-L114)
+- [playwright.config.ts:1-40](file://playwright.config.ts#L1-L40)
 - [tests/e2e/smoke.spec.ts:1-87](file://tests/e2e/smoke.spec.ts#L1-L87)
+- [tests/e2e/flexquery.spec.ts:1-128](file://tests/e2e/flexquery.spec.ts#L1-L128)
+
+### 健康检查与就绪探针
+- **新增** 分级健康检查机制：liveness（浅探测）和 readiness（深探测）
+- **新增** MySQL 数据库连接检查，确保应用库可用
+- **新增** Redis 可选检查，仅在外部配置时启用
+- **新增** 并行探测机制，慢依赖不会互相拖累
+- **新增** 超时控制，默认单探测2秒超时
+- **新增** 统一错误处理，异常收敛为健康状态报告
+
+```mermaid
+flowchart TD
+Start(["健康检查请求"]) --> Live["Liveness 检查<br/>进程响应性"]
+Live --> Ready["Readiness 检查<br/>依赖可用性"]
+Ready --> MySQL["MySQL 连接检查"]
+Ready --> Redis["Redis 连接检查<br/>可选"]
+MySQL --> Report["生成健康报告"]
+Redis --> Report
+Report --> End(["返回健康状态"])
+```
+
+**图表来源**
+- [server/infra/health.ts:1-87](file://server/infra/health.ts#L1-L87)
+
+**章节来源**
+- [server/infra/health.ts:1-87](file://server/infra/health.ts#L1-L87)
 
 ### 评测集门禁（结构与阈值契约）
 - 主评测集：最小条数与六类分层覆盖校验（single_agg、join、time、subquery、clarify、refuse）。
@@ -209,11 +272,11 @@ P -- 否 --> OK["通过"]
 ```
 
 **图表来源**
-- [.github/workflows/ci.yml:40-67](file://.github/workflows/ci.yml#L40-L67)
+- [.github/workflows/ci.yml:42-69](file://.github/workflows/ci.yml#L42-L69)
 - [server/eval/checkEvalSet.ts:1-100](file://server/eval/checkEvalSet.ts#L1-L100)
 
 **章节来源**
-- [.github/workflows/ci.yml:40-67](file://.github/workflows/ci.yml#L40-L67)
+- [.github/workflows/ci.yml:42-69](file://.github/workflows/ci.yml#L42-L69)
 - [server/eval/checkEvalSet.ts:1-100](file://server/eval/checkEvalSet.ts#L1-L100)
 
 ### 制品管理与镜像构建
@@ -230,11 +293,11 @@ D --> E["CMD 启动服务"]
 ```
 
 **图表来源**
-- [Dockerfile:18-46](file://Dockerfile#L18-L46)
+- [Dockerfile:18-47](file://Dockerfile#L18-L47)
 - [vite.config.ts:7-18](file://vite.config.ts#L7-L18)
 
 **章节来源**
-- [Dockerfile:18-46](file://Dockerfile#L18-L46)
+- [Dockerfile:18-47](file://Dockerfile#L18-L47)
 - [vite.config.ts:7-18](file://vite.config.ts#L7-L18)
 
 ### 部署自动化（蓝绿/灰度/回滚）
@@ -251,13 +314,16 @@ D --> E["CMD 启动服务"]
 - 失败处理建议：
   - 质量门禁失败：修复类型错误、ESLint 告警、OpenAPI 不一致或状态巡检违规。
   - 评测集门禁失败：补齐评测集规模与分层覆盖。
-  - E2E 失败：根据 Playwright 截图与追踪定位问题。
+  - **新增** E2E 失败：根据 Playwright 截图与追踪定位问题，检查MySQL服务连接和服务就绪状态。
   - 构建失败：检查依赖安装、构建命令与健康检查配置。
+
+**更新** 增加了E2E测试失败的专门处理建议。
 
 [本节为通用实践建议，不涉及具体源码]
 
 ## 依赖关系分析
 - 工作流依赖 npm scripts 提供的命令，脚本又依赖 TypeScript、ESLint、Vitest、Playwright 等工具。
+- **新增** E2E测试依赖MySQL 8.0服务容器和Playwright Chromium浏览器。
 - 构建产物依赖 Vite 与 esbuild 的输出，最终由 Docker 封装为可运行镜像。
 
 ```mermaid
@@ -270,22 +336,30 @@ PKG --> PW["Playwright E2E"]
 PKG --> DOC["OpenAPI 校验"]
 PKG --> STA["状态巡检"]
 WF --> DOCK["Docker 构建"]
+PW --> MYSQL["MySQL 8.0 服务"]
+PW --> CHROME["Chromium 浏览器"]
 ```
 
+**更新** 增加了E2E测试的依赖关系图。
+
 **图表来源**
-- [.github/workflows/ci.yml:15-67](file://.github/workflows/ci.yml#L15-L67)
-- [package.json:6-24](file://package.json#L6-L24)
-- [Dockerfile:18-46](file://Dockerfile#L18-L46)
+- [.github/workflows/ci.yml:16-114](file://.github/workflows/ci.yml#L16-L114)
+- [package.json:1-80](file://package.json#L1-L80)
+- [Dockerfile:18-47](file://Dockerfile#L18-L47)
 
 **章节来源**
-- [.github/workflows/ci.yml:15-67](file://.github/workflows/ci.yml#L15-L67)
-- [package.json:6-24](file://package.json#L6-L24)
+- [.github/workflows/ci.yml:16-114](file://.github/workflows/ci.yml#L16-L114)
+- [package.json:1-80](file://package.json#L1-L80)
 
 ## 性能考虑
 - 缓存依赖：CI 中使用 npm 缓存加速安装。
 - 增量检查：TypeScript 与 ESLint 可在后续迭代中引入增量策略以减少执行时间。
-- 并行化：当前工作流将 quality 与 eval-gate 作为两个作业并行执行，有助于缩短总耗时。
+- 并行化：当前工作流将 quality、eval-gate 与 e2e 作为三个作业并行执行，有助于缩短总耗时。
+- **新增** 服务容器优化：MySQL 服务容器使用健康检查确保服务就绪后再开始测试。
+- **新增** 浏览器优化：Playwright 使用系统Chrome优先，避免CDN下载开销。
 - 镜像优化：多阶段构建与仅安装生产依赖减小镜像体积，提升拉取与启动速度。
+
+**更新** 增加了E2E测试的性能优化考虑。
 
 [本节提供一般性指导，不涉及具体源码]
 
@@ -294,18 +368,25 @@ WF --> DOCK["Docker 构建"]
 - ESLint 失败：根据规则提示调整代码风格或关闭特定规则（谨慎）。
 - OpenAPI 不同步：更新 docs/openapi.json 或修正路由定义。
 - 状态巡检失败：登记新增的进程内状态或改为外置存储。
-- E2E 失败：查看 Playwright 截图与追踪，确认服务是否可用与接口返回是否符合预期。
+- **新增** E2E 失败：检查MySQL服务连接、服务就绪状态、Playwright截图与追踪，确认服务是否可用与接口返回是否符合预期。
+- **新增** 服务就绪失败：检查/api/health/ready端点响应，确认MySQL连接池初始化完成。
+- **新增** 数据库连接失败：验证MySQL服务容器状态、环境变量配置和数据库权限。
 - 构建失败：检查 Node 版本、依赖安装与构建命令输出。
+
+**更新** 增加了E2E测试和服务就绪相关的故障排查指南。
 
 **章节来源**
 - [eslint.config.js:1-38](file://eslint.config.js#L1-L38)
 - [scripts/checkOpenapi.mjs:1-75](file://scripts/checkOpenapi.mjs#L1-L75)
 - [scripts/check-stateless.ts:1-192](file://scripts/check-stateless.ts#L1-L192)
-- [playwright.config.ts:1-39](file://playwright.config.ts#L1-L39)
+- [playwright.config.ts:1-40](file://playwright.config.ts#L1-L40)
 - [tests/e2e/smoke.spec.ts:1-87](file://tests/e2e/smoke.spec.ts#L1-L87)
+- [server/infra/health.ts:1-87](file://server/infra/health.ts#L1-L87)
 
 ## 结论
-该项目的 CI/CD 流水线围绕“质量门禁 + 评测集门禁 + E2E 冒烟 + 多阶段镜像构建”展开，覆盖了从代码质量到制品产出的关键环节。建议在现有基础上补充通知机制与部署编排脚本，以实现更完整的发布与回滚能力。
+该项目的 CI/CD 流水线围绕"质量门禁 + 评测集门禁 + E2E 冒烟 + 多阶段镜像构建"展开，覆盖了从代码质量到制品产出的关键环节。**更新** 新增的端到端测试作业提供了真实数据库环境的测试能力，显著提升了测试的准确性和可靠性。建议在现有基础上补充通知机制与部署编排脚本，以实现更完整的发布与回滚能力。
+
+**更新** 强调了新增E2E测试作业的重要性和价值。
 
 [本节为总结性内容，不涉及具体源码]
 
@@ -316,9 +397,11 @@ WF --> DOCK["Docker 构建"]
   - OpenAPI 同步校验：npm run docs:check
   - 状态巡检：npm run state:check
   - 单测：npm test
-  - E2E：npm run test:e2e
+  - **新增** E2E：npm run test:e2e
   - 构建：npm run build
   - 运行：npm start
+
+**更新** 增加了E2E测试的常用命令。
 
 **章节来源**
 - [package.json:6-24](file://package.json#L6-L24)

@@ -39,6 +39,8 @@ import {
   GitCompare,
   Percent,
   Presentation,
+  FileSpreadsheet,
+  FileType,
 } from 'lucide-react';
 import { SavedReport, AnomalyItem, ChartComment, ChartCommentReply } from '../../types/analytics';
 import { DynamicChart, ComparisonMode } from '../charts/DynamicChart';
@@ -79,6 +81,11 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   // M4 PPT Export States（服务端 pptxgenjs 组装，图表转 base64 PNG 提交）
   const [isExportingPPT, setIsExportingPPT] = useState<boolean>(false);
   const [pptError, setPptError] = useState<string | null>(null);
+
+  // P0-2 Excel/Word Export States（服务端 exceljs / docx 组装，图表转 base64 PNG 提交）
+  const [isExportingExcel, setIsExportingExcel] = useState<boolean>(false);
+  const [isExportingWord, setIsExportingWord] = useState<boolean>(false);
+  const [officeError, setOfficeError] = useState<string | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -365,6 +372,69 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }
   };
 
+  // P0-2 Excel/Word 导出共用提交逻辑：服务端组装（exceljs / docx），图表转 base64 PNG 随数据提交
+  const exportReportFile = async (endpoint: string, ext: string) => {
+    const charts = await collectChartImages();
+    const response = await apiFetch(`/api/report/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: activeReport.title,
+        summary: activeReport.summary,
+        createdAt: activeReport.createdAt,
+        templateType: activeReport.templateType,
+        kpiList: activeReport.kpiList || [],
+        insights: activeReport.insights || [],
+        charts,
+      }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => null);
+      throw new Error(err?.error || `导出失败（${response.status}）`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeReport.title.replace(/[\\/:*?"<>|\s]+/g, '_')}_分析简报_${activeReport.createdAt}${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // P0-2 下载 Excel 表格（服务端 exceljs 组装 XLSX，图表嵌入）
+  const handleExportExcel = async () => {
+    if (!reportRef.current || isExportingExcel) return;
+    setIsExportingExcel(true);
+    setOfficeError(null);
+    try {
+      await exportReportFile('export-excel', '.xlsx');
+    } catch (err: any) {
+      console.error('Excel Export Error:', err);
+      setOfficeError(err?.message || 'Excel 导出失败，请稍后重试');
+      setTimeout(() => setOfficeError(null), 5000);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  // P0-2 下载 Word 报告（服务端 docx 组装 DOCX，图表嵌入）
+  const handleExportWord = async () => {
+    if (!reportRef.current || isExportingWord) return;
+    setIsExportingWord(true);
+    setOfficeError(null);
+    try {
+      await exportReportFile('export-word', '.docx');
+    } catch (err: any) {
+      console.error('Word Export Error:', err);
+      setOfficeError(err?.message || 'Word 导出失败，请稍后重试');
+      setTimeout(() => setOfficeError(null), 5000);
+    } finally {
+      setIsExportingWord(false);
+    }
+  };
+
   const allAnomalies: AnomalyItem[] = activeReport.anomalies || [];
   const highSeverityCount = allAnomalies.filter((a) => a.severity === 'high').length;
 
@@ -430,6 +500,26 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
             <span>{isExportingPPT ? '正在生成 PPT...' : '下载 PPT 简报'}</span>
           </button>
 
+          {/* P0-2 Excel Export Button（服务端 exceljs 组装，图表自动转 PNG 嵌入） */}
+          <button
+            onClick={handleExportExcel}
+            disabled={isExportingExcel}
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 disabled:opacity-50 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all"
+          >
+            {isExportingExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            <span>{isExportingExcel ? '正在生成 Excel...' : '下载 Excel 表格'}</span>
+          </button>
+
+          {/* P0-2 Word Export Button（服务端 docx 组装，图表自动转 PNG 嵌入） */}
+          <button
+            onClick={handleExportWord}
+            disabled={isExportingWord}
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-sky-600/15 hover:bg-sky-600/25 disabled:opacity-50 text-sky-300 border border-sky-500/40 text-xs font-bold transition-all"
+          >
+            {isExportingWord ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileType className="w-4 h-4" />}
+            <span>{isExportingWord ? '正在生成 Word...' : '下载 Word 报告'}</span>
+          </button>
+
           <button
             onClick={handlePrint}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition-colors"
@@ -441,11 +531,11 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </div>
       </div>
 
-      {/* M4 PPT 导出失败提示 */}
-      {pptError && (
+      {/* M4 PPT 导出失败提示 / P0-2 Excel·Word 导出失败提示（共用提示条） */}
+      {(pptError || officeError) && (
         <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs flex items-center space-x-2 print:hidden">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>{pptError}</span>
+          <span>{pptError || officeError}</span>
         </div>
       )}
 

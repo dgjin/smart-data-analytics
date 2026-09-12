@@ -13,11 +13,11 @@
 
 ## 更新摘要
 **变更内容**
-- 新增完整的A/B测试仪表板系统，包含后端路由、前端组件和管理集成
-- 实现了三个REST API端点（/stats、/records、/overview）
-- 支持规则策略与人工审核策略的对比分析功能
-- 提供时间范围选择、性能指标可视化和管理员权限控制
-- 新增数据库表初始化脚本和索引优化
+- ABTestDashboard组件完全重构，采用全新视觉设计系统
+- 移除了所有dark:前缀和不映射的类名，使用统一的slate深色类
+- 引入映射强调色系统（青色/紫罗兰/翡翠/玫瑰/琥珀）支持自动主题切换
+- 增强控制栏、改进KPI卡片布局、优化数据可视化功能
+- 新增快速概览API端点和完整的管理员仪表板界面
 
 ## 目录
 1. [简介](#简介)
@@ -34,20 +34,20 @@
 ## 简介
 本A/B测试框架用于对比两种Fallback策略的效果：规则化策略（Group A）与人工审核+Few-Shot增强策略（Group B）。系统为每次fallback决策分配实验组别，记录关键指标（成功率、延迟等），并提供管理员仪表板进行可视化分析与历史回溯。
 
-**更新** 新增了完整的管理员仪表板界面，支持时间范围选择、多维度指标对比和实时数据刷新功能。
+**更新** ABTestDashboard组件现已完全重构，采用现代化的视觉设计系统，提供增强的用户体验和数据分析能力。
 
 ## 项目结构
 围绕A/B测试的关键代码分布在以下位置：
 - 路由层：提供统计、历史记录、快速概览接口
 - 工具层：实验分组、记录写入、统计数据聚合
-- 前端：管理员仪表板展示对比数据与最近记录
+- 前端：重构后的管理员仪表板展示对比数据与最近记录
 - 策略层：规则化与简化提示的Fallback实现（作为被比较的策略）
 - 基础设施：数据库连接池、表初始化与索引管理
 
 ```mermaid
 graph TB
 subgraph "前端"
-UI["ABTestDashboard.tsx"]
+UI["ABTestDashboard.tsx (重构版)"]
 end
 subgraph "后端路由"
 RT["abTest.ts"]
@@ -72,7 +72,7 @@ DB -.-> DT
 **图表来源**
 - [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
 - [server/utils/abTest.ts:1-168](file://server/utils/abTest.ts#L1-L168)
-- [src/components/admin/ABTestDashboard.tsx:1-444](file://src/components/admin/ABTestDashboard.tsx#L1-L444)
+- [src/components/admin/ABTestDashboard.tsx:1-379](file://src/components/admin/ABTestDashboard.tsx#L1-L379)
 - [server/utils/fallbackStrategies/ruleBased.ts:1-161](file://server/utils/fallbackStrategies/ruleBased.ts#L1-L161)
 - [server/utils/fallbackStrategies/simplerPrompt.ts:1-155](file://server/utils/fallbackStrategies/simplerPrompt.ts#L1-L155)
 - [server/infra/createAbTestTable.ts:1-68](file://server/infra/createAbTestTable.ts#L1-L68)
@@ -80,7 +80,7 @@ DB -.-> DT
 **章节来源**
 - [server/routes/abTest.ts:1-130](file://server/routes/abTest.ts#L1-L130)
 - [server/utils/abTest.ts:1-168](file://server/utils/abTest.ts#L1-L168)
-- [src/components/admin/ABTestDashboard.tsx:1-444](file://src/components/admin/ABTestDashboard.tsx#L1-L444)
+- [src/components/admin/ABTestDashboard.tsx:1-379](file://src/components/admin/ABTestDashboard.tsx#L1-L379)
 - [server/utils/fallbackStrategies/ruleBased.ts:1-161](file://server/utils/fallbackStrategies/ruleBased.ts#L1-L161)
 - [server/utils/fallbackStrategies/simplerPrompt.ts:1-155](file://server/utils/fallbackStrategies/simplerPrompt.ts#L1-L155)
 - [server/infra/createAbTestTable.ts:1-68](file://server/infra/createAbTestTable.ts#L1-L68)
@@ -96,11 +96,12 @@ DB -.-> DT
   - 创建实验记录（写入数据库）
   - 统计聚合（按组统计请求量、成功率、平均/最小/最大延迟）
   - 历史查询（按时间倒序分页）
-- 前端（ABTestDashboard.tsx）
-  - 选择时间范围（1/7/30/90天）
-  - 展示两组KPI卡片（请求总量、成功率、平均延迟）
+- 前端（ABTestDashboard.tsx - 重构版）
+  - 现代化控制栏：标题 + 时间范围选择 + 刷新按钮
+  - 增强的KPI卡片布局：Group A、Group B的请求量、成功率、平均延迟
   - 对比指标：成功率提升百分比、延迟优化百分比
-  - 最近实验记录表格（支持加载更多）
+  - 实验说明卡：详细的A/B测试机制说明
+  - 最近实验记录表格：支持加载更多功能
 - 策略层（ruleBased.ts、simplerPrompt.ts）
   - ruleBased.ts：基于正则与关键词检测时间范围与聚合意图，生成SQL模板
   - simplerPrompt.ts：提取最小Schema、构建Few-Shot示例、调用LLM生成SQL
@@ -108,10 +109,12 @@ DB -.-> DT
   - 连接池初始化与表结构管理（包含fallback审计相关表）
   - 数据库表创建与索引优化
 
+**更新** 前端组件已完全重构，采用全新的视觉设计系统和增强的用户交互功能。
+
 **章节来源**
 - [server/routes/abTest.ts:17-127](file://server/routes/abTest.ts#L17-L127)
 - [server/utils/abTest.ts:13-167](file://server/utils/abTest.ts#L13-L167)
-- [src/components/admin/ABTestDashboard.tsx:118-444](file://src/components/admin/ABTestDashboard.tsx#L118-L444)
+- [src/components/admin/ABTestDashboard.tsx:67-379](file://src/components/admin/ABTestDashboard.tsx#L67-L379)
 - [server/utils/fallbackStrategies/ruleBased.ts:12-161](file://server/utils/fallbackStrategies/ruleBased.ts#L12-L161)
 - [server/utils/fallbackStrategies/simplerPrompt.ts:17-155](file://server/utils/fallbackStrategies/simplerPrompt.ts#L17-L155)
 - [server/infra/createAbTestTable.ts:11-68](file://server/infra/createAbTestTable.ts#L11-L68)
@@ -121,7 +124,7 @@ DB -.-> DT
 
 ```mermaid
 sequenceDiagram
-participant FE as "前端 ABTestDashboard"
+participant FE as "前端 ABTestDashboard (重构版)"
 participant API as "路由 abTest.ts"
 participant UT as "工具 abTest.ts"
 participant DB as "数据库 createAbTestTable.ts"
@@ -203,22 +206,32 @@ Record --> End(["结束"])
 **章节来源**
 - [server/utils/abTest.ts:13-167](file://server/utils/abTest.ts#L13-L167)
 
-### 前端：ABTestDashboard.tsx
-- 功能
-  - 时间范围选择器（1/7/30/90天）
-  - KPI卡片：Group A、Group B的请求量、成功率、平均延迟
-  - 对比指标：成功率提升百分比、延迟优化百分比
-  - 图表：请求量、成功率、延迟对比柱状图
-  - 最近实验记录表格：展示实验ID、用户Query、失败SQL、分组、策略、结果、延迟、时间
-- 交互
-  - 切换天数时重新加载统计与最近记录
-  - 手动刷新按钮
-  - "加载更多"拉取更多记录
+### 前端：ABTestDashboard.tsx（重构版）
+- **全新视觉设计系统**
+  - 移除所有dark:前缀，使用统一的slate深色类
+  - 引入映射强调色系统：青色(cyan)、紫罗兰(violet)、翡翠(emerald)、玫瑰(rose)、琥珀(amber)
+  - 支持自动主题切换，无需手动适配明暗模式
+- **增强的控制栏**
+  - 现代化标题区域显示"A/B Test 实验分析"
+  - 时间范围选择器（近24小时/7天/30天/90天）
+  - 带图标的刷新按钮，支持加载状态指示
+- **改进的KPI卡片布局**
+  - Group A（Rule-Based）：青色主题，显示请求总量、成功率、平均延迟
+  - Group B（Human Approval）：紫罗兰主题，显示相同指标
+  - 成功率对比：翡翠主题，显示相对提升百分比
+  - 响应延迟对比：琥珀主题，显示优化百分比
+- **实验说明卡**
+  - 详细说明A/B测试机制和两组策略差异
+  - Few-Shot注入机制说明
+- **增强的数据表格**
+  - 完整的实验记录展示（实验ID、用户Query、失败SQL、分组、策略、结果、延迟、时间）
+  - 支持"加载更多"功能获取更多记录
+  - 响应式设计和悬停效果
 
-**更新** 前端组件现已完全实现，包含完整的UI界面、数据可视化和用户交互功能。
+**更新** 前端组件已完全重构，采用现代化设计系统和增强的用户交互体验。
 
 **章节来源**
-- [src/components/admin/ABTestDashboard.tsx:118-444](file://src/components/admin/ABTestDashboard.tsx#L118-L444)
+- [src/components/admin/ABTestDashboard.tsx:67-379](file://src/components/admin/ABTestDashboard.tsx#L67-L379)
 
 ### 策略层：ruleBased.ts 与 simplerPrompt.ts
 - ruleBased.ts
@@ -261,7 +274,7 @@ Record --> End(["结束"])
 
 ```mermaid
 graph LR
-FE["ABTestDashboard.tsx"] --> RT["abTest.ts(路由)"]
+FE["ABTestDashboard.tsx (重构版)"] --> RT["abTest.ts(路由)"]
 RT --> UT["abTest.ts(工具)"]
 UT --> DB["db.ts(连接池)"]
 DB -.-> DT["createAbTestTable.ts(表初始化)"]
@@ -320,9 +333,7 @@ UT -.对比目标.-> SP["simplerPrompt.ts"]
 - [server/infra/createAbTestTable.ts:47-50](file://server/infra/createAbTestTable.ts#L47-L50)
 
 ## 结论
-该A/B测试框架以轻量、可观测的方式对比两类Fallback策略，提供稳定的统计与可视化能力。通过环境变量控制开关、确定性分组与完善的错误处理，便于在生产环境中安全启用与持续评估。新增的管理员仪表板提供了直观的数据分析和实时监控功能。建议结合数据库索引与连接池调优，进一步提升大规模场景下的性能与稳定性。
-
-**更新** 完整的A/B测试仪表板系统现已投入使用，为策略效果评估提供了强大的可视化工具和分析能力。
+该A/B测试框架以轻量、可观测的方式对比两类Fallback策略，提供稳定的统计与可视化能力。通过环境变量控制开关、确定性分组与完善的错误处理，便于在生产环境中安全启用与持续评估。**更新** 重构后的ABTestDashboard组件提供了现代化的视觉体验和增强的数据分析功能，包括全新的设计系统、改进的用户界面和更直观的数据展示方式。建议结合数据库索引与连接池调优，进一步提升大规模场景下的性能与稳定性。
 
 ## 附录
 - 环境变量

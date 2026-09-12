@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-09-10T07:58:31Z"
+exported_at: "2026-09-12T01:46:53Z"
 modules:
     "":
-        dir_name: 智能问数（NL2SQL）全栈平台根模块
-        title: 智能问数（NL2SQL）全栈平台根模块
+        dir_name: 智能问数据分析平台（单体仓库）
+        title: 智能问数据分析平台（单体仓库）
         scope: []
         source_files: []
         children:
@@ -39,8 +39,8 @@ modules:
         depends_on: []
         related_to: []
     documentation:
-        dir_name: 项目文档与交付材料
-        title: 项目文档与交付材料
+        dir_name: 智能问数据分析系统文档与演示材料库
+        title: 智能问数据分析系统文档与演示材料库
         scope:
             - docs/
         source_files: []
@@ -48,8 +48,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_app:
-        dir_name: 前端应用（React + Vite 聚合层）
-        title: 前端应用（React + Vite 聚合层）
+        dir_name: 智能问数据分析前端应用（React + Vite 单体）
+        title: 智能问数据分析前端应用（React + Vite 单体）
         scope:
             - src/
         source_files: []
@@ -61,8 +61,8 @@ modules:
             - path: auth
             - path: infrastructure
     frontend_app/admin_panel:
-        dir_name: 系统管理后台面板（Admin Panel）
-        title: 系统管理后台面板（Admin Panel）
+        dir_name: 管理员控制台（Admin Panel）
+        title: 管理员控制台（Admin Panel）
         scope:
             - src/components/admin/
         source_files: []
@@ -83,8 +83,8 @@ modules:
         related_to:
             - path: infrastructure
     infrastructure:
-        dir_name: 基础设施层（数据库、状态存储、日志与限流）
-        title: 基础设施层（数据库、状态存储、日志与限流）
+        dir_name: 基础设施横切能力层（持久化_状态_限流_审计_加密）
+        title: 基础设施横切能力层（持久化/状态/限流/审计/加密）
         scope:
             - server/infra/
         source_files: []

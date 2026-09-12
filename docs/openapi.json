@@ -80,6 +80,10 @@
     {
       "name": "Tasks",
       "description": "v0.9.2 异步长任务队列（报告生成/导出）"
+    },
+    {
+      "name": "Patrols",
+      "description": "P0-1 异常巡检订阅（数据源级巡检计划与运行历史）"
     }
   ],
   "x-legacy-aliases": [
@@ -3598,6 +3602,100 @@
         }
       }
     },
+    "/api/report/export-excel": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "exportReportExcel",
+        "summary": "报告 Excel 导出（服务端 exceljs 组装多工作表；body 上限 20MB 含图表 base64）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "report"
+                ],
+                "properties": {
+                  "report": {
+                    "type": "object"
+                  },
+                  "charts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/report/export-word": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "exportReportWord",
+        "summary": "报告 Word 导出（服务端 docx 组装图文混排；body 上限 20MB 含图表 base64）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "report"
+                ],
+                "properties": {
+                  "report": {
+                    "type": "object"
+                  },
+                  "charts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/api/report/generate-from-query": {
       "post": {
         "tags": [
@@ -4252,6 +4350,236 @@
           },
           "BadRequest": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/patrols": {
+      "get": {
+        "tags": [
+          "Patrols"
+        ],
+        "operationId": "listPatrols",
+        "summary": "巡检计划列表（可按数据源过滤）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "required": false,
+            "description": "数据源 ID（可选）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Patrols"
+        ],
+        "operationId": "createPatrol",
+        "summary": "新建巡检计划（仅 ADMIN/ANALYST；绑定数据源 + 巡检间隔分钟）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dataSourceId",
+                  "intervalMinutes"
+                ],
+                "properties": {
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "intervalMinutes": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/patrols/{patrolId}": {
+      "put": {
+        "tags": [
+          "Patrols"
+        ],
+        "operationId": "updatePatrol",
+        "summary": "更新巡检计划（名称/间隔/启停；仅创建人或 ADMIN）",
+        "parameters": [
+          {
+            "name": "patrolId",
+            "in": "path",
+            "required": true,
+            "description": "巡检计划 ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "intervalMinutes": {
+                    "type": "integer"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "PAUSED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Patrols"
+        ],
+        "operationId": "deletePatrol",
+        "summary": "删除巡检计划及其运行历史（仅创建人或 ADMIN）",
+        "parameters": [
+          {
+            "name": "patrolId",
+            "in": "path",
+            "required": true,
+            "description": "巡检计划 ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/patrols/{patrolId}/run": {
+      "post": {
+        "tags": [
+          "Patrols"
+        ],
+        "operationId": "runPatrol",
+        "summary": "立即执行一次巡检（仅创建人或 ADMIN；不改变既有排期）",
+        "parameters": [
+          {
+            "name": "patrolId",
+            "in": "path",
+            "required": true,
+            "description": "巡检计划 ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/patrols/{patrolId}/runs": {
+      "get": {
+        "tags": [
+          "Patrols"
+        ],
+        "operationId": "listPatrolRuns",
+        "summary": "巡检运行历史（新→旧，含异常明细；limit 默认 20）",
+        "parameters": [
+          {
+            "name": "patrolId",
+            "in": "path",
+            "required": true,
+            "description": "巡检计划 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "返回条数（默认 20）",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
           },
           "NotFound": {
             "$ref": "#/components/responses/NotFound"
