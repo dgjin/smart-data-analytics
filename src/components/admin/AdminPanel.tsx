@@ -18,6 +18,13 @@ import {
   Ruler,
   ScrollText,
   UserCog,
+  Activity,
+  BellRing,
+  Coins,
+  FileDown,
+  FileText,
+  TrendingUp,
+  AlertTriangle,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -39,6 +46,8 @@ import { PatrolPanel } from './PatrolPanel';
 // v0.9.56 规则治理整合：业务知识库与 SQL 样例库由「数据源与 Schema」迁入
 import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
 import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
+// v0.9.57 分类内多面板统一顶部 Tab 分类条
+import { SectionTabs, SectionTabItem } from './SectionTabs';
 
 interface AdminUser {
   id: number;
@@ -68,13 +77,16 @@ type AdminSection =
   | 'patrol'
   | 'system-config';
 
-/** 左栏分类导航：三域分组；color/bar 为选中态图标色与左侧色条（分类色系沿用既有编码，巡检用 orange） */
+/** 左栏分类导航：三域分组；color/bar 为选中态图标色与左侧色条（分类色系沿用既有编码，巡检用 orange）；
+ *  组级 bar 为分组标识渐变条（组内分类色系预览，v0.9.57 提升分组标题辨识度） */
 const SECTION_GROUPS: {
   label: string;
+  bar: string;
   items: { id: AdminSection; label: string; icon: React.ComponentType<{ className?: string }>; color: string; bar: string }[];
 }[] = [
   {
     label: '账号与权限',
+    bar: 'from-indigo-500 to-amber-500',
     items: [
       { id: 'users', label: '基础管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
       { id: 'permission-approval', label: '权限审批', icon: ShieldCheck, color: 'text-amber-400', bar: 'bg-amber-500' },
@@ -82,6 +94,7 @@ const SECTION_GROUPS: {
   },
   {
     label: '治理与审核',
+    bar: 'from-cyan-500 to-rose-500',
     items: [
       { id: 'rule-governance', label: '规则治理', icon: BookMarked, color: 'text-cyan-400', bar: 'bg-cyan-500' },
       { id: 'ai-audit', label: 'AI 审核', icon: Search, color: 'text-rose-400', bar: 'bg-rose-500' },
@@ -89,6 +102,7 @@ const SECTION_GROUPS: {
   },
   {
     label: '运维与系统',
+    bar: 'from-emerald-500 to-slate-500',
     items: [
       { id: 'quality-monitoring', label: '质量监控', icon: Gauge, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       { id: 'patrol', label: '异常巡检', icon: Radar, color: 'text-orange-400', bar: 'bg-orange-500' },
@@ -100,17 +114,38 @@ const SECTION_GROUPS: {
 /** 规则治理分类内的顶部 Tab（v0.9.56 起整合业务知识库与 SQL 样例库，五类治理资产统一入口） */
 type RuleGovernanceTab = 'metrics' | 'iron-rules' | 'knowledge' | 'examples' | 'personas';
 
-const RULE_TABS: {
-  id: RuleGovernanceTab;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-}[] = [
+const RULE_TABS: SectionTabItem<RuleGovernanceTab>[] = [
   { id: 'metrics', label: '语义指标', icon: Ruler, color: 'text-cyan-400' },
   { id: 'iron-rules', label: '铁律规则', icon: ScrollText, color: 'text-rose-400' },
   { id: 'knowledge', label: '业务知识库', icon: BookOpen, color: 'text-amber-400' },
   { id: 'examples', label: 'SQL 样例库', icon: FileCode2, color: 'text-violet-400' },
   { id: 'personas', label: '专家角色', icon: UserCog, color: 'text-emerald-400' },
+];
+
+/** 质量监控分类内的顶部 Tab（v0.9.57：四张监控面板 Tab 分类，默认知识漂移保持提醒优先） */
+type QualityTab = 'drift' | 'ops' | 'llm-usage' | 'ab-test';
+
+const QUALITY_TABS: SectionTabItem<QualityTab>[] = [
+  { id: 'drift', label: '知识漂移', icon: BellRing, color: 'text-amber-400' },
+  { id: 'ops', label: '北极星指标', icon: Activity, color: 'text-emerald-400' },
+  { id: 'llm-usage', label: 'Token 用量', icon: Coins, color: 'text-cyan-400' },
+  { id: 'ab-test', label: 'A/B 实验', icon: TrendingUp, color: 'text-violet-400' },
+];
+
+/** 权限审批分类内的顶部 Tab（v0.9.57） */
+type PermissionTab = 'access' | 'templates';
+
+const PERMISSION_TABS: SectionTabItem<PermissionTab>[] = [
+  { id: 'access', label: '访问审批', icon: ShieldCheck, color: 'text-amber-400' },
+  { id: 'templates', label: '报告模板', icon: FileText, color: 'text-indigo-400' },
+];
+
+/** AI 审核分类内的顶部 Tab（v0.9.57） */
+type AuditTab = 'fallback' | 'dlp';
+
+const AUDIT_TABS: SectionTabItem<AuditTab>[] = [
+  { id: 'fallback', label: 'Fallback 审核', icon: AlertTriangle, color: 'text-rose-400' },
+  { id: 'dlp', label: '导出审批', icon: FileDown, color: 'text-cyan-400' },
 ];
 
 export const AdminPanel: React.FC = () => {
@@ -123,6 +158,10 @@ export const AdminPanel: React.FC = () => {
   const [section, setSection] = useState<AdminSection>('users');
   // 规则治理分类内顶部 Tab（v0.9.56）：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色
   const [ruleTab, setRuleTab] = useState<RuleGovernanceTab>('metrics');
+  // 质量监控 / 权限审批 / AI 审核分类内顶部 Tab（v0.9.57）
+  const [qualityTab, setQualityTab] = useState<QualityTab>('drift');
+  const [permissionTab, setPermissionTab] = useState<PermissionTab>('access');
+  const [auditTab, setAuditTab] = useState<AuditTab>('fallback');
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -288,12 +327,17 @@ export const AdminPanel: React.FC = () => {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* 左栏分类导航（三域分组，窄屏收窄为图标列） */}
-        <nav className="w-14 md:w-52 shrink-0 border-r border-slate-800/60 overflow-y-auto p-2 md:p-3 space-y-3 md:space-y-4">
-          {SECTION_GROUPS.map((group) => (
-            <div key={group.label}>
-              <div className="hidden md:block px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                {group.label}
+        {/* 左栏分类导航（三域分组，窄屏收窄为图标列；分组标题带色条标识与分隔线，v0.9.57 美化） */}
+        <nav className="w-14 md:w-52 shrink-0 border-r border-slate-800/60 overflow-y-auto p-2 md:p-3">
+          {SECTION_GROUPS.map((group, gi) => (
+            <div
+              key={group.label}
+              className={gi > 0 ? 'mt-1.5 md:mt-2 pt-2.5 md:pt-3 border-t border-slate-800/50' : ''}
+            >
+              {/* 分组标题：组内色系渐变色条 + 加粗文字（窄屏隐藏，由分隔线区分域） */}
+              <div className="hidden md:flex items-center gap-2 px-2 pb-2">
+                <span className={`w-1 h-3.5 rounded-full bg-gradient-to-b ${group.bar}`} />
+                <span className="text-[11px] font-bold text-slate-300 tracking-wider">{group.label}</span>
               </div>
               <div className="space-y-0.5">
                 {group.items.map((item) => {
@@ -304,10 +348,10 @@ export const AdminPanel: React.FC = () => {
                       key={item.id}
                       onClick={() => setSection(item.id)}
                       title={item.label}
-                      className={`relative w-full flex items-center justify-center md:justify-start space-x-2 px-2 md:px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      className={`relative w-full flex items-center justify-center md:justify-start space-x-2 px-2 md:px-2.5 py-2 rounded-lg text-xs transition-colors ${
                         active
-                          ? 'bg-slate-800/80 text-slate-100'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                          ? 'bg-slate-800/80 text-slate-100 font-semibold'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 font-medium'
                       }`}
                     >
                       {active && <span className={`absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full ${item.bar}`} />}
@@ -589,14 +633,19 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
       
-      {/* ============ 区块二：质量监控 (P0-4 北极星 +ABTest+Token 用量) ============ */}
+      {/* ============ 区块二：质量监控（v0.9.57 起四张监控面板顶部 Tab 分类：知识漂移 / 北极星指标 / Token 用量 / A/B 实验） ============ */}
       {section === 'quality-monitoring' && (
         <div className="space-y-6">
+          <SectionTabs<QualityTab> tabs={QUALITY_TABS} active={qualityTab} onChange={setQualityTab} accent="emerald" />
+
           {/* P3-3 知识库漂移提醒（枚举值快照比对） */}
-          <DriftAlertPanel />
-          <OpsMetricsPanel />
-          <LlmUsagePanel />
-          <ABTestDashboard />
+          {qualityTab === 'drift' && <DriftAlertPanel />}
+          {/* P0-4 北极星运营指标 */}
+          {qualityTab === 'ops' && <OpsMetricsPanel />}
+          {/* LLM Token 用量（按用户/模型成本对比） */}
+          {qualityTab === 'llm-usage' && <LlmUsagePanel />}
+          {/* Fallback A/B 实验分析 */}
+          {qualityTab === 'ab-test' && <ABTestDashboard />}
         </div>
       )}
       
@@ -604,22 +653,7 @@ export const AdminPanel: React.FC = () => {
       {section === 'rule-governance' && (
         <div className="space-y-6">
           {/* 顶部 Tab 分类条（业务知识库与 SQL 样例库由「数据源与 Schema」迁入，统一治理入口） */}
-          <div className="flex items-center gap-2 flex-wrap border-b border-slate-800 pb-3">
-            {RULE_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setRuleTab(t.id)}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  ruleTab === t.id
-                    ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
-                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-                }`}
-              >
-                <t.icon className={`w-4 h-4 ${ruleTab === t.id ? '' : t.color}`} />
-                <span>{t.label}</span>
-              </button>
-            ))}
-          </div>
+          <SectionTabs<RuleGovernanceTab> tabs={RULE_TABS} active={ruleTab} onChange={setRuleTab} accent="cyan" />
 
           {/* 语义指标：指标层治理（P1-8 提议 - 审批 - 版本化） */}
           {ruleTab === 'metrics' && <MetricsPanel />}
@@ -638,23 +672,27 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
       
-      {/* ============ 区块四：权限审批 (权限审批 + 报告模板) ============ */}
+      {/* ============ 区块四：权限审批（v0.9.57 起顶部 Tab 分类：访问审批 / 报告模板） ============ */}
       {section === 'permission-approval' && (
         <div className="space-y-5">
+          <SectionTabs<PermissionTab> tabs={PERMISSION_TABS} active={permissionTab} onChange={setPermissionTab} accent="amber" />
+
           {/* 数据源权限审批（P2-11 申请 - 审批 - 授权） */}
-          <AccessRequestsPanel />
+          {permissionTab === 'access' && <AccessRequestsPanel />}
           {/* 报告模板管理（v0.5.0） */}
-          <ReportTemplateManager />
+          {permissionTab === 'templates' && <ReportTemplateManager />}
         </div>
       )}
       
-      {/* ============ 区块五：AI 审核 (Fallback 审核 + DLP 下载审批) ============ */}
+      {/* ============ 区块五：AI 审核（v0.9.57 起顶部 Tab 分类：Fallback 审核 / 导出审批） ============ */}
       {section === 'ai-audit' && (
         <div className="space-y-5">
+          <SectionTabs<AuditTab> tabs={AUDIT_TABS} active={auditTab} onChange={setAuditTab} accent="rose" />
+
           {/* NL2SQL Fallback 困难样本审核（v0.9.44 Strategy C） */}
-          <FallbackApprovalPanel />
+          {auditTab === 'fallback' && <FallbackApprovalPanel />}
           {/* P2-12 DLP 数据导出审批（超阈值下载申请） */}
-          <DlpDownloadPanel />
+          {auditTab === 'dlp' && <DlpDownloadPanel />}
         </div>
       )}
       
