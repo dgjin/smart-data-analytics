@@ -81,6 +81,23 @@ function agentNum(v: number | null | undefined): string {
   return Math.abs(v) >= 1000 ? v.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : String(v);
 }
 
+/** Agent 计划卡参数摘要（forecast/attribution 步）：列与期数一目了然 */
+function agentStepParamsSummary(step: { capability: string; params: Record<string, unknown> }): string {
+  const p = step.params || {};
+  const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  if (step.capability === 'forecast') {
+    return [s(p.yKey) && `指标：${s(p.yKey)}`, s(p.xKey) && `期列：${s(p.xKey)}`, typeof p.periods === 'number' && `预测 ${p.periods} 期`]
+      .filter(Boolean)
+      .join(' · ');
+  }
+  if (step.capability === 'attribution') {
+    return [s(p.dimKey) && `维度：${s(p.dimKey)}`, s(p.periodKey) && `时期：${s(p.periodKey)}`, s(p.metricKey) && `指标：${s(p.metricKey)}`]
+      .filter(Boolean)
+      .join(' · ');
+  }
+  return '';
+}
+
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
   msg,
   welcomeContent,
@@ -453,19 +470,23 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
               <span>多能力编排计划（{msg.agentPlan.steps.length} 步）</span>
             </div>
             <ol className="space-y-1.5">
-              {msg.agentPlan.steps.map((st, idx) => (
-                <li key={st.id} className="flex items-start space-x-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800/80">
-                  <span className="w-4 h-4 rounded-full bg-fuchsia-500/20 text-fuchsia-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
-                    {idx + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center space-x-1.5">
-                      {capabilityBadge(st.capability)}
-                      <span className="text-xs font-semibold text-slate-200 truncate">{st.goal}</span>
+              {msg.agentPlan.steps.map((st, idx) => {
+                const paramsSummary = agentStepParamsSummary(st);
+                return (
+                  <li key={st.id} className="flex items-start space-x-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                    <span className="w-4 h-4 rounded-full bg-fuchsia-500/20 text-fuchsia-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
+                      {idx + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center space-x-1.5">
+                        {capabilityBadge(st.capability)}
+                        <span className="text-xs font-semibold text-slate-200 truncate">{st.goal}</span>
+                      </div>
+                      {paramsSummary && <div className="text-[10px] text-slate-500 mt-0.5">{paramsSummary}</div>}
                     </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ol>
             {agentPlanResolved ? (
               <div className="text-[11px] text-slate-500 flex items-center space-x-1">

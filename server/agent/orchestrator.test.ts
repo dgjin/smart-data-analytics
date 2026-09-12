@@ -271,4 +271,42 @@ describe('agent: Planner LLM 生成', () => {
     mockedLlm.mockResolvedValue('bad');
     await expect(generateAgentPlan('q', SCHEMA)).rejects.toThrow('结构校验');
   });
+
+  it('问题含预测诉求但计划仅查数：纠偏重试补齐 forecast', async () => {
+    mockedLlm.mockResolvedValueOnce(
+      JSON.stringify({ understanding: 'x', steps: [{ capability: 'query', goal: '查不良率' }] }),
+    );
+    mockedLlm.mockResolvedValueOnce(
+      JSON.stringify({
+        understanding: '按月聚合后预测',
+        steps: [
+          { capability: 'query', goal: '按月聚合不良率' },
+          { capability: 'forecast', goal: '预测未来3期', params: { xKey: 'month', yKey: 'bad_rate', periods: 3 } },
+        ],
+      }),
+    );
+    const plan = await generateAgentPlan('预测未来3期不良率走势', SCHEMA);
+    expect(plan.steps).toHaveLength(2);
+    expect(plan.steps[1].capability).toBe('forecast');
+    expect(mockedLlm).toHaveBeenCalledTimes(2);
+  });
+
+  it('普通查数无分析诉求词：不触发纠偏，单步直接返回', async () => {
+    mockedLlm.mockResolvedValueOnce(
+      JSON.stringify({ understanding: 'x', steps: [{ capability: 'query', goal: '查销售额' }] }),
+    );
+    const plan = await generateAgentPlan('上月各区销售额是多少', SCHEMA);
+    expect(plan.steps).toHaveLength(1);
+    expect(mockedLlm).toHaveBeenCalledTimes(1);
+  });
+
+  it('纠偏重试仍未通过解析：保留原计划不抛错', async () => {
+    mockedLlm.mockResolvedValueOnce(
+      JSON.stringify({ understanding: 'x', steps: [{ capability: 'query', goal: '查不良率' }] }),
+    );
+    mockedLlm.mockResolvedValueOnce('垃圾输出');
+    const plan = await generateAgentPlan('为什么不良率上升', SCHEMA);
+    expect(plan.steps).toHaveLength(1);
+    expect(mockedLlm).toHaveBeenCalledTimes(2);
+  });
 });
