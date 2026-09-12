@@ -11,8 +11,6 @@ import {
   Layers,
   Sparkles,
   GitFork,
-  BookOpen,
-  FileCode2,
   ScanSearch,
   Table as TableIcon,
   Trash2,
@@ -27,8 +25,6 @@ import { DataLineageView } from './DataLineageView';
 import { SchemaMetaEditor } from './SchemaMetaEditor';
 import { AclConfigModal } from './AclConfigModal';
 import { ScopeConfigModal } from './ScopeConfigModal';
-import { KnowledgeBasePanel } from './KnowledgeBasePanel';
-import { SqlExamplesPanel } from './SqlExamplesPanel';
 import { DataScope, DataSource, DataSourceType, TableSchema } from '../../types/analytics';
 
 // 支持真实连接的数据库类型（服务端提取完整 Schema，其余类型用占位表）
@@ -66,7 +62,8 @@ export const DataSourceManager: React.FC = () => {
     setActiveTable,
   } = useAnalyticsStore();
 
-  const [activeSubTab, setActiveSubTab] = useState<'schema' | 'lineage' | 'knowledge' | 'examples'>('schema');
+  // 子页签（v0.9.56 起业务知识库与 SQL 样例库迁至「系统管理 → 规则治理」，本页仅保留 Schema 与血缘视图）
+  const [activeSubTab, setActiveSubTab] = useState<'schema' | 'lineage'>('schema');
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [dsName, setDsName] = useState('');
   const [dsType, setDsType] = useState<DataSourceType>('postgresql');
@@ -721,38 +718,10 @@ export const DataSourceManager: React.FC = () => {
           <GitFork className="w-4 h-4 text-cyan-400" />
           <span>全链路数据血缘视图 (Data Lineage Graph)</span>
         </button>
-
-        <button
-          onClick={() => setActiveSubTab('knowledge')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeSubTab === 'knowledge'
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-          }`}
-        >
-          <BookOpen className="w-4 h-4 text-amber-400" />
-          <span>业务知识库 (Knowledge Base)</span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('examples')}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            activeSubTab === 'examples'
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-          }`}
-        >
-          <FileCode2 className="w-4 h-4 text-violet-400" />
-          <span>SQL 样例库 (Training Data)</span>
-        </button>
       </div>
 
       {activeSubTab === 'lineage' ? (
         <DataLineageView />
-      ) : activeSubTab === 'knowledge' ? (
-        <KnowledgeBasePanel dataSources={dataSources} initialId={activeDataSourceId} />
-      ) : activeSubTab === 'examples' ? (
-        <SqlExamplesPanel dataSources={dataSources} initialId={activeDataSourceId} />
       ) : (
         /* Main Grid: Data Sources List & Active Schema Inspector */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

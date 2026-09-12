@@ -13,9 +13,15 @@ import {
   Settings,
   Search,
   Radar,
+  BookOpen,
+  FileCode2,
+  Ruler,
+  ScrollText,
+  UserCog,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { UserRole } from '../../types/analytics';
 import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
@@ -30,6 +36,9 @@ import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
 import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
+// v0.9.56 规则治理整合：业务知识库与 SQL 样例库由「数据源与 Schema」迁入
+import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
+import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
 
 interface AdminUser {
   id: number;
@@ -88,11 +97,32 @@ const SECTION_GROUPS: {
   },
 ];
 
+/** 规则治理分类内的顶部 Tab（v0.9.56 起整合业务知识库与 SQL 样例库，五类治理资产统一入口） */
+type RuleGovernanceTab = 'metrics' | 'iron-rules' | 'knowledge' | 'examples' | 'personas';
+
+const RULE_TABS: {
+  id: RuleGovernanceTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+}[] = [
+  { id: 'metrics', label: '语义指标', icon: Ruler, color: 'text-cyan-400' },
+  { id: 'iron-rules', label: '铁律规则', icon: ScrollText, color: 'text-rose-400' },
+  { id: 'knowledge', label: '业务知识库', icon: BookOpen, color: 'text-amber-400' },
+  { id: 'examples', label: 'SQL 样例库', icon: FileCode2, color: 'text-violet-400' },
+  { id: 'personas', label: '专家角色', icon: UserCog, color: 'text-emerald-400' },
+];
+
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
+  // v0.9.56 规则治理整合：知识库 / SQL 样例库面板需要数据源列表与当前数据源（登录后已由 App 加载）
+  const dataSources = useAnalyticsStore((s) => s.dataSources);
+  const activeDataSourceId = useAnalyticsStore((s) => s.activeDataSourceId);
 
   // 左栏分类切换：7 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
   const [section, setSection] = useState<AdminSection>('users');
+  // 规则治理分类内顶部 Tab（v0.9.56）：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色
+  const [ruleTab, setRuleTab] = useState<RuleGovernanceTab>('metrics');
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -570,15 +600,41 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
       
-      {/* ============ 区块三：规则治理 (指标 + 铁律 + 专家角色) ============ */}
+      {/* ============ 区块三：规则治理（v0.9.56 起五类治理资产顶部 Tab 分类：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色） ============ */}
       {section === 'rule-governance' && (
         <div className="space-y-6">
-          {/* 指标层治理（P1-8 提议 - 审批 - 版本化） */}
-          <MetricsPanel />
-          {/* 铁律规则库（v0.9.35 全量恒注入强制约束） */}
-          <IronRulesPanel />
-          {/* 问数专家角色（v0.9.40 阶段二解读 persona 路由配置） */}
-          <ExpertPersonasPanel />
+          {/* 顶部 Tab 分类条（业务知识库与 SQL 样例库由「数据源与 Schema」迁入，统一治理入口） */}
+          <div className="flex items-center gap-2 flex-wrap border-b border-slate-800 pb-3">
+            {RULE_TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setRuleTab(t.id)}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  ruleTab === t.id
+                    ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                }`}
+              >
+                <t.icon className={`w-4 h-4 ${ruleTab === t.id ? '' : t.color}`} />
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* 语义指标：指标层治理（P1-8 提议 - 审批 - 版本化） */}
+          {ruleTab === 'metrics' && <MetricsPanel />}
+          {/* 铁律规则：铁律规则库（v0.9.35 全量恒注入强制约束） */}
+          {ruleTab === 'iron-rules' && <IronRulesPanel />}
+          {/* 业务知识库：术语口径与外部知识源（v0.9.56 由数据源页迁入） */}
+          {ruleTab === 'knowledge' && (
+            <KnowledgeBasePanel dataSources={dataSources} initialId={activeDataSourceId} />
+          )}
+          {/* SQL 样例库：「问题-SQL」训练样例（v0.9.56 由数据源页迁入） */}
+          {ruleTab === 'examples' && (
+            <SqlExamplesPanel dataSources={dataSources} initialId={activeDataSourceId} />
+          )}
+          {/* 专家角色：问数专家角色（v0.9.40 阶段二解读 persona 路由配置） */}
+          {ruleTab === 'personas' && <ExpertPersonasPanel />}
         </div>
       )}
       
