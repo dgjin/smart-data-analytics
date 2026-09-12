@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/components/charts
+title: 图表渲染与数据展示组件集
+scope:
+    - src/components/charts/
+source_files: []
+depends_on: []
+related_to: []

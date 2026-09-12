@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/utils
+title: 前端通用工具集（查询构建、SSE 流、数据归一化与导出）
+scope:
+    - src/utils/
+source_files: []
+depends_on: []
+related_to: []

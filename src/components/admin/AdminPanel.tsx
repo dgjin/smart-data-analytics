@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ShieldCheck,
   UserPlus,
@@ -7,15 +7,12 @@ import {
   Trash2,
   AlertCircle,
   CheckCircle2,
-  Coins,
   Users,
-  FileText,
   Gauge,
   BookMarked,
-  Gavel,
-  UserCog,
   Settings,
   Search,
+  Radar,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -32,6 +29,7 @@ import { DlpDownloadPanel } from './DlpDownloadPanel';
 import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
 import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 import { ABTestDashboard } from './ABTestDashboard';
+import { PatrolPanel } from './PatrolPanel';
 
 interface AdminUser {
   id: number;
@@ -51,11 +49,51 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
+/** 系统管理分类（7 项，左栏导航切换） */
+type AdminSection =
+  | 'users'
+  | 'permission-approval'
+  | 'rule-governance'
+  | 'ai-audit'
+  | 'quality-monitoring'
+  | 'patrol'
+  | 'system-config';
+
+/** 左栏分类导航：三域分组；color/bar 为选中态图标色与左侧色条（分类色系沿用既有编码，巡检用 orange） */
+const SECTION_GROUPS: {
+  label: string;
+  items: { id: AdminSection; label: string; icon: React.ComponentType<{ className?: string }>; color: string; bar: string }[];
+}[] = [
+  {
+    label: '账号与权限',
+    items: [
+      { id: 'users', label: '基础管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
+      { id: 'permission-approval', label: '权限审批', icon: ShieldCheck, color: 'text-amber-400', bar: 'bg-amber-500' },
+    ],
+  },
+  {
+    label: '治理与审核',
+    items: [
+      { id: 'rule-governance', label: '规则治理', icon: BookMarked, color: 'text-cyan-400', bar: 'bg-cyan-500' },
+      { id: 'ai-audit', label: 'AI 审核', icon: Search, color: 'text-rose-400', bar: 'bg-rose-500' },
+    ],
+  },
+  {
+    label: '运维与系统',
+    items: [
+      { id: 'quality-monitoring', label: '质量监控', icon: Gauge, color: 'text-emerald-400', bar: 'bg-emerald-500' },
+      { id: 'patrol', label: '异常巡检', icon: Radar, color: 'text-orange-400', bar: 'bg-orange-500' },
+      { id: 'system-config', label: '系统配置', icon: Settings, color: 'text-slate-300', bar: 'bg-slate-500' },
+    ],
+  },
+];
+
 export const AdminPanel: React.FC = () => {
   const currentUser = useAuthStore((s) => s.user);
 
-  // 区块切换：用户管理 / 质量监控 (P0-4+ABTest) / 规则治理 (指标 + 铁律 + 专家) / 权限审批 (权限 + 报告模板) / AI 审核 (Fallback) / 系统配置 (DLP+ 环境)
-  const [section, setSection] = useState<'users' | 'quality-monitoring' | 'rule-governance' | 'permission-approval' | 'ai-audit' | 'system-config'>('users');
+  // 左栏分类切换：7 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
+  const [section, setSection] = useState<AdminSection>('users');
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,6 +115,11 @@ export const AdminPanel: React.FC = () => {
     const timer = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  // 切换分类时将右栏内容区滚动回顶
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [section]);
 
   // 初始 isLoading=true 覆盖首次加载；手动刷新时在按钮 onClick 里先 setIsLoading(true)
   const loadUsers = useCallback(async () => {
@@ -200,112 +243,73 @@ export const AdminPanel: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-8 space-y-6">
-      {/* Header Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold uppercase tracking-wider">
-            <ShieldCheck className="w-4 h-4" />
-            <span>系统管理 · Administration Console</span>
-          </div>
-          <h1 className="text-xl md:text-2xl font-extrabold text-slate-100 tracking-tight">
-            统一管理与运维控制台
-          </h1>
-          <p className="text-xs text-slate-400">
-            管理系统账号、监控查询质量、治理指标规则、审批权限申请、审核 Fallback 样本及配置环境参数。
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 紧凑页头 */}
+      <div className="flex items-center space-x-3 px-6 py-4 border-b border-slate-800/60 shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
+          <ShieldCheck className="w-4 h-4 text-indigo-400" />
+        </div>
+        <div>
+          <h1 className="text-base font-bold text-slate-100">系统管理</h1>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            账号、治理、监控与系统配置的一体化管理控制台
           </p>
         </div>
       </div>
 
-      {/* Section Tabs：精简约 6 个大类 */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-1.5 flex items-center justify-between gap-2 shadow-xl overflow-x-auto">
-        <div className="flex items-center space-x-1 flex-shrink-0 flex-nowrap">
-          {/* 基础管理 */}
-          <button
-            onClick={() => setSection('users')}
-            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              section === 'users'
-                ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
-            }`}>
-            <Users className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span>基础管理</span>
-          </button>
-          {/* 质量监控 */}
-          <button
-            onClick={() => setSection('quality-monitoring')}
-            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              section === 'quality-monitoring'
-                ? 'bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-lg shadow-emerald-600/30 border border-emerald-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
-            }`}>
-            <Gauge className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span>质量监控</span>
-          </button>
-          {/* 规则治理 */}
-          <button
-            onClick={() => setSection('rule-governance')}
-            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              section === 'rule-governance'
-                ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 text-white shadow-lg shadow-cyan-600/30 border border-cyan-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
-            }`}>
-            <BookMarked className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span>规则治理</span>
-          </button>
-          {/* 权限审批 */}
-          <button
-            onClick={() => setSection('permission-approval')}
-            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              section === 'permission-approval'
-                ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-lg shadow-amber-600/30 border border-amber-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
-            }`}>
-            <ShieldCheck className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span>权限审批</span>
-          </button>
-          {/* 系统配置 */}
-          <button
-            onClick={() => setSection('system-config')}
-            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              section === 'system-config'
-                ? 'bg-gradient-to-r from-slate-600 to-slate-500 text-white shadow-lg shadow-slate-600/30 border border-slate-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
-            }`}>
-            <Settings className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span>系统配置</span>
-          </button>
-          {/* AI 审核 */}
-          <button
-            onClick={() => setSection('ai-audit')}
-            className={`group flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              section === 'ai-audit'
-                ? 'bg-gradient-to-r from-rose-600 to-rose-500 text-white shadow-lg shadow-rose-600/30 border border-rose-400/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:border-slate-700'
-            }`}>
-            <Search className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span>AI 审核</span>
-          </button>
-        </div>
-      </div>
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左栏分类导航（三域分组，窄屏收窄为图标列） */}
+        <nav className="w-14 md:w-52 shrink-0 border-r border-slate-800/60 overflow-y-auto p-2 md:p-3 space-y-3 md:space-y-4">
+          {SECTION_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="hidden md:block px-2 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                {group.label}
+              </div>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const active = section === item.id;
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setSection(item.id)}
+                      title={item.label}
+                      className={`relative w-full flex items-center justify-center md:justify-start space-x-2 px-2 md:px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                        active
+                          ? 'bg-slate-800/80 text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                      }`}
+                    >
+                      {active && <span className={`absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full ${item.bar}`} />}
+                      <Icon className={`w-4 h-4 shrink-0 ${active ? item.color : ''}`} />
+                      <span className="hidden md:inline">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
 
-      {/* Notice */}
-      {notice && (
-        <div className={`p-4 rounded-xl border ${
-          notice.type === 'success'
-            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-            : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-        }`}>
-          <div className="flex items-center gap-2">
-            {notice.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 shrink-0" />
-            )}
-            <span>{notice.text}</span>
-          </div>
-        </div>
-      )}
+        {/* 右栏内容区（独立滚动，切换分类自动回顶） */}
+        <div ref={contentRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Notice */}
+          {notice && (
+            <div className={`p-4 rounded-xl border ${
+              notice.type === 'success'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+            }`}>
+              <div className="flex items-center gap-2">
+                {notice.type === 'success' ? (
+                  <CheckCircle2 className="w-5 h-5 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 shrink-0" />
+                )}
+                <span>{notice.text}</span>
+              </div>
+            </div>
+          )}
 
       {/* ============ 区块一：用户管理 ============ */}
       {section === 'users' && (
@@ -600,6 +604,11 @@ export const AdminPanel: React.FC = () => {
       
       {/* ============ 区块六：系统配置 (环境配置 + 系统设置) ============ */}
       {section === 'system-config' && <EnvironmentConfigPanel />}
+
+      {/* ============ 区块七：异常巡检（与侧边栏「异常巡检」页共用 PatrolPanel，双入口） ============ */}
+      {section === 'patrol' && <PatrolPanel />}
+        </div>
+      </div>
     </div>
   );
 };

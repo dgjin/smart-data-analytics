@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/hooks
+title: 应用级状态与业务 Hook
+scope:
+    - src/hooks/
+source_files: []
+depends_on: []
+related_to: []

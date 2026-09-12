@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/components/analytics
+title: 高级分析面板（时序预测/多维归因/情景推演）
+scope:
+    - src/components/analytics/
+source_files: []
+depends_on: []
+related_to: []

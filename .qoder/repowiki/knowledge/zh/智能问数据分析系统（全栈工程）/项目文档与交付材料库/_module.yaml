@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: documentation
+title: 项目文档与交付材料库
+scope:
+    - docs/
+source_files: []
+depends_on: []
+related_to: []

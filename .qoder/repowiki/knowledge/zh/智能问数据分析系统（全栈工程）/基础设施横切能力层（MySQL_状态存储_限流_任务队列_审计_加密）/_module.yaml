@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: infrastructure
+title: 基础设施横切能力层（MySQL/状态存储/限流/任务队列/审计/加密）
+scope:
+    - server/infra/
+source_files: []
+depends_on: []
+related_to:
+    - path: frontend_app

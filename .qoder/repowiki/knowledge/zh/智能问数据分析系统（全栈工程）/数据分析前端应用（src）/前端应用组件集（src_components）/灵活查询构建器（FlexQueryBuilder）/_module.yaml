@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/components/flexquery
+title: 灵活查询构建器（FlexQueryBuilder）
+scope:
+    - src/components/flexquery/
+source_files: []
+depends_on: []
+related_to: []

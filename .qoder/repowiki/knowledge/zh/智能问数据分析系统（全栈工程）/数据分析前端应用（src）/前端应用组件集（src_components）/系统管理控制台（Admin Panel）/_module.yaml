@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/components/admin
+title: 系统管理控制台（Admin Panel）
+scope:
+    - src/components/admin/
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/components/datasource
+title: 数据源与元数据管理中心
+scope:
+    - src/components/datasource/
+source_files: []
+depends_on: []
+related_to: []

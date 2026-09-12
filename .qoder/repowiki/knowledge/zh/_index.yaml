@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-09-12T03:04:32Z"
+exported_at: "2026-09-12T03:36:45Z"
 modules:
     "":
-        dir_name: 智能问数平台（SmartAQ）单体仓库
-        title: 智能问数平台（SmartAQ）单体仓库
+        dir_name: 智能问数据分析系统（全栈工程）
+        title: 智能问数据分析系统（全栈工程）
         scope: []
         source_files: []
         children:
@@ -39,8 +39,8 @@ modules:
         depends_on: []
         related_to: []
     documentation:
-        dir_name: 项目文档与演示材料
-        title: 项目文档与演示材料
+        dir_name: 项目文档与交付材料库
+        title: 项目文档与交付材料库
         scope:
             - docs/
         source_files: []
@@ -48,43 +48,147 @@ modules:
         depends_on: []
         related_to: []
     frontend_app:
-        dir_name: 前端应用（React + Vite 单页应用）
-        title: 前端应用（React + Vite 单页应用）
+        dir_name: 数据分析前端应用（src）
+        title: 数据分析前端应用（src）
         scope:
             - src/
         source_files: []
         children:
-            - frontend_app/admin_panel
-            - frontend_app/dashboard
+            - frontend_app/app_shell
+            - frontend_app/components
+            - frontend_app/hooks
+            - frontend_app/utils
         depends_on: []
         related_to:
             - path: auth
             - path: infrastructure
-    frontend_app/admin_panel:
-        dir_name: 管理员控制台（Admin Panel）
-        title: 管理员控制台（Admin Panel）
+    frontend_app/app_shell:
+        dir_name: 应用启动壳与根布局
+        title: 应用启动壳与根布局
+        scope:
+            - src/App.tsx
+            - src/main.tsx
+            - src/index.css
+            - src/vite-env.d.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components:
+        dir_name: 前端应用组件集（src_components）
+        title: 前端应用组件集（src/components）
+        scope:
+            - src/components/
+        source_files: []
+        children:
+            - frontend_app/components/admin
+            - frontend_app/components/analytics
+            - frontend_app/components/charts
+            - frontend_app/components/datasource
+            - frontend_app/components/flexquery
+            - frontend_app/components/query_chat
+            - frontend_app/components/reports
+            - frontend_app/components/shared_ui
+        depends_on: []
+        related_to: []
+    frontend_app/components/admin:
+        dir_name: 系统管理控制台（Admin Panel）
+        title: 系统管理控制台（Admin Panel）
         scope:
             - src/components/admin/
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: infrastructure
-    frontend_app/dashboard:
-        dir_name: 自定义看板与帮助文档组件
-        title: 自定义看板与帮助文档组件
+        related_to: []
+    frontend_app/components/analytics:
+        dir_name: 高级分析面板（时序预测_多维归因_情景推演）
+        title: 高级分析面板（时序预测/多维归因/情景推演）
         scope:
-            - src/components/dashboard/
+            - src/components/analytics/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components/charts:
+        dir_name: 图表渲染与数据展示组件集
+        title: 图表渲染与数据展示组件集
+        scope:
+            - src/components/charts/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components/datasource:
+        dir_name: 数据源与元数据管理中心
+        title: 数据源与元数据管理中心
+        scope:
+            - src/components/datasource/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components/flexquery:
+        dir_name: 灵活查询构建器（FlexQueryBuilder）
+        title: 灵活查询构建器（FlexQueryBuilder）
+        scope:
+            - src/components/flexquery/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components/query_chat:
+        dir_name: 智能问数对话面板（QueryChat）
+        title: 智能问数对话面板（QueryChat）
+        scope:
+            - src/components/query/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components/reports:
+        dir_name: 智能报表与巡检中心（Report & Patrol Center）
+        title: 智能报表与巡检中心（Report & Patrol Center）
+        scope:
+            - src/components/reports/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/components/shared_ui:
+        dir_name: 共享 UI 组件与全局布局（Header_Sidebar_ErrorBoundary）
+        title: 共享 UI 组件与全局布局（Header/Sidebar/ErrorBoundary）
+        scope:
+            - src/components/
+            - src/components/auth/
             - src/components/common/
+            - src/components/dashboard/
+            - src/components/knowledge/
             - src/components/help/
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: infrastructure
+        related_to: []
+    frontend_app/hooks:
+        dir_name: 应用级状态与业务 Hook
+        title: 应用级状态与业务 Hook
+        scope:
+            - src/hooks/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app/utils:
+        dir_name: 前端通用工具集（查询构建、SSE 流、数据归一化与导出）
+        title: 前端通用工具集（查询构建、SSE 流、数据归一化与导出）
+        scope:
+            - src/utils/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     infrastructure:
-        dir_name: 基础设施横切能力层（数据库_状态存储_限流_任务队列_审计_加密）
-        title: 基础设施横切能力层（数据库/状态存储/限流/任务队列/审计/加密）
+        dir_name: 基础设施横切能力层（MySQL_状态存储_限流_任务队列_审计_加密）
+        title: 基础设施横切能力层（MySQL/状态存储/限流/任务队列/审计/加密）
         scope:
             - server/infra/
         source_files: []
@@ -92,8 +196,6 @@ modules:
         depends_on: []
         related_to:
             - path: frontend_app
-            - path: frontend_app/admin_panel
-            - path: frontend_app/dashboard
     plugin_ponytail:
         dir_name: plugin_ponytail
         title: plugin_ponytail

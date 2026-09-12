@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: documentation
-title: 项目文档与演示材料
-scope:
-    - docs/
-source_files: []
-depends_on: []
-related_to: []

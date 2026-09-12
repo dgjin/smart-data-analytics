@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: frontend_app/components/shared_ui
+title: 共享 UI 组件与全局布局（Header/Sidebar/ErrorBoundary）
+scope:
+    - src/components/
+    - src/components/auth/
+    - src/components/common/
+    - src/components/dashboard/
+    - src/components/knowledge/
+    - src/components/help/
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: frontend_app/app_shell
+title: 应用启动壳与根布局
+scope:
+    - src/App.tsx
+    - src/main.tsx
+    - src/index.css
+    - src/vite-env.d.ts
+source_files: []
+depends_on: []
+related_to: []

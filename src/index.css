@@ -29,6 +29,8 @@ html.light {
   --color-rose-400: #e11d48;
   --color-amber-300: #d97706;
   --color-amber-400: #d97706;
+  --color-orange-300: #ea580c;
+  --color-orange-400: #ea580c;
   /* 100/200 档文字同样提深（提示卡、徽章内的浅色文字） */
   --color-indigo-100: #4338ca;
   --color-indigo-200: #4338ca;

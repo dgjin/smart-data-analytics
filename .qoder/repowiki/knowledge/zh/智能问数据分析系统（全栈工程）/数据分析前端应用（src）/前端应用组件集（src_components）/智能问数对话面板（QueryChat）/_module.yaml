@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app/components/query_chat
+title: 智能问数对话面板（QueryChat）
+scope:
+    - src/components/query/
+source_files: []
+depends_on: []
+related_to: []
