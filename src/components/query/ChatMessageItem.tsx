@@ -1,6 +1,6 @@
 // P0-1 拆分：单条对话消息卡片（用户提问 / 助手回答）——从 QueryChat.tsx 抽出的纯展示组件，
-// 涵盖反馈点赞、数据来源徽标、语义缓存、DLP 提示、歧义澄清、M2 计划卡片、报告卡片、
-// KPI/图表/明细表结果区与推荐追问；一切状态变更通过回调 props 回传父组件
+// 涵盖反馈点赞、数据来源徽标、语义缓存、DLP 提示、歧义澄清、M2 计划卡片、P1-7 Agent 编排卡片、
+// 报告卡片、KPI/图表/明细表结果区与推荐追问；一切状态变更通过回调 props 回传父组件
 import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
@@ -12,6 +12,7 @@ import {
   HelpCircle,
   Lightbulb,
   ListChecks,
+  Loader2,
   Maximize2,
   Minimize2,
   Pencil,
@@ -20,6 +21,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   User,
+  XCircle,
   Zap,
 } from 'lucide-react';
 import { ChartConfig, ChatMessage, QueryResultData } from '../../types/analytics';
@@ -38,6 +40,8 @@ export interface ChatMessageItemProps {
   clarificationResolved: boolean;
   /** M2 计划卡片是否已处理（批准/修改/取消后置灰） */
   planResolved: boolean;
+  /** P1-7 Agent 编排计划卡片是否已处理（批准/取消后置灰） */
+  agentPlanResolved: boolean;
   onInspectSql: (result: QueryResultData) => void;
   onFeedback: (msg: ChatMessage, verdict: 'UP' | 'DOWN') => void;
   onSendQuery: (queryText?: string, approvedPlanId?: string, options?: { refreshCache?: boolean }) => void;
@@ -47,9 +51,31 @@ export interface ChatMessageItemProps {
   onApprovePlan: (msg: ChatMessage) => void;
   onEditPlanQuestion: (msg: ChatMessage) => void;
   onDismissPlan: (msgId: string) => void;
+  /** P1-7 Agent 编排：批准执行计划（父组件调 /api/agent/run 并落结果消息） */
+  onApproveAgentPlan: (msg: ChatMessage) => void;
+  onDismissAgentPlan: (msgId: string) => void;
   onUpdateChartConfig: (msgId: string, config: ChartConfig) => void;
   onPinChart: (msg: ChatMessage) => void;
   onOpenReport: (reportId: string) => void;
+}
+
+/** P1-7 Agent 能力标签样式 */
+const CAPABILITY_META: Record<string, { label: string; cls: string }> = {
+  query: { label: '问数', cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40' },
+  forecast: { label: '时序预测', cls: 'bg-violet-500/15 text-violet-300 border-violet-500/40' },
+  attribution: { label: '多维归因', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40' },
+};
+
+function capabilityBadge(capability: string): React.ReactNode {
+  const meta = CAPABILITY_META[capability] || { label: capability, cls: 'bg-slate-700/40 text-slate-300 border-slate-600' };
+  return (
+    <span className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold shrink-0 ${meta.cls}`}>{meta.label}</span>
+  );
+}
+
+function agentNum(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
+  return Math.abs(v) >= 1000 ? v.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : String(v);
 }
 
 export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
@@ -58,6 +84,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
   isQueryLoading,
   clarificationResolved,
   planResolved,
+  agentPlanResolved,
   onInspectSql,
   onFeedback,
   onSendQuery,
@@ -67,6 +94,8 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
   onApprovePlan,
   onEditPlanQuestion,
   onDismissPlan,
+  onApproveAgentPlan,
+  onDismissAgentPlan,
   onUpdateChartConfig,
   onPinChart,
   onOpenReport,
@@ -407,6 +436,190 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                   取消
                 </button>
                 <span className="text-[10px] text-slate-500 ml-auto">计划 10 分钟内有效</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* P1-7 Agent 编排计划卡片：Planner 规划的多能力步骤，批准后逐步执行（取数→统计） */}
+        {!isUser && msg.agentPlan && (
+          <div className="p-3 bg-fuchsia-950/30 border border-fuchsia-500/30 rounded-2xl space-y-2.5">
+            <div className="flex items-center space-x-1.5 font-bold text-fuchsia-300 text-xs">
+              <Bot className="w-4 h-4" />
+              <span>多能力编排计划（{msg.agentPlan.steps.length} 步）</span>
+            </div>
+            <ol className="space-y-1.5">
+              {msg.agentPlan.steps.map((st, idx) => (
+                <li key={st.id} className="flex items-start space-x-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800/80">
+                  <span className="w-4 h-4 rounded-full bg-fuchsia-500/20 text-fuchsia-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
+                    {idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center space-x-1.5">
+                      {capabilityBadge(st.capability)}
+                      <span className="text-xs font-semibold text-slate-200 truncate">{st.goal}</span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {agentPlanResolved ? (
+              <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+                <CheckCircle className="w-3 h-3 text-emerald-400" />
+                <span>该编排计划已处理，如需重新执行请重新提问。</span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2">
+                <button
+                  disabled={isQueryLoading}
+                  onClick={() => onApproveAgentPlan(msg)}
+                  className="px-3 py-1.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  批准执行
+                </button>
+                <button
+                  onClick={() => onDismissAgentPlan(msg.id)}
+                  className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-rose-400 text-xs transition-colors"
+                >
+                  取消
+                </button>
+                <span className="text-[10px] text-slate-500 ml-auto">计划 10 分钟内有效 · 执行时逐步真实取数</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* P1-7 Agent 编排执行结果卡片：每步的取数/预测/归因结果与状态 */}
+        {!isUser && msg.agentRun && (
+          <div className="p-3 bg-fuchsia-950/20 border border-fuchsia-500/25 rounded-2xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1.5 font-bold text-fuchsia-300 text-xs">
+                <Bot className="w-4 h-4" />
+                <span>
+                  编排执行结果（{msg.agentRun.steps.filter((s) => s.ok).length}/{msg.agentRun.steps.length} 步成功）
+                </span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {msg.agentRun.steps.map((step) => (
+                <div key={step.id} className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 space-y-1.5">
+                  {/* 步骤头 */}
+                  <div className="flex items-center space-x-1.5">
+                    {step.ok ? (
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    ) : (
+                      <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    )}
+                    {capabilityBadge(step.capability)}
+                    <span className="text-xs font-semibold text-slate-200 truncate">{step.goal}</span>
+                  </div>
+                  {/* 摘要 */}
+                  <div className={`text-[11px] leading-relaxed ${step.ok ? 'text-slate-400' : 'text-rose-300'}`}>
+                    {step.error || step.summary}
+                  </div>
+
+                  {/* query 步：数据预览小表 */}
+                  {step.ok && step.rows && step.rows.length > 0 && step.columns && (
+                    <div className="border border-slate-800 rounded-lg overflow-hidden">
+                      <table className="w-full text-[10px]">
+                        <thead>
+                          <tr className="bg-slate-900 text-slate-400">
+                            {step.columns.slice(0, 6).map((c) => (
+                              <th key={c} className="text-left px-2 py-1 font-semibold truncate max-w-[120px]">{c}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {step.rows.slice(0, 5).map((r, i) => (
+                            <tr key={i} className="border-t border-slate-800/60 text-slate-300">
+                              {step.columns!.slice(0, 6).map((c) => (
+                                <td key={c} className="px-2 py-1 truncate max-w-[120px]">
+                                  {(r as Record<string, unknown>)[c] === null || (r as Record<string, unknown>)[c] === undefined
+                                    ? ''
+                                    : String((r as Record<string, unknown>)[c])}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {(step.rowCount || 0) > 5 && (
+                        <div className="px-2 py-1 text-[9px] text-slate-500 border-t border-slate-800/60">
+                          仅预览前 5 行，共 {step.rowCount} 行
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* forecast 步：预测点摘要表 */}
+                  {step.ok && step.forecast && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-500">
+                        模型 {step.forecast.model} ｜ MAPE {agentNum(step.forecast.fit.mape)}% ｜ R² {agentNum(step.forecast.fit.r2)}
+                      </div>
+                      <div className="border border-slate-800 rounded-lg overflow-hidden">
+                        <table className="w-full text-[10px]">
+                          <thead>
+                            <tr className="bg-slate-900 text-slate-400">
+                              <th className="text-left px-2 py-1 font-semibold">期次</th>
+                              <th className="text-right px-2 py-1 font-semibold">预测值</th>
+                              <th className="text-right px-2 py-1 font-semibold">80% 区间</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {step.forecast.points.map((p) => (
+                              <tr key={p.step} className="border-t border-slate-800/60 text-slate-300">
+                                <td className="px-2 py-1">未来第 {p.step} 期</td>
+                                <td className="px-2 py-1 text-right font-mono text-violet-300">{agentNum(p.yhat)}</td>
+                                <td className="px-2 py-1 text-right font-mono text-slate-400">
+                                  {agentNum(p.lower)} ~ {agentNum(p.upper)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* attribution 步：贡献 TOP 列表 */}
+                  {step.ok && step.attribution && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-500">
+                        对比期 {step.attribution.periods[0]} → {step.attribution.periods[1]} ｜ 总体{' '}
+                        {step.attribution.total.delta > 0 ? '+' : ''}
+                        {agentNum(step.attribution.total.delta)}
+                        {step.attribution.total.deltaPct === null ? '' : `（${step.attribution.total.deltaPct > 0 ? '+' : ''}${step.attribution.total.deltaPct}%）`}
+                      </div>
+                      <div className="space-y-0.5">
+                        {[...step.attribution.items]
+                          .sort((a, b) => a.rank - b.rank)
+                          .slice(0, 5)
+                          .map((item, i) => (
+                            <div key={i} className="flex items-center justify-between text-[10px] px-2 py-0.5 bg-slate-950/60 rounded">
+                              <span className="text-slate-300 truncate max-w-[180px]" title={item.dims.join('/')}>
+                                #{item.rank} {item.dims.join('/') || '合计'}
+                              </span>
+                              <span className="flex items-center space-x-2 shrink-0">
+                                <span className={`font-mono font-semibold ${item.delta > 0 ? 'text-emerald-300' : item.delta < 0 ? 'text-rose-300' : 'text-slate-400'}`}>
+                                  {item.delta > 0 ? '+' : ''}
+                                  {agentNum(item.delta)}
+                                </span>
+                                <span className={`font-mono w-12 text-right ${item.contribution > 0 ? 'text-emerald-300' : item.contribution < 0 ? 'text-rose-300' : 'text-slate-500'}`}>
+                                  {item.contribution > 0 ? '+' : ''}{item.contribution}%
+                                </span>
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {msg.agentRun.finalSummary && (
+              <div className="text-[11px] text-fuchsia-200/90 leading-relaxed border-t border-fuchsia-500/20 pt-2">
+                {msg.agentRun.finalSummary}
               </div>
             )}
           </div>

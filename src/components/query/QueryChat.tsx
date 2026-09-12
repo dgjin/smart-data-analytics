@@ -33,7 +33,7 @@ import { ReportTemplate } from '../../types/analytics';
 import { useSpeechInput } from '../../hooks/useSpeechInput';
 import { readSseStream } from '../../utils/sseStream';
 import { pollTask } from '../../utils/asyncTask';
-import { ChatMessage, QueryPlanData, QueryResultData } from '../../types/analytics';
+import { ChatMessage, QueryPlanData, QueryResultData, AgentPlanData, AgentRunData } from '../../types/analytics';
 import { KnowledgeManagementPanel } from '../knowledge/KnowledgeManagementPanel';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
@@ -43,6 +43,8 @@ const SELECTED_MODEL_KEY = 'app-selected-model';
 // 金额单位：由 useAmountUnitStore 统一管理（全局默认 + 模块覆盖，v0.5.4 起）
 // M2 计划模式持久化键（'1' = 开启「先制定计划」）
 const PLAN_MODE_KEY = 'app-plan-mode';
+// P1-7 Agent 编排持久化键（'1' = 开启「Agent 编排」，与计划模式互斥）
+const AGENT_MODE_KEY = 'app-agent-mode';
 // M3 深度分析持久化键（'1' = 强制启用中间表清洗链）
 const DEEP_ANALYSIS_KEY = 'app-deep-analysis';
 
@@ -108,6 +110,41 @@ export const QueryChat: React.FC = () => {
       }
       return next;
     });
+    // P1-7：计划模式与 Agent 编排互斥，开启本模式时关闭另一个
+    setAgentMode(false);
+    try {
+      localStorage.removeItem(AGENT_MODE_KEY);
+    } catch {
+      // 忽略存储异常
+    }
+  };
+  // P1-7 Agent 编排：「提问→规划多能力步骤→批准→逐步执行」开关（localStorage 持久化；与计划模式互斥）
+  const [agentMode, setAgentMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AGENT_MODE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  // 已处理（批准/放弃）的 Agent 计划卡片 id 置灰
+  const [resolvedAgentPlans, setResolvedAgentPlans] = useState<Set<string>>(new Set());
+  const toggleAgentMode = () => {
+    setAgentMode((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem(AGENT_MODE_KEY, '1');
+        else localStorage.removeItem(AGENT_MODE_KEY);
+      } catch {
+        // 存储不可用时仅本次会话生效
+      }
+      return next;
+    });
+    setPlanMode(false);
+    try {
+      localStorage.removeItem(PLAN_MODE_KEY);
+    } catch {
+      // 忽略存储异常
+    }
   };
   // P3-1 知识库管理：导入导出面板显示状态
   const [showKnowledgePanel, setShowKnowledgePanel] = useState(false);
@@ -415,6 +452,45 @@ export const QueryChat: React.FC = () => {
       dataSourceId: activeDataSourceId,
     };
     const submitDSId = activeDataSourceId;
+
+    // P1-7 Agent 编排：开启后提问先由 Planner 规划多能力步骤（不执行），用户批准后逐步执行取数与统计
+    if (agentMode && !approvedPlanId && canPlanMode) {
+      addChatMessage(userMsg);
+      setCurrentQuery('');
+      setQueryLoading(true);
+      try {
+        const planResp = await apiFetch('/api/agent/plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: textToSubmit, dataSourceId: activeDataSourceId }),
+        });
+        const planData = await planResp.json().catch(() => null);
+        if (!planResp.ok || !planData?.ok || !planData.plan) {
+          throw new Error(planData?.error || '编排计划生成失败');
+        }
+        addChatMessage({
+          id: `msg-agent-plan-${Date.now()}`,
+          role: 'assistant',
+          content: planData.plan.understanding || '已生成多能力编排计划，请确认后逐步执行。',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          question: textToSubmit,
+          agentPlan: planData.plan as AgentPlanData,
+          dataSourceId: submitDSId,
+        });
+      } catch (err: any) {
+        addChatMessage({
+          id: `msg-err-agent-plan-${Date.now()}`,
+          role: 'assistant',
+          content: `编排计划生成失败：${err?.message || '请稍后重试'}`,
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          error: err?.message,
+          dataSourceId: submitDSId,
+        });
+      } finally {
+        setQueryLoading(false);
+      }
+      return;
+    }
 
     // M2 计划模式：开启「先制定计划」且本次未携带已批准 planId 时，先生成分析计划等待批准（不执行）
     if (planMode && !approvedPlanId && canPlanMode) {
@@ -817,6 +893,50 @@ export const QueryChat: React.FC = () => {
     setResolvedPlans((prev) => new Set(prev).add(msgId));
   };
 
+  // P1-7 Agent 编排卡片：批准执行（调 /api/agent/run 顺序执行并落结果消息）/ 取消（任一处理后置灰防重复提交）
+  const handleApproveAgentPlan = async (msg: ChatMessage) => {
+    if (!msg.agentPlan || isQueryLoading) return;
+    setResolvedAgentPlans((prev) => new Set(prev).add(msg.id));
+    setQueryLoading(true);
+    const submitDSId = activeDataSourceId;
+    try {
+      const resp = await apiFetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: msg.agentPlan.planId, dataSourceId: activeDataSourceId }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok || !Array.isArray(data?.steps)) {
+        throw new Error(data?.error || '编排执行失败');
+      }
+      addChatMessage({
+        id: `msg-agent-run-${Date.now()}`,
+        role: 'assistant',
+        content: data.finalSummary || '编排执行完成。',
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        question: msg.question,
+        agentRun: { ok: data.ok === true, finalSummary: data.finalSummary || '', steps: data.steps } as AgentRunData,
+        ...(typeof data.traceId === 'string' && data.traceId ? { traceId: data.traceId } : {}),
+        dataProvenance: 'live',
+        dataSourceId: submitDSId,
+      });
+    } catch (err: any) {
+      addChatMessage({
+        id: `msg-err-agent-run-${Date.now()}`,
+        role: 'assistant',
+        content: `编排执行失败：${err?.message || '请稍后重试'}`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+        error: err?.message,
+        dataSourceId: submitDSId,
+      });
+    } finally {
+      setQueryLoading(false);
+    }
+  };
+  const handleDismissAgentPlan = (msgId: string) => {
+    setResolvedAgentPlans((prev) => new Set(prev).add(msgId));
+  };
+
   // 固定图表到决策数据看板（v0.4.8：仅 live 链路携带原聚合 SQL，供数据变化时重放刷新）
   const handlePinChart = (msg: ChatMessage) => {
     if (!msg.queryResult?.chartConfig) return;
@@ -979,6 +1099,7 @@ export const QueryChat: React.FC = () => {
             isQueryLoading={isQueryLoading}
             clarificationResolved={resolvedClarifications.has(msg.id)}
             planResolved={resolvedPlans.has(msg.id)}
+            agentPlanResolved={resolvedAgentPlans.has(msg.id)}
             onInspectSql={setInspectModalResult}
             onFeedback={handleFeedback}
             onSendQuery={handleSendQuery}
@@ -988,6 +1109,8 @@ export const QueryChat: React.FC = () => {
             onApprovePlan={handleApprovePlan}
             onEditPlanQuestion={handleEditPlanQuestion}
             onDismissPlan={handleDismissPlan}
+            onApproveAgentPlan={(m) => void handleApproveAgentPlan(m)}
+            onDismissAgentPlan={handleDismissAgentPlan}
             onUpdateChartConfig={updateMessageChartConfig}
             onPinChart={handlePinChart}
             onOpenReport={handleOpenReport}
@@ -1130,6 +1253,8 @@ export const QueryChat: React.FC = () => {
             canPlanMode={canPlanMode}
             planMode={planMode}
             onTogglePlanMode={togglePlanMode}
+            agentMode={agentMode}
+            onToggleAgentMode={toggleAgentMode}
             deepMode={deepMode}
             onToggleDeepMode={toggleDeepMode}
             reportMode={reportMode}

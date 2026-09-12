@@ -68,6 +68,10 @@ import { startSseReplaySweeper } from './server/query/sseReplayBuffer';
 import { startDriftSweeper } from './server/driftDetector';
 // P0-1 异常巡检订阅：数据源级巡检计划 + 内置低频调度器
 import patrolRoutes from './server/routes/patrols';
+// P1 高级分析能力（时序预测/自动归因/情景推演，见 server/routes/analytics.ts）
+import analyticsRoutes from './server/routes/analytics';
+// P1-7 Agent 编排（Planner + Executor，见 server/routes/agent.ts）
+import agentRoutes from './server/routes/agent';
 import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
@@ -301,6 +305,10 @@ async function startServer() {
   app.use('/api/tasks', taskRoutes);
   // P0-1 异常巡检订阅（见 server/routes/patrols.ts）
   app.use('/api/patrols', patrolRoutes);
+  // P1-5/6/9 高级分析能力（见 server/routes/analytics.ts）
+  app.use('/api/analytics', analyticsRoutes);
+  // P1-7 Agent 编排（见 server/routes/agent.ts）
+  app.use('/api/agent', agentRoutes);
 
   // API 兜底 404：所有未匹配的 /api/* 请求（任意方法）统一返回 JSON，
   // 避免 Express 默认 404 HTML 页面导致前端 res.json() 抛出 "Unexpected token '<', <!DOCTYPE..."

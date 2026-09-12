@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: frontend_app
-title: 智能问数据分析前端应用（React + Vite 单体）
+title: 前端应用（React + Vite 单页应用）
 scope:
     - src/
 source_files: []

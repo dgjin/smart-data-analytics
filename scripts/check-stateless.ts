@@ -35,6 +35,7 @@ export interface WhitelistEntry {
 export const STATE_WHITELIST: WhitelistEntry[] = [
   // ---- redis-fallback：Redis 未配置时的单机内存回退（多实例部署必须配置 REDIS_URL）----
   { file: 'server/query/queryPlan.ts', name: 'store', category: 'redis-fallback', reason: '问数计划一次性存储（qp:*）的内存回退；多实例经 Redis GETDEL 共享' },
+  { file: 'server/agent/orchestrator.ts', name: 'store', category: 'redis-fallback', reason: 'Agent 编排计划一次性存储（ap:*）的内存回退；多实例经 Redis GETDEL 共享' },
   { file: 'server/report/liveReport.ts', name: 'reportPlanStore', category: 'redis-fallback', reason: '报表计划存储（rqp:*）的内存回退；多实例经 Redis 共享' },
   { file: 'server/query/queryCache.ts', name: 'cache', category: 'redis-fallback', reason: '问数结果缓存（qc:*）的内存回退；多实例经 Redis 共享命中' },
   { file: 'server/query/queryCache.ts', name: 'semanticIndex', category: 'redis-fallback', reason: '语义缓存索引（qcidx:*）的内存回退；多实例经 Redis 共享' },

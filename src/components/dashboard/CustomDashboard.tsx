@@ -33,6 +33,7 @@ import {
   Grid,
   RefreshCw,
   Gauge,
+  TrendingUp,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -43,6 +44,7 @@ import { apiFetch } from '../../api/client';
 import { useDataVersion } from '../../hooks/useDataVersion';
 import { useEffectiveAmountUnit } from '../../hooks/useAmountUnitStore';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
+import { AdvancedAnalysisPanel } from '../analytics/AdvancedAnalysisPanel';
 
 /** P2-14 语义层：语义指标定义（与后端 MetricDefinition 对齐，仅需看板端用到的字段） */
 interface SemanticMetric {
@@ -81,6 +83,10 @@ export const CustomDashboard: React.FC = () => {
   // 拖拽排序状态
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // P1 高级分析面板：当前打开的图表 id（预测/归因/推演三合一弹层）
+  const [analysisWidgetId, setAnalysisWidgetId] = useState<string | null>(null);
+  const analysisWidget = analysisWidgetId ? dashboardWidgets.find((w) => w.id === analysisWidgetId) || null : null;
 
   // 鼠标缩放状态（右下角抓手）
   const [resizingWidgetId, setResizingWidgetId] = useState<string | null>(null);
@@ -812,6 +818,17 @@ export const CustomDashboard: React.FC = () => {
                       </div>
                     )}
 
+                    {/* P1 高级分析：预测/归因/推演三合一弹层（仅 ADMIN/ANALYST，与问数同权限） */}
+                    {canQueryMetric && (
+                      <button
+                        onClick={() => setAnalysisWidgetId(widget.id)}
+                        className="p-1 text-slate-400 hover:text-indigo-300 rounded-lg hover:bg-slate-800 transition-colors"
+                        title="高级分析：时序预测 / 多维归因 / 情景推演"
+                      >
+                        <TrendingUp className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
                     <button
                       onClick={() => void removeDashboardWidgetRemote(widget.id).catch((err) => window.alert(err?.message || '移除看板图表失败'))}
                       className="p-1 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors"
@@ -863,6 +880,11 @@ export const CustomDashboard: React.FC = () => {
             在“智能问答”交互过程中，点击图表上方的“固定至看板”按钮，即可将关键图表钉在此处方便日常例会汇报与监控。
           </p>
         </div>
+      )}
+
+      {/* P1 高级分析面板：预测 / 归因 / 推演 */}
+      {analysisWidget && (
+        <AdvancedAnalysisPanel widget={analysisWidget} onClose={() => setAnalysisWidgetId(null)} />
       )}
     </div>
   );

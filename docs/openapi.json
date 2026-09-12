@@ -84,6 +84,14 @@
     {
       "name": "Patrols",
       "description": "P0-1 异常巡检订阅（数据源级巡检计划与运行历史）"
+    },
+    {
+      "name": "Analytics",
+      "description": "P1-5/6/9 高级分析（时序预测 / 多维归因 / 情景推演）"
+    },
+    {
+      "name": "Agent",
+      "description": "P1-7 Agent 编排（Planner 规划 + Executor 逐步执行）"
     }
   ],
   "x-legacy-aliases": [
@@ -4583,6 +4591,323 @@
           },
           "NotFound": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/analytics/forecast": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "forecastSeries",
+        "summary": "P1-5 时序预测：统计模型（移动平均/线性回归/季节分解，auto 回测择优）出未来 N 期 + 波动区间 + LLM 解读",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "yValues"
+                ],
+                "properties": {
+                  "yValues": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "历史数值序列（3~240 期，按期序）"
+                  },
+                  "xValues": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "期次标签（可选，需与 yValues 等长）"
+                  },
+                  "periods": {
+                    "type": "integer",
+                    "description": "预测期数 1~24（默认 3）"
+                  },
+                  "model": {
+                    "type": "string",
+                    "enum": [
+                      "auto",
+                      "ma",
+                      "lr",
+                      "seasonal"
+                    ],
+                    "description": "auto 尾部回测按 MAPE 择优"
+                  },
+                  "seasonalPeriod": {
+                    "type": "integer",
+                    "description": "季节周期（seasonal 模型）"
+                  },
+                  "metricLabel": {
+                    "type": "string",
+                    "description": "指标名（用于解读与审计）"
+                  },
+                  "interpret": {
+                    "type": "boolean",
+                    "description": "是否生成 LLM 解读（默认 true，失败降级 null）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/analytics/attribution": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "attributeDelta",
+        "summary": "P1-6 多维归因：按维度组合贡献度拆解（正=拉高/负=拉低）自动排序 + LLM 结论",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rows"
+                ],
+                "properties": {
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "模式一：{dims:[...],current,previous} 归因行；模式二：原始数据行 + aggregate 列映射"
+                  },
+                  "aggregate": {
+                    "type": "object",
+                    "description": "模式二列映射：服务端按最新两期聚合",
+                    "properties": {
+                      "dimKey": {
+                        "type": "string"
+                      },
+                      "periodKey": {
+                        "type": "string"
+                      },
+                      "metricKey": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "subject": {
+                    "type": "string",
+                    "description": "指标名（用于解读）"
+                  },
+                  "interpret": {
+                    "type": "boolean",
+                    "description": "是否生成 LLM 结论（默认 true）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/analytics/whatif": {
+      "post": {
+        "tags": [
+          "Analytics"
+        ],
+        "operationId": "whatIfScenario",
+        "summary": "P1-9 情景推演：LLM 按场景改写既有 SQL → 安全校验 → 与原 SQL 对比执行 → LLM 解读",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dataSourceId",
+                  "sql",
+                  "scenario"
+                ],
+                "properties": {
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "sql": {
+                    "type": "string",
+                    "description": "基准聚合 SQL（如看板固化图表的 sourceSql）"
+                  },
+                  "scenario": {
+                    "type": "string",
+                    "description": "情景描述（≤500 字）"
+                  },
+                  "question": {
+                    "type": "string",
+                    "description": "原始提问背景（可选）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/agent/plan": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "operationId": "planAgentRun",
+        "summary": "P1-7 Agent 编排：Planner 生成多能力计划（query/forecast/attribution，只规划不执行，计划 10 分钟有效）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "question",
+                  "dataSourceId"
+                ],
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "description": "分析问题（≤500 字）"
+                  },
+                  "dataSourceId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/agent/run": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "operationId": "runAgentPlan",
+        "summary": "P1-7 Agent 编排：批准后顺序执行计划（query 步走真实问数链路，forecast/attribution 步对上游数据统计）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "planId",
+                  "dataSourceId"
+                ],
+                "properties": {
+                  "planId": {
+                    "type": "string",
+                    "description": " /api/agent/plan 返回的计划 ID（10 分钟有效、一次性消费）"
+                  },
+                  "dataSourceId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
           }
         }
       }

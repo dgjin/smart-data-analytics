@@ -1,7 +1,7 @@
-// P0-1 拆分：问数输入框上方的模式选项行——M2 计划模式 / M3 深度分析 / v0.5.0 报告模式（含模板选择）
-// / 金额单位 / 模型自选；AI 开关关闭时整行隐藏
+// P0-1 拆分：问数输入框上方的模式选项行——M2 计划模式 / P1-7 Agent 编排 / M3 深度分析 /
+// v0.5.0 报告模式（含模板选择）/ 金额单位 / 模型自选；AI 开关关闭时整行隐藏
 import React from 'react';
-import { Cpu, Database, FileText, ListChecks } from 'lucide-react';
+import { Bot, Cpu, Database, FileText, ListChecks } from 'lucide-react';
 import { ReportTemplate } from '../../types/analytics';
 import { ModelOption } from '../../hooks/useModelCatalog';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
@@ -13,6 +13,9 @@ export interface QueryModeBarProps {
   canPlanMode: boolean;
   planMode: boolean;
   onTogglePlanMode: () => void;
+  /** P1-7 Agent 编排：多能力计划（问数→预测→归因），批准后逐步执行 */
+  agentMode: boolean;
+  onToggleAgentMode: () => void;
   deepMode: boolean;
   onToggleDeepMode: () => void;
   reportMode: boolean;
@@ -32,6 +35,8 @@ export const QueryModeBar: React.FC<QueryModeBarProps> = ({
   canPlanMode,
   planMode,
   onTogglePlanMode,
+  agentMode,
+  onToggleAgentMode,
   deepMode,
   onToggleDeepMode,
   reportMode,
@@ -61,6 +66,23 @@ export const QueryModeBar: React.FC<QueryModeBarProps> = ({
         >
           <ListChecks className="w-3 h-3" />
           <span>{planMode ? '先制定计划：开' : '先制定计划：关'}</span>
+        </button>
+      )}
+
+      {/* P1-7 Agent 编排：提问后先规划多能力步骤（问数→时序预测→多维归因），确认后逐步执行（与计划模式互斥） */}
+      {canPlanMode && (
+        <button
+          type="button"
+          onClick={onToggleAgentMode}
+          title={agentMode ? '已开启：提问后先规划编排步骤，确认后逐步执行取数与统计' : '已关闭：提问后按所选模式直接执行'}
+          className={`shrink-0 px-2.5 py-1 rounded-lg border text-[11px] transition-colors flex items-center space-x-1 ${
+            agentMode
+              ? 'bg-fuchsia-950/60 border-fuchsia-500 text-fuchsia-300'
+              : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-fuchsia-500/60 hover:text-fuchsia-300'
+          }`}
+        >
+          <Bot className="w-3 h-3" />
+          <span>{agentMode ? 'Agent 编排：开' : 'Agent 编排：关'}</span>
         </button>
       )}
 

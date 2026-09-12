@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: documentation
-title: 智能问数据分析系统文档与演示材料库
+title: 项目文档与演示材料
 scope:
     - docs/
 source_files: []

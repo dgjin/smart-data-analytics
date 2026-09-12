@@ -188,6 +188,58 @@ export interface QueryPlanData {
   complexity: 'simple' | 'multi-step';
 }
 
+/** P1-7 Agent 编排：Planner 输出的多能力计划（批准后逐步执行） */
+export interface AgentPlanStepData {
+  id: number;
+  capability: 'query' | 'forecast' | 'attribution';
+  goal: string;
+  params: Record<string, unknown>;
+}
+
+export interface AgentPlanData {
+  planId: string;
+  question: string;
+  understanding: string;
+  steps: AgentPlanStepData[];
+}
+
+/** P1-7 Agent 编排：单步执行结果（query 数据 / forecast 预测 / attribution 归因） */
+export interface AgentRunStepData {
+  id: number;
+  capability: string;
+  goal: string;
+  ok: boolean;
+  summary: string;
+  sql?: string;
+  columns?: string[];
+  rowCount?: number;
+  rows?: Record<string, unknown>[];
+  forecast?: {
+    model: string;
+    points: { step: number; yhat: number; lower: number; upper: number }[];
+    fit: { mape: number | null; r2: number | null; rmse: number };
+    diagnostics: string[];
+    xValues: string[];
+    yKey: string;
+  };
+  attribution?: {
+    items: { dims: string[]; current: number; previous: number; delta: number; deltaPct: number | null; contribution: number; rank: number }[];
+    total: { current: number; previous: number; delta: number; deltaPct: number | null };
+    diagnostics: string[];
+    dimKey: string;
+    periodKey: string;
+    metricKey: string;
+    periods: [string, string];
+  };
+  error?: string;
+}
+
+export interface AgentRunData {
+  ok: boolean;
+  finalSummary: string;
+  steps: AgentRunStepData[];
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -222,6 +274,10 @@ export interface ChatMessage {
   traceId?: string;
   /** M2 计划模式：待批准的分析计划卡片（批准/取消后禁用操作） */
   queryPlan?: QueryPlanData;
+  /** P1-7 Agent 编排：待执行的编排计划卡片（执行后禁用操作） */
+  agentPlan?: AgentPlanData;
+  /** P1-7 Agent 编排：逐步执行结果卡片 */
+  agentRun?: AgentRunData;
   /** 对话归属数据源：历史按源隔离展示，避免不同数据源的对话串源 */
   dataSourceId?: string;
   /** v0.5.0 报告模式：报告消息卡片（点击跳转报告中心查看完整报告） */
