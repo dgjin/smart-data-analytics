@@ -373,7 +373,7 @@ export const FallbackApprovalPanel: React.FC = () => {
 
       {/* 表格 */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
-        <table className="w-full">
+        <table className="w-full text-xs">
           <thead className="bg-slate-800 text-slate-300 text-xs font-mono uppercase tracking-wider">
             <tr>
               {filtered.length > 0 && (
@@ -401,7 +401,7 @@ export const FallbackApprovalPanel: React.FC = () => {
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-slate-400">
+                <td colSpan={8} className="p-8 text-center text-slate-500">
                   {error ? `❌ ${error}` : '暂无待审核样本 —— 智能问数失败后将自动采集进入此队列'}
                 </td>
               </tr>
