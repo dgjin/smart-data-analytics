@@ -12,6 +12,7 @@ import type { SchemaTable } from '../query/schemaTypes';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { forecastSeries, MIN_SERIES_LENGTH, MAX_FORECAST_PERIODS, type ForecastResult, type ForecastModel } from '../analytics/seriesForecast';
 import { attributeDelta, aggregateTwoPeriods, type AttributionResult } from '../analytics/attribution';
+import { recordTraceStep, type TraceMeta } from '../query/queryTrace';
 import { logger } from '../infra/logger';
 
 export type AgentCapability = 'query' | 'forecast' | 'attribution';
@@ -236,7 +237,7 @@ export interface AgentRunContext {
   dataSourceName?: string;
   sensitiveRemoved: string[];
   rowFilters: Record<string, string>;
-  /** 本次编排 trace ID 前缀（各 query 步拼接 -stepN 落留痕） */
+  /** 本次编排 trace ID 前缀（编排级留痕挂该 ID；各 query 步拼接 _sN 后缀做中间表关联） */
   traceId: string;
 }
 
@@ -274,23 +275,33 @@ const ROWS_RETURN_LIMIT = 50;
 export async function runAgentPlan(plan: AgentPlan, ctx: AgentRunContext): Promise<AgentRunOutcome> {
   const results: AgentStepResult[] = [];
   let lastQueryRows: Record<string, any>[] | null = null;
+  // 编排级留痕（挂消息级 traceId）：前端执行结果卡凭该 traceId 回放各步推导
+  const traceMeta: TraceMeta = { userId: ctx.userId, username: ctx.username, dataSourceId: ctx.dataSourceId, question: plan.question };
 
   for (const step of plan.steps) {
+    const startedAt = Date.now();
+    let result: AgentStepResult;
     if (step.capability === 'query') {
-      const r = await runQueryStep(plan, step, ctx);
-      results.push(r);
-      if (r.ok && Array.isArray(r.rows)) lastQueryRows = r.rows;
-      continue;
-    }
-    if (lastQueryRows === null || lastQueryRows.length === 0) {
-      results.push({ id: step.id, capability: step.capability, goal: step.goal, ok: false, summary: '上游 query 步骤未取得数据，无法执行', error: '缺少上游数据' });
-      continue;
-    }
-    if (step.capability === 'forecast') {
-      results.push(runForecastStep(step, lastQueryRows));
+      result = await runQueryStep(plan, step, ctx);
+      if (result.ok && Array.isArray(result.rows)) lastQueryRows = result.rows;
+    } else if (lastQueryRows === null || lastQueryRows.length === 0) {
+      result = { id: step.id, capability: step.capability, goal: step.goal, ok: false, summary: '上游 query 步骤未取得数据，无法执行', error: '缺少上游数据' };
+    } else if (step.capability === 'forecast') {
+      result = runForecastStep(step, lastQueryRows);
     } else {
-      results.push(runAttributionStep(step, lastQueryRows));
+      result = runAttributionStep(step, lastQueryRows);
     }
+    results.push(result);
+    // 每步一条推导记录（失败步也记）：标题带序号与能力标签，展开可见摘要/SQL/行数与耗时
+    void recordTraceStep(ctx.traceId, traceMeta, {
+      stepType: step.capability === 'query' ? 'execution' : 'analysis',
+      title: `第 ${step.id} 步【${CAPABILITY_LABELS[step.capability]}】${step.goal}`,
+      outputSummary: result.ok ? result.summary : `${result.summary || '执行失败'}${result.error ? `（${result.error}）` : ''}`,
+      sqlText: result.sql,
+      rowCount: result.rowCount,
+      durationMs: Date.now() - startedAt,
+      status: result.ok ? 'ok' : 'fail',
+    });
   }
 
   const okCount = results.filter((r) => r.ok).length;
@@ -318,7 +329,8 @@ async function runQueryStep(plan: AgentPlan, step: AgentPlanStep, ctx: AgentRunC
       sensitiveRemoved: ctx.sensitiveRemoved,
       rowFilters: ctx.rowFilters,
       userId: ctx.userId,
-      traceId: `${ctx.traceId}-step${step.id}`,
+      // 步骤级 traceId 仅用于 M3 中间表注册关联；下划线后缀，兼容 trace 路由校验字符集
+      traceId: `${ctx.traceId}_s${step.id}`,
     });
     if (outcome.ok === true) {
       const rows = Array.isArray(outcome.result.data) ? (outcome.result.data as Record<string, any>[]) : [];

@@ -13,6 +13,7 @@ import {
 } from './orchestrator';
 import { runLiveQuery } from '../query/liveQuery';
 import { callLLMJson } from '../llm/llmClient';
+import { recordTraceStep } from '../query/queryTrace';
 
 vi.mock('../llm/llmClient', () => ({
   callLLMJson: vi.fn(),
@@ -22,8 +23,13 @@ vi.mock('../query/liveQuery', () => ({
   runLiveQuery: vi.fn(),
 }));
 
+vi.mock('../query/queryTrace', () => ({
+  recordTraceStep: vi.fn(() => Promise.resolve()),
+}));
+
 const mockedLlm = vi.mocked(callLLMJson);
 const mockedQuery = vi.mocked(runLiveQuery);
+const mockedTrace = vi.mocked(recordTraceStep);
 
 const SCHEMA = [
   { name: 'loans', columns: [['month', 'varchar'], ['region', 'varchar'], ['bad_rate', 'decimal'], ['amount', 'decimal']] },
@@ -54,6 +60,7 @@ const CTX: AgentRunContext = {
 beforeEach(async () => {
   mockedLlm.mockReset();
   mockedQuery.mockReset();
+  mockedTrace.mockClear();
   await clearAgentPlanStoreForTest();
 });
 
@@ -209,6 +216,37 @@ describe('agent: Executor 顺序执行', () => {
     const out = await runAgentPlan(plan, CTX);
     expect(out.steps[1].ok).toBe(false);
     expect(out.steps[1].error).toContain('时期列');
+  });
+
+  it('每步写入编排级推导留痕（失败步也记）且携带消息级 traceId', async () => {
+    mockedQuery.mockResolvedValueOnce({
+      ok: true,
+      result: { data: [{ month: '2026-01', bad_rate: 1.5 }, { month: '2026-02', bad_rate: 1.8 }] },
+      executedSql: 'SELECT month, bad_rate FROM loans',
+      rowCount: 2,
+      retries: 0,
+    });
+    mockedQuery.mockResolvedValueOnce({ ok: false, error: 'SQL 执行失败' });
+    const plan = makePlan([
+      { capability: 'query', goal: '按月查不良率' },
+      { capability: 'query', goal: '再查明细' },
+    ]);
+    const out = await runAgentPlan(plan, CTX);
+
+    expect(mockedTrace).toHaveBeenCalledTimes(2);
+    const [traceId1, meta1, step1] = mockedTrace.mock.calls[0];
+    expect(traceId1).toBe(CTX.traceId);
+    expect(meta1.question).toBe('分析不良率');
+    expect(step1.title).toBe('第 1 步【数据查询】按月查不良率');
+    expect(step1.stepType).toBe('execution');
+    expect(step1.status).toBe('ok');
+    expect(step1.rowCount).toBe(2);
+    const [, , step2] = mockedTrace.mock.calls[1];
+    expect(step2.status).toBe('fail');
+    expect(step2.outputSummary).toContain('SQL 执行失败');
+    // 步骤级链路 traceId 传给问数主链路（下划线后缀，兼容 trace 路由校验字符集）
+    expect(mockedQuery.mock.calls[0][0].traceId).toBe(`${CTX.traceId}_s1`);
+    expect(out.ok).toBe(false);
   });
 });
 

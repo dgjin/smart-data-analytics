@@ -59,6 +59,9 @@ export interface ChatMessageItemProps {
   onOpenReport: (reportId: string) => void;
 }
 
+/** 推导回放 traceId 需匹配服务端校验格式（GET /api/query/trace/:traceId 的 tr_ 前缀白名单） */
+const TRACE_ID_PATTERN = /^tr_[A-Za-z0-9_]{6,40}$/;
+
 /** P1-7 Agent 能力标签样式 */
 const CAPABILITY_META: Record<string, { label: string; cls: string }> = {
   query: { label: '问数', cls: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40' },
@@ -337,8 +340,9 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
           </div>
         )}
 
-        {/* M1 推导回放：按需拉取本次问数的全链路步骤时间线 */}
-        {!isUser && msg.traceId && <TraceReplay traceId={msg.traceId} />}
+        {/* M1 推导回放：按需拉取本次问数的全链路步骤时间线；
+            仅服务端校验格式可回放——v0.9.53 前 Agent 编排旧消息的 agent- 前缀 traceId 无留痕记录，不展示入口 */}
+        {!isUser && msg.traceId && TRACE_ID_PATTERN.test(msg.traceId) && <TraceReplay traceId={msg.traceId} />}
 
         {/* Content Text（欢迎语按当前数据源真实表结构动态生成） */}
         <div className="whitespace-pre-wrap leading-relaxed text-sm">

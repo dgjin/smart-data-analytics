@@ -81,7 +81,9 @@ router.post('/run', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req, re
       return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '当前数据源不支持 Agent 编排（需数据库型或已落库文件数据源）' });
     }
 
-    const traceId = `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    // 格式须满足 GET /api/query/trace/:traceId 的校验（tr_ 前缀 + 仅字母数字下划线），
+    // 否则执行结果卡「查看推导过程」会被 400（traceId 不合法）拒绝
+    const traceId = `tr_agent_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     const outcome = await runAgentPlan(plan, {
       userId: user.id,
       username: user.username,
