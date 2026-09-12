@@ -690,14 +690,16 @@ export const useAnalyticsStore = create<AnalyticsState>()(
       // v4：旧未归属对话消息补盖最后活跃数据源戳，历史按源隔离不再串源
       // v5：历史报表迁移服务端 saved_reports 表，savedReports 退出持久化（rehydrate 带入内存供 initSavedReports 迁移）
       // v6：看板固化图表迁移服务端 dashboard_widgets 表（含出厂 seed），dashboardWidgets 退出持久化（同模式供 initDashboardWidgets 迁移）
+      // v7：'patrol' 页签随异常巡检入口收口系统管理（v0.9.52）移除，历史持久化值回退看板
       name: 'analytics-store',
-      version: 6,
+      version: 7,
       migrate: (persisted, version) => {
         const state = persisted as {
           dataSources?: DataSource[];
           dashboardWidgets?: DashboardWidget[];
           chatMessages?: ChatMessage[];
           activeDataSourceId?: string;
+          activeTab?: string;
         };
         if (version < 3 && state && Array.isArray(state.dashboardWidgets)) {
           const npa = resolveNpaDataSource(state.dataSources || []);
@@ -714,6 +716,10 @@ export const useAnalyticsStore = create<AnalyticsState>()(
           state.chatMessages = state.chatMessages.map((m) =>
             m.dataSourceId ? m : { ...m, dataSourceId: fallbackDs }
           );
+        }
+        // v7：「异常巡检」页签已移除（入口收口到系统管理），历史持久化的 'patrol' 值回退到看板
+        if (version < 7 && state && state.activeTab === 'patrol') {
+          state.activeTab = 'dashboard';
         }
         // 旧版本快照按上方迁移补齐后，以 partialize 持久化契约回填（缺失字段由 persist 浅合并默认值兜底）：单次受控断言
         return state as Pick<

@@ -605,7 +605,7 @@ export const AdminPanel: React.FC = () => {
       {/* ============ 区块六：系统配置 (环境配置 + 系统设置) ============ */}
       {section === 'system-config' && <EnvironmentConfigPanel />}
 
-      {/* ============ 区块七：异常巡检（与侧边栏「异常巡检」页共用 PatrolPanel，双入口） ============ */}
+      {/* ============ 区块七：异常巡检（v0.9.52 起为巡检唯一入口，由 PatrolPanel 承载） ============ */}
       {section === 'patrol' && <PatrolPanel />}
         </div>
       </div>

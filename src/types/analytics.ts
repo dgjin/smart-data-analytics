@@ -14,7 +14,7 @@ export interface AuthUser {
   mustChangePassword?: boolean;
 }
 
-export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery' | 'patrol';
+export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery';
 
 export interface ColumnSchema {
   name: string;
