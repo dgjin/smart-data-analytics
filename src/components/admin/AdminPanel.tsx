@@ -25,6 +25,8 @@ import {
   FileText,
   TrendingUp,
   AlertTriangle,
+  Scale,
+  Server,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -77,16 +79,20 @@ type AdminSection =
   | 'patrol'
   | 'system-config';
 
-/** 左栏分类导航：三域分组；color/bar 为选中态图标色与左侧色条（分类色系沿用既有编码，巡检用 orange）；
- *  组级 bar 为分组标识渐变条（组内分类色系预览，v0.9.57 提升分组标题辨识度） */
+/** 左栏分类导航：三域分组容器化；color/bar 为选中态图标色与左侧色条（分类色系沿用既有编码，巡检用 orange）；
+ *  group.text/line 为域图标色与标题延伸线渐变（v0.9.58：域卡片 + 加粗标题，分组辨识更清晰） */
 const SECTION_GROUPS: {
   label: string;
-  bar: string;
+  icon: React.ComponentType<{ className?: string }>;
+  text: string;
+  line: string;
   items: { id: AdminSection; label: string; icon: React.ComponentType<{ className?: string }>; color: string; bar: string }[];
 }[] = [
   {
     label: '账号与权限',
-    bar: 'from-indigo-500 to-amber-500',
+    icon: KeyRound,
+    text: 'text-indigo-400',
+    line: 'from-indigo-500 to-amber-500',
     items: [
       { id: 'users', label: '基础管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
       { id: 'permission-approval', label: '权限审批', icon: ShieldCheck, color: 'text-amber-400', bar: 'bg-amber-500' },
@@ -94,7 +100,9 @@ const SECTION_GROUPS: {
   },
   {
     label: '治理与审核',
-    bar: 'from-cyan-500 to-rose-500',
+    icon: Scale,
+    text: 'text-cyan-400',
+    line: 'from-cyan-500 to-rose-500',
     items: [
       { id: 'rule-governance', label: '规则治理', icon: BookMarked, color: 'text-cyan-400', bar: 'bg-cyan-500' },
       { id: 'ai-audit', label: 'AI 审核', icon: Search, color: 'text-rose-400', bar: 'bg-rose-500' },
@@ -102,7 +110,9 @@ const SECTION_GROUPS: {
   },
   {
     label: '运维与系统',
-    bar: 'from-emerald-500 to-slate-500',
+    icon: Server,
+    text: 'text-emerald-400',
+    line: 'from-emerald-500 to-slate-500',
     items: [
       { id: 'quality-monitoring', label: '质量监控', icon: Gauge, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       { id: 'patrol', label: '异常巡检', icon: Radar, color: 'text-orange-400', bar: 'bg-orange-500' },
@@ -327,42 +337,47 @@ export const AdminPanel: React.FC = () => {
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* 左栏分类导航（三域分组，窄屏收窄为图标列；分组标题带色条标识与分隔线，v0.9.57 美化） */}
-        <nav className="w-14 md:w-52 shrink-0 border-r border-slate-800/60 overflow-y-auto p-2 md:p-3">
-          {SECTION_GROUPS.map((group, gi) => (
-            <div
-              key={group.label}
-              className={gi > 0 ? 'mt-1.5 md:mt-2 pt-2.5 md:pt-3 border-t border-slate-800/50' : ''}
-            >
-              {/* 分组标题：组内色系渐变色条 + 加粗文字（窄屏隐藏，由分隔线区分域） */}
-              <div className="hidden md:flex items-center gap-2 px-2 pb-2">
-                <span className={`w-1 h-3.5 rounded-full bg-gradient-to-b ${group.bar}`} />
-                <span className="text-[11px] font-bold text-slate-300 tracking-wider">{group.label}</span>
+        {/* 左栏分类导航（三域卡片分组：域图标 + 加粗标题 + 渐变延伸线，窄屏收窄为图标列；v0.9.58 升级） */}
+        <nav className="w-14 md:w-52 shrink-0 border-r border-slate-800/60 overflow-y-auto p-2 md:p-3 space-y-2">
+          {SECTION_GROUPS.map((group) => {
+            const GroupIcon = group.icon;
+            return (
+              <div
+                key={group.label}
+                title={group.label}
+                className="rounded-xl bg-slate-900/45 border border-slate-800/70 p-0.5 md:p-1.5"
+              >
+                {/* 分组标题：域图标 + 加粗说明文字 + 右侧渐变延伸线（窄屏隐藏，由卡片容器区分域） */}
+                <div className="hidden md:flex items-center gap-1.5 pl-2 pr-1 pt-0.5 pb-1.5">
+                  <GroupIcon className={`w-3.5 h-3.5 shrink-0 ${group.text}`} />
+                  <span className="text-[11px] font-extrabold text-slate-200 tracking-wider whitespace-nowrap">{group.label}</span>
+                  <span className={`flex-1 h-px min-w-2 bg-gradient-to-r ${group.line} opacity-40`} />
+                </div>
+                <div className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const active = section === item.id;
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setSection(item.id)}
+                        title={item.label}
+                        className={`relative w-full flex items-center justify-center md:justify-start space-x-2 px-2 md:px-2.5 py-2 rounded-lg text-xs transition-colors ${
+                          active
+                            ? 'bg-slate-800/80 text-slate-100 font-semibold'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 font-medium'
+                        }`}
+                      >
+                        {active && <span className={`absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full ${item.bar}`} />}
+                        <Icon className={`w-4 h-4 shrink-0 ${active ? item.color : ''}`} />
+                        <span className="hidden md:inline">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const active = section === item.id;
-                  const Icon = item.icon;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setSection(item.id)}
-                      title={item.label}
-                      className={`relative w-full flex items-center justify-center md:justify-start space-x-2 px-2 md:px-2.5 py-2 rounded-lg text-xs transition-colors ${
-                        active
-                          ? 'bg-slate-800/80 text-slate-100 font-semibold'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 font-medium'
-                      }`}
-                    >
-                      {active && <span className={`absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full ${item.bar}`} />}
-                      <Icon className={`w-4 h-4 shrink-0 ${active ? item.color : ''}`} />
-                      <span className="hidden md:inline">{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* 右栏内容区（独立滚动，切换分类自动回顶） */}
