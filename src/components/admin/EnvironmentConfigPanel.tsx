@@ -27,6 +27,13 @@ const CATEGORY_COLORS: Record<string, string> = {
   system: 'bg-slate-500/15 text-slate-300 border-slate-500/30'
 };
 
+/** 格式化更新时间；空值或非法日期显示 '-'（防 Invalid Date 泄漏到界面） */
+const formatUpdatedAt = (value?: string): string => {
+  if (!value) return '-';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('zh-CN');
+};
+
 export const EnvironmentConfigPanel: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const [configs, setConfigs] = useState<EnvConfigItem[]>([]);
@@ -164,7 +171,7 @@ export const EnvironmentConfigPanel: React.FC = () => {
                       />
                     </td>
                     <td className="px-4 py-3 text-slate-400 font-mono text-xs">
-                      {new Date(config.updated_at).toLocaleString('zh-CN')}
+                      {formatUpdatedAt(config.updated_at)}
                     </td>
                   </tr>
                 ))}

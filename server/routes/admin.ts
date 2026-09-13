@@ -8,6 +8,7 @@ import { getPool } from '../infra/db';
 import { hashPassword, validatePasswordStrength } from '../auth/passwords';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { logger } from '../infra/logger';
+import { writeAudit } from '../infra/auditLog';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -217,7 +218,8 @@ router.get('/env-config', async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
 
-    const [rows]: any = await getPool().query('SELECT `key`, `value`, category, description, is_sensitive FROM env_config');
+    // 注意：必须查 updated_at，前端「更新时间」列依赖该字段（漏查会显示 Invalid Date）
+    const [rows]: any = await getPool().query('SELECT `key`, `value`, category, description, is_sensitive, updated_at FROM env_config');
 
     // 脱敏敏感字段
     const sanitizedData = rows.map((row: any) => ({
@@ -260,20 +262,22 @@ router.put('/env-config', async (req, res) => {
       }
     }
 
-    // 批量更新
+    // 批量更新（ON DUPLICATE KEY UPDATE 须显式刷新 updated_at，该列无 ON UPDATE 属性）
     for (const upd of updates) {
       await getPool().query(
-        'INSERT INTO env_config (`key`, `value`, updated_by, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE `value`=?, updated_by=?',
+        'INSERT INTO env_config (`key`, `value`, updated_by, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE `value`=?, updated_by=?, updated_at=NOW()',
         [upd.key, upd.value, req.user.id, upd.value, req.user.id]
       );
     }
 
-    // 审计日志
-    await getPool().query(
-      `INSERT INTO audit_log (user_id, action, details, created_at)
-       VALUES (?, 'ENV_CONFIG_UPDATE', ?, NOW())`,
-      [req.user.id, JSON.stringify(updates.map(u => `${u.key}=***`))]
-    );
+    // 审计日志（统一走 writeAudit 写入 query_audit_log，fail-open 不阻塞主流程；敏感值一律脱敏）
+    writeAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      endpoint: 'admin',
+      status: 'SUCCESS',
+      detail: `环境配置更新 ${updates.length} 项：${updates.map(u => `${u.key}=***`).join(', ')}`,
+    });
 
     res.json({
       success: true,
