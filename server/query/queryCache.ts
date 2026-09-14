@@ -11,10 +11,11 @@ import { observeCacheHit } from '../infra/monitoring';
 
 // P0 性能优化：TTL 默认 10 分钟延长至 30 分钟（分析型场景数据时效要求低，缓存收益大）；
 // 可用 QUERY_CACHE_TTL_MINUTES 覆盖。失效正确性由数据源变更点调用 invalidateQueryCache 保证（见 routes/datasources.ts）。
-const CACHE_TTL_MS = (() => {
+// v0.9.61 惰性读取：模块级常量改函数——面板在线热更 QUERY_CACHE_TTL_MINUTES 即时生效（原常量仅启动读一次）。
+export const cacheTtlMs = (): number => {
   const mins = Number(process.env.QUERY_CACHE_TTL_MINUTES);
   return Number.isFinite(mins) && mins > 0 ? Math.floor(mins) * 60 * 1000 : 30 * 60 * 1000;
-})();
+};
 const MAX_ENTRIES = 200;
 /** Redis 缓存值体积上限（超过不缓存，避免大结果集撑爆内存库） */
 const REDIS_MAX_PAYLOAD_BYTES = 200 * 1024;
@@ -53,7 +54,7 @@ export async function getCachedQuery(key: string, internal = false): Promise<any
   }
   const entry = cache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.at > CACHE_TTL_MS) {
+  if (Date.now() - entry.at > cacheTtlMs()) {
     cache.delete(key);
     return null;
   }
@@ -70,7 +71,7 @@ export async function setCachedQuery(
     try {
       const raw = JSON.stringify(payload);
       if (raw.length <= REDIS_MAX_PAYLOAD_BYTES) {
-        await getStateStore().setEx(`qc:${key}`, raw, Math.ceil(CACHE_TTL_MS / 1000));
+        await getStateStore().setEx(`qc:${key}`, raw, Math.ceil(cacheTtlMs() / 1000));
       }
     } catch {
       // 写缓存失败静默忽略（fail-open）
@@ -181,7 +182,7 @@ async function embedQuestion(question: string): Promise<number[] | null> {
 async function readSemanticIndex(idxKey: string): Promise<SemanticIndexEntry[]> {
   const now = Date.now();
   const alive = (list: SemanticIndexEntry[]) =>
-    list.filter((e) => e && typeof e.key === 'string' && Array.isArray(e.vec) && now - Number(e.at || 0) <= CACHE_TTL_MS);
+    list.filter((e) => e && typeof e.key === 'string' && Array.isArray(e.vec) && now - Number(e.at || 0) <= cacheTtlMs());
   if (isRedisEnabled()) {
     try {
       const raw = await getStateStore().get(`qcidx:${idxKey}`);
@@ -213,7 +214,7 @@ async function indexSemanticEntry(dataSourceId: string, variant: string, key: st
   const next = [entry, ...list.filter((e) => e.key !== entry.key)].slice(0, SEMANTIC_INDEX_MAX);
   if (isRedisEnabled()) {
     try {
-      await getStateStore().setEx(`qcidx:${idxKey}`, JSON.stringify(next), Math.ceil(CACHE_TTL_MS / 1000));
+      await getStateStore().setEx(`qcidx:${idxKey}`, JSON.stringify(next), Math.ceil(cacheTtlMs() / 1000));
     } catch {
       // 索引写失败静默忽略（fail-open）
     }

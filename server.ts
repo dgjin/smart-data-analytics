@@ -19,6 +19,7 @@ for (const dir of ENV_SEARCH_DIRS) {
 }
 
 import { initSchema, closePool } from './server/infra/db';
+import { loadEnvConfigIntoProcess } from './server/infra/envConfigSync';
 import { isRedisEnabled, warmStateStore } from './server/infra/stateStore';
 import { authMiddleware, requireRole } from './server/auth/auth';
 import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthChecks } from './server/llm/llmClient';
@@ -111,6 +112,11 @@ async function startServer() {
 
   // Initialize MySQL schema & seed data before accepting traffic
   await initSchema();
+
+  // v0.9.61 环境配置在线化：把面板（env_config 表）保存的非空值合并进 process.env——
+  // 面板值优先于 .env.local 且重启后保持；空值回退 .env.local；MYSQL_* 连接配置不参与（自举悖论）。
+  // fail-open：读表失败仅告警，继续以 .env.local 运行。
+  await loadEnvConfigIntoProcess();
 
   // P0-1 异常巡检订阅：建表（幂等）——先于调度器启动，确保首个 tick 可用
   await ensurePatrolTables();

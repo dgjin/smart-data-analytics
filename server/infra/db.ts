@@ -9,6 +9,7 @@ import { encryptSecret, isEncrypted } from './secretsCrypto';
 import { BUILTIN_SKILLS } from '../skills';
 import { ensureTaskTable } from './taskQueue';
 import { DEFAULT_DASHBOARD_WIDGET_SEEDS } from '../defaultWidgets';
+import { ENV_CONFIG_SEED } from './envConfigCatalog';
 import { logger } from './logger';
 
 // 注意：ESM import 提升会使模块级 process.env 读取早于 dotenv.config()，
@@ -832,6 +833,23 @@ export async function initSchema(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.61 环境配置在线化：env_config 建表自动化（v0.5.0 起原为手工 SQL 创建，新部署无表导致面板 500）。
+  // key/value 为 MySQL 保留字须加反引号（v0.5.0 经验：MySQL 9.x 裸列名报语法错误）。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS env_config (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      \`key\` VARCHAR(100) NOT NULL,
+      \`value\` TEXT NOT NULL,
+      category VARCHAR(50) DEFAULT 'system',
+      description TEXT,
+      is_sensitive TINYINT(1) DEFAULT 0,
+      updated_by INT DEFAULT NULL,
+      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY unique_key (\`key\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // 4. Seed default admin when users table is empty（首登强制改密）
   const [userRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM users');
   if (Number(userRows[0]?.cnt) === 0) {
@@ -876,6 +894,18 @@ export async function initSchema(): Promise<void> {
     }
     logger.info(`[DB] Seeded ${INITIAL_DATA_SOURCES.length} demo data sources`);
   }
+
+  // 5b. v0.9.61 环境配置在线化：补种标准键位（幂等；值留空=跟随 .env.local，已存在行不覆盖）。
+  // 面板保存非空值后由 envConfigSync 合并进 process.env——面板优先于 .env.local 且重启保持。
+  let seededEnvKeys = 0;
+  for (const item of ENV_CONFIG_SEED) {
+    const [res] = await pool.query<mysql.ResultSetHeader>(
+      "INSERT IGNORE INTO env_config (`key`, `value`, category, description, is_sensitive) VALUES (?, '', ?, ?, ?)",
+      [item.key, item.category, item.description, item.sensitive ? 1 : 0]
+    );
+    seededEnvKeys += res.affectedRows;
+  }
+  if (seededEnvKeys > 0) logger.info(`[DB] Seeded ${seededEnvKeys} env_config keys（空值=跟随 .env.local）`);
 
   // 6. P0 存量迁移：明文数据源密码就地加密（enc:v1: 前缀幂等跳过）
   const [dsAll] = await pool.query<mysql.RowDataPacket[]>('SELECT id, config_json FROM data_sources');

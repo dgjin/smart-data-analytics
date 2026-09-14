@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { normalizeQuestion, cacheKey, getCachedQuery, setCachedQuery, invalidateQueryCache, getSemanticCachedQuery, semanticCacheThreshold } from './queryCache';
+import { normalizeQuestion, cacheKey, getCachedQuery, setCachedQuery, invalidateQueryCache, getSemanticCachedQuery, semanticCacheThreshold, cacheTtlMs } from './queryCache';
 import { callEmbedding } from '../llm/llmClient';
 
 // P1-6 L2 语义缓存测试：embedding 走 mock（按归一化文本查表），向量确定性可控
@@ -59,6 +59,28 @@ describe('queryCache: 问数结果缓存', () => {
     expect(await getCachedQuery(k2)).toBeTruthy();
     await invalidateQueryCache();
     expect(await getCachedQuery(k2)).toBeNull();
+  });
+});
+
+describe('queryCache: TTL 惰性读取（v0.9.61 面板热更即时生效）', () => {
+  it('QUERY_CACHE_TTL_MINUTES 修改后立即生效，非法/缺省回退 30 分钟', () => {
+    const original = process.env.QUERY_CACHE_TTL_MINUTES;
+    try {
+      process.env.QUERY_CACHE_TTL_MINUTES = '5';
+      expect(cacheTtlMs()).toBe(5 * 60 * 1000);
+      // 无需重启：再次读取即采用新值（原模块级常量仅启动读一次，热更不生效）
+      process.env.QUERY_CACHE_TTL_MINUTES = '45';
+      expect(cacheTtlMs()).toBe(45 * 60 * 1000);
+      process.env.QUERY_CACHE_TTL_MINUTES = 'abc';
+      expect(cacheTtlMs()).toBe(30 * 60 * 1000);
+      process.env.QUERY_CACHE_TTL_MINUTES = '0';
+      expect(cacheTtlMs()).toBe(30 * 60 * 1000);
+      delete process.env.QUERY_CACHE_TTL_MINUTES;
+      expect(cacheTtlMs()).toBe(30 * 60 * 1000);
+    } finally {
+      if (original === undefined) delete process.env.QUERY_CACHE_TTL_MINUTES;
+      else process.env.QUERY_CACHE_TTL_MINUTES = original;
+    }
   });
 });
 

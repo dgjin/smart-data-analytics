@@ -4134,7 +4134,7 @@
           "Admin"
         ],
         "operationId": "envConfigList",
-        "summary": "环境变量配置列表（仅 ADMIN；敏感字段脱敏为 ***hidden***）",
+        "summary": "环境变量配置列表（仅 ADMIN；敏感字段脱敏为 ***hidden***；附 runtime_configured/runtime_value 运行时对账字段）",
         "responses": {
           "200": {
             "description": "成功"
@@ -4149,7 +4149,7 @@
           "Admin"
         ],
         "operationId": "envConfigUpdate",
-        "summary": "批量更新环境变量配置（仅 ADMIN，白名单校验；写入 env_config 表并审计）",
+        "summary": "批量更新环境变量配置（仅 ADMIN，白名单校验；写入 env_config 表并即时热更 process.env（MYSQL_* 除外）；敏感哨兵 ***hidden*** 按未修改跳过；响应 applied/skippedUnchanged）",
         "requestBody": {
           "required": true,
           "content": {

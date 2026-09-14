@@ -9,6 +9,7 @@ import { hashPassword, validatePasswordStrength } from '../auth/passwords';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { logger } from '../infra/logger';
 import { writeAudit } from '../infra/auditLog';
+import { ENV_CONFIG_HIDDEN, sanitizeEnvConfigUpdates, applyEnvConfigToProcess } from '../infra/envConfigCatalog';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -221,10 +222,12 @@ router.get('/env-config', async (req, res) => {
     // 注意：必须查 updated_at，前端「更新时间」列依赖该字段（漏查会显示 Invalid Date）
     const [rows]: any = await getPool().query('SELECT `key`, `value`, category, description, is_sensitive, updated_at FROM env_config');
 
-    // 脱敏敏感字段
+    // 脱敏敏感字段 + v0.9.61 运行时对账（面板保存值 vs process.env 实际生效值；敏感项仅暴露已配置布尔）
     const sanitizedData = rows.map((row: any) => ({
       ...row,
-      value: row.is_sensitive ? '***hidden***' : (row.value || '')
+      value: row.is_sensitive ? ENV_CONFIG_HIDDEN : (row.value || ''),
+      runtime_configured: Boolean(process.env[row.key]),
+      runtime_value: row.is_sensitive ? '' : (process.env[row.key] || '')
     }));
 
     res.json({ success: true, data: sanitizedData });
@@ -242,26 +245,15 @@ router.put('/env-config', async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
 
-    const { updates }: { updates: Array<{ key: string; value: string }> } = req.body;
-
-    if (!Array.isArray(updates) || updates.length === 0) {
-      return res.status(400).json({ success: false, error: 'Invalid input' });
+    // v0.9.61 校验与过滤：结构/白名单校验 + 脱敏哨兵按「未修改」跳过（防 ***hidden*** 回写覆盖真实值）
+    const parsed = sanitizeEnvConfigUpdates((req.body || {}).updates);
+    if (!parsed.ok) {
+      return res.status(400).json({ success: false, error: parsed.error });
     }
-
-    // 白名单校验
-    const ALLOWED_KEYS = new Set([
-      'OLLAMA_URL', 'LLM_MODEL', 'AI_ENGINE', 'QWEN_API_KEY', 'QWEN_URL', 'QWEN_MODEL',
-      'DEEPSEEK_API_KEY', 'DEEPSEEK_URL', 'DEEPSEEK_MODEL', 'DEEPSEEK_TIMEOUT_MS',
-      'OLLAMA_TIMEOUT_MS', 'LLM_SQL_ENGINE', 'LLM_SQL_MODEL', 'LLM_ANALYSIS_ENGINE',
-      'LLM_ANALYSIS_MODEL', 'LLM_SQL_ROUTE_MAX_TABLES', 'QUERY_CACHE_TTL_MINUTES', 'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_USER', 'MYSQL_PASSWORD',
-      'MYSQL_DATABASE', 'JWT_SECRET', 'JWT_EXPIRES_IN', 'USER_QUERY_RATE_MAX', 'APP_URL'
-    ]);
-
-    for (const upd of updates) {
-      if (!ALLOWED_KEYS.has(upd.key)) {
-        return res.status(400).json({ success: false, error: `Forbidden key: ${upd.key}` });
-      }
+    if (parsed.accepted.length === 0) {
+      return res.json({ success: true, message: 'No changes (sensitive fields unmodified)', applied: [], skippedUnchanged: parsed.skippedUnchanged });
     }
+    const updates = parsed.accepted;
 
     // 批量更新（ON DUPLICATE KEY UPDATE 须显式刷新 updated_at，该列无 ON UPDATE 属性）
     for (const upd of updates) {
@@ -271,18 +263,24 @@ router.put('/env-config', async (req, res) => {
       );
     }
 
+    // v0.9.61 即时热更：保存值立即合并进 process.env（LLM 引擎/限流/缓存等无需重启生效；
+    // MYSQL_* 连接配置不参与——自举悖论，见 envConfigCatalog 说明）
+    const applied = applyEnvConfigToProcess(updates);
+
     // 审计日志（统一走 writeAudit 写入 query_audit_log，fail-open 不阻塞主流程；敏感值一律脱敏）
     writeAudit({
       userId: req.user.id,
       username: req.user.username,
       endpoint: 'admin',
       status: 'SUCCESS',
-      detail: `环境配置更新 ${updates.length} 项：${updates.map(u => `${u.key}=***`).join(', ')}`,
+      detail: `环境配置更新 ${updates.length} 项（即时生效 ${applied.length} 项）：${updates.map(u => `${u.key}=***`).join(', ')}`,
     });
 
     res.json({
       success: true,
-      message: `Updated ${updates.length} config items`,
+      message: `Updated ${updates.length} config items (hot-applied ${applied.length})`,
+      applied,
+      skippedUnchanged: parsed.skippedUnchanged,
       audit_log: {
         user_id: req.user.id,
         username: req.user.username,
