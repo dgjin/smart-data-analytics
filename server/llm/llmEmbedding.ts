@@ -23,6 +23,15 @@ const embedModel = () => process.env.EMBED_MODEL || 'nomic-embed-text';
 // 千问 embedding 模型（Coding Plan 端点可能不支持，失败时调用方自动降级关键词粗排）
 const qwenEmbedModel = () => process.env.QWEN_EMBED_MODEL || 'text-embedding-v4';
 
+/**
+ * embedding 引擎解析：DeepSeek 官方无公共 embedding 端点，主引擎为 deepseek 时回退本地 Ollama
+ * （未装 embedding 模型时调用方降级关键词检索；埋点按实际调用引擎记 ollama）。
+ */
+const embedKind = (): 'ollama' | 'qwen' | 'gemini' => {
+  const k = engineKind();
+  return k === 'deepseek' ? 'ollama' : k;
+};
+
 // embedding 短 TTL 缓存：同一问题的 query 向量在圈表精排与知识库检索间复用，重试/重复提问不再重复调用
 const EMBED_CACHE_TTL_MS = 10 * 60 * 1000;
 const EMBED_CACHE_MAX = 256;
@@ -52,7 +61,8 @@ export function clearEmbeddingCacheForTest(): void {
 }
 
 /**
- * 文本 → 向量。Ollama 走 /api/embeddings，Qwen 走 /embeddings，Gemini 走 embedContent。
+ * 文本 → 向量。Ollama 走 /api/embeddings，Qwen 走 /embeddings，Gemini 走 embedContent；
+ * 主引擎为 DeepSeek 时回退 Ollama（DeepSeek 官方无 embedding 端点）。
  * role 区分查询/文档：nomic-embed-text 需加 search_query:/search_document: 指令前缀，
  * 否则短问题与长文档相似度被压平、区分度下降。
  * 失败（未装 embedding 模型 / 网络异常）时抛错，由调用方降级处理。
@@ -64,7 +74,7 @@ export async function callEmbedding(text: string, role?: 'query' | 'document'): 
     input = `${role === 'query' ? 'search_query' : 'search_document'}: ${input}`;
   }
 
-  const kind = engineKind();
+  const kind = embedKind();
 
   // 同文本+角色+引擎的向量短 TTL 复用（命中时省去一次模型/网络调用）
   const cacheKey = `${kind}|${role || ''}|${input}`;
@@ -258,7 +268,7 @@ async function qwenEmbeddingBatch(inputs: string[]): Promise<{ vecs: (number[] |
  * 知识库导入/宽表列裁剪等场景的 embedding 往返次数由 N 降至 ceil(N/batchSize)。
  */
 export async function callEmbeddingBatch(texts: string[], role?: 'query' | 'document'): Promise<(number[] | null)[]> {
-  const kind = engineKind();
+  const kind = embedKind();
   const results: (number[] | null)[] = new Array(texts.length).fill(null);
   const misses: { idx: number; input: string; cacheKey: string }[] = [];
   texts.forEach((t, idx) => {

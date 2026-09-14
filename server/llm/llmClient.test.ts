@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
-import { validateModelSelection, sqlStageRoute, callLLMJson } from './llmClient';
+import { validateModelSelection, sqlStageRoute, callLLMJson, resetLlmResilienceForTest, resolveEngineWithFailover } from './llmClient';
 
 /**
  * 模型自选校验（validateModelSelection）测试
@@ -38,6 +38,9 @@ describe('validateModelSelection', () => {
 
     const c = validateModelSelection('gemini', 'gemini-2.5-flash');
     expect(c).toEqual({ engine: 'gemini', model: 'gemini-2.5-flash' });
+
+    const d = validateModelSelection('deepseek', 'deepseek-flash');
+    expect(d).toEqual({ engine: 'deepseek', model: 'deepseek-flash' });
   });
 });
 
@@ -72,6 +75,34 @@ describe('sqlStageRoute: SQL 生成阶段快速模型配置', () => {
     process.env.LLM_SQL_ENGINE = 'QWEN'; // 大小写不敏感
     process.env.LLM_SQL_MODEL = 'qwen-turbo';
     expect(sqlStageRoute()).toEqual({ engine: 'qwen', model: 'qwen-turbo' });
+    process.env.LLM_SQL_ENGINE = 'deepseek';
+    process.env.LLM_SQL_MODEL = 'deepseek-flash';
+    expect(sqlStageRoute()).toEqual({ engine: 'deepseek', model: 'deepseek-flash' });
+  });
+});
+
+/**
+ * DeepSeek 引擎（v0.9.60）：未配置 Key 时的优雅转移（占位 Key 期服务不中断）
+ */
+describe('resolveEngineWithFailover: DeepSeek 引擎转移', () => {
+  afterEach(() => {
+    resetLlmResilienceForTest();
+    delete process.env.AI_ENGINE;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.QWEN_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it('主引擎未配置 Key 时转移到已配置备用引擎（缺省回本地 ollama）', () => {
+    expect(resolveEngineWithFailover('deepseek')).toEqual({ kind: 'ollama', failovered: true, circuitOpen: false });
+    process.env.QWEN_API_KEY = 'sk-test';
+    resetLlmResilienceForTest();
+    expect(resolveEngineWithFailover('deepseek')).toEqual({ kind: 'ollama', failovered: true, circuitOpen: false });
+  });
+
+  it('配置 Key 后主引擎原样生效（不再转移）', () => {
+    process.env.DEEPSEEK_API_KEY = 'sk-ds-test';
+    expect(resolveEngineWithFailover('deepseek')).toEqual({ kind: 'deepseek', failovered: false, circuitOpen: false });
   });
 });
 
@@ -81,7 +112,9 @@ describe('callLLMJson: 阶段路由分发到指定模型', () => {
     delete process.env.AI_ENGINE;
     delete process.env.GEMINI_API_KEY;
     delete process.env.QWEN_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
     delete process.env.LLM_MODEL;
+    resetLlmResilienceForTest();
   });
 
   function stubOllama() {
@@ -125,5 +158,32 @@ describe('callLLMJson: 阶段路由分发到指定模型', () => {
     await callLLMJson('sys', 'q', [], { route: { engine: 'qwen', model: 'qwen-turbo' } });
     expect(captured[0].url).toContain('/chat/completions');
     expect(captured[0].body.model).toBe('qwen-turbo');
+  });
+
+  it('route 指定 deepseek 时走 DeepSeek 官方通道并使用阶段模型', async () => {
+    delete process.env.AI_ENGINE;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.QWEN_API_KEY;
+    process.env.DEEPSEEK_API_KEY = 'sk-ds-test';
+    const captured: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: any, init: any) => {
+      captured.push({ url: String(url), body: JSON.parse(init.body), auth: init.headers?.Authorization });
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"sql":"SELECT 1"}' } }] }), text: async () => '' };
+    }));
+    await callLLMJson('sys', 'q', [], { route: { engine: 'deepseek', model: 'deepseek-flash' } });
+    expect(captured[0].url).toBe('https://api.deepseek.com/v1/chat/completions');
+    expect(captured[0].body.model).toBe('deepseek-flash');
+    expect(captured[0].auth).toBe('Bearer sk-ds-test');
+  });
+
+  it('AI_ENGINE=deepseek 但未配置 Key 时自动转移本地 ollama（占位 Key 期问数不中断）', async () => {
+    process.env.AI_ENGINE = 'deepseek';
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.QWEN_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    process.env.LLM_MODEL = 'qwen3.8:27b-mlx';
+    const captured = stubOllama();
+    await callLLMJson('sys', 'q');
+    expect(captured[0].model).toBe('qwen3.8:27b-mlx');
   });
 });

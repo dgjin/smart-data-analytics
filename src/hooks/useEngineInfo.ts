@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../api/client';
 
 export interface EngineInfo {
-  engine: 'ollama' | 'gemini' | 'qwen';
+  engine: 'ollama' | 'gemini' | 'qwen' | 'deepseek';
   model: string;
   /** 展示标签（如 "Ollama qwen3.6:latest"），由服务端按实际配置给出 */
   label: string;

@@ -28,6 +28,7 @@ function cleanEnv() {
   delete process.env.AI_ENGINE;
   delete process.env.GEMINI_API_KEY;
   delete process.env.QWEN_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
   delete process.env.OLLAMA_URL;
   delete process.env.OLLAMA_URLS;
   delete process.env.LLM_MODEL;
@@ -222,6 +223,24 @@ describe('embedding 批量化（callEmbeddingBatch）', () => {
     const v2 = await callEmbedding('回收率统计', 'query');
     expect(v2).toEqual([2, 0.5]);
     expect(recordLlmUsage).toHaveBeenCalledWith(expect.objectContaining({ channel: 'embedding', promptTokens: 0 }));
+  });
+
+  it('主引擎为 deepseek 时 embedding 回退本地 Ollama（DeepSeek 无公共向量端点）', async () => {
+    process.env.AI_ENGINE = 'deepseek';
+    process.env.DEEPSEEK_API_KEY = 'sk-ds-test';
+    const captured: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: any) => {
+      const u = String(url);
+      captured.push(u);
+      if (u.includes('api.deepseek.com')) throw new Error('DeepSeek 不应被用于 embedding');
+      if (u.endsWith('/api/embed')) return { ok: true, json: async () => ({ embeddings: [[3, 0.25]], prompt_eval_count: 5 }), text: async () => '' };
+      throw new Error(`unexpected url: ${u}`);
+    }));
+    const v = await callEmbedding('回收率统计', 'query');
+    expect(v).toEqual([3, 0.25]);
+    expect(captured.every((u) => !u.includes('api.deepseek.com'))).toBe(true);
+    // 埋点按实际调用引擎记 ollama（诚实记账，便于用量面板区分）
+    expect(recordLlmUsage).toHaveBeenCalledWith(expect.objectContaining({ engine: 'ollama', channel: 'embedding', promptTokens: 5 }));
   });
 
   it('批量请求在多后端下走最少并发节点', async () => {

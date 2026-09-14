@@ -1,9 +1,9 @@
 /**
- * 统一 LLM 调用通道（Ollama 本地 / Gemini API / 通义千问百炼）。
+ * 统一 LLM 调用通道（Ollama 本地 / Gemini API / 通义千问百炼 / DeepSeek 官方 API）。
  * 供查询、报表等端点共享；双阶段（SQL 生成 / 数据分析）均通过 callLLMJson 调用。
  * 引擎选择优先级：请求级覆盖（setLlmOverride，用户自选模型）>
  * 阶段级路由（callLLMJson opts.route，如 SQL 生成快速模型 P1-2）>
- * AI_ENGINE 显式指定（ollama/gemini/qwen）> 按密钥存在性自动（gemini/qwen）> ollama。
+ * AI_ENGINE 显式指定（ollama/gemini/qwen/deepseek）> 按密钥存在性自动（gemini/qwen/deepseek）> ollama。
  */
 import { AsyncLocalStorage } from 'async_hooks';
 import { recordLlmUsage } from './llmUsage';
@@ -53,10 +53,14 @@ interface OllamaChatResponse {
 export const qwenUrl = () => process.env.QWEN_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 export const qwenModel = () => overrideModel('qwen') || process.env.QWEN_MODEL || 'qwen3.8-max';
 export const qwenTimeoutMs = () => Number(process.env.QWEN_TIMEOUT_MS) || 180_000;
+// DeepSeek 官方 API（OpenAI 兼容协议）；deepseek-flash 为 V4.1 Flash 的 API 模型名
+export const deepseekUrl = () => process.env.DEEPSEEK_URL || 'https://api.deepseek.com/v1';
+export const deepseekModel = () => overrideModel('deepseek') || process.env.DEEPSEEK_MODEL || 'deepseek-flash';
+export const deepseekTimeoutMs = () => Number(process.env.DEEPSEEK_TIMEOUT_MS) || 180_000;
 const GEMINI_MODEL = 'gemini-3.6-flash';
 export const geminiModel = () => overrideModel('gemini') || GEMINI_MODEL;
 
-type EngineKind = 'ollama' | 'gemini' | 'qwen';
+type EngineKind = 'ollama' | 'gemini' | 'qwen' | 'deepseek';
 
 // ---------- P0-3 调用韧性：重试 + 引擎级熔断 + 并发排队 + 自适应超时 ----------
 /** 最大重试次数（不含首次，默认 2；仅超时/5xx/网络错误重试，4xx 立即失败） */
@@ -87,6 +91,8 @@ interface ResilienceState {
   windows: Record<EngineKind, LatencyWindow>;
 }
 let resilience: ResilienceState | null = null;
+/** 未配置主引擎（缺 API Key，如占位 Key 待填期）的故障转移告警去重：仅首次提示避免刷屏 */
+const unconfiguredFailoverWarned = new Set<EngineKind>();
 function resilienceState(): ResilienceState {
   if (!resilience) {
     resilience = {
@@ -94,13 +100,20 @@ function resilienceState(): ResilienceState {
         ollama: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
         qwen: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
         gemini: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
+        deepseek: new CircuitBreaker({ failureThreshold: breakerFailThreshold(), cooldownMs: breakerCooldownMs() }),
       },
       semaphores: {
         ollama: new Semaphore(llmMaxConcurrent()),
         qwen: new Semaphore(llmMaxConcurrent()),
         gemini: new Semaphore(llmMaxConcurrent()),
+        deepseek: new Semaphore(llmMaxConcurrent()),
       },
-      windows: { ollama: new LatencyWindow(), qwen: new LatencyWindow(), gemini: new LatencyWindow() },
+      windows: {
+        ollama: new LatencyWindow(),
+        qwen: new LatencyWindow(),
+        gemini: new LatencyWindow(),
+        deepseek: new LatencyWindow(),
+      },
     };
   }
   return resilience;
@@ -109,29 +122,45 @@ function resilienceState(): ResilienceState {
 /** 测试用：重置全部熔断/信号量/耗时窗口状态 */
 export function resetLlmResilienceForTest(): void {
   resilience = null;
+  unconfiguredFailoverWarned.clear();
 }
 
-/** 引擎可配置性：ollama 本地默认可试（不可达由熔断接管）；qwen/gemini 需密钥 */
+/** 引擎可配置性：ollama 本地默认可试（不可达由熔断接管）；qwen/gemini/deepseek 需密钥 */
 function engineConfigured(kind: EngineKind): boolean {
   if (kind === 'ollama') return true;
   if (kind === 'qwen') return Boolean(process.env.QWEN_API_KEY);
+  if (kind === 'deepseek') return Boolean(process.env.DEEPSEEK_API_KEY);
   return Boolean(process.env.GEMINI_API_KEY);
 }
 
 /**
  * 引擎级熔断转移：主引擎开路时切换到已配置且未开路的备用引擎
  * （如 Ollama 连续失败自动切 Qwen）；全部开路时 circuitOpen=true，调用方快速失败不雪崩。
+ * 主引擎未配置（云端引擎缺 API Key，如占位 Key 待填阶段）时同样直接转移，
+ * 避免无效调用与用户可见报错——填 Key 重启后自动切回主引擎。
  */
 export function resolveEngineWithFailover(
   primary: EngineKind
 ): { kind: EngineKind; failovered: boolean; circuitOpen: boolean } {
   const rs = resilienceState();
-  if (rs.breakers[primary].canRequest()) return { kind: primary, failovered: false, circuitOpen: false };
+  if (engineConfigured(primary) && rs.breakers[primary].canRequest()) return { kind: primary, failovered: false, circuitOpen: false };
   const order: EngineKind[] =
-    primary === 'ollama' ? ['qwen', 'gemini'] : primary === 'qwen' ? ['ollama', 'gemini'] : ['qwen', 'ollama'];
+    primary === 'ollama'
+      ? ['qwen', 'gemini', 'deepseek']
+      : primary === 'qwen'
+        ? ['ollama', 'gemini', 'deepseek']
+        : primary === 'deepseek'
+          ? ['ollama', 'qwen', 'gemini']
+          : ['qwen', 'ollama', 'deepseek'];
   for (const alt of order) {
     if (engineConfigured(alt) && rs.breakers[alt].canRequest()) {
-      logger.warn(`[LLM] 引擎 ${primary} 熔断开路，本次调用故障转移到 ${alt}`);
+      if (engineConfigured(primary)) {
+        logger.warn(`[LLM] 引擎 ${primary} 熔断开路，本次调用故障转移到 ${alt}`);
+      } else if (!unconfiguredFailoverWarned.has(primary)) {
+        // 未配置（缺 Key）属稳定状态：仅首次提示，避免每次调用刷屏
+        unconfiguredFailoverWarned.add(primary);
+        logger.warn(`[LLM] 引擎 ${primary} 未配置（缺 API Key），本次调用转移到 ${alt}；补全 Key 重启后自动切回`);
+      }
       return { kind: alt, failovered: true, circuitOpen: false };
     }
   }
@@ -172,7 +201,7 @@ export interface LlmStageRoute {
 function stageRouteFromEnv(engineVar: string, modelVar: string): LlmStageRoute | undefined {
   const engine = String(process.env[engineVar] || '').toLowerCase();
   const model = String(process.env[modelVar] || '').trim();
-  if (engine !== 'ollama' && engine !== 'gemini' && engine !== 'qwen') return undefined;
+  if (engine !== 'ollama' && engine !== 'gemini' && engine !== 'qwen' && engine !== 'deepseek') return undefined;
   if (!model || model.length > 100 || !/^[\w.:-]+$/.test(model)) return undefined;
   return { engine: engine as EngineKind, model };
 }
@@ -235,9 +264,10 @@ function overrideModel(kind: EngineKind): string | undefined {
 /** 环境变量级引擎选择（AI_ENGINE 显式 > 密钥存在性） */
 function envEngineKind(): EngineKind {
   const explicit = String(process.env.AI_ENGINE || '').toLowerCase();
-  if (explicit === 'ollama' || explicit === 'gemini' || explicit === 'qwen') return explicit;
+  if (explicit === 'ollama' || explicit === 'gemini' || explicit === 'qwen' || explicit === 'deepseek') return explicit;
   if (process.env.GEMINI_API_KEY) return 'gemini';
   if (process.env.QWEN_API_KEY) return 'qwen';
+  if (process.env.DEEPSEEK_API_KEY) return 'deepseek';
   return 'ollama';
 }
 
@@ -249,6 +279,7 @@ export function llmEngineLabel(): string {
   const kind = engineKind();
   if (kind === 'gemini') return 'Gemini API';
   if (kind === 'qwen') return `Qwen ${qwenModel()}`;
+  if (kind === 'deepseek') return `DeepSeek ${deepseekModel()}`;
   const backends = getOllamaBackendStates();
   return backends.length > 1
     ? `Ollama ${llmModel()} @ ${backends.length} 节点`
@@ -256,7 +287,7 @@ export function llmEngineLabel(): string {
 }
 
 export interface LlmEngineInfo {
-  engine: 'ollama' | 'gemini' | 'qwen';
+  engine: 'ollama' | 'gemini' | 'qwen' | 'deepseek';
   model: string;
   /** 前端展示标签（不含内网地址） */
   label: string;
@@ -267,6 +298,7 @@ export function llmEngineInfo(): LlmEngineInfo {
   const kind = engineKind();
   if (kind === 'gemini') return { engine: 'gemini', model: geminiModel(), label: `Gemini ${geminiModel()}` };
   if (kind === 'qwen') return { engine: 'qwen', model: qwenModel(), label: `Qwen ${qwenModel()}` };
+  if (kind === 'deepseek') return { engine: 'deepseek', model: deepseekModel(), label: `DeepSeek ${deepseekModel()}` };
   return { engine: 'ollama', model: llmModel(), label: `Ollama ${llmModel()}` };
 }
 
@@ -285,7 +317,7 @@ export function validateModelSelection(
   model: unknown
 ): { engine: EngineKind; model: string } | { error: string } | null {
   if (engine === undefined || engine === null || engine === '') return null;
-  if (typeof engine !== 'string' || !['ollama', 'gemini', 'qwen'].includes(engine)) {
+  if (typeof engine !== 'string' || !['ollama', 'gemini', 'qwen', 'deepseek'].includes(engine)) {
     return { error: '不支持的模型引擎' };
   }
   if (typeof model !== 'string' || !model.trim() || model.length > 100 || !/^[\w.:-]+$/.test(model)) {
@@ -301,7 +333,14 @@ export function validateModelSelection(
  */
 export async function listAvailableModels(): Promise<ModelOption[]> {
   const def = envEngineKind();
-  const defModel = def === 'qwen' ? (process.env.QWEN_MODEL || 'qwen3.8-max') : def === 'gemini' ? GEMINI_MODEL : process.env.LLM_MODEL || 'deepseek-r1:32b';
+  const defModel =
+    def === 'qwen'
+      ? process.env.QWEN_MODEL || 'qwen3.8-max'
+      : def === 'gemini'
+        ? GEMINI_MODEL
+        : def === 'deepseek'
+          ? process.env.DEEPSEEK_MODEL || 'deepseek-flash'
+          : process.env.LLM_MODEL || 'deepseek-r1:32b';
   const opts: ModelOption[] = [];
 
   // Ollama 本地已安装模型（3s 超时，不可达时仅列配置模型；P2-2 多后端取当前最优节点）
@@ -333,6 +372,10 @@ export async function listAvailableModels(): Promise<ModelOption[]> {
   if (process.env.GEMINI_API_KEY) {
     opts.push({ engine: 'gemini', model: GEMINI_MODEL, label: `Gemini ${GEMINI_MODEL}`, isDefault: def === 'gemini' });
   }
+  if (process.env.DEEPSEEK_API_KEY) {
+    const m = process.env.DEEPSEEK_MODEL || 'deepseek-flash';
+    opts.push({ engine: 'deepseek', model: m, label: `DeepSeek ${m}`, isDefault: def === 'deepseek' });
+  }
   return opts;
 }
 
@@ -346,24 +389,33 @@ interface ChannelOutcome {
   usage?: ChannelUsage;
 }
 
-/** 通义千问 OpenAI 兼容通道（百炼按量 / Coding Plan 均适用，端点由 QWEN_URL 决定） */
-async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<ChannelOutcome> {
+/**
+ * OpenAI 兼容 chat 通道（通义千问百炼/Coding Plan、DeepSeek 官方 API 共用）。
+ * 端点/密钥/模型/超时按引擎区分：qwen 走 QWEN_URL，deepseek 走 DEEPSEEK_URL。
+ */
+async function openAiCompatChat(
+  engine: 'qwen' | 'deepseek',
+  messages: ChatMessage[],
+  formatJson = true,
+  modelOverride?: string
+): Promise<ChannelOutcome> {
+  const label = engine === 'qwen' ? 'Qwen' : 'DeepSeek';
   const controller = new AbortController();
   // P0-3 自适应超时：近期成功 P95×3 动态收紧配置上限（慢模型不误杀，快模型不被长超时拖死）
-  const configured = qwenTimeoutMs();
-  const timeout = adaptiveTimeoutEnabled() ? adaptiveTimeoutMs(resilienceState().windows.qwen, configured) : configured;
+  const configured = engine === 'qwen' ? qwenTimeoutMs() : deepseekTimeoutMs();
+  const timeout = adaptiveTimeoutEnabled() ? adaptiveTimeoutMs(resilienceState().windows[engine], configured) : configured;
   const timer = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const res = await fetch(`${qwenUrl()}/chat/completions`, {
+    const res = await fetch(`${engine === 'qwen' ? qwenUrl() : deepseekUrl()}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.QWEN_API_KEY || ''}`,
+        Authorization: `Bearer ${(engine === 'qwen' ? process.env.QWEN_API_KEY : process.env.DEEPSEEK_API_KEY) || ''}`,
       },
       signal: controller.signal,
       body: JSON.stringify({
-        model: modelOverride || qwenModel(),
+        model: modelOverride || (engine === 'qwen' ? qwenModel() : deepseekModel()),
         messages,
         stream: false,
         ...(formatJson ? { response_format: { type: 'json_object' } } : {}),
@@ -372,7 +424,7 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw makeLlmError(`Qwen API error: ${res.status} ${text}`, { status: res.status });
+      throw makeLlmError(`${label} API error: ${res.status} ${text}`, { status: res.status });
     }
 
     const json = (await res.json()) as OpenAiChatResponse;
@@ -386,13 +438,21 @@ async function qwenChat(messages: ChatMessage[], formatJson = true, modelOverrid
     };
   } catch (err) {
     if (isAbortErr(err)) {
-      throw makeLlmError(`Qwen 推理超时（超过 ${Math.round(timeout / 1000)} 秒）`, { code: 'TIMEOUT', cause: err });
+      throw makeLlmError(`${label} 推理超时（超过 ${Math.round(timeout / 1000)} 秒）`, { code: 'TIMEOUT', cause: err });
     }
     throw err;
   } finally {
     clearTimeout(timer);
   }
 }
+
+/** 通义千问 OpenAI 兼容通道（百炼按量 / Coding Plan 均适用，端点由 QWEN_URL 决定） */
+const qwenChat = (messages: ChatMessage[], formatJson = true, modelOverride?: string) =>
+  openAiCompatChat('qwen', messages, formatJson, modelOverride);
+
+/** DeepSeek 官方 OpenAI 兼容通道（端点由 DEEPSEEK_URL 决定，默认 https://api.deepseek.com/v1） */
+const deepseekChat = (messages: ChatMessage[], formatJson = true, modelOverride?: string) =>
+  openAiCompatChat('deepseek', messages, formatJson, modelOverride);
 
 async function ollamaChat(messages: ChatMessage[], formatJson = true, modelOverride?: string): Promise<ChannelOutcome> {
   const controller = new AbortController();
@@ -471,7 +531,9 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
       ? effectiveRoute?.model || llmModel()
       : kind === 'qwen'
         ? effectiveRoute?.model || qwenModel()
-        : effectiveRoute?.model || geminiModel();
+        : kind === 'deepseek'
+          ? effectiveRoute?.model || deepseekModel()
+          : effectiveRoute?.model || geminiModel();
 
   // P2-4 成本埋点：统一计时，成功/失败均落库（fire-and-forget）
   const t0 = Date.now();
@@ -480,6 +542,7 @@ export async function callLLMJson(system: string, user: string, history: ChatMes
     const outcome = await callChannel(kind, async (): Promise<ChannelOutcome> => {
       if (kind === 'ollama') return ollamaChat(messages, true, effectiveRoute?.model);
       if (kind === 'qwen') return qwenChat(messages, true, effectiveRoute?.model);
+      if (kind === 'deepseek') return deepseekChat(messages, true, effectiveRoute?.model);
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const contents = [
@@ -536,7 +599,7 @@ export async function callLLMText(system: string, user: string): Promise<string>
     recordUsage({ engine: primary, model: '', channel: 'text', promptTokens: 0, completionTokens: 0, durationMs: 0, ok: false });
     throw err;
   }
-  const usedModel = kind === 'ollama' ? llmModel() : kind === 'qwen' ? qwenModel() : geminiModel();
+  const usedModel = kind === 'ollama' ? llmModel() : kind === 'qwen' ? qwenModel() : kind === 'deepseek' ? deepseekModel() : geminiModel();
   const t0 = Date.now();
   try {
     const outcome = await callChannel(kind, async (): Promise<ChannelOutcome> => {
@@ -551,6 +614,15 @@ export async function callLLMText(system: string, user: string): Promise<string>
       }
       if (kind === 'qwen') {
         return qwenChat(
+          [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          false
+        );
+      }
+      if (kind === 'deepseek') {
+        return deepseekChat(
           [
             { role: 'system', content: system },
             { role: 'user', content: user },

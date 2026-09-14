@@ -309,6 +309,18 @@ QWEN_MODEL=qwen3.8-max
 GEMINI_API_KEY=your-gemini-key
 ```
 
+#### 方案 D：DeepSeek（官方 API，v0.9.60）
+
+```bash
+AI_ENGINE=deepseek
+DEEPSEEK_API_KEY=sk-your-key
+# DEEPSEEK_URL=https://api.deepseek.com/v1   # 默认值，一般无需修改
+# DEEPSEEK_MODEL=deepseek-flash              # 默认值（V4.1 Flash）
+# DEEPSEEK_TIMEOUT_MS=180000
+```
+
+> 说明：DeepSeek 走 OpenAI 兼容协议，问数 / SQL 生成 / 数据解读 / 报表全链路生效；官方无公共 embedding 端点，表列精排与知识库检索自动回退本地 Ollama 向量模型（未安装时降级关键词检索）；未填 Key 或连续失败时请求自动转移到已配置的其它引擎，不会中断服务（补全 Key 重启后自动切回）。
+
 ### 4.3 生产安全必配项
 
 | 变量 | 说明 | 生成方式 |

@@ -4,6 +4,9 @@
  */
 import {
   callLLMJson,
+  deepseekModel,
+  deepseekTimeoutMs,
+  deepseekUrl,
   engineKind,
   geminiModel,
   llmModel,
@@ -55,9 +58,16 @@ export async function callLLMTextStream(
     return transformStream.readable;
   }
 
-  const timeoutMs = opts?.timeoutMs || (kind === 'ollama' ? ollamaTimeoutMs() : qwenTimeoutMs());
+  const timeoutMs = opts?.timeoutMs || (kind === 'ollama' ? ollamaTimeoutMs() : kind === 'deepseek' ? deepseekTimeoutMs() : qwenTimeoutMs());
   const modelOverride = opts?.model;
-  const usedModel = kind === 'ollama' ? (modelOverride || llmModel()) : kind === 'qwen' ? (modelOverride || qwenModel()) : geminiModel();
+  const usedModel =
+    kind === 'ollama'
+      ? modelOverride || llmModel()
+      : kind === 'qwen'
+        ? modelOverride || qwenModel()
+        : kind === 'deepseek'
+          ? modelOverride || deepseekModel()
+          : geminiModel();
   const t0 = Date.now();
 
   // 统一 AbortController 处理超时
@@ -65,13 +75,14 @@ export async function callLLMTextStream(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    if (kind === 'qwen') {
-      // ========== 千问百炼 API 流式处理 ==========
-      const res = await fetch(`${qwenUrl()}/chat/completions`, {
+    if (kind === 'qwen' || kind === 'deepseek') {
+      // ========== OpenAI 兼容 API 流式处理（千问百炼 / DeepSeek 官方） ==========
+      const apiLabel = kind === 'qwen' ? 'Qwen' : 'DeepSeek';
+      const res = await fetch(`${kind === 'qwen' ? qwenUrl() : deepseekUrl()}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${process.env.QWEN_API_KEY || ''}`,
+          Authorization: `Bearer ${(kind === 'qwen' ? process.env.QWEN_API_KEY : process.env.DEEPSEEK_API_KEY) || ''}`,
         },
         signal: controller.signal,
         body: JSON.stringify({
@@ -84,7 +95,7 @@ export async function callLLMTextStream(
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
-        throw makeLlmError(`Qwen API error: ${res.status} ${errorText}`, { status: res.status });
+        throw makeLlmError(`${apiLabel} API error: ${res.status} ${errorText}`, { status: res.status });
       }
 
       // 解析 SSE 流

@@ -19,7 +19,7 @@
 - **自学习闭环**：点赞自动沉淀为训练样例（auto_train）；点踩问答对以反面教材注入，避免重复同类错误
 - **外部知识库注入**：接入企业级 RAG / 知识服务（Dify、RAGFlow、自建网关均可适配），与本地知识库并行检索注入（独立 token 预算，单源失败降级不阻断）
 - **对话历史**：问数留痕服务端落库（跨设备共享），支持关键词搜索、一键重问、单条删除与 Markdown 导出
-- **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，百炼/Gemini 按配置列入），选择随提问生效并持久化
+- **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，云端引擎百炼/Gemini/DeepSeek 按配置列入），选择随提问生效并持久化
 - **推导过程回放**：全程步骤埋点（query_trace），完成后可展开时间线查看每环节 SQL/行数/耗时
 - **计划模式**（开关）：先由 LLM 生成分析计划供批准，再携带 planId 执行
 - **Agent 编排**（开关，P1-7）：提问先规划多能力步骤（取数 → 时序预测 → 多维归因），批准后逐步执行并汇总结果；计划 10 分钟有效、一次性消费（与计划模式互斥）
@@ -59,7 +59,7 @@
 | 前端 | React 19 + Vite + TypeScript + Tailwind CSS 4 + Zustand + Recharts + motion |
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
-| AI | Ollama（本地）/ 通义千问百炼 / Gemini API，node-sql-parser |
+| AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
 | 测试 | Vitest（99 文件 / 1103 用例）+ NL2SQL 评测集（server/eval，148 用例：六类分层 + 行级权限类；`npm run eval:seed` 一键重建可复现评测数据源） |
 
 ## 快速开始
@@ -137,11 +137,15 @@ docker run -d -p 3000:3000 \
 | `OLLAMA_URL` | Ollama 服务地址 | http://localhost:11434 |
 | `OLLAMA_TIMEOUT_MS` | LLM 推理超时（毫秒） | 180000 |
 | `EMBED_MODEL` | embedding 模型 | nomic-embed-text |
-| `AI_ENGINE` | 引擎显式选择：ollama / gemini / qwen | 按密钥存在性自动 |
+| `AI_ENGINE` | 引擎显式选择：ollama / gemini / qwen / deepseek | 按密钥存在性自动 |
 | `QWEN_API_KEY` | 通义千问百炼 API Key | — |
 | `QWEN_URL` | 百炼端点（Coding Plan 需专属端点） | https://dashscope.aliyuncs.com/compatible-mode/v1 |
 | `QWEN_MODEL` | 通义千问模型 | qwen3.8-max |
 | `QWEN_EMBED_MODEL` | 通义千问 embedding 模型 | text-embedding-v4 |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key（OpenAI 兼容协议） | — |
+| `DEEPSEEK_URL` | DeepSeek API 端点 | https://api.deepseek.com/v1 |
+| `DEEPSEEK_MODEL` | DeepSeek 模型（deepseek-flash = V4.1 Flash） | deepseek-flash |
+| `DEEPSEEK_TIMEOUT_MS` | DeepSeek 推理超时（毫秒） | 180000 |
 | `GEMINI_API_KEY` | Gemini API 密钥（备用引擎） | — |
 | `JWT_SECRET` | JWT 签名密钥（生产必填） | dev 默认 |
 | `JWT_EXPIRES_IN` | token 有效期 | — |
@@ -171,7 +175,7 @@ server/
   skillLibrary.ts          # 技能库（分享-审核流）
   sqlExecutor.ts           # 只读安全 SQL 执行
   auditLog.ts              # 问数审计
-  llmClient.ts             # Ollama/Gemini 统一 LLM 通道
+  llmClient.ts             # 统一 LLM 通道（Ollama/千问/Gemini/DeepSeek）
   anomalyPatrol.ts         # P0-1 异常巡检引擎（巡检计划/内置调度器/复用报表异常检测）
   pdfExport.ts             # 报告 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
   pdfgen/report_pdf.py     # ReportLab 排版脚本（A4 竖/横版、中文 CID 字体、图表 PNG 嵌入）

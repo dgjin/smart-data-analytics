@@ -3,7 +3,7 @@ import { apiFetch } from '../api/client';
 
 /** 可选模型条目（与 server/llmClient.ts ModelOption 对齐） */
 export interface ModelOption {
-  engine: 'ollama' | 'gemini' | 'qwen';
+  engine: 'ollama' | 'gemini' | 'qwen' | 'deepseek';
   model: string;
   label: string;
   isDefault: boolean;
