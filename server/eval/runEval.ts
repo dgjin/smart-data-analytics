@@ -2,6 +2,7 @@
  * 评测 CLI 入口：npm run eval [-- --limit 5 | --case c01,c07 | --file server/eval/evalCases.jichuang.json | --base-url http://... | --min-accuracy 85]
  * --file：指定评测集文件（默认 server/eval/evalCases.json），宽表评测集走独立文件
  * --min-accuracy：准确率阈值（0-100 百分比或 0-1 小数），低于阈值以非零码退出（P0-2 CI 门禁阻断依据）
+ * --engine/--model：请求级引擎覆盖（本地 vs 云端对比评测用），同批用例在同一服务进程内分别指定引擎实跑
  */
 import dotenv from 'dotenv';
 import { dirname, join } from 'node:path';
@@ -15,13 +16,18 @@ dotenv.config({ path: join(ROOT, '.env.local') });
 dotenv.config({ path: join(ROOT, '.env') });
 
 function parseArgs(argv: string[]) {
-  const opts: { limit?: number; caseIds?: string[]; baseUrl?: string; minAccuracy?: number; casesFile?: string } = {};
+  const opts: {
+    limit?: number; caseIds?: string[]; baseUrl?: string; minAccuracy?: number;
+    casesFile?: string; engine?: string; model?: string;
+  } = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--limit') opts.limit = Number(argv[++i]) || undefined;
     else if (a === '--case') opts.caseIds = String(argv[++i] || '').split(',').filter(Boolean);
     else if (a === '--file') opts.casesFile = argv[++i];
     else if (a === '--base-url') opts.baseUrl = argv[++i];
+    else if (a === '--engine') opts.engine = argv[++i];
+    else if (a === '--model') opts.model = argv[++i];
     else if (a === '--min-accuracy') {
       const v = Number(argv[++i]);
       // 支持 0-100 百分比或 0-1 小数两种写法

@@ -58,6 +58,9 @@ export interface EvalSummary {
   /** 准确率阈值（P0-2 CI 门禁）；低于阈值 belowThreshold=true */
   minAccuracy?: number;
   belowThreshold?: boolean;
+  /** 请求级引擎覆盖标识（对比评测时写入报告，便于区分同批用例的不同引擎结果） */
+  engine?: string;
+  model?: string;
   results: EvalCaseResult[];
 }
 
@@ -206,6 +209,10 @@ export interface RunEvalOptions {
   perCaseTimeoutMs?: number;
   /** 准确率阈值（0-1）；低于阈值 belowThreshold=true（P0-2 CI 门禁阻断依据） */
   minAccuracy?: number;
+  /** 请求级引擎覆盖（本地 vs 云端对比评测）：与 model 同时提供时透传到问数请求体，
+   *  服务端按请求切换引擎（validateModelSelection 校验），同批用例可在同一服务进程内跑不同引擎，对比条件一致 */
+  engine?: string;
+  model?: string;
 }
 
 /** 执行评测：逐条走 HTTP 问数链路（真实端到端，含防御层/圈表/执行），统计执行准确率 */
@@ -247,7 +254,13 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         // refreshCache=true：评测测的是 LLM 全链路准确率，必须旁路 L1/L2 结果缓存，
         // 否则同域近似问题会命中彼此缓存导致测量失真（P1-7 基线评测实测污染）
-        body: JSON.stringify({ query: c.question, dataSourceId: caseDsId, refreshCache: true }),
+        body: JSON.stringify({
+          query: c.question,
+          dataSourceId: caseDsId,
+          refreshCache: true,
+          // 对比评测：请求级引擎覆盖（服务端 validateModelSelection 校验后按请求切换，非法值 400）
+          ...(opts.engine && opts.model ? { model: { engine: opts.engine, model: opts.model } } : {}),
+        }),
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -324,6 +337,7 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
     byCategory,
     minAccuracy,
     belowThreshold,
+    ...(opts.engine && opts.model ? { engine: opts.engine, model: opts.model } : {}),
     results,
   };
 
@@ -332,7 +346,8 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
   mkdirSync(reportsDir, { recursive: true });
   const reportPath = join(reportsDir, `eval-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   writeFileSync(reportPath, JSON.stringify({ ...summary, dataSourceId, generatedAt: new Date().toISOString() }, null, 2));
-  console.log(`[eval] 执行准确率: ${(summary.accuracy * 100).toFixed(1)}%（pass ${pass}/${summary.total}）· 报告: ${reportPath}`);
+  const engineTag = opts.engine && opts.model ? `[${opts.engine}:${opts.model}] ` : '';
+  console.log(`[eval] ${engineTag}执行准确率: ${(summary.accuracy * 100).toFixed(1)}%（pass ${pass}/${summary.total}）· 报告: ${reportPath}`);
   for (const cat of Object.keys(byCategory).sort()) {
     const s = byCategory[cat];
     console.log(`[eval]   ${cat.padEnd(12)} ${(s.accuracy * 100).toFixed(1)}%（${s.pass}/${s.total}）`);
