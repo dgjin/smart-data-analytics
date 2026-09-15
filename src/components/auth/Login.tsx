@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Sparkles, LogIn, AlertCircle, RefreshCw, KeySquare } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 export const Login: React.FC = () => {
   const login = useAuthStore((s) => s.login);
@@ -32,8 +33,8 @@ export const Login: React.FC = () => {
     setIsSubmitting(true);
     try {
       await login(username.trim(), password);
-    } catch (err: any) {
-      setError(err.message || '登录失败，请稍后重试');
+    } catch (err) {
+      setError(getErrorMessage(err) || '登录失败，请稍后重试');
     } finally {
       setIsSubmitting(false);
     }

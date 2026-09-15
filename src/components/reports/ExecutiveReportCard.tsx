@@ -51,6 +51,7 @@ import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { CHART_THEMES } from '../../utils/chartThemes';
 import { apiFetch } from '../../api/client';
 import { pollTask, downloadTaskResult } from '../../utils/asyncTask';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface ExecutiveReportCardProps {
   /** 报告完整数据（含标题/摘要/KPI/洞察/图表/批注/异常） */
@@ -323,9 +324,9 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (err: any) {
+    } catch (err) {
       console.error('PPT Export Error:', err);
-      setPptError(err?.message || 'PPT 导出失败，请稍后重试');
+      setPptError(getErrorMessage(err) || 'PPT 导出失败，请稍后重试');
       setTimeout(() => setPptError(null), 5000);
     } finally {
       setIsExportingPPT(false);
@@ -364,9 +365,9 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
       await downloadTaskResult(task.id);
       setPdfExportSuccess(true);
       setTimeout(() => setPdfExportSuccess(false), 2000);
-    } catch (err: any) {
+    } catch (err) {
       console.error('PDF Export Error:', err);
-      alert(`PDF 导出失败：${err?.message || '未知错误'}`);
+      alert(`PDF 导出失败：${getErrorMessage(err) || '未知错误'}`);
     } finally {
       setIsExportingPDF(false);
     }
@@ -410,9 +411,9 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     setOfficeError(null);
     try {
       await exportReportFile('export-excel', '.xlsx');
-    } catch (err: any) {
+    } catch (err) {
       console.error('Excel Export Error:', err);
-      setOfficeError(err?.message || 'Excel 导出失败，请稍后重试');
+      setOfficeError(getErrorMessage(err) || 'Excel 导出失败，请稍后重试');
       setTimeout(() => setOfficeError(null), 5000);
     } finally {
       setIsExportingExcel(false);
@@ -426,9 +427,9 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     setOfficeError(null);
     try {
       await exportReportFile('export-word', '.docx');
-    } catch (err: any) {
+    } catch (err) {
       console.error('Word Export Error:', err);
-      setOfficeError(err?.message || 'Word 导出失败，请稍后重试');
+      setOfficeError(getErrorMessage(err) || 'Word 导出失败，请稍后重试');
       setTimeout(() => setOfficeError(null), 5000);
     } finally {
       setIsExportingWord(false);

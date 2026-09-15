@@ -16,6 +16,7 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import { apiFetch } from '../../api/client';
 import { QueryReport } from '../../types/analytics';
 import { ExecutiveReportCard } from './ExecutiveReportCard';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * v0.5.0 智能问数报告中心
@@ -45,8 +46,8 @@ export const QueryReportCenter: React.FC = () => {
         throw new Error(data.error || '报告列表加载失败');
       }
       setReports(data.reports);
-    } catch (err: any) {
-      setError(err?.message || '报告列表加载失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '报告列表加载失败');
     } finally {
       setIsLoading(false);
     }
@@ -83,8 +84,8 @@ export const QueryReportCenter: React.FC = () => {
       if (selectedReportId === reportId) {
         setSelectedReportId(null);
       }
-    } catch (err: any) {
-      alert(err?.message || '删除失败，请稍后重试');
+    } catch (err) {
+      alert(getErrorMessage(err) || '删除失败，请稍后重试');
     } finally {
       setDeletingId(null);
     }

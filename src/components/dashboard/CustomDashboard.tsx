@@ -45,6 +45,7 @@ import { useDataVersion } from '../../hooks/useDataVersion';
 import { useEffectiveAmountUnit } from '../../hooks/useAmountUnitStore';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
 import { AdvancedAnalysisPanel } from '../analytics/AdvancedAnalysisPanel';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /** P2-14 语义层：语义指标定义（与后端 MetricDefinition 对齐，仅需看板端用到的字段） */
 interface SemanticMetric {
@@ -147,7 +148,7 @@ export const CustomDashboard: React.FC = () => {
   const [metricError, setMetricError] = useState('');
   const [metricPinned, setMetricPinned] = useState(false);
   const [metricResult, setMetricResult] = useState<{
-    rows: Record<string, any>[];
+    rows: Record<string, unknown>[];
     sql: string;
     metricName: string;
     dims: string[];
@@ -219,8 +220,8 @@ export const CustomDashboard: React.FC = () => {
         // 服务端实际完成单位换算时才标注（非金额类指标/「元」原值口径不标注）
         unitLabel: data.amountUnit?.applied === true ? String(data.amountUnit.label) : '',
       });
-    } catch (e: any) {
-      setMetricError(e?.message || '网络异常');
+    } catch (e) {
+      setMetricError(getErrorMessage(e) || '网络异常');
     } finally {
       setMetricBusy(false);
     }

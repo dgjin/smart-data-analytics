@@ -23,6 +23,7 @@ import {
 } from 'recharts';
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /** 对齐 server/routes/opsMetrics.ts */
 interface NorthStarMetrics {
@@ -130,8 +131,8 @@ export const OpsMetricsPanel: React.FC = () => {
       setNorthStar(data.northStar);
       setDaily(data.daily || []);
       setWeekly(data.weekly || []);
-    } catch (err: any) {
-      setError(err.message || '指标获取失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '指标获取失败');
     } finally {
       setIsLoading(false);
     }
@@ -354,7 +355,7 @@ export const OpsMetricsPanel: React.FC = () => {
               <Tooltip
                 contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12, fontSize: 12 }}
                 labelStyle={{ color: '#e2e8f0' }}
-                formatter={(value: any) => (value === null || value === undefined ? '—' : `${value}%`)}
+                formatter={(value: unknown) => (value === null || value === undefined ? '—' : `${value}%`)}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               {trendMode === 'week' ? (

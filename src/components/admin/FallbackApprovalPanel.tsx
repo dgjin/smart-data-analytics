@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Eye, RefreshCw, Search, X } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /** 困难样本类型定义 */
 interface AdversarialSample {
@@ -164,8 +165,8 @@ export const FallbackApprovalPanel: React.FC = () => {
       if (!res.ok) throw new Error(data.error || '加载样本失败');
       setItems(data.samples || []);
       setFiltered(data.samples || []);
-    } catch (err: any) {
-      setError(err.message || '加载样本失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '加载样本失败');
     } finally {
       setIsLoading(false);
     }
@@ -227,8 +228,8 @@ export const FallbackApprovalPanel: React.FC = () => {
       await loadSamples();
       setCheckedIds(new Set());
       alert('批量操作成功！');
-    } catch (err: any) {
-      alert('批量操作失败：' + err.message);
+    } catch (err) {
+      alert('批量操作失败：' + getErrorMessage(err));
     }
   };
 
@@ -246,8 +247,8 @@ export const FallbackApprovalPanel: React.FC = () => {
       setSelectedItem(null);
       await loadSamples();
       alert('审核通过并已注入 Few-Shot 学习库！');
-    } catch (err: any) {
-      alert('审核失败：' + err.message);
+    } catch (err) {
+      alert('审核失败：' + getErrorMessage(err));
     }
   };
 
@@ -264,8 +265,8 @@ export const FallbackApprovalPanel: React.FC = () => {
       setSelectedItem(null);
       await loadSamples();
       alert('样本已拒绝！');
-    } catch (err: any) {
-      alert('拒绝失败：' + err.message);
+    } catch (err) {
+      alert('拒绝失败：' + getErrorMessage(err));
     }
   };
 

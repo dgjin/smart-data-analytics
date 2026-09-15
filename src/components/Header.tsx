@@ -22,6 +22,7 @@ import { apiFetch } from '../api/client';
 import { UserRole } from '../types/analytics';
 import { getUITheme, toggleUITheme, UI_THEME_EVENT, UIThemeMode } from '../utils/uiTheme';
 import { HelpModal } from './help/HelpModal';
+import { getErrorMessage } from '../utils/errorUtils';
 
 const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: '管理员',
@@ -74,8 +75,8 @@ export const Header: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '申请提交失败');
       setRequestMsg('申请已提交，等待管理员审批');
       setRequestReason('');
-    } catch (err: any) {
-      setRequestMsg(err.message || '申请提交失败');
+    } catch (err) {
+      setRequestMsg(getErrorMessage(err) || '申请提交失败');
     } finally {
       setRequestSubmitting(false);
     }

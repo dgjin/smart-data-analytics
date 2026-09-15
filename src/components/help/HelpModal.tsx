@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, BookOpen, RefreshCw, FileText, History } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 // ---------- 轻量 Markdown 渲染 ----------
 
@@ -268,8 +269,8 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         ...prev,
         [target]: { markdown: data.markdown || '', updatedAt: data.updatedAt || null },
       }));
-    } catch (err: any) {
-      setError(err.message || `加载${TAB_META[target].title}失败`);
+    } catch (err) {
+      setError(getErrorMessage(err) || `加载${TAB_META[target].title}失败`);
     } finally {
       setLoading(false);
     }

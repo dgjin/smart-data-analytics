@@ -50,6 +50,7 @@ import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
 import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
 // v0.9.57 分类内多面板统一顶部 Tab 分类条
 import { SectionTabs, SectionTabItem } from './SectionTabs';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface AdminUser {
   id: number;
@@ -210,8 +211,8 @@ export const AdminPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '加载用户列表失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '加载用户列表失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '加载用户列表失败');
     } finally {
       setIsLoading(false);
     }
@@ -249,8 +250,8 @@ export const AdminPanel: React.FC = () => {
       setNewDepartment('');
       setNewRole('ANALYST');
       loadUsers();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -268,8 +269,8 @@ export const AdminPanel: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
       showNotice('success', next === 'ACTIVE' ? `已启用 ${u.username}` : `已禁用 ${u.username}`);
       loadUsers();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -285,8 +286,8 @@ export const AdminPanel: React.FC = () => {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || '重置失败');
       showNotice('success', `已重置 ${u.username} 的密码`);
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -303,8 +304,8 @@ export const AdminPanel: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
       showNotice('success', `已更新 ${u.username} 的部门为「${input.trim() || '未设置'}」`);
       loadUsers();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -316,8 +317,8 @@ export const AdminPanel: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '删除失败');
       showNotice('success', `已删除用户 ${u.username}`);
       loadUsers();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 

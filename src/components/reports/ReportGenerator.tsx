@@ -29,10 +29,19 @@ import { generateSchemaSuggestions } from '../../utils/querySuggestions';
 import { scanReportForAnomalies } from '../../utils/anomalyDetector';
 import { pollTask } from '../../utils/asyncTask';
 import { useDataVersion } from '../../hooks/useDataVersion';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 // v0.5.4 金额单位：由 useAmountUnitStore 统一管理（全局默认 + 模块覆盖），
 // 报表模块生效单位 = 模块内选择（优先）或全局设置（Header 维护）；提交时实时读取，避免闭包过期
 const readAmountUnit = (): string => resolveAmountUnit('report');
+
+/** 报表生成任务终态结果体（/api/reports/tasks 轮询返回，仅声明前端消费到的字段） */
+interface ReportTaskResultLike {
+  success?: boolean;
+  error?: string;
+  dataProvenance?: string;
+  report?: SavedReport;
+}
 
 export const ReportGenerator: React.FC = () => {
   const {
@@ -221,11 +230,11 @@ export const ReportGenerator: React.FC = () => {
         return;
       }
 
-      let data: any;
+      let data: ReportTaskResultLike;
       try {
         const task = await pollTask(submitted.taskId);
-        data = task.result || {};
-      } catch (taskErr: any) {
+        data = (task.result ?? {}) as ReportTaskResultLike;
+      } catch (taskErr) {
         // 计划失效（409 等价场景在 worker 内发生）：清空待批准计划，允许重新制定
         if (reportPlanId) setPendingPlan(null);
         throw taskErr;
@@ -263,9 +272,9 @@ export const ReportGenerator: React.FC = () => {
         setGenerateError(data.error || '报表生成失败，请稍后重试');
         if (reportPlanId) setPendingPlan(null);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Report Generation Failed:', err);
-      setGenerateError(err?.message || '网络异常，报表生成失败');
+      setGenerateError(getErrorMessage(err) || '网络异常，报表生成失败');
     } finally {
       setIsGenerating(false);
     }
@@ -287,9 +296,9 @@ export const ReportGenerator: React.FC = () => {
       } else {
         setGenerateError(data.error || '报表查询计划生成失败，请稍后重试');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Report Plan Failed:', err);
-      setGenerateError(err?.message || '网络异常，计划生成失败');
+      setGenerateError(getErrorMessage(err) || '网络异常，计划生成失败');
     } finally {
       setIsPlanning(false);
     }
@@ -358,8 +367,8 @@ export const ReportGenerator: React.FC = () => {
       } else {
         setRegenError(data.error || '重新生成失败，请稍后重试');
       }
-    } catch (err: any) {
-      setRegenError(err?.message || '网络异常，重新生成失败');
+    } catch (err) {
+      setRegenError(getErrorMessage(err) || '网络异常，重新生成失败');
     } finally {
       setRegenBusy(false);
     }

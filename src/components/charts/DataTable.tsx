@@ -11,7 +11,7 @@ import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { downloadServerCsv } from '../../utils/exportCsv';
 
 interface DataTableProps {
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
   columns?: string[];
   /** 列名 → 中文表头映射（schema 业务含义 + LLM 聚合别名） */
   columnNames?: Record<string, string>;

@@ -8,6 +8,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /** 按用户聚合的 LLM 用量（对齐 server/llmUsage.ts LlmUsageByUser） */
 interface LlmUsageByUser {
@@ -62,8 +63,8 @@ export const LlmUsagePanel: React.FC = () => {
       if (!res.ok) throw new Error(data.error || '用量查询失败');
       setByUser(data.byUser || []);
       setUsage(data.usage || []);
-    } catch (err: any) {
-      setError(err.message || '用量查询失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '用量查询失败');
     } finally {
       setIsLoading(false);
     }

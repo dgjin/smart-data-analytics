@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BellRing, Check, RefreshCw, Radar, ShieldCheck, Plus, Minus } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /** 对齐 server/driftDetector.ts DriftEventRow */
 interface DriftEvent {
@@ -36,8 +37,8 @@ export const DriftAlertPanel: React.FC = () => {
       if (!res.ok) throw new Error(data.error || '漂移事件获取失败');
       setEvents(data.events || []);
       setWatched(Number(data.watched || 0));
-    } catch (err: any) {
-      setError(err.message || '漂移事件获取失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '漂移事件获取失败');
     } finally {
       setIsLoading(false);
     }
@@ -70,8 +71,8 @@ export const DriftAlertPanel: React.FC = () => {
           : `扫描完成：未检测到取值变化${discovered > 0 ? `（自动发现 ${discovered} 个观察列并建基线）` : ''}`
       );
       await loadEvents();
-    } catch (err: any) {
-      setError(err.message || '扫描失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '扫描失败');
     } finally {
       setIsScanning(false);
     }
@@ -83,8 +84,8 @@ export const DriftAlertPanel: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '确认失败');
       setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, status: 'ACKED' } : e)));
-    } catch (err: any) {
-      setError(err.message || '确认失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '确认失败');
     }
   };
 

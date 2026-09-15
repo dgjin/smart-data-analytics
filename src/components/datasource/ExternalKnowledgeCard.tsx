@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Globe, Plus, Trash2, RefreshCw, X, Lightbulb, Pencil, Zap } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { DataSource } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface ExternalKbSourceItem {
   id: string;
@@ -60,8 +61,8 @@ export const ExternalKnowledgeCard: React.FC<{ dataSources: DataSource[] }> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '加载外部知识源失败');
       setSources(data.sources || []);
-    } catch (err: any) {
-      setError(err.message || '加载外部知识源失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '加载外部知识源失败');
     } finally {
       setLoading(false);
     }
@@ -140,8 +141,8 @@ export const ExternalKnowledgeCard: React.FC<{ dataSources: DataSource[] }> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '测试失败');
       setTestResult(data);
-    } catch (err: any) {
-      setError(err.message || '测试失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '测试失败');
     } finally {
       setTesting(false);
     }
@@ -174,8 +175,8 @@ export const ExternalKnowledgeCard: React.FC<{ dataSources: DataSource[] }> = ({
       setNotice(`外部知识源「${form.name.trim()}」已${editing ? '更新' : '接入'}，问数检索即时生效。`);
       closeForm();
       loadSources();
-    } catch (err: any) {
-      setError(err.message || '保存失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -189,8 +190,8 @@ export const ExternalKnowledgeCard: React.FC<{ dataSources: DataSource[] }> = ({
       if (!res.ok) throw new Error(data.error || '删除失败');
       setNotice(`外部知识源「${s.name}」已删除。`);
       loadSources();
-    } catch (err: any) {
-      setError(err.message || '删除失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '删除失败');
     }
   };
 

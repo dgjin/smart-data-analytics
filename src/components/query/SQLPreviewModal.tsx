@@ -31,6 +31,7 @@ import { QueryResultData } from '../../types/analytics';
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { parseSqlLineage } from '../../utils/sqlLineage';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface SQLPreviewModalProps {
   isOpen: boolean;
@@ -91,7 +92,7 @@ const JOIN_TYPE_CLS: Record<string, string> = {
 /** 原始数据预览行数上限 */
 const PREVIEW_ROW_LIMIT = 15;
 
-function formatCell(v: any): string {
+function formatCell(v: unknown): string {
   if (v === null || v === undefined) return '—';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
@@ -242,8 +243,8 @@ export const SQLPreviewModal: React.FC<SQLPreviewModalProps> = ({
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data.error || '请求失败');
       setAssistResult({ type: action, text: String(data.text || '') });
-    } catch (err: any) {
-      setAssistResult({ type: action, text: `AI 助手调用失败：${String(err?.message || err)}` });
+    } catch (err) {
+      setAssistResult({ type: action, text: `AI 助手调用失败：${String(getErrorMessage(err))}` });
     } finally {
       setAssistLoading(null);
     }

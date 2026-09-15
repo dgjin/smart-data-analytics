@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Route, Database, Search, FileSearch, Lightbulb, ListChecks, Table2, Brain, Code2 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * M1 推导过程可视化：
@@ -161,8 +162,8 @@ export const TraceReplay: React.FC<{ traceId: string }> = ({ traceId }) => {
         const data = await res.json();
         if (!res.ok || !Array.isArray(data?.steps)) throw new Error(data?.error || '推导记录加载失败');
         setSteps(data.steps);
-      } catch (e: any) {
-        setError(e?.message || '推导记录加载失败');
+      } catch (e) {
+        setError(getErrorMessage(e) || '推导记录加载失败');
       } finally {
         setLoading(false);
       }

@@ -21,6 +21,7 @@ import { useQueryModes } from './hooks/useQueryModes';
 import { useStreamState } from './hooks/useStreamState';
 import { useSkillLibrary } from './hooks/useSkillLibrary';
 import { useSendQuery } from './hooks/useSendQuery';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
 const MAX_QUERY_INPUT_LENGTH = 500;
@@ -600,7 +601,7 @@ export const QueryChat: React.FC = () => {
               if (!resp.ok || !data.success) {
                 throw new Error(data.error || 'SQL 执行失败');
               }
-              const rows: Record<string, any>[] = Array.isArray(data.rows) ? data.rows : [];
+              const rows: Record<string, unknown>[] = Array.isArray(data.rows) ? data.rows : [];
               const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
               // 轴键矫正：x 取首个非数值列，y 取数值列（最多 2 个）
               const numericCols = columns.filter((c) => rows.some((r) => typeof r[c] === 'number'));
@@ -655,13 +656,13 @@ export const QueryChat: React.FC = () => {
                 queryResult,
                 dataProvenance: 'live',
               });
-            } catch (err: any) {
+            } catch (err) {
               addChatMessage({
                 id: `msg-err-rerun-${Date.now()}`,
                 role: 'assistant',
-                content: `SQL 重跑被拒绝：${err?.message || '未知错误'}`,
+                content: `SQL 重跑被拒绝：${getErrorMessage(err) || '未知错误'}`,
                 timestamp: ts,
-                error: err?.message,
+                error: getErrorMessage(err),
               });
             }
           }}

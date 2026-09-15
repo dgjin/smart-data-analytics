@@ -44,6 +44,9 @@ interface ABTestStats {
   };
 }
 
+/** 单组实验统计（rule_based 与 human_approval 同构） */
+type ABTestGroupStats = NonNullable<ABTestStats['groups']['rule_based']>;
+
 /** 实验记录类型 */
 interface ExperimentRecord {
   experimentId: string;
@@ -120,7 +123,7 @@ export function ABTestDashboard() {
   const formatLatency = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
 
   // 计算关键指标提升
-  const getImprovement = (groupA: any, groupB: any, field: keyof typeof groupA) => {
+  const getImprovement = (groupA: ABTestGroupStats, groupB: ABTestGroupStats, field: 'successRate' | 'avgLatencyMs') => {
     if (!groupA || !groupB || !groupA[field] || !groupB[field]) return 0;
     return ((groupB[field] - groupA[field]) / groupA[field] * 100).toFixed(2);
   };

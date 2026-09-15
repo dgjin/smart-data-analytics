@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Library, Plus, Pencil, Trash2, X, RefreshCw, Share2, Check, Ban, Undo2, Globe, User as UserIcon } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface SkillItem {
   id: string;
@@ -62,8 +63,8 @@ export const SkillLibraryModal: React.FC<{ isOpen: boolean; onClose: () => void 
       setMySkills(data.mySkills || []);
       setSystemSkills(data.systemSkills || []);
       setPendingShares(data.pendingShares || []);
-    } catch (err: any) {
-      setError(err.message || '加载技能库失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '加载技能库失败');
     } finally {
       setLoading(false);
     }
@@ -120,8 +121,8 @@ export const SkillLibraryModal: React.FC<{ isOpen: boolean; onClose: () => void 
       setNotice(isEdit ? '技能已更新' : '技能已创建');
       closeForm();
       await load();
-    } catch (err: any) {
-      setError(err.message || '保存失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -136,8 +137,8 @@ export const SkillLibraryModal: React.FC<{ isOpen: boolean; onClose: () => void 
       if (!res.ok) throw new Error(data.error || '删除失败');
       setNotice('技能已删除');
       await load();
-    } catch (err: any) {
-      setError(err.message || '删除失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '删除失败');
     } finally {
       setBusyId(null);
     }
@@ -152,8 +153,8 @@ export const SkillLibraryModal: React.FC<{ isOpen: boolean; onClose: () => void 
       if (!res.ok) throw new Error(data.error || '操作失败');
       setNotice(okMsg);
       await load();
-    } catch (err: any) {
-      setError(err.message || '操作失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '操作失败');
     } finally {
       setBusyId(null);
     }

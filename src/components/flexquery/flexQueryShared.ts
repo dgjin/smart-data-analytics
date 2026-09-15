@@ -45,7 +45,7 @@ export type FlexBuilt = FlexBuildResult | null;
 /** 执行结果集（列名 + 行数据） */
 export interface FlexResult {
   columns: string[];
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
 }
 
 /** 透视图（两维度行列交叉 + 单指标值，客户端透视不额外查库） */

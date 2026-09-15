@@ -11,6 +11,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * 问数专家角色面板（v0.9.40）：维护阶段二解读的 persona 路由配置（角色标签/触发关键词/rolePrompt）。
@@ -88,8 +89,8 @@ export const ExpertPersonasPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '加载专家角色失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '加载专家角色失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '加载专家角色失败');
     } finally {
       setIsLoading(false);
     }
@@ -152,8 +153,8 @@ export const ExpertPersonasPanel: React.FC = () => {
       setShowForm(false);
       setEditing(null);
       loadPersonas();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -171,8 +172,8 @@ export const ExpertPersonasPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '操作失败');
       showNotice('success', next === 'ACTIVE' ? `已启用「${p.label}」` : `已停用「${p.label}」（不再参与问数角色匹配）`);
       loadPersonas();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -184,8 +185,8 @@ export const ExpertPersonasPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '删除失败');
       showNotice('success', `已删除「${p.label}」`);
       loadPersonas();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 

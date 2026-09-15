@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { FileDown, RefreshCw, CheckCircle2, XCircle, AlertCircle, Inbox } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * P2-12 DLP 下载审批面板（ADMIN）：超阈值 CSV 导出的申请处理。
@@ -54,8 +55,8 @@ export const DlpDownloadPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '下载审批列表获取失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '下载审批列表获取失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '下载审批列表获取失败');
     } finally {
       setIsLoading(false);
     }
@@ -90,8 +91,8 @@ export const DlpDownloadPanel: React.FC = () => {
           : `已驳回 ${r.username} 的导出申请`,
       );
       loadRequests();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setActingId(null);
     }

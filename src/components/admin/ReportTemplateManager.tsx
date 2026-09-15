@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { ReportTemplate } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * v0.5.0 报告模板管理（系统管理 · 报告模板页签）
@@ -55,8 +56,8 @@ export const ReportTemplateManager: React.FC = () => {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || '加载失败');
       setTemplates(data.templates);
-    } catch (err: any) {
-      showNotice('error', err?.message || '模板列表加载失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '模板列表加载失败');
     } finally {
       setIsLoading(false);
     }
@@ -89,11 +90,14 @@ export const ReportTemplateManager: React.FC = () => {
       const parsed = JSON.parse(tpl.templateContent);
       const sections = Array.isArray(parsed?.sections) ? parsed.sections : [];
       setFormSections(
-        sections.map((s: any) => ({
-          title: typeof s?.title === 'string' ? s.title : '',
-          prompt: typeof s?.prompt === 'string' ? s.prompt : '',
-          chartType: typeof s?.chartType === 'string' ? s.chartType : 'bar',
-        }))
+        sections.map((raw: unknown) => {
+          const s = (raw ?? {}) as { title?: unknown; prompt?: unknown; chartType?: unknown };
+          return {
+            title: typeof s.title === 'string' ? s.title : '',
+            prompt: typeof s.prompt === 'string' ? s.prompt : '',
+            chartType: typeof s.chartType === 'string' ? s.chartType : 'bar',
+          };
+        })
       );
     } catch {
       setFormSections([emptySection()]);
@@ -136,8 +140,8 @@ export const ReportTemplateManager: React.FC = () => {
       showNotice('success', isNew ? `模板「${formName}」已创建` : `模板「${formName}」已更新`);
       resetForm();
       loadTemplates();
-    } catch (err: any) {
-      showNotice('error', err?.message || '操作失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '操作失败');
     } finally {
       setIsSubmitting(false);
     }
@@ -152,8 +156,8 @@ export const ReportTemplateManager: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '删除失败');
       showNotice('success', `模板「${tpl.name}」已删除`);
       loadTemplates();
-    } catch (err: any) {
-      showNotice('error', err?.message || '删除失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '删除失败');
     }
   };
 

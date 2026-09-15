@@ -8,6 +8,7 @@ import { FileCode2, Plus, Trash2, Pencil, Upload, Sparkles, X, Download, Refresh
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { DataSource } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface SqlExample {
   id: number;
@@ -17,6 +18,18 @@ interface SqlExample {
   source: 'MANUAL' | 'FEEDBACK_UP' | 'IMPORT';
   createdBy: string;
   createdAt: string;
+}
+
+/** 导入接口响应（/api/sql-examples/import） */
+interface SqlExampleImportResult {
+  success: boolean;
+  dryRun: boolean;
+  summary: { totalItems: number; invalidItems: number };
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors?: { question?: string; message?: string }[];
 }
 
 const SOURCE_LABEL: Record<SqlExample['source'], string> = {
@@ -63,7 +76,7 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
   const [backupStrategy, setBackupStrategy] = useState<'skip' | 'overwrite' | 'append'>('skip');
   const [backupDryRun, setBackupDryRun] = useState(true);
   const [backupImporting, setBackupImporting] = useState(false);
-  const [backupResult, setBackupResult] = useState<any>(null);
+  const [backupResult, setBackupResult] = useState<SqlExampleImportResult | null>(null);
 
   const selectedDs = dataSources.find((d) => d.id === selectedId);
 
@@ -76,8 +89,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '加载样例库失败');
       setExamples(data.examples || []);
-    } catch (err: any) {
-      setError(err.message || '加载样例库失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '加载样例库失败');
     } finally {
       setLoading(false);
     }
@@ -120,8 +133,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       setNotice(editing ? '样例已更新' : '样例已登记');
       closeForm();
       loadExamples();
-    } catch (err: any) {
-      setError(err.message || '保存失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -134,8 +147,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       if (!res.ok) throw new Error(data.error || '删除失败');
       setNotice('样例已剔除');
       loadExamples();
-    } catch (err: any) {
-      setError(err.message || '删除失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '删除失败');
     }
   };
 
@@ -161,8 +174,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       a.remove();
       URL.revokeObjectURL(url);
       setNotice(`样例库已导出（${selectedDs?.name || selectedId}，共 ${examples.length} 条样例）。`);
-    } catch (err: any) {
-      setError(err.message || '导出失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '导出失败');
     } finally {
       setExporting(false);
     }
@@ -176,7 +189,7 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
     setBackupResult(null);
     try {
       const text = await backupFile.text();
-      let fileData: any;
+      let fileData: unknown;
       try {
         fileData = JSON.parse(text);
       } catch {
@@ -200,8 +213,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
         setShowBackupImport(false);
         loadExamples();
       }
-    } catch (err: any) {
-      setError(err.message || '导入失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '导入失败');
     } finally {
       setBackupImporting(false);
     }
@@ -229,8 +242,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '问题反推失败');
       setImportPairs(data.pairs || []);
-    } catch (err: any) {
-      setError(err.message || '问题反推失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '问题反推失败');
     } finally {
       setGenerating(false);
     }
@@ -254,8 +267,8 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
       setImportSqls('');
       setImportPairs([]);
       loadExamples();
-    } catch (err: any) {
-      setError(err.message || '批量保存失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '批量保存失败');
     } finally {
       setImportSaving(false);
     }
@@ -426,9 +439,9 @@ export const SqlExamplesPanel: React.FC<{ dataSources: DataSource[]; initialId?:
                 {backupResult.summary.invalidItems > 0 && (
                   <div className="text-amber-300">另有 {backupResult.summary.invalidItems} 条未通过校验被拒绝（仅支持 SELECT 且长度不超限）</div>
                 )}
-                {backupResult.errors?.length > 0 && (
+                {backupResult.errors && backupResult.errors.length > 0 && (
                   <ul className="list-disc list-inside text-rose-300 mt-1">
-                    {backupResult.errors.slice(0, 5).map((e: any, i: number) => (
+                    {backupResult.errors.slice(0, 5).map((e, i: number) => (
                       <li key={i}>{e.question}：{e.message}</li>
                     ))}
                   </ul>

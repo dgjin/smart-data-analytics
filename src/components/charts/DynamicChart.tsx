@@ -61,11 +61,45 @@ import { detectTemporalAxis } from '../../utils/temporalAxis';
 /** 同/环比对比模式：none 原值展示 / yoy 同比（与去年同期对比）/ mom 环比（与上期对比） */
 export type ComparisonMode = 'none' | 'yoy' | 'mom';
 
+/** recharts LabelList content 回调入参（差异百分比徽标；x/y/width 为 recharts 注入的 SVG 坐标） */
+interface DiffBadgeProps {
+  x: number;
+  y: number;
+  value?: unknown;
+  width: number;
+}
+
+/** recharts Tooltip payload 条目（结构对齐 recharts 注入的系列信息） */
+interface TooltipEntry {
+  dataKey?: string | number;
+  name?: string | number;
+  value?: number | string;
+  color?: string;
+  payload?: Record<string, unknown>;
+}
+
+/** recharts Tooltip content 回调入参（CustomTooltip 组件 props） */
+interface TooltipContentProps {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: string | number;
+}
+
+/** recharts Treemap content 回调入参（SVG 自绘矩形；x/y/width/height 为 recharts 注入的布局值） */
+interface TreemapContentProps {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  name?: unknown;
+  index?: number;
+}
+
 interface DynamicChartProps {
   /** 图表配置（类型/x 轴键/y 轴键组/轴中文名/是否堆叠），由问数或报表链路生成 */
   config: ChartConfig;
   /** 图表数据行（对象数组，键与 config 的 xAxisKey/yAxisKeys 对应） */
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
   /** 图表容器高度（px），默认 320 */
   height?: number;
   /** 全局配色主题 id（CHART_THEMES 键名），默认 cyber；组件内可临时切换 */
@@ -216,7 +250,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   // 计算同/环比基线值（_prior 字段）与差异百分比（_diff_pct 字段）附加到每行数据；
   // 无真实历史基线的点保持 undefined（不编造数据），基线系列与徽标自动跳过该点
-  const processComparisonData = (rawData: Record<string, any>[], mode: ComparisonMode) => {
+  const processComparisonData = (rawData: Record<string, unknown>[], mode: ComparisonMode) => {
     if (!rawData || rawData.length === 0 || mode === 'none') {
       return rawData;
     }
@@ -255,18 +289,18 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 
   // 提示框与坐标轴数字格式化：千分位 + 非整数补足两位小数（整数不补零）；
   // 不再自动缩写为万/亿——金额单位已由问数侧选定（SQL 按单位换算、表头带单位），二次缩写会与所选单位冲突
-  const formatValue = (val: any) => {
+  const formatValue = (val: unknown): string => {
     if (typeof val === 'number') {
       return Number.isInteger(val)
         ? val.toLocaleString()
         : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    return val;
+    return typeof val === 'string' ? val : String(val ?? '');
   };
 
   // 差异百分比徽标渲染器（recharts LabelList content 回调，SVG 手绘圆角标签）
-  const renderDiffBadge = (props: any) => {
-    const { x, y, value, width } = props;
+  const renderDiffBadge = (props: unknown) => {
+    const { x, y, value, width } = props as DiffBadgeProps;
     if (value === undefined || value === null || !isDiffBadgeVisible) return null;
     const numVal = Number(value);
     if (isNaN(numVal)) return null;
@@ -304,7 +338,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
     );
   };
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: TooltipContentProps) => {
     if (active && payload && payload.length) {
       const isPieLike = type === 'pie' || type === 'donut';
       // pie/donut：label 为空，维度值在 payload[0].name（nameKey）；标题补维度中文名（如"客户类型: 产业客户"）
@@ -323,7 +357,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
               </span>
             )}
           </div>
-          {payload.map((entry: any, index: number) => {
+          {payload.map((entry, index: number) => {
             if (entry.dataKey && String(entry.dataKey).endsWith('_diff_pct')) return null;
             // pie/donut 的 entry.name 是维度值（已在标题展示），系列行改显示指标中文名
             const seriesName = isPieLike
@@ -347,7 +381,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
           {activeComparisonMode !== 'none' && payload[0]?.payload && yAxisKeys.length > 0 && (
             <div className="border-t border-slate-800 pt-1.5 space-y-1">
               {yAxisKeys.map((key) => {
-                const diffVal = payload[0].payload[`${key}_diff_pct`];
+                const diffVal = payload[0]?.payload?.[`${key}_diff_pct`] as number | undefined;
                 if (diffVal === undefined) return null;
                 const isPositive = diffVal >= 0;
                 const keyName = config.yAxisNames?.[key] || key;
@@ -373,7 +407,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
   const isZoomed = isCartesian && (startIndex > 0 || endIndex < data.length - 1);
 
   // P2-2 下钻点击：从图表点击事件提取维度值
-  const handleChartClick = (state: any) => {
+  const handleChartClick = (state: { activeLabel?: string | number }) => {
     if (!drillable || !onDrill || !state || !state.activeLabel) return;
     onDrill(xAxisKey, state.activeLabel);
   };
@@ -587,8 +621,8 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             dataKey={tmValueKey}
             nameKey={xAxisKey}
             stroke="#0f172a"
-            content={(props: any) => {
-              const { x, y, width, height, name, index } = props;
+            content={(props: unknown) => {
+              const { x, y, width, height, name, index } = props as TreemapContentProps;
               if (!width || !height || width <= 0 || height <= 0) return <g key={`tm-${index}`} />;
               const fill = effectiveColors[(index || 0) % effectiveColors.length];
               const label = String(name ?? '');

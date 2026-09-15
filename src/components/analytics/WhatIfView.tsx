@@ -9,6 +9,7 @@ import { FlaskConical, Loader2, Play, Sparkles } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { DashboardWidget } from '../../types/analytics';
 import { readStr, readStrList } from './analysisUtils';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface WhatIfParameterChange {
   column: string;
@@ -88,8 +89,8 @@ export const WhatIfView: React.FC<{ widget: DashboardWidget }> = ({ widget }) =>
         summaryLines: Array.isArray(data.summaryLines) ? data.summaryLines : [],
         interpretation: (data.interpretation ?? null) as Record<string, unknown> | null,
       });
-    } catch (err: any) {
-      setError(err?.message || '情景推演失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '情景推演失败');
       setResult(null);
     } finally {
       setLoading(false);

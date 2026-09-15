@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ListChecks, ChevronDown, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { ColumnSchema, DataSource, TableSchema } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 type ColRole = 'metric' | 'dimension' | 'none';
 
@@ -105,8 +106,8 @@ export const SchemaMetaEditor: React.FC<SchemaMetaEditorProps> = ({ ds, onClose,
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
       onSaved(data.dataSource as DataSource, data.touched ?? 0);
-    } catch (err: any) {
-      onError(err.message || '指标维度维护保存失败');
+    } catch (err) {
+      onError(getErrorMessage(err) || '指标维度维护保存失败');
     } finally {
       setSaving(false);
     }

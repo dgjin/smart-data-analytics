@@ -3,6 +3,7 @@ import { Settings, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { UserRole } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface EnvConfigItem {
   key: string;
@@ -66,8 +67,8 @@ export const EnvironmentConfigPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '加载配置失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '网络错误');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '网络错误');
     } finally {
       setLoading(false);
     }
@@ -113,8 +114,8 @@ export const EnvironmentConfigPanel: React.FC = () => {
           : `已保存 ${updates.length} 项，已即时生效`
       );
       loadConfigs();
-    } catch (err: any) {
-      showNotice('error', err.message || '保存失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '保存失败');
     } finally {
       setSaving(false);
     }

@@ -29,10 +29,14 @@ import {
   FlexPivot,
   FlexResult,
 } from '../flexQueryShared';
+import { getErrorMessage } from '../../../utils/errorUtils';
 
 /** v0.9.24 迁移遗留键：服务端持久化后仅存留一次性迁移源，迁移成功即清除 */
 const SAVED_KEY = 'app-flex-queries';
 const HISTORY_KEY = 'app-flex-history';
+
+/** 载入配置入参：兼容 v0.4.9 前旧字段 orderByFirstMeasure（'none' 表示不排序） */
+type LoadableFlexConfig = Partial<FlexQueryConfig> & { orderByFirstMeasure?: string };
 
 /**
  * 灵活查询构建器状态 Hook（P0 上帝组件拆分：自 FlexQueryBuilder 提取，行为保持一致）。
@@ -391,8 +395,8 @@ export function useFlexQueryState() {
       } else {
         setExecError(data?.error || `执行失败（HTTP ${res.status}）`);
       }
-    } catch (err: any) {
-      setExecError(err?.message || '网络异常，执行失败');
+    } catch (err) {
+      setExecError(getErrorMessage(err) || '网络异常，执行失败');
     } finally {
       setExecuting(false);
     }
@@ -434,7 +438,7 @@ export function useFlexQueryState() {
 
   /** 占比快速计算：首指标占总和的百分比，客户端追加列 */
   const displayRows = useMemo(() => {
-    if (!result) return [] as Record<string, any>[];
+    if (!result) return [] as Record<string, unknown>[];
     if (!showPct || !firstAlias) return result.rows;
     const total = result.rows.reduce((s, r) => s + (Number(r[firstAlias]) || 0), 0);
     return result.rows.map((r) => ({
@@ -510,11 +514,11 @@ export function useFlexQueryState() {
   };
 
   /** 兼容 v0.4.9 旧配置（orderByFirstMeasure → orderBy）并补齐新字段 */
-  const loadConfig = (name: string, dsId: string, rawCfg: any, ct: ChartType, toastMsg: string) => {
+  const loadConfig = (name: string, dsId: string, rawCfg: LoadableFlexConfig, ct: ChartType, toastMsg: string) => {
     const rawMeasures: FlexMeasure[] = Array.isArray(rawCfg?.measures) ? rawCfg.measures : [];
     let ob: FlexOrderBy | null = rawCfg?.orderBy ?? null;
     if (!ob && rawCfg?.orderByFirstMeasure && rawCfg.orderByFirstMeasure !== 'none' && rawMeasures.length) {
-      ob = { by: measureAlias(rawMeasures[0]), dir: rawCfg.orderByFirstMeasure };
+      ob = { by: measureAlias(rawMeasures[0]), dir: rawCfg.orderByFirstMeasure as FlexOrderBy['dir'] };
     }
     if (dsId !== activeDataSourceId) setActiveDataSource(dsId);
     setSelectedTable(String(rawCfg?.table || ''));

@@ -10,6 +10,7 @@ import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { DataSource } from '../../types/analytics';
 import { ExternalKnowledgeCard } from './ExternalKnowledgeCard';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface KnowledgeDoc {
   docId: string;
@@ -31,6 +32,18 @@ interface KnowledgeDocDetail {
 
 /** 导入同名知识时的冲突处理策略（与服务端 mergeStrategy 参数对齐） */
 type ImportMergeStrategy = 'skip' | 'overwrite' | 'append';
+
+/** 导入接口响应（/api/knowledge/import） */
+interface KnowledgeImportResult {
+  success: boolean;
+  dryRun: boolean;
+  summary: { totalDocs: number; invalidDocs: number };
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors?: { title?: string; message?: string }[];
+}
 
 export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId?: string }> = ({
   dataSources,
@@ -58,7 +71,7 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
   const [importStrategy, setImportStrategy] = useState<ImportMergeStrategy>('skip');
   const [importDryRun, setImportDryRun] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<any>(null);
+  const [importResult, setImportResult] = useState<KnowledgeImportResult | null>(null);
 
   const selectedDs = dataSources.find((d) => d.id === selectedId);
 
@@ -84,8 +97,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
       a.remove();
       URL.revokeObjectURL(url);
       setNotice(`知识库已导出（${selectedDs?.name || selectedId}，共 ${docs.length} 篇文档）。`);
-    } catch (err: any) {
-      setError(err.message || '导出失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '导出失败');
     } finally {
       setExporting(false);
     }
@@ -99,7 +112,7 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
     setImportResult(null);
     try {
       const text = await importFile.text();
-      let fileData: any;
+      let fileData: unknown;
       try {
         fileData = JSON.parse(text);
       } catch {
@@ -122,8 +135,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
         setNotice(`导入完成：新增 ${data.importedCount} 篇，覆盖更新 ${data.updatedCount} 篇，跳过 ${data.skippedCount} 篇。`);
         loadDocs();
       }
-    } catch (err: any) {
-      setError(err.message || '导入失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '导入失败');
     } finally {
       setImporting(false);
     }
@@ -138,8 +151,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '加载知识库失败');
       setDocs(data.docs || []);
-    } catch (err: any) {
-      setError(err.message || '加载知识库失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '加载知识库失败');
     } finally {
       setLoading(false);
     }
@@ -178,8 +191,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
       closeForm();
       setNotice(`知识「${title.trim()}」已${isEdit ? '更新' : '登记'}（切分为 ${data.chunkCount} 个片段）。`);
       loadDocs();
-    } catch (err: any) {
-      setError(err.message || '保存失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '保存失败');
     } finally {
       setSaving(false);
     }
@@ -198,8 +211,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
       setContent(d.chunks.map((c) => c.text).join('\n'));
       setShowAdd(true);
       setDetail(null);
-    } catch (err: any) {
-      setError(err.message || '加载详情失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '加载详情失败');
     }
   };
 
@@ -212,9 +225,9 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || '加载详情失败');
       setDetail(data.doc);
-    } catch (err: any) {
+    } catch (err) {
       setDetail(null);
-      setError(err.message || '加载详情失败');
+      setError(getErrorMessage(err) || '加载详情失败');
     } finally {
       setDetailLoading(false);
     }
@@ -228,8 +241,8 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
       if (!res.ok) throw new Error(data.error || '删除失败');
       setNotice(`知识「${doc.title}」已删除。`);
       loadDocs();
-    } catch (err: any) {
-      setError(err.message || '删除失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '删除失败');
     }
   };
 
@@ -395,9 +408,9 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
                 {importResult.summary.invalidDocs > 0 && (
                   <div className="text-amber-300">另有 {importResult.summary.invalidDocs} 条因缺少标题或内容被忽略</div>
                 )}
-                {importResult.errors?.length > 0 && (
+                {importResult.errors && importResult.errors.length > 0 && (
                   <ul className="list-disc list-inside text-rose-300 mt-1">
-                    {importResult.errors.slice(0, 5).map((e: any, i: number) => (
+                    {importResult.errors.slice(0, 5).map((e, i: number) => (
                       <li key={i}>{e.title}：{e.message}</li>
                     ))}
                   </ul>

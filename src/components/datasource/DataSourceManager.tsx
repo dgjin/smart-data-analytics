@@ -26,6 +26,7 @@ import { SchemaMetaEditor } from './SchemaMetaEditor';
 import { AclConfigModal } from './AclConfigModal';
 import { ScopeConfigModal } from './ScopeConfigModal';
 import { DataScope, DataSource, DataSourceType, TableSchema } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 // 支持真实连接的数据库类型（服务端提取完整 Schema，其余类型用占位表）
 const DB_TYPES: DataSourceType[] = ['mysql', 'postgresql', 'greenplum'];
@@ -76,7 +77,7 @@ export const DataSourceManager: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   // 新增：PostgreSQL / Greenplum 的 schema 配置
-  const [config, setConfig] = useState<any>({});
+  const [config, setConfig] = useState<{ schema?: string }>({});
   // 指标/维度维护弹窗状态
   const [metaDs, setMetaDs] = useState<DataSource | null>(null);
   // 问数范围配置弹窗状态
@@ -137,8 +138,8 @@ export const DataSourceManager: React.FC = () => {
       } else {
         setTestResult(`连接失败: ${res.message || res.error || '无法建立握手'}`);
       }
-    } catch (err: any) {
-      setTestResult(`测试错误: ${err.message}`);
+    } catch (err) {
+      setTestResult(`测试错误: ${getErrorMessage(err)}`);
     } finally {
       setIsTesting(false);
     }
@@ -152,8 +153,8 @@ export const DataSourceManager: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '删除失败');
       removeDataSource(ds.id);
       setImportNotice(`数据源「${ds.name}」已删除。`);
-    } catch (err: any) {
-      setActionError(err.message || '删除数据源失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '删除数据源失败');
     }
   };
 
@@ -170,8 +171,8 @@ export const DataSourceManager: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '更新失败');
       updateDataSource({ ...ds, allowIntrospection: next });
       setImportNotice(`数据源「${ds.name}」数据自省已${next ? '开启' : '关闭'}。`);
-    } catch (err: any) {
-      setActionError(err.message || '更新自省开关失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '更新自省开关失败');
     }
   };
 
@@ -239,8 +240,8 @@ export const DataSourceManager: React.FC = () => {
       } else {
         setImportNotice(`数据源「${savedDS.name}」已保存到服务端。`);
       }
-    } catch (err: any) {
-      setActionError(err.message || '保存数据源失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '保存数据源失败');
     } finally {
       setIsSaving(false);
     }
@@ -322,8 +323,8 @@ export const DataSourceManager: React.FC = () => {
           : `「${scopeDs.name}」已恢复为全部表可问数。`
       );
       setScopeDs(null);
-    } catch (err: any) {
-      setActionError(err.message || '问数范围保存失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '问数范围保存失败');
     } finally {
       setScopeSaving(false);
     }
@@ -365,8 +366,8 @@ export const DataSourceManager: React.FC = () => {
           : `「${aclDs.name}」已解除访问限制，全员可见。`
       );
       setAclDs(null);
-    } catch (err: any) {
-      setActionError(err.message || '访问控制保存失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '访问控制保存失败');
     } finally {
       setAclSaving(false);
     }
@@ -382,12 +383,13 @@ export const DataSourceManager: React.FC = () => {
     // 容错解析：服务端异常时可能返回 HTML 错误页（而非 JSON），直接 res.json() 会抛出
     // "Unexpected token '<', <!DOCTYPE..." 掩盖真实错误，这里先读文本再尝试解析
     const rawText = await res.text();
-    let data: any;
+    let parsed: unknown;
     try {
-      data = JSON.parse(rawText);
+      parsed = JSON.parse(rawText);
     } catch {
       throw new Error(`服务端返回非 JSON 响应（HTTP ${res.status}）：${rawText.slice(0, 200)}`);
     }
+    const data = (parsed ?? {}) as { success?: boolean; error?: string; dataSource?: DataSource };
     if (!res.ok || !data.success) throw new Error(data.error || '同步失败');
     return data.dataSource as DataSource;
   };
@@ -399,18 +401,18 @@ export const DataSourceManager: React.FC = () => {
       let synced: DataSource;
       try {
         synced = await syncSchemaRequest(ds);
-      } catch (firstErr: any) {
+      } catch (firstErr) {
         // 早期保存的数据源未存储连接密码，首次同步失败时提示补输一次（服务端会落库，之后不再询问）
         const pwd = window.prompt(
-          `同步失败（${firstErr.message}）。\n请输入数据库 ${ds.config.database || ''} 的密码后重试：`
+          `同步失败（${getErrorMessage(firstErr)}）。\n请输入数据库 ${ds.config.database || ''} 的密码后重试：`
         );
         if (!pwd) throw firstErr;
         synced = await syncSchemaRequest(ds, pwd);
       }
       updateDataSource(synced);
       setImportNotice(`「${ds.name}」Schema 已同步：${synced.tables.length} 张数据表。`);
-    } catch (err: any) {
-      setActionError(err.message || 'Schema 同步失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || 'Schema 同步失败');
     } finally {
       setSyncingId(null);
     }
@@ -480,8 +482,8 @@ export const DataSourceManager: React.FC = () => {
       setImportNotice(
         `已导入「${file.name}」：${stats.rows ?? '-'} 行 × ${stats.columns ?? '-'} 列真实落库，可直接问数与生成报表。${extras.length ? `（${extras.join('；')}）` : ''}`
       );
-    } catch (err: any) {
-      setActionError(err.message || '文件导入失败');
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '文件导入失败');
     } finally {
       setImporting(false);
       e.target.value = '';

@@ -9,6 +9,7 @@ import { apiFetch } from '../../api/client';
 import { DashboardWidget } from '../../types/analytics';
 import { profileColumns, pickForecastDefaults, readStr } from './analysisUtils';
 import { MiniForecastPoint, MiniSeriesChart } from './MiniSeriesChart';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface ForecastResponseData {
   model: string;
@@ -90,8 +91,8 @@ export const ForecastView: React.FC<{ widget: DashboardWidget }> = ({ widget }) 
       if (!resp.ok || !data?.ok || !data?.forecast) throw new Error(data?.error || '预测执行失败');
       setResult(data.forecast as ForecastResponseData);
       setInterpretation((data.interpretation ?? null) as Record<string, unknown> | null);
-    } catch (err: any) {
-      setError(err?.message || '预测执行失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '预测执行失败');
       setResult(null);
       setInterpretation(null);
     } finally {

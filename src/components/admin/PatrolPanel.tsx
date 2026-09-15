@@ -20,6 +20,7 @@ import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { apiFetch } from '../../api/client';
 import { PatrolPlan, PatrolRun, AnomalyItem } from '../../types/analytics';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * P0-1 异常巡检面板：数据源级巡检计划管理 + 异常预警结果展示（无页头/容器的内容组件）。
@@ -109,8 +110,8 @@ export const PatrolPanel: React.FC = () => {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || '巡检计划加载失败');
       setPatrols(data.patrols || []);
-    } catch (err: any) {
-      setError(err?.message || '巡检计划加载失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '巡检计划加载失败');
     } finally {
       setIsLoading(false);
     }
@@ -146,8 +147,8 @@ export const PatrolPanel: React.FC = () => {
       setShowCreate(false);
       setForm({ dataSourceId: activeDataSourceId || '', name: '', intervalMinutes: 1440 });
       loadPatrols();
-    } catch (err: any) {
-      setNotice({ type: 'error', text: err?.message || '创建失败' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err) || '创建失败' });
     } finally {
       setSubmitting(false);
     }
@@ -165,8 +166,8 @@ export const PatrolPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '操作失败');
       setNotice({ type: 'success', text: next === 'ACTIVE' ? `「${p.name}」已启用巡检` : `「${p.name}」已暂停巡检` });
       loadPatrols();
-    } catch (err: any) {
-      setNotice({ type: 'error', text: err?.message || '操作失败' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err) || '操作失败' });
     }
   };
 
@@ -179,8 +180,8 @@ export const PatrolPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '删除失败');
       setPatrols((prev) => prev.filter((x) => x.patrolId !== p.patrolId));
       setNotice({ type: 'success', text: `已删除「${p.name}」` });
-    } catch (err: any) {
-      setNotice({ type: 'error', text: err?.message || '删除失败' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err) || '删除失败' });
     } finally {
       setDeletingId(null);
     }
@@ -204,8 +205,8 @@ export const PatrolPanel: React.FC = () => {
           : `「${p.name}」巡检执行失败：${r.error || '未知错误'}`;
       setNotice({ type: r.status === 'ERROR' ? 'error' : 'success', text });
       loadPatrols();
-    } catch (err: any) {
-      setNotice({ type: 'error', text: err?.message || '执行失败' });
+    } catch (err) {
+      setNotice({ type: 'error', text: getErrorMessage(err) || '执行失败' });
     } finally {
       setRunningId(null);
     }

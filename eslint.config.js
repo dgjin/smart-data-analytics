@@ -41,6 +41,7 @@ export default tseslint.config(
   // any 存量豁免（只减不增）：白名单为待清零文件（含当前处数），批次清零后从列表移除；
   // 移出即回到 error 保护，新增文件不在列表 → 立即被门禁拦截。
   // 批次1 已完成（2026-09-15）：server/routes 全目录 130 处 → 0，24 个文件已移出。
+  // 批次2 已完成（2026-09-15）：src/components 全目录 147 处 → 0，42 个文件已移出。
   {
     files: [
       'server.ts', // 2
@@ -95,48 +96,6 @@ export default tseslint.config(
       'server/utils/fallback/fallbackPipeline.ts', // 5
       'server/utils/fallbackStrategies/simplerPrompt.ts', // 6
       'server/utils/fewShotService.ts', // 4
-      'src/components/Header.tsx', // 1
-      'src/components/admin/ABTestDashboard.tsx', // 2
-      'src/components/admin/AccessRequestsPanel.tsx', // 2
-      'src/components/admin/AdminPanel.tsx', // 6
-      'src/components/admin/DlpDownloadPanel.tsx', // 2
-      'src/components/admin/DriftAlertPanel.tsx', // 3
-      'src/components/admin/EnvironmentConfigPanel.tsx', // 2
-      'src/components/admin/ExpertPersonasPanel.tsx', // 4
-      'src/components/admin/FallbackApprovalPanel.tsx', // 4
-      'src/components/admin/IronRulesPanel.tsx', // 10
-      'src/components/admin/LlmUsagePanel.tsx', // 1
-      'src/components/admin/MetricsPanel.tsx', // 11
-      'src/components/admin/OpsMetricsPanel.tsx', // 2
-      'src/components/admin/PatrolPanel.tsx', // 5
-      'src/components/admin/ReportTemplateManager.tsx', // 4
-      'src/components/analytics/AttributionView.tsx', // 1
-      'src/components/analytics/ForecastView.tsx', // 1
-      'src/components/analytics/WhatIfView.tsx', // 1
-      'src/components/auth/ForceChangePassword.tsx', // 1
-      'src/components/auth/Login.tsx', // 1
-      'src/components/charts/ChartCustomizer.tsx', // 1
-      'src/components/charts/DataTable.tsx', // 1
-      'src/components/charts/DynamicChart.tsx', // 8
-      'src/components/dashboard/CustomDashboard.tsx', // 2
-      'src/components/datasource/DataSourceManager.tsx', // 11
-      'src/components/datasource/ExternalKnowledgeCard.tsx', // 4
-      'src/components/datasource/KnowledgeBasePanel.tsx', // 10
-      'src/components/datasource/SchemaMetaEditor.tsx', // 1
-      'src/components/datasource/SqlExamplesPanel.tsx', // 10
-      'src/components/flexquery/PreviewPanel.tsx', // 1
-      'src/components/flexquery/flexQueryShared.ts', // 1
-      'src/components/flexquery/hooks/useFlexQueryState.ts', // 3
-      'src/components/help/HelpModal.tsx', // 1
-      'src/components/query/AnalysisTracePanel.tsx', // 1
-      'src/components/query/QueryChat.tsx', // 2
-      'src/components/query/SQLPreviewModal.tsx', // 2
-      'src/components/query/SkillLibraryModal.tsx', // 4
-      'src/components/query/hooks/useSendQuery.ts', // 8
-      'src/components/reports/DrillModal.tsx', // 1
-      'src/components/reports/ExecutiveReportCard.tsx', // 4
-      'src/components/reports/QueryReportCenter.tsx', // 2
-      'src/components/reports/ReportGenerator.tsx', // 5
       'src/hooks/useSpeechInput.ts', // 3
       'src/types/analytics.ts', // 3
       'src/utils/apiFetch.ts', // 1

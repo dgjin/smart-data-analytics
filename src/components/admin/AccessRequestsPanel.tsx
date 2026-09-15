@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck, RefreshCw, CheckCircle2, XCircle, AlertCircle, Inbox } from 'lucide-react';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * P2-11 权限申请审批面板（ADMIN）：数据源访问权的申请处理。
@@ -52,8 +53,8 @@ export const AccessRequestsPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '审批列表获取失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '审批列表获取失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '审批列表获取失败');
     } finally {
       setIsLoading(false);
     }
@@ -83,8 +84,8 @@ export const AccessRequestsPanel: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
       showNotice('success', action === 'approve' ? `已通过 ${r.username} 的申请，访问权限即时生效` : `已驳回 ${r.username} 的申请`);
       loadRequests();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setActingId(null);
     }

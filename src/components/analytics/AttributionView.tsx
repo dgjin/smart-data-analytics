@@ -9,6 +9,7 @@ import { BarChart3, Loader2, Play, Sparkles } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { DashboardWidget } from '../../types/analytics';
 import { profileColumns, pickAttributionDefaults, readStr, readStrList } from './analysisUtils';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 interface AttributionItemData {
   dims: string[];
@@ -87,8 +88,8 @@ export const AttributionView: React.FC<{ widget: DashboardWidget }> = ({ widget 
       setResult(data.attribution as AttributionResultData);
       setPeriods(Array.isArray(data.periods) && data.periods.length === 2 ? (data.periods as [string, string]) : null);
       setInterpretation((data.interpretation ?? null) as Record<string, unknown> | null);
-    } catch (err: any) {
-      setError(err?.message || '归因分析失败');
+    } catch (err) {
+      setError(getErrorMessage(err) || '归因分析失败');
       setResult(null);
       setPeriods(null);
       setInterpretation(null);

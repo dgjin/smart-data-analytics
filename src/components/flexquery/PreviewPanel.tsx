@@ -25,7 +25,7 @@ export interface PreviewPanelProps {
   pivotAvailable: boolean;
   pivot: FlexPivot | null;
   chartConfig: ChartConfig | null;
-  displayRows: Record<string, any>[];
+  displayRows: Record<string, unknown>[];
   displayColumns: string[];
   columnNames: Record<string, string>;
   handleExportCsv: () => Promise<void>;

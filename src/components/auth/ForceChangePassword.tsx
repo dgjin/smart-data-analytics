@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShieldAlert, KeyRound, RefreshCw, AlertCircle, LogOut } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { apiFetch } from '../../api/client';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * P0-1 强制改密页：首登（初始密码/管理员重置）后必须修改密码才能进入系统。
@@ -34,8 +35,8 @@ export const ForceChangePassword: React.FC = () => {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || '修改失败');
       clearMustChangePassword();
-    } catch (err: any) {
-      setError(err.message || '密码修改失败，请稍后重试');
+    } catch (err) {
+      setError(getErrorMessage(err) || '密码修改失败，请稍后重试');
     } finally {
       setIsSubmitting(false);
     }

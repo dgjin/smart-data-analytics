@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * 铁律规则库面板（v0.9.35）：按数据源维护问数强制规则（口径红线/禁区/固定约束）。
@@ -21,6 +22,18 @@ import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
  */
 
 type RuleStatus = 'ACTIVE' | 'DISABLED';
+
+/** 导入接口响应（/api/iron-rules/import） */
+interface RuleImportResult {
+  success: boolean;
+  dryRun: boolean;
+  summary: { totalItems: number; invalidItems: number };
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors?: { title?: string; message?: string }[];
+}
 
 interface IronRuleItem {
   id: number;
@@ -61,7 +74,7 @@ export const IronRulesPanel: React.FC = () => {
   const [importStrategy, setImportStrategy] = useState<'skip' | 'overwrite'>('skip');
   const [importDryRun, setImportDryRun] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<any>(null);
+  const [importResult, setImportResult] = useState<RuleImportResult | null>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -87,8 +100,8 @@ export const IronRulesPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '加载铁律失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '加载铁律失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '加载铁律失败');
     } finally {
       setIsLoading(false);
     }
@@ -115,8 +128,8 @@ export const IronRulesPanel: React.FC = () => {
       setIsCreating(false);
       setForm({ title: '', content: '' });
       loadRules();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -141,8 +154,8 @@ export const IronRulesPanel: React.FC = () => {
       showNotice('success', `铁律「${editForm.title.trim()}」已更新`);
       setEditing(null);
       loadRules();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -160,8 +173,8 @@ export const IronRulesPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '操作失败');
       showNotice('success', next === 'ACTIVE' ? `已启用「${r.title}」（即刻对问数生效）` : `已停用「${r.title}」`);
       loadRules();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -173,8 +186,8 @@ export const IronRulesPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '删除失败');
       showNotice('success', `已删除「${r.title}」`);
       loadRules();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -200,8 +213,8 @@ export const IronRulesPanel: React.FC = () => {
       a.remove();
       URL.revokeObjectURL(url);
       showNotice('success', `铁律规则库已导出（${dsName}，共 ${rules.length} 条）。`);
-    } catch (err: any) {
-      showNotice('error', err.message || '导出失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '导出失败');
     } finally {
       setExporting(false);
     }
@@ -214,7 +227,7 @@ export const IronRulesPanel: React.FC = () => {
     setImportResult(null);
     try {
       const text = await importFile.text();
-      let fileData: any;
+      let fileData: unknown;
       try {
         fileData = JSON.parse(text);
       } catch {
@@ -238,8 +251,8 @@ export const IronRulesPanel: React.FC = () => {
         setShowImport(false);
         loadRules();
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '导入失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '导入失败');
     } finally {
       setImporting(false);
     }
@@ -545,9 +558,9 @@ export const IronRulesPanel: React.FC = () => {
                 {importResult.summary.invalidItems > 0 && (
                   <div className="text-amber-300">另有 {importResult.summary.invalidItems} 条未通过校验被拒绝</div>
                 )}
-                {importResult.errors?.length > 0 && (
+                {importResult.errors && importResult.errors.length > 0 && (
                   <ul className="list-disc list-inside text-rose-300 mt-1">
-                    {importResult.errors.slice(0, 5).map((e: any, i: number) => (
+                    {importResult.errors.slice(0, 5).map((e, i: number) => (
                       <li key={i}>{e.title}：{e.message}</li>
                     ))}
                   </ul>

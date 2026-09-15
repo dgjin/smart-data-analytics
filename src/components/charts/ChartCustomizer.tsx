@@ -7,6 +7,7 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { ChartConfig, ChartType } from '../../types/analytics';
 
 interface ChartCustomizerProps {
@@ -20,7 +21,7 @@ export const ChartCustomizer: React.FC<ChartCustomizerProps> = ({
   onChange,
   onPinToDashboard,
 }) => {
-  const chartTypeOptions: { type: ChartType; label: string; icon: any }[] = [
+  const chartTypeOptions: { type: ChartType; label: string; icon: LucideIcon }[] = [
     { type: 'bar', label: '柱状图', icon: BarChart2 },
     { type: 'line', label: '折线图', icon: LineIcon },
     { type: 'area', label: '面积图', icon: AreaIcon },

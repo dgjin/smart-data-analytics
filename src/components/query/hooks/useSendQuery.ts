@@ -11,6 +11,7 @@ import {
   AgentRunData,
   ReportTemplate,
 } from '../../../types/analytics';
+import { getErrorMessage, isAbortError } from '../../../utils/errorUtils';
 
 interface ActiveDataSource {
   id: string;
@@ -18,6 +19,24 @@ interface ActiveDataSource {
   tables: Parameters<typeof applyDataScope>[0];
   /** 与 DataSource.scope 对齐为可选（applyDataScope 第二参数本身允许 null/undefined） */
   scope?: Parameters<typeof applyDataScope>[1];
+}
+
+/** 问数响应体（JSON 与 SSE 终端事件同构，仅声明前端消费到的字段） */
+interface QueryResponseLike {
+  success?: boolean;
+  refused?: boolean;
+  refuseReason?: string;
+  traceId?: string;
+  needClarification?: boolean;
+  clarification?: { question?: string; options?: unknown[] };
+  result?: QueryResultData;
+  dataProvenance?: string;
+  executionTimeMs?: number;
+  isFallback?: boolean;
+  defense?: { sensitiveFiltered?: number };
+  semanticCache?: { matchedQuestion?: string; similarity?: number };
+  dlp?: { maskedLabels?: unknown[] };
+  error?: string;
 }
 
 /**
@@ -142,13 +161,13 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
           agentPlan: planData.plan as AgentPlanData,
           dataSourceId: submitDSId,
         });
-      } catch (err: any) {
+      } catch (err) {
         addChatMessage({
           id: `msg-err-agent-plan-${Date.now()}`,
           role: 'assistant',
-          content: `编排计划生成失败：${err?.message || '请稍后重试'}`,
+          content: `编排计划生成失败：${getErrorMessage(err) || '请稍后重试'}`,
           timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-          error: err?.message,
+          error: getErrorMessage(err),
           dataSourceId: submitDSId,
         });
       } finally {
@@ -187,13 +206,13 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
           queryPlan: planData.plan as QueryPlanData,
           dataSourceId: submitDSId,
         });
-      } catch (err: any) {
+      } catch (err) {
         addChatMessage({
           id: `msg-err-plan-${Date.now()}`,
           role: 'assistant',
-          content: `分析计划生成失败：${err?.message || '请稍后重试'}`,
+          content: `分析计划生成失败：${getErrorMessage(err) || '请稍后重试'}`,
           timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-          error: err?.message,
+          error: getErrorMessage(err),
           dataSourceId: submitDSId,
         });
       } finally {
@@ -262,13 +281,13 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
           dataProvenance: 'live',
           dataSourceId: submitDSId,
         });
-      } catch (err: any) {
+      } catch (err) {
         addChatMessage({
           id: `msg-err-report-${Date.now()}`,
           role: 'assistant',
-          content: `报告生成失败：${err?.message || '请稍后重试'}`,
+          content: `报告生成失败：${getErrorMessage(err) || '请稍后重试'}`,
           timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-          error: err?.message,
+          error: getErrorMessage(err),
           dataSourceId: submitDSId,
         });
       } finally {
@@ -311,7 +330,7 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
     const timeoutTimer = setTimeout(() => controller.abort(), 300_000);
 
     // 统一消费响应体（JSON 与 SSE 终端事件同构）
-    const consumeResponse = (resData: any) => {
+    const consumeResponse = (resData: QueryResponseLike) => {
       if (resData.success && resData.refused) {
         // 拒答：问题与数据源无关/超出能力，如实展示反馈（不用演示数据托底）
         addChatMessage({
@@ -338,7 +357,10 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
             question: typeof c.question === 'string' ? c.question : '',
             options: Array.isArray(c.options)
               ? c.options
-                  .filter((o: any) => o && typeof o.label === 'string' && typeof o.query === 'string')
+                  .filter((o: unknown): o is { label: string; query: string } => {
+                    const opt = (o ?? {}) as { label?: unknown; query?: unknown };
+                    return typeof opt.label === 'string' && typeof opt.query === 'string';
+                  })
                   .slice(0, 4)
               : [],
           },
@@ -476,11 +498,11 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
             consumeResponse(resData);
           }
           break;
-        } catch (streamErr: any) {
+        } catch (streamErr) {
           // P2-5 续传判定：仅「网络层中断」且已拿到续传锚点时才重试；
           // 用户主动停止/超时（AbortError）、业务终态错误（sseTerminal）、已达重试上限均不重试
           const canResume = !sawTerminal
-            && streamErr?.name !== 'AbortError'
+            && !isAbortError(streamErr)
             && streamErr?.sseTerminal !== true
             && resumeTraceId.length > 0
             && attempt < 2
@@ -490,16 +512,16 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
-    } catch (err: any) {
-      const isTimeout = err?.name === 'AbortError';
+    } catch (err) {
+      const isTimeout = isAbortError(err);
       addChatMessage({
         id: `msg-err-${Date.now()}`,
         role: 'assistant',
         content: isTimeout
           ? '查询超时：模型推理时间过长，请稍后重试；如频繁出现可在系统管理中切换更快的模型。'
-          : `查询过程出现异常: ${err.message || '请检查网络或配置'}`,
+          : `查询过程出现异常: ${getErrorMessage(err) || '请检查网络或配置'}`,
         timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        error: err.message,
+        error: getErrorMessage(err),
         dataSourceId: submitDSId,
       });
     } finally {
@@ -536,13 +558,13 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
         dataProvenance: 'live',
         dataSourceId: submitDSId,
       });
-    } catch (err: any) {
+    } catch (err) {
       addChatMessage({
         id: `msg-err-agent-run-${Date.now()}`,
         role: 'assistant',
-        content: `编排执行失败：${err?.message || '请稍后重试'}`,
+        content: `编排执行失败：${getErrorMessage(err) || '请稍后重试'}`,
         timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        error: err?.message,
+        error: getErrorMessage(err),
         dataSourceId: submitDSId,
       });
     } finally {

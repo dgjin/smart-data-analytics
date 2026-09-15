@@ -16,6 +16,7 @@ import {
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
+import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * P1-8 指标层治理面板：语义指标的提议 / 审批 / 驳回 / 版本化回溯管理。
@@ -64,6 +65,18 @@ const ACTION_LABELS: Record<string, string> = {
   RESTORE: '回溯',
 };
 
+/** 导入接口响应（/api/metrics/import） */
+interface MetricImportResult {
+  success: boolean;
+  dryRun: boolean;
+  summary: { totalItems: number; invalidItems: number };
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  errors?: { name?: string; message?: string }[];
+}
+
 export const MetricsPanel: React.FC = () => {
   const dataSources = useAnalyticsStore((s) => s.dataSources);
   const currentUser = useAuthStore((s) => s.user);
@@ -90,7 +103,7 @@ export const MetricsPanel: React.FC = () => {
   const [importStrategy, setImportStrategy] = useState<'skip' | 'overwrite'>('skip');
   const [importDryRun, setImportDryRun] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<any>(null);
+  const [importResult, setImportResult] = useState<MetricImportResult | null>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -116,8 +129,8 @@ export const MetricsPanel: React.FC = () => {
       } else {
         showNotice('error', data.error || '加载指标失败');
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '加载指标失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '加载指标失败');
     } finally {
       setIsLoading(false);
     }
@@ -152,8 +165,8 @@ export const MetricsPanel: React.FC = () => {
       setIsCreating(false);
       setForm({ name: '', aliases: '', description: '', expr: '', tableName: '', filters: '' });
       loadMetrics();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -167,8 +180,8 @@ export const MetricsPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || `${labels[action]}失败`);
       showNotice('success', `已${labels[action]}「${m.name}」`);
       loadMetrics();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -192,8 +205,8 @@ export const MetricsPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '操作失败');
       showNotice('success', next === 'ACTIVE' ? `已启用「${m.name}」` : `已停用「${m.name}」`);
       loadMetrics();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -205,8 +218,8 @@ export const MetricsPanel: React.FC = () => {
       if (!res.ok || !data.ok) throw new Error(data.error || '删除失败');
       showNotice('success', `已删除「${m.name}」`);
       loadMetrics();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -235,8 +248,8 @@ export const MetricsPanel: React.FC = () => {
       showNotice('success', `已回溯「${m.name}」到 v${version} 口径`);
       setVersionsFor(null);
       loadMetrics();
-    } catch (err: any) {
-      showNotice('error', err.message);
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
     }
   };
 
@@ -262,8 +275,8 @@ export const MetricsPanel: React.FC = () => {
       a.remove();
       URL.revokeObjectURL(url);
       showNotice('success', `指标库已导出（${dsName}，共 ${metrics.length} 条指标）。`);
-    } catch (err: any) {
-      showNotice('error', err.message || '导出失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '导出失败');
     } finally {
       setExporting(false);
     }
@@ -276,7 +289,7 @@ export const MetricsPanel: React.FC = () => {
     setImportResult(null);
     try {
       const text = await importFile.text();
-      let fileData: any;
+      let fileData: unknown;
       try {
         fileData = JSON.parse(text);
       } catch {
@@ -300,8 +313,8 @@ export const MetricsPanel: React.FC = () => {
         setShowImport(false);
         loadMetrics();
       }
-    } catch (err: any) {
-      showNotice('error', err.message || '导入失败');
+    } catch (err) {
+      showNotice('error', getErrorMessage(err) || '导入失败');
     } finally {
       setImporting(false);
     }
@@ -592,9 +605,9 @@ export const MetricsPanel: React.FC = () => {
                 {importResult.summary.invalidItems > 0 && (
                   <div className="text-amber-300">另有 {importResult.summary.invalidItems} 条未通过校验被拒绝</div>
                 )}
-                {importResult.errors?.length > 0 && (
+                {importResult.errors && importResult.errors.length > 0 && (
                   <ul className="list-disc list-inside text-rose-300 mt-1">
-                    {importResult.errors.slice(0, 5).map((e: any, i: number) => (
+                    {importResult.errors.slice(0, 5).map((e, i: number) => (
                       <li key={i}>{e.name}：{e.message}</li>
                     ))}
                   </ul>

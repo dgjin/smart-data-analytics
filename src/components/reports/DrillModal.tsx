@@ -26,7 +26,7 @@ export const DrillModal: React.FC<DrillModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rows, setRows] = useState<Record<string, any>[]>([]);
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [columnNames, setColumnNames] = useState<Record<string, string>>({});
   const [finalSql, setFinalSql] = useState('');
@@ -135,17 +135,20 @@ export const DrillModal: React.FC<DrillModalProps> = ({
                 <tbody className="divide-y divide-slate-800">
                   {rows.map((row, ri) => (
                     <tr key={ri} className="hover:bg-slate-800/50 transition-colors">
-                      {columns.map((c) => (
-                        <td key={c} className="px-3 py-2 text-slate-300 whitespace-nowrap">
-                          {row[c] === null || row[c] === undefined ? (
-                            <span className="text-slate-600">-</span>
-                          ) : typeof row[c] === 'number' ? (
-                            row[c].toLocaleString()
-                          ) : (
-                            String(row[c])
-                          )}
-                        </td>
-                      ))}
+                      {columns.map((c) => {
+                        const cell = row[c];
+                        return (
+                          <td key={c} className="px-3 py-2 text-slate-300 whitespace-nowrap">
+                            {cell === null || cell === undefined ? (
+                              <span className="text-slate-600">-</span>
+                            ) : typeof cell === 'number' ? (
+                              cell.toLocaleString()
+                            ) : (
+                              String(cell)
+                            )}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
