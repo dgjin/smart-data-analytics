@@ -36,13 +36,13 @@ export function taskResultFile(taskId: string): string {
   return path.join(taskResultDir(), `${safe}.pdf`);
 }
 
-async function runReportGenerate(payload: any, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
+async function runReportGenerate(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
   const startedAt = Date.now();
   const user = payload.user as TaskUserSnapshot;
   const dataSourceId = typeof payload.dataSourceId === 'string' ? payload.dataSourceId : '';
   const safeTemplate = String(payload.templateType || '综合经营分析').slice(0, 200);
   const safeCustom = String(payload.customPrompt || '').slice(0, 1000);
-  const amountUnit = payload.amountUnit ?? undefined;
+  const amountUnit = typeof payload.amountUnit === 'string' ? payload.amountUnit : undefined;
   const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const, dataSourceId };
   const auditQuestion = `async-report:${safeTemplate}`;
 
@@ -97,12 +97,12 @@ async function runReportGenerate(payload: any, reportProgress: (t: string) => Pr
   return { success: true, isFallback: true, report: getFallbackExecutiveReport(safeTemplate, ctx.schema), dataProvenance: 'simulated' };
 }
 
-async function runReportFromQuery(payload: any, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
+async function runReportFromQuery(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
   const startedAt = Date.now();
   const user = payload.user as TaskUserSnapshot;
   const dataSourceId = typeof payload.dataSourceId === 'string' ? payload.dataSourceId : '';
   const safeQuestion = String(payload.question || '').trim().slice(0, 500);
-  const amountUnit = payload.amountUnit ?? undefined;
+  const amountUnit = typeof payload.amountUnit === 'string' ? payload.amountUnit : undefined;
   const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const, dataSourceId };
   const auditQuestion = `async-query-report:${safeQuestion.slice(0, 100)}`;
 
@@ -125,8 +125,8 @@ async function runReportFromQuery(payload: any, reportProgress: (t: string) => P
       templateType = template.name;
       templateName = template.name;
       templateIdNum = template.id;
-      const templateContent = JSON.parse(template.template_content);
-      const sectionsPrompt = templateContent.sections?.map((s: any) => `${s.title}：${s.prompt}`).join('；') || '';
+      const templateContent = JSON.parse(template.template_content) as { sections?: { title?: unknown; prompt?: unknown }[] };
+      const sectionsPrompt = templateContent.sections?.map((s) => `${s.title}：${s.prompt}`).join('；') || '';
       customPrompt = `${safeQuestion}。请按照以下模板结构生成报告：${sectionsPrompt}`;
     }
   }
@@ -162,7 +162,7 @@ async function runReportFromQuery(payload: any, reportProgress: (t: string) => P
   return { success: true, isFallback: true, report: getFallbackExecutiveReport(templateType, ctx.schema), templateName, dataProvenance: 'simulated' };
 }
 
-async function runExportPdf(payload: any, reportProgress: (t: string) => Promise<void>, taskId: string): Promise<unknown> {
+async function runExportPdf(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>, taskId: string): Promise<unknown> {
   const startedAt = Date.now();
   const user = payload.user as TaskUserSnapshot;
   const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
@@ -189,9 +189,9 @@ async function runExportPdf(payload: any, reportProgress: (t: string) => Promise
   };
 }
 
-/** 注册全部内置处理器（server 启动时调用一次） */
+/** 注册全部内置处理器（server 启动时调用一次）；队列侧 payload 为 JSON.parse 产物，边界处收窄为对象 */
 export function registerBuiltinTaskHandlers(): void {
-  registerTaskHandler('report_generate', (payload, ctx) => runReportGenerate(payload, ctx.reportProgress));
-  registerTaskHandler('report_generate_from_query', (payload, ctx) => runReportFromQuery(payload, ctx.reportProgress));
-  registerTaskHandler('report_export_pdf', (payload, ctx) => runExportPdf(payload, ctx.reportProgress, ctx.taskId));
+  registerTaskHandler('report_generate', (payload, ctx) => runReportGenerate((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
+  registerTaskHandler('report_generate_from_query', (payload, ctx) => runReportFromQuery((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
+  registerTaskHandler('report_export_pdf', (payload, ctx) => runExportPdf((payload ?? {}) as Record<string, unknown>, ctx.reportProgress, ctx.taskId));
 }

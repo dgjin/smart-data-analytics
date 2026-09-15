@@ -8,6 +8,7 @@ import { callLLMJson } from '../llm/llmClient';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { serializeSchemaForPrompt } from '../query/schemaGuidance';
 import { stripCommentsAndStrings, FORBIDDEN_KEYWORD_RE } from '../query/sqlExecutor';
+import type { SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
 
 export interface WhatIfParameterChange {
@@ -72,7 +73,7 @@ function normalizeSql(sql: string): string {
 
 // ---------- LLM 场景改写 ----------
 
-function buildWhatIfSystem(schema: any[]): string {
+function buildWhatIfSystem(schema: SchemaTable[]): string {
   return `你是一个数据分析情景推演引擎。用户提供一条已生成的聚合查询 SQL 与一个"如果……会怎样"的场景假设，你要输出改写后的 SQL（仅改写过滤/条件相关部分，使结果反映该情景），用于与原 SQL 对比模拟。
 
 数据库 Schema（已经过权限与敏感字段过滤；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
@@ -94,7 +95,7 @@ ${serializeSchemaForPrompt(schema)}
 export async function generateWhatIfPlan(input: {
   baseSql: string;
   scenario: string;
-  schema: any[];
+  schema: SchemaTable[];
   question?: string;
 }): Promise<WhatIfPlan> {
   const { baseSql, scenario, schema } = input;

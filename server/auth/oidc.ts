@@ -75,7 +75,7 @@ export async function discoverEndpoints(): Promise<OidcEndpoints> {
   }
   const resp = await fetch(`${cfg.issuer}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(8000) });
   if (!resp.ok) throw new Error(`OIDC discovery 失败（HTTP ${resp.status}）`);
-  const doc: any = await resp.json();
+  const doc = (await resp.json()) as Record<string, unknown>;
   if (!doc?.authorization_endpoint || !doc?.token_endpoint) throw new Error('OIDC discovery 文档不完整');
   const endpoints: OidcEndpoints = {
     authorizationEndpoint: String(doc.authorization_endpoint),
@@ -158,7 +158,7 @@ export async function exchangeCode(code: string): Promise<string> {
     signal: AbortSignal.timeout(10_000),
   });
   if (!resp.ok) throw new Error(`OIDC token 交换失败（HTTP ${resp.status}）`);
-  const data: any = await resp.json();
+  const data = (await resp.json()) as Record<string, unknown>;
   if (!data?.access_token) throw new Error('OIDC token 响应缺少 access_token');
   return String(data.access_token);
 }
@@ -178,7 +178,7 @@ export async function fetchUserInfo(accessToken: string): Promise<OidcProfile> {
     signal: AbortSignal.timeout(8000),
   });
   if (!resp.ok) throw new Error(`OIDC userinfo 获取失败（HTTP ${resp.status}）`);
-  const data: any = await resp.json();
+  const data = (await resp.json()) as Record<string, unknown>;
   if (!data?.sub) throw new Error('OIDC userinfo 缺少 sub');
   return {
     sub: String(data.sub),

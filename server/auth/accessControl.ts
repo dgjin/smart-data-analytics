@@ -18,7 +18,7 @@ export interface DataSourceAcl {
 /** 解析 acl_json 原始值（string/object/null 均可）；两组皆空时归一为 null（=不限制） */
 export function parseAcl(raw: unknown): DataSourceAcl | null {
   if (raw === null || raw === undefined) return null;
-  let obj: any = raw;
+  let obj: unknown = raw;
   if (typeof raw === 'string') {
     if (!raw.trim()) return null;
     try {
@@ -28,13 +28,14 @@ export function parseAcl(raw: unknown): DataSourceAcl | null {
     }
   }
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-  const departments: string[] = Array.isArray(obj.departments)
-    ? obj.departments
+  const acl = obj as Record<string, unknown>;
+  const departments: string[] = Array.isArray(acl.departments)
+    ? acl.departments
         .filter((d: unknown): d is string => typeof d === 'string' && d.trim().length > 0)
         .map((d: string) => d.trim())
     : [];
-  const userIds: number[] = Array.isArray(obj.userIds)
-    ? obj.userIds.map((n: unknown) => Number(n)).filter((n: number) => Number.isInteger(n) && n > 0)
+  const userIds: number[] = Array.isArray(acl.userIds)
+    ? acl.userIds.map((n: unknown) => Number(n)).filter((n: number) => Number.isInteger(n) && n > 0)
     : [];
   if (departments.length === 0 && userIds.length === 0) return null;
   return { departments, userIds };

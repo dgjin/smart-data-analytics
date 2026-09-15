@@ -13,6 +13,7 @@ import mysql from 'mysql2/promise';
 import { getPool } from './infra/db';
 import { executeSafeSql } from './query/sqlExecutor';
 import { logger } from './infra/logger';
+import { getErrorMessage } from './infra/errorUtils';
 
 /** 标识符安全校验（表/列名来自名单配置，拼入 SQL 前必须过此校验） */
 export const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -213,8 +214,8 @@ export async function scanDataSource(dataSourceId: string): Promise<ScanSummary>
       );
       summary.newEvents += 1;
     }
-  } catch (err: any) {
-    summary.error = err?.message || String(err);
+  } catch (err) {
+    summary.error = getErrorMessage(err) || String(err);
   }
   return summary;
 }

@@ -5,6 +5,7 @@
 
 import { KnowledgeBaseItem, KnowledgeExportFormat, KnowledgeImportResult } from '../../src/types/analytics';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /**
  * 导出指定数据源的知识库内容为 JSON 文件
@@ -100,8 +101,8 @@ export async function parseImportFile(file: File): Promise<{
     }
     
     return { valid: true, data: jsonData as KnowledgeExportFormat };
-  } catch (err: any) {
-    return { valid: false, error: `JSON 解析失败：${err.message}` };
+  } catch (err) {
+    return { valid: false, error: `JSON 解析失败：${getErrorMessage(err)}` };
   }
 }
 

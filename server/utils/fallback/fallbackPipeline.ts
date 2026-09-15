@@ -12,14 +12,16 @@
 import type { FallbackResult, FallbackStrategy, HardNegativeSample } from './types.js';
 import { applyRuleBasedResolution } from '../fallbackStrategies/ruleBased.js';
 import { applySimplerPromptStrategy } from '../fallbackStrategies/simplerPrompt.js';
+// 仅类型依赖（编译期擦除，不引入运行时耦合）
+import type { SchemaTable } from '../../query/schemaTypes.js';
 
 const FALLBACK_STRATEGIES: FallbackStrategy[] = ['rule_based', 'simpler_prompt', 'human_approval'];
 
 // 占位：真正的 logger 由调用者传入
 const noopLogger = {
-  info: (...args: any[]) => {},
-  warn: (...args: any[]) => console.warn('[Fallback]', ...args),
-  error: (...args: any[]) => console.error('[Fallback]', ...args)
+  info: (...args: unknown[]) => {},
+  warn: (...args: unknown[]) => console.warn('[Fallback]', ...args),
+  error: (...args: unknown[]) => console.error('[Fallback]', ...args)
 };
 
 type LoggerType = typeof noopLogger;
@@ -47,11 +49,11 @@ function classifyError(error: string): 'syntax_error' | 'semantic_error' | 'perm
 export async function resolveStageTwoFailure(
   query: string,
   failedSql: string,
-  context: { dsId?: string; userId?: string; schema?: any[] },
+  context: { dsId?: string; userId?: string; schema?: SchemaTable[] },
   deps: {
     logger?: LoggerType;
     persistHardNegative?: (sample: Omit<HardNegativeSample, 'timestamp'>) => Promise<string>;
-    logFallbackAudit?: (sql: string, params: any[]) => Promise<void>;
+    logFallbackAudit?: (sql: string, params: unknown[]) => Promise<void>;
     /** Group B 策略检索器：从已审核 few-shot 示例库找相似问题的修正 SQL */
     retrieveApprovedFewShot?: (query: string, dsId: string) => Promise<{ question: string; sql: string } | null>;
   } = {}

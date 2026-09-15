@@ -14,6 +14,7 @@ import { forecastSeries, MIN_SERIES_LENGTH, MAX_FORECAST_PERIODS, type ForecastR
 import { attributeDelta, aggregateTwoPeriods, type AttributionResult } from '../analytics/attribution';
 import { recordTraceStep, type TraceMeta } from '../query/queryTrace';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 export type AgentCapability = 'query' | 'forecast' | 'attribution';
 
@@ -175,7 +176,7 @@ function normalizeStepParams(raw: unknown): AgentStepParams {
   return out;
 }
 
-function buildAgentPlanSystem(schema: any[]): string {
+function buildAgentPlanSystem(schema: SchemaTable[]): string {
   return `你是一个数据分析 Agent 编排引擎。根据数据库 Schema 与用户问题，制定一个多能力协作的执行计划（只规划，不执行）。
 
 数据库 Schema（已经过权限与敏感字段过滤；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
@@ -227,7 +228,7 @@ export function detectMissingCoverage(question: string, plan: AgentPlan): string
 }
 
 /** 调用 LLM 生成编排计划；结构非法纠偏重试一次；结构合法但未覆盖分析诉求时纠偏重试一次（失败保留原计划） */
-export async function generateAgentPlan(question: string, schema: any[]): Promise<AgentPlan> {
+export async function generateAgentPlan(question: string, schema: SchemaTable[]): Promise<AgentPlan> {
   const system = buildAgentPlanSystem(schema);
   const text = await callLLMJson(system, question);
   const plan = parseAgentPlan(text, question);
@@ -295,7 +296,7 @@ export interface AgentStepResult {
   /** query 步：数据列名（供前端展示与后续步骤核对） */
   columns?: string[];
   /** query 步：数据行（截断回传 ≤50 行） */
-  rows?: Record<string, any>[];
+  rows?: Record<string, unknown>[];
   rowCount?: number;
   /** forecast 步：预测结果 */
   forecast?: ForecastResult & { xValues: string[]; yKey: string };
@@ -316,7 +317,7 @@ const ROWS_RETURN_LIMIT = 50;
 /** 顺序执行编排计划；单步失败不中断（后续依赖步骤自动失败），整体 ok 取决于是否全步成功 */
 export async function runAgentPlan(plan: AgentPlan, ctx: AgentRunContext): Promise<AgentRunOutcome> {
   const results: AgentStepResult[] = [];
-  let lastQueryRows: Record<string, any>[] | null = null;
+  let lastQueryRows: Record<string, unknown>[] | null = null;
   // 编排级留痕（挂消息级 traceId）：前端执行结果卡凭该 traceId 回放各步推导
   const traceMeta: TraceMeta = { userId: ctx.userId, username: ctx.username, dataSourceId: ctx.dataSourceId, question: plan.question };
 
@@ -375,7 +376,7 @@ async function runQueryStep(plan: AgentPlan, step: AgentPlanStep, ctx: AgentRunC
       traceId: `${ctx.traceId}_s${step.id}`,
     });
     if (outcome.ok === true) {
-      const rows = Array.isArray(outcome.result.data) ? (outcome.result.data as Record<string, any>[]) : [];
+      const rows = Array.isArray(outcome.result.data) ? (outcome.result.data as Record<string, unknown>[]) : [];
       const columns = rows.length > 0 && rows[0] && typeof rows[0] === 'object' ? Object.keys(rows[0]) : [];
       if (rows.length === 0) {
         base.summary = '查询成功但返回 0 行数据，后续分析步骤将无法进行';
@@ -395,8 +396,8 @@ async function runQueryStep(plan: AgentPlan, step: AgentPlanStep, ctx: AgentRunC
     base.error = reason;
     base.summary = `查询失败：${reason}`;
     return base;
-  } catch (err: any) {
-    const msg = err?.message || '未知错误';
+  } catch (err) {
+    const msg = getErrorMessage(err) || '未知错误';
     base.error = msg;
     base.summary = `查询异常：${msg}`;
     return base;
@@ -404,7 +405,7 @@ async function runQueryStep(plan: AgentPlan, step: AgentPlanStep, ctx: AgentRunC
 }
 
 /** 列解析：优先精确匹配（忽略大小写），否则按候选择优（数值列优先 / 时间样列优先） */
-function resolveColumn(columns: string[], preferred: string | undefined, kind: 'numeric' | 'label', rows: Record<string, any>[]): string | null {
+function resolveColumn(columns: string[], preferred: string | undefined, kind: 'numeric' | 'label', rows: Record<string, unknown>[]): string | null {
   const lower = (s: string) => s.toLowerCase();
   if (preferred) {
     const exact = columns.find((c) => lower(c) === lower(preferred));
@@ -421,7 +422,7 @@ function resolveColumn(columns: string[], preferred: string | undefined, kind: '
   return columns.find((c) => !numericCols.includes(c)) ?? null;
 }
 
-function runForecastStep(step: AgentPlanStep, rows: Record<string, any>[]): AgentStepResult {
+function runForecastStep(step: AgentPlanStep, rows: Record<string, unknown>[]): AgentStepResult {
   const base: AgentStepResult = { id: step.id, capability: 'forecast', goal: step.goal, ok: false, summary: '' };
   try {
     const columns = Object.keys(rows[0] ?? {});
@@ -451,14 +452,14 @@ function runForecastStep(step: AgentPlanStep, rows: Record<string, any>[]): Agen
     base.forecast = { ...fr, xValues, yKey };
     base.summary = `基于「${yKey}」${yValues.length} 期数据（${fr.model} 模型）预测未来 ${periods} 期，首期预测值 ${fr.points[0]?.yhat ?? '—'}`;
     return base;
-  } catch (err: any) {
-    base.error = err?.message || '预测异常';
+  } catch (err) {
+    base.error = getErrorMessage(err) || '预测异常';
     base.summary = `预测失败：${base.error}`;
     return base;
   }
 }
 
-function runAttributionStep(step: AgentPlanStep, rows: Record<string, any>[]): AgentStepResult {
+function runAttributionStep(step: AgentPlanStep, rows: Record<string, unknown>[]): AgentStepResult {
   const base: AgentStepResult = { id: step.id, capability: 'attribution', goal: step.goal, ok: false, summary: '' };
   try {
     const columns = Object.keys(rows[0] ?? {});
@@ -491,8 +492,8 @@ function runAttributionStep(step: AgentPlanStep, rows: Record<string, any>[]): A
     const top = attribution.items.find((i) => i.rank === 1);
     base.summary = `对「${effectiveDim}」维度按 ${previousPeriod} → ${currentPeriod} 两期拆解「${metricKey}」，共 ${attribution.items.length} 个组合${top ? `，贡献居首：${top.dims.join('/')}（${top.delta > 0 ? '+' : ''}${top.delta}，占比 ${top.contribution}%）` : ''}`;
     return base;
-  } catch (err: any) {
-    base.error = err?.message || '归因异常';
+  } catch (err) {
+    base.error = getErrorMessage(err) || '归因异常';
     base.summary = `归因失败：${base.error}`;
     return base;
   }

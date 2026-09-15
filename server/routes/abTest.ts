@@ -6,7 +6,7 @@
 
 import { Router, Request, Response } from 'express';
 import { authMiddleware, requireRole } from '../auth/auth.js';
-import { getExperimentStats, queryExperimentRecords } from '../utils/abTest.js';
+import { getExperimentStats, queryExperimentRecords, type ABExperimentGroupStats } from '../utils/abTest.js';
 import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
@@ -94,8 +94,8 @@ router.get(
       }
       
       // 计算关键指标对比
-      const groupA = stats.groups.rule_based || {};
-      const groupB = stats.groups.human_approval || {};
+      const groupA: Partial<ABExperimentGroupStats> = stats.groups.rule_based || {};
+      const groupB: Partial<ABExperimentGroupStats> = stats.groups.human_approval || {};
       
       const improvement = groupB.successRate && groupA.successRate 
         ? ((groupB.successRate - groupA.successRate) / groupA.successRate * 100).toFixed(2)
@@ -113,7 +113,7 @@ router.get(
             totalRequests: (groupA.totalRequests || 0) + (groupB.totalRequests || 0),
             successRateGap: parseFloat(improvement as string),
             latencyImprovement: parseFloat(latencyImprovement as string),
-            recommendedStrategy: groupB.successRate > groupA.successRate ? 'human_approval' : 'rule_based',
+            recommendedStrategy: Number(groupB.successRate) > Number(groupA.successRate) ? 'human_approval' : 'rule_based',
           },
         },
       });

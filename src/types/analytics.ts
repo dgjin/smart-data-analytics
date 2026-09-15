@@ -155,7 +155,7 @@ export interface ChartConfig {
 
 export interface QueryResultData {
   columns: string[];
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   totalCount: number;
   executionTimeMs: number;
   /** 数据来源：live = 真实数据库执行（双阶段）；simulated = 演示/降级数据 */
@@ -355,7 +355,7 @@ export interface SavedReport {
   charts: {
     title: string;
     chartConfig: ChartConfig;
-    data: Record<string, any>[];
+    data: Record<string, unknown>[];
     commentary: string;
     anomalies?: AnomalyItem[];
     comments?: ChartComment[];
@@ -389,7 +389,7 @@ export interface DashboardWidget {
   id: string;
   title: string;
   chartConfig: ChartConfig;
-  data: Record<string, any>[];
+  data: Record<string, unknown>[];
   /** 固化时所在的问数数据源（旧数据可能缺失，消费方需兜底） */
   dataSourceId?: string;
   /** v0.4.8 自主更新：固化时的原聚合 SQL（仅 live 链路），数据变化时重放刷新；缺失则不参与自动更新 */

@@ -6,11 +6,13 @@
 import { callLLMJson } from '../llm/llmClient';
 import { normalizeReport, safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
+import type { SchemaTable } from '../query/schemaTypes';
 
 export interface SimulatedReportInput {
   templateType: string;
   customPrompt: string;
-  schema: any[];
+  schema: SchemaTable[];
   guidance: string;
 }
 
@@ -27,7 +29,7 @@ export interface SimulatedReportFailure {
 export type SimulatedReportOutcome = SimulatedReportSuccess | SimulatedReportFailure;
 
 /** 演示模式报表 system prompt（纯函数抽出便于单测） */
-export function buildSimulatedReportSystem(schema: any[], guidance: string): string {
+export function buildSimulatedReportSystem(schema: SchemaTable[], guidance: string): string {
   return `你是一个资深数据分析总监（Head of Analytics），负责为CEO/CFO生成数据可视化决策报表。
 当前数据源为演示模式（非 MySQL 直连），无法执行真实查询，请生成逼真的演示数据。
 
@@ -68,8 +70,8 @@ export async function runSimulatedReport(input: SimulatedReportInput): Promise<S
       return { ok: false, error: 'LLM 报告内容未通过结构化校验' };
     }
     return { ok: true, report };
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Report Generation Error:', err);
-    return { ok: false, error: String(err?.message || err) };
+    return { ok: false, error: String(getErrorMessage(err)) };
   }
 }

@@ -1304,8 +1304,8 @@ export const DATA_RESOURCE_EVALUATION_CASES = evalCasesJichuang;
 
 export interface DataResourceInitPayload {
   dataSource: DataSource;
-  sampleBusinessData: any[];
-  sampleFinancialData: any[];
+  sampleBusinessData: typeof SAMPLE_FCT_JC_MAIN_BIZ_DATA;
+  sampleFinancialData: typeof SAMPLE_FCT_JC_FINANCIAL_DATA;
   knowledgeBase: typeof DATA_RESOURCE_KNOWLEDGE_BASE;
   skills: typeof DATA_RESOURCE_SKILLS;
   evaluationCases: typeof DATA_RESOURCE_EVALUATION_CASES;

@@ -74,6 +74,7 @@ import analyticsRoutes from './server/routes/analytics';
 // P1-7 Agent 编排（Planner + Executor，见 server/routes/agent.ts）
 import agentRoutes from './server/routes/agent';
 import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol';
+import { getErrorMessage } from './server/infra/errorUtils';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -256,8 +257,8 @@ async function startServer() {
       const days = Number(req.query.days) || 7;
       const [usage, byUser] = await Promise.all([summarizeLlmUsage(days), summarizeLlmUsageByUser(days)]);
       res.json({ days, usage, byUser });
-    } catch (err: any) {
-      console.error('[LlmUsage] summarize failed:', err?.message || err);
+    } catch (err) {
+      console.error('[LlmUsage] summarize failed:', getErrorMessage(err));
       res.status(500).json({ error: '用量统计获取失败' });
     }
   });
@@ -324,11 +325,12 @@ async function startServer() {
 
   // 全局错误兜底：任何路由/中间件抛出的异常统一返回 JSON（含 body 解析失败等），
   // 避免 Express 默认错误处理返回 HTML 错误页
-  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     if (res.headersSent) return;
-    const status = Number(err?.status) || Number(err?.statusCode) || 500;
-    console.error('[Fatal] unhandled route error:', err?.message || err);
-    res.status(status).json({ error: err?.message || '服务器内部错误' });
+    const e = (err ?? {}) as { status?: unknown; statusCode?: unknown; message?: unknown };
+    const status = Number(e.status) || Number(e.statusCode) || 500;
+    console.error('[Fatal] unhandled route error:', e.message || err);
+    res.status(status).json({ error: e.message || '服务器内部错误' });
   });
 
   // Vite development middleware or production static handling

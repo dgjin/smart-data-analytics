@@ -103,7 +103,7 @@ describe('报表执行阶段并行化（v0.9.20）', () => {
     if (out.ok) {
       // executedSqls 与 charts 严格按计划顺序（p0/p1/p2），不受完成顺序（p2 先回）影响
       expect(out.executedSqls.map((s) => planIdxOf(s))).toEqual([0, 1, 2]);
-      expect(out.report.charts.map((c: any) => c.data[0].dim)).toEqual(['d0', 'd1', 'd2']);
+      expect((out.report.charts as { data: Record<string, unknown>[] }[]).map((c) => c.data[0].dim)).toEqual(['d0', 'd1', 'd2']);
       expect(out.totalRows).toBe(3);
     }
   });
@@ -120,7 +120,7 @@ describe('报表执行阶段并行化（v0.9.20）', () => {
     expect(out.ok).toBe(true);
     if (out.ok) {
       expect(out.executedSqls.map((s) => planIdxOf(s))).toEqual([0, 2]);
-      expect(out.report.charts.map((c: any) => c.title)).toEqual(['图0', '图2']);
+      expect((out.report.charts as { title: string }[]).map((c) => c.title)).toEqual(['图0', '图2']);
       expect(out.totalRows).toBe(4);
     }
   });

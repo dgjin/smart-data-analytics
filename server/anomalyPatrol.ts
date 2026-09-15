@@ -14,6 +14,7 @@ import { getPool } from './infra/db';
 import { logger } from './infra/logger';
 import { scanReportForAnomalies } from '../src/utils/anomalyDetector';
 import type { AnomalyItem, SavedReport } from '../src/types/analytics';
+import { getErrorMessage } from './infra/errorUtils';
 
 export type PatrolStatus = 'ACTIVE' | 'PAUSED';
 /** 单次巡检终态：ANOMALY=发现异常 / CLEAN=无异常 / NO_DATA=无可扫描报表 / ERROR=执行失败 */
@@ -304,8 +305,8 @@ export async function executePatrol(patrolId: string, pool?: mysql.Pool): Promis
         error: '',
       };
     }
-  } catch (err: any) {
-    outcome = { status: 'ERROR', anomalyCount: 0, highCount: 0, reportId: '', reportTitle: '', anomalies: [], error: String(err?.message || err).slice(0, 500) };
+  } catch (err) {
+    outcome = { status: 'ERROR', anomalyCount: 0, highCount: 0, reportId: '', reportTitle: '', anomalies: [], error: String(getErrorMessage(err)).slice(0, 500) };
   }
 
   await p.query(
@@ -373,8 +374,8 @@ export async function runDuePatrols(pool?: mysql.Pool): Promise<number> {
     try {
       const out = await executePatrol(row.patrol_id, pool);
       logger.info(`[Patrol] ${row.patrol_id} 巡检完成（${out.status}，异常 ${out.anomalyCount} 项）`);
-    } catch (err: any) {
-      logger.warn(`[Patrol] ${row.patrol_id} 巡检执行失败:`, err?.message || err);
+    } catch (err) {
+      logger.warn(`[Patrol] ${row.patrol_id} 巡检执行失败:`, getErrorMessage(err));
     }
   }
   return claimed.length;

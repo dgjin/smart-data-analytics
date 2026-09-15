@@ -87,37 +87,50 @@ export function isPngDataUri(raw: unknown): raw is string {
 }
 
 /** 校验并归一化前端提交的导出数据；非法结构返回 null */
-export function normalizeExportData(raw: any): ReportExportData | null {
-  if (!raw || typeof raw !== 'object' || typeof raw.title !== 'string' || !raw.title.trim()) return null;
+export function normalizeExportData(raw: unknown): ReportExportData | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.title !== 'string' || !r.title.trim()) return null;
   const data: ReportExportData = {
-    title: raw.title.trim().slice(0, 120),
-    summary: clean(raw.summary).slice(0, 2000),
-    createdAt: clean(raw.createdAt).slice(0, 40) || new Date().toISOString().split('T')[0],
-    templateType: clean(raw.templateType).slice(0, 60),
-    exportedBy: clean(raw.exportedBy).slice(0, 120),
-    kpiList: Array.isArray(raw.kpiList)
-      ? raw.kpiList.slice(0, 12).filter((k: any) => k && typeof k.label === 'string').map((k: any) => ({
-          label: clean(k.label).slice(0, 40),
-          value: clean(k.value).slice(0, 40),
-          change: clean(k.change).slice(0, 40),
-          status: k.status === 'good' || k.status === 'bad' ? k.status : 'neutral',
-          anomalyNote: clean(k.anomalyNote).slice(0, 100),
-        }))
+    title: r.title.trim().slice(0, 120),
+    summary: clean(r.summary).slice(0, 2000),
+    createdAt: clean(r.createdAt).slice(0, 40) || new Date().toISOString().split('T')[0],
+    templateType: clean(r.templateType).slice(0, 60),
+    exportedBy: clean(r.exportedBy).slice(0, 120),
+    kpiList: Array.isArray(r.kpiList)
+      ? (r.kpiList as unknown[])
+          .slice(0, 12)
+          .filter((k): k is Record<string, unknown> => !!k && typeof k === 'object' && typeof (k as Record<string, unknown>).label === 'string')
+          .map((k) => ({
+            label: clean(k.label).slice(0, 40),
+            value: clean(k.value).slice(0, 40),
+            change: clean(k.change).slice(0, 40),
+            status: k.status === 'good' || k.status === 'bad' ? k.status : 'neutral',
+            anomalyNote: clean(k.anomalyNote).slice(0, 100),
+          }))
       : [],
-    insights: Array.isArray(raw.insights)
-      ? raw.insights.slice(0, 10).filter((i: any) => i && typeof i.title === 'string').map((i: any) => ({
-          title: clean(i.title).slice(0, 80),
-          type: ['positive', 'warning', 'info', 'critical'].includes(i.type) ? i.type : 'info',
-          content: clean(i.content).slice(0, 500),
-          actionItem: clean(i.actionItem).slice(0, 300),
-        }))
+    insights: Array.isArray(r.insights)
+      ? (r.insights as unknown[])
+          .slice(0, 10)
+          .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object' && typeof (i as Record<string, unknown>).title === 'string')
+          .map((i) => ({
+            title: clean(i.title).slice(0, 80),
+            type: typeof i.type === 'string' && (['positive', 'warning', 'info', 'critical'] as readonly string[]).includes(i.type)
+              ? (i.type as ExportInsight['type'])
+              : 'info',
+            content: clean(i.content).slice(0, 500),
+            actionItem: clean(i.actionItem).slice(0, 300),
+          }))
       : [],
-    charts: Array.isArray(raw.charts)
-      ? raw.charts.slice(0, 10).filter((c: any) => c && typeof c.title === 'string').map((c: any) => ({
-          title: clean(c.title).slice(0, 80),
-          commentary: clean(c.commentary).slice(0, 600),
-          imageBase64: isPngDataUri(c.imageBase64) ? c.imageBase64 : undefined,
-        }))
+    charts: Array.isArray(r.charts)
+      ? (r.charts as unknown[])
+          .slice(0, 10)
+          .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object' && typeof (c as Record<string, unknown>).title === 'string')
+          .map((c) => ({
+            title: clean(c.title).slice(0, 80),
+            commentary: clean(c.commentary).slice(0, 600),
+            imageBase64: isPngDataUri(c.imageBase64) ? c.imageBase64 : undefined,
+          }))
       : [],
   };
   return data;
@@ -183,7 +196,7 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
       kpiSlide.addShape('roundRect', { x, y, w: cardW, h: cardH, rectRadius: 0.08, fill: { color: 'F8FAFC' }, line: { color: C.divider, width: 1 } });
       kpiSlide.addText(k.label, { x: x + 0.2, y: y + 0.12, w: cardW - 0.4, h: 0.35, fontSize: 12, color: C.muted });
       kpiSlide.addText(k.value || '—', { x: x + 0.2, y: y + 0.45, w: cardW - 0.4, h: 0.7, fontSize: 26, color: C.text, bold: true });
-      const changeParts: { text: string; options: any }[] = [];
+      const changeParts: PptxGenJS.TextProps[] = [];
       if (k.change) changeParts.push({ text: k.change, options: { fontSize: 11, color: statusColor, bold: true } });
       if (k.anomalyNote) changeParts.push({ text: `  ⚠ ${k.anomalyNote}`, options: { fontSize: 10, color: C.amber } });
       if (changeParts.length > 0) {
@@ -224,7 +237,7 @@ export async function buildReportPptx(data: ReportExportData): Promise<Buffer> {
       const y = 1.3 + i * rowH;
       s.addText(tag.label, { x: 0.5, y, w: 0.7, h: 0.35, fontSize: 10, color: 'FFFFFF', bold: true, fill: { color: tag.color }, align: 'center', valign: 'middle' });
       s.addText(ins.title, { x: 1.35, y: y - 0.02, w: 11.3, h: 0.35, fontSize: 13, color: C.text, bold: true });
-      const body: { text: string; options: any }[] = [{ text: ins.content, options: { fontSize: 11, color: C.muted } }];
+      const body: PptxGenJS.TextProps[] = [{ text: ins.content, options: { fontSize: 11, color: C.muted } }];
       if (ins.actionItem) body.push({ text: `  建议：${ins.actionItem}`, options: { fontSize: 11, color: C.indigo, bold: true } });
       s.addText(body, { x: 1.35, y: y + 0.32, w: 11.3, h: Math.max(0.3, rowH - 0.4), valign: 'top' });
     });

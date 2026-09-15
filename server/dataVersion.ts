@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import { loadDataSourceConfig, getDsPool, dialectOfDsType } from './query/sqlExecutor';
 import type { RowDataPacket } from 'mysql2';
+import { getErrorMessage } from './infra/errorUtils';
 
 export interface TableStat {
   name: string;
@@ -13,10 +14,10 @@ export interface TableStat {
   ts: string;
 }
 
-/** 归一化 MySQL information_schema.TABLES 结果（纯函数，便于单测） */
-export function parseMysqlTableStats(rows: any[]): TableStat[] {
+/** 归一化 MySQL information_schema.TABLES 结果（纯函数，便于单测；容忍驱动返回的 null/畸形行） */
+export function parseMysqlTableStats(rows: unknown[]): TableStat[] {
   return (rows || [])
-    .filter((r) => r && r.TABLE_NAME)
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && !!(r as Record<string, unknown>).TABLE_NAME)
     .map((r) => ({
       name: String(r.TABLE_NAME),
       rows: Number(r.TABLE_ROWS) || 0,
@@ -25,10 +26,10 @@ export function parseMysqlTableStats(rows: any[]): TableStat[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** 归一化 PG pg_stat_user_tables 结果（行数 + vacuum/analyze 时间戳，无更新时间列） */
-export function parsePgTableStats(rows: any[]): TableStat[] {
+/** 归一化 PG pg_stat_user_tables 结果（行数 + vacuum/analyze 时间戳，无更新时间列；容忍 null/畸形行） */
+export function parsePgTableStats(rows: unknown[]): TableStat[] {
   return (rows || [])
-    .filter((r) => r && r.relname)
+    .filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && !!(r as Record<string, unknown>).relname)
     .map((r) => ({ name: String(r.relname), rows: Number(r.n_live_tup) || 0, ts: String(r.mx_ts || '') }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -92,8 +93,8 @@ export async function computeDataVersion(dataSourceId: string): Promise<DataVers
     const version = buildDataVersion(tables);
     versionCache.set(dataSourceId, { version, at: Date.now() });
     return { version };
-  } catch (err: any) {
-    return { version: null, reason: String(err?.message || err).slice(0, 200) };
+  } catch (err) {
+    return { version: null, reason: String(getErrorMessage(err)).slice(0, 200) };
   }
 }
 

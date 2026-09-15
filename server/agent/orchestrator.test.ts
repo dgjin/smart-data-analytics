@@ -14,6 +14,7 @@ import {
 import { runLiveQuery } from '../query/liveQuery';
 import { callLLMJson } from '../llm/llmClient';
 import { recordTraceStep } from '../query/queryTrace';
+import type { SchemaTable } from '../query/schemaTypes';
 
 vi.mock('../llm/llmClient', () => ({
   callLLMJson: vi.fn(),
@@ -31,8 +32,16 @@ const mockedLlm = vi.mocked(callLLMJson);
 const mockedQuery = vi.mocked(runLiveQuery);
 const mockedTrace = vi.mocked(recordTraceStep);
 
-const SCHEMA = [
-  { name: 'loans', columns: [['month', 'varchar'], ['region', 'varchar'], ['bad_rate', 'decimal'], ['amount', 'decimal']] },
+const SCHEMA: SchemaTable[] = [
+  {
+    name: 'loans',
+    columns: [
+      { name: 'month', type: 'varchar' },
+      { name: 'region', type: 'varchar' },
+      { name: 'bad_rate', type: 'decimal' },
+      { name: 'amount', type: 'decimal' },
+    ],
+  },
 ];
 
 function makePlan(steps: { capability: string; goal: string; params?: Record<string, unknown> }[], understanding = '分析不良率走势'): AgentPlan {
@@ -48,7 +57,7 @@ const CTX: AgentRunContext = {
   userId: 1,
   username: 'admin',
   dataSourceId: 'ds_1',
-  schema: SCHEMA as any,
+  schema: SCHEMA,
   guidance: '',
   dsType: 'mysql',
   dataSourceName: '业务库',

@@ -21,7 +21,8 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       // 代码质量优化（阶段0 门禁加固，2026-09-15）：any/console 升级为 error，
-      // 新增代码立即被门禁拦截；存量债务经下方 overrides 目录级豁免过渡，清零后移除豁免。
+      // 新增代码立即被门禁拦截；any 存量已于阶段4 全部清零（业务代码 546 处 → 0），
+      // console 存量经下方 overrides 过渡，阶段5 收敛至 logger 门面后移除。
       '@typescript-eslint/no-explicit-any': 'error',
       'no-console': 'error',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
@@ -38,44 +39,8 @@ export default tseslint.config(
     },
   },
   // ── 存量债务豁免区（只减不增，清零后移除对应块）────────────────────────
-  // any 存量豁免（只减不增）：白名单为待清零文件（含当前处数），批次清零后从列表移除；
-  // 移出即回到 error 保护，新增文件不在列表 → 立即被门禁拦截。
-  // 批次1 已完成（2026-09-15）：server/routes 全目录 130 处 → 0，24 个文件已移出。
-  // 批次2 已完成（2026-09-15）：src/components 全目录 147 处 → 0，42 个文件已移出。
-  // 批次3 已完成（2026-09-15）：server/query 全目录 110 处 → 0，18 个文件已移出。
-  // 批次4 已完成（2026-09-15）：server/infra 全目录 32 处 → 0，9 个文件已移出。
-  // 批次5 已完成（2026-09-15）：src/utils + server/llm + src/hooks 共 35 处 → 0，11 个文件已移出。
-  {
-    files: [
-      'server.ts', // 2
-      'server/agent/orchestrator.ts', // 11
-      'server/analytics/whatIf.ts', // 2
-      'server/anomalyPatrol.ts', // 2
-      'server/auth/accessControl.ts', // 1
-      'server/auth/oidc.ts', // 3
-      'server/dataVersion.ts', // 3
-      'server/driftDetector.ts', // 1
-      'server/knowledge/externalKnowledge.ts', // 3
-      'server/knowledge/knowledgeBaseTools.ts', // 1
-      'server/knowledge/knowledgeServices.ts', // 4
-      'server/report/liveReport.ts', // 3
-      'server/report/reportExport.ts', // 9
-      'server/report/simulatedReport.ts', // 3
-      'server/seedDataResources.ts', // 2
-      'server/serverFallbacks.ts', // 8
-      'server/taskHandlers.ts', // 4
-      'server/utils/abTest.ts', // 10
-      'server/utils/activeLearning.ts', // 2
-      'server/utils/fallback/fallbackPipeline.ts', // 5
-      'server/utils/fallbackStrategies/simplerPrompt.ts', // 6
-      'server/utils/fewShotService.ts', // 4
-      'src/types/analytics.ts', // 3
-    ],
-    plugins: { '@typescript-eslint': tseslint.plugin },
-    rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
-    },
-  },
+  // any 存量豁免已全部移除（阶段4 完成，2026-09-15）：业务代码 546 处 → 0，
+  // 批次1~6 白名单逐批清零后分别移出，any 现由上方 error 规则全量保护。
   // console 存量豁免：基线 34 处 + server.ts 启动日志，阶段5 统一收敛至 logger 门面后移除。
   {
     files: ['server/**/*.ts', 'server.ts', 'src/**/*.tsx', 'src/**/*.ts'],

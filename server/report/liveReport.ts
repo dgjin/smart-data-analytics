@@ -92,7 +92,7 @@ export interface LiveReportInput {
  * 两种分支均携带 executedSqls（已实际执行的 SQL 列表，供下钻与审计追溯，与 charts 索引对齐）。
  */
 export type LiveReportOutcome =
-  | { ok: true; report: Record<string, any>; executedSqls: string[]; totalRows: number }
+  | { ok: true; report: Record<string, unknown>; executedSqls: string[]; totalRows: number }
   | { ok: false; error: string; executedSqls: string[] };
 
 /** 报表单条查询计划：阶段一 LLM 输出契约（purpose 用于阶段二解读时说明该图的分析意图） */
@@ -374,7 +374,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     })
   );
 
-  const charts: Record<string, any>[] = [];
+  const charts: Record<string, unknown>[] = [];
   const chartDigests: string[] = [];
   let totalRows = 0;
   for (const item of execResults) {
@@ -435,7 +435,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     ...chartDigests,
   ].join('\n\n');
 
-  let analysis: Record<string, any>;
+  let analysis: Record<string, unknown>;
   try {
     // v0.9.20 阶段二接入快速模型路由（对照问数链路 v0.3.6：解读类任务 LLM_ANALYSIS_* 可大幅提速；
     // 未配置时 analysisStageRoute() 返回 undefined 保持主模型，口径不变可一键回退）
@@ -454,7 +454,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
     ? analysis.commentaries.filter((s: unknown): s is string => typeof s === 'string')
     : [];
   charts.forEach((c, i) => {
-    // c.data 为 coerceNumericColumns 产出的行数组（Record<string, any>[]），此处仅取行数
+    // c.data 为 coerceNumericColumns 产出的行数组（Record<string, unknown>[]），此处仅取行数
     c.commentary = commentaries[i] || `本图基于真实查询返回的 ${(c.data as Record<string, unknown>[]).length} 行数据。`;
   });
 

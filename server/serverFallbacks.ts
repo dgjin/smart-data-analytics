@@ -9,16 +9,17 @@ import {
   MOCK_INVENTORY_DATA,
 } from './seedData';
 import { pickFallbackAxes, extractEnumValues } from './query/schemaGuidance';
+import type { SchemaColumn, SchemaTable } from './query/schemaTypes';
 
 /** 基于真实 Schema 动态生成降级结果：维度/指标取自当前数据源的表结构 */
-function buildSchemaAwareFallback(query: string, schema: any[]) {
+function buildSchemaAwareFallback(query: string, schema: SchemaTable[]) {
   const axes = pickFallbackAxes(query, schema);
   if (!axes || !axes.dimension || axes.metrics.length === 0) return null;
 
   const { table, dimension, metrics } = axes;
   const dimName = dimension.name;
   const metricNames = metrics.map((m) => m.name);
-  const metricLabel = (m: any) => m.description?.split(/[(（]/)[0]?.trim() || m.name;
+  const metricLabel = (m: SchemaColumn) => m.description?.split(/[(（]/)[0]?.trim() || m.name;
 
   // 维度取值：日期列生成近 6 个月；类别列优先用 description 枚举，否则用占位值
   let dimValues: string[];
@@ -36,7 +37,7 @@ function buildSchemaAwareFallback(query: string, schema: any[]) {
   // 确定性伪随机数值（基于列名 hash，保证多次调用结果一致）
   const hashNum = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 9973, 7);
   const data = dimValues.map((v, i) => {
-    const row: Record<string, any> = { [dimName]: v };
+    const row: Record<string, unknown> = { [dimName]: v };
     for (const m of metricNames) {
       row[m] = 800 + ((hashNum(m) * (i + 3) * (i + 1)) % 4200);
     }
@@ -50,7 +51,7 @@ function buildSchemaAwareFallback(query: string, schema: any[]) {
 
   const kpiMetrics = metrics.slice(0, 3).map((m, i) => ({
     label: `总${metricLabel(m)}`,
-    value: data.reduce((acc, r) => acc + r[m.name], 0).toLocaleString('zh-CN'),
+    value: data.reduce((acc, r) => acc + Number(r[m.name]), 0).toLocaleString('zh-CN'),
     change: [12.4, -3.8, 6.1][i] ?? 5.0,
     trend: (i === 1 ? 'down' : 'up') as 'up' | 'down',
     subtext: `基于 ${tableLabel} 的演示统计`,
@@ -94,7 +95,7 @@ function buildSchemaAwareFallback(query: string, schema: any[]) {
   };
 }
 
-export function generateFallbackQueryResult(query: string, schema?: any[]) {
+export function generateFallbackQueryResult(query: string, schema?: SchemaTable[]) {
   if (Array.isArray(schema) && schema.length > 0) {
     const dynamic = buildSchemaAwareFallback(query, schema);
     if (dynamic) return dynamic;
@@ -243,7 +244,7 @@ interface FallbackChartBlock {
   commentary: string;
 }
 
-export function getFallbackExecutiveReport(templateType: string, schema?: any[]) {
+export function getFallbackExecutiveReport(templateType: string, schema?: SchemaTable[]) {
   // 有真实 Schema 时，报告的 KPI 与图表指标/维度也从实际表结构动态提取
   if (Array.isArray(schema) && schema.length > 0) {
     const tables = schema.filter((t) => Array.isArray(t.columns) && t.columns.length > 0).slice(0, 3);
@@ -272,12 +273,12 @@ export function getFallbackExecutiveReport(templateType: string, schema?: any[])
             xAxisKey: dimName,
             yAxisKeys: metricNames,
             yAxisNames: Object.fromEntries(
-              axes.metrics.map((m: any) => [m.name, m.description?.split(/[(（]/)[0]?.trim() || m.name])
+              axes.metrics.map((m: SchemaColumn) => [m.name, m.description?.split(/[(（]/)[0]?.trim() || m.name])
             ),
             xAxisName: axes.dimension.description?.split(/[(（]/)[0]?.trim() || dimName,
           },
           data: enums.map((v, i) => {
-            const row: Record<string, any> = { [dimName]: v };
+            const row: Record<string, unknown> = { [dimName]: v };
             for (const m of metricNames) row[m] = 500 + ((hashNum(m) * (i + 2)) % 3600);
             return row;
           }),
@@ -286,8 +287,8 @@ export function getFallbackExecutiveReport(templateType: string, schema?: any[])
       }).filter((b): b is FallbackChartBlock => b !== null);
 
       if (chartBlocks.length > 0) {
-        // KPI 候选列收窄为实际判定的最小结构（来源 schema 为 any[]）
-        const firstMetrics = (tables[0].columns as { isPrimaryKey?: boolean; isMetric?: boolean; type?: string }[])
+        // KPI 候选列：非主键且判定为指标的列（复用 SchemaColumn 判定口径）
+        const firstMetrics = (tables[0].columns ?? [])
           .filter((c) => !c.isPrimaryKey && (c.isMetric ?? c.type === 'number'))
           .slice(0, 4);
         return {
@@ -300,7 +301,7 @@ export function getFallbackExecutiveReport(templateType: string, schema?: any[])
             content: `该表包含 ${(t.columns || []).length} 个字段，可作为${templateType || '经营'}分析的数据基础。`,
             actionItem: '接入 AI 引擎后生成针对性建议。',
           })),
-          kpiList: firstMetrics.map((c: any, i: number) => ({
+          kpiList: firstMetrics.map((c, i: number) => ({
             label: c.description?.split(/[(（]/)[0]?.trim() || c.name,
             value: (1000 + i * 765).toLocaleString('zh-CN'),
             change: ['+5.2%', '-1.8%', '+9.4%', '+0.6%'][i] || '+0%',

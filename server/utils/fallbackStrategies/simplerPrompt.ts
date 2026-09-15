@@ -15,22 +15,23 @@ import { callLLMText } from '../../llm/llmClient.js';
 import { logger } from '../../infra/logger.js';
 import { retrieveFewShotExamples } from '../fewShotService.js';
 import { loadConversationFewShot } from '../../query/conversationHistory.js';
+import type { SchemaColumn, SchemaTable } from '../../query/schemaTypes.js';
 
 /**
  * 简化 Schema 提取策略（控制 token 预算：前 8 张表、每表前 12 列）
  * v0.9.47 P0 修复：原实现按硬编码 KEY_TABLES 过滤且读 table_name/column_name
  * （真实字段为 name），导致任何数据源都得到空 schema
  */
-export function extractMinimalSchema(schema: any[]): string[] {
+export function extractMinimalSchema(schema: SchemaTable[]): string[] {
   const TABLE_BUDGET = 8;
   const COLUMN_BUDGET = 12;
   return schema
-    .filter((table: any) => table?.name)
+    .filter((table: SchemaTable) => table?.name)
     .slice(0, TABLE_BUDGET)
-    .map((table: any) => {
+    .map((table: SchemaTable) => {
       const cols = (table?.columns || [])
         .slice(0, COLUMN_BUDGET)
-        .map((c: any) => c?.name)
+        .map((c: SchemaColumn) => c?.name)
         .filter(Boolean);
       return `${table.name}: ${cols.join(', ')}`;
     });
@@ -101,8 +102,8 @@ ${query}
 export async function applySimplerPromptStrategy(
   query: string,
   context: {
-    schema?: any[];
-    history?: any[];
+    schema?: SchemaTable[];
+    history?: unknown[];
     dsId?: string;
     userId?: string;
   }

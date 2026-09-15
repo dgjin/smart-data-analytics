@@ -8,6 +8,8 @@
 
 import { getPool } from '../infra/db.js';
 import { logger } from '../infra/logger.js';
+import { getErrorMessage } from '../infra/errorUtils';
+import type { RowDataPacket } from 'mysql2';
 
 /** A/B 实验配置 */
 export const AB_TEST_CONFIG = {
@@ -87,11 +89,11 @@ export async function createExperimentRecord(params: Omit<ABAExperimentResult, '
       params.selectedStrategy,
       params.success,
       params.latencyMs,
-    ] as any[]);
+    ] as unknown[]);
 
-    return (result as any).insertId.toString();
-  } catch (err: any) {
-    logger.error('[ABTest] Create record failed:', err.message);
+    return (result as { insertId: number }).insertId.toString();
+  } catch (err) {
+    logger.error('[ABTest] Create record failed:', getErrorMessage(err));
     throw err;
   }
 }
@@ -99,9 +101,23 @@ export async function createExperimentRecord(params: Omit<ABAExperimentResult, '
 /**
  * 获取当前实验状态和统计数据
  */
-export async function getExperimentStats(days: number = 7): Promise<any> {
+
+/** 单个实验组的统计指标（getExperimentStats 返回值单元） */
+export interface ABExperimentGroupStats {
+  totalRequests: number;
+  successCount: number;
+  successRate: number;
+  avgLatencyMs: number;
+  minLatencyMs: number;
+  maxLatencyMs: number;
+}
+
+/** 实验统计返回：成功为 { days, groups }；查询异常时为 { error } */
+export type ABExperimentStats = { days: number; groups: Record<string, ABExperimentGroupStats> } | { error: string };
+
+export async function getExperimentStats(days: number = 7): Promise<ABExperimentStats> {
   try {
-    const [statsRows] = await getPool().query(`
+    const [statsRows] = await getPool().query<RowDataPacket[]>(`
       SELECT 
         assigned_group,
         COUNT(*) as total_requests,
@@ -119,9 +135,9 @@ export async function getExperimentStats(days: number = 7): Promise<any> {
     
     return {
       days,
-      groups: stats.reduce((acc: any, row: any) => ({
+      groups: stats.reduce((acc: Record<string, ABExperimentGroupStats>, row) => ({
         ...acc,
-        [row.assigned_group.toLowerCase()]: {
+        [String(row.assigned_group).toLowerCase()]: {
           totalRequests: row.total_requests,
           successCount: row.success_count,
           successRate: parseFloat(row.success_rate || '0'),
@@ -131,9 +147,9 @@ export async function getExperimentStats(days: number = 7): Promise<any> {
         },
       }), {}),
     };
-  } catch (err: any) {
-    logger.error('[ABTest] Get stats failed:', err.message);
-    return { error: err.message };
+  } catch (err) {
+    logger.error('[ABTest] Get stats failed:', getErrorMessage(err));
+    return { error: getErrorMessage(err) };
   }
 }
 
@@ -142,15 +158,15 @@ export async function getExperimentStats(days: number = 7): Promise<any> {
  */
 export async function queryExperimentRecords(limit: number = 100): Promise<ABAExperimentResult[]> {
   try {
-    const [rows] = await getPool().query(`
+    const [rows] = await getPool().query<RowDataPacket[]>(`
       SELECT experiment_id, query, failed_sql, assigned_group, 
              selected_strategy, success, latency_ms, created_at
       FROM fallback_ab_tests
       ORDER BY created_at DESC
       LIMIT ?
-    `, [limit]) as any[];
+    `, [limit]);
 
-    return (Array.isArray(rows) ? rows : []).map((r: any): ABAExperimentResult => ({
+    return (Array.isArray(rows) ? rows : []).map((r: RowDataPacket): ABAExperimentResult => ({
       experimentId: r.experiment_id,
       query: r.query,
       failedSQL: r.failed_sql,
@@ -160,8 +176,8 @@ export async function queryExperimentRecords(limit: number = 100): Promise<ABAEx
       latencyMs: r.latency_ms,
       createdAt: new Date(r.created_at),
     }));
-  } catch (err: any) {
-    logger.error('[ABTest] Query records failed:', err.message);
+  } catch (err) {
+    logger.error('[ABTest] Query records failed:', getErrorMessage(err));
     return [];
   }
 }

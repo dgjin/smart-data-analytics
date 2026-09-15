@@ -7,11 +7,12 @@ import { getPool } from '../infra/db';
 import { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 import { KnowledgeBaseItem } from '../../src/types/analytics';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /**
  * 将数据库行对象转换为前端使用的 KnowledgeBaseItem 格式
  */
-export function rowToKnowledgeItem(row: any): KnowledgeBaseItem {
+export function rowToKnowledgeItem(row: RowDataPacket): KnowledgeBaseItem {
   return {
     id: row.entry_id,
     title: row.title,
@@ -33,7 +34,7 @@ export async function getPresetKnowledgeByDataSource(
 ): Promise<KnowledgeBaseItem[]> {
   const conn = await getPool().getConnection();
   try {
-    const [rows] = await conn.query(
+    const [rows] = await conn.query<RowDataPacket[]>(
       `SELECT entry_id AS id, title, content, tags, category, created_at AS createdAt, updated_at AS updatedAt 
        FROM knowledge_base_entries 
        WHERE data_source_id = ? AND is_preset = 1 
@@ -56,7 +57,7 @@ export async function getPresetKnowledgeByDataSource(
  * @returns 知识条目列表（按数据源分组）
  */
 export async function getAllKnowledgeEntries(): Promise<KnowledgeBaseItem[]> {
-  const [rows] = await getPool().query(
+  const [rows] = await getPool().query<RowDataPacket[]>(
     `SELECT entry_id AS id, title, content, tags, category, data_source_id, created_by, updated_by, 
             created_at AS createdAt, updated_at AS updatedAt 
      FROM knowledge_base_entries 
@@ -72,7 +73,7 @@ export async function getAllKnowledgeEntries(): Promise<KnowledgeBaseItem[]> {
  * @returns 知识条目或 null
  */
 export async function getKnowledgeEntryById(entryId: string): Promise<KnowledgeBaseItem | null> {
-  const [rows] = await getPool().query(
+  const [rows] = await getPool().query<RowDataPacket[]>(
     `SELECT entry_id AS id, title, content, tags, category, data_source_id, created_by, updated_by, 
             created_at AS createdAt, updated_at AS updatedAt 
      FROM knowledge_base_entries 
@@ -151,7 +152,7 @@ export async function updateKnowledgeEntry(
   
   // 构建 SET 子句
   const setFields: string[] = [];
-  const values: any[] = [];
+  const values: unknown[] = [];
   
   if (updates.title !== undefined) {
     setFields.push('title = ?');
@@ -242,15 +243,15 @@ export async function seedKnowledgeBase(
             createdBy,
           ]
         );
-      } catch (err: any) {
-        logger.error(`[KB Seed] Failed to insert ${entry.id}:`, err.message);
+      } catch (err) {
+        logger.error(`[KB Seed] Failed to insert ${entry.id}:`, getErrorMessage(err));
         // 继续处理下一个条目
       }
     }
     
     await conn.commit();
     logger.info(`[KB Seed] Successfully seeded ${entries.length} entries for ${dataSourceId}`);
-  } catch (err: any) {
+  } catch (err) {
     await conn.rollback();
     throw err;
   } finally {

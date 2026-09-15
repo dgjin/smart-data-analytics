@@ -11,6 +11,8 @@
 import { getPool } from '../infra/db.js';
 import { logger } from '../infra/logger.js';
 import { bigramOverlap } from '../query/queryFeedback.js';
+import { getErrorMessage } from '../infra/errorUtils';
+import type { RowDataPacket } from 'mysql2';
 
 /** Few-Shot 示例条目（检索返回） */
 export interface FewShotExample {
@@ -53,9 +55,9 @@ export async function injectFewShotSamples(samples: FewShotInjectionSample[]): P
       await Promise.all(insertPromises);
       inserted += batch.length;
       logger.info('[FewShot] Batch injected:', { count: batch.length });
-    } catch (err: any) {
-      logger.error('[FewShot] Injection failed:', err.message);
-      throw new Error(`Few-Shot 注入失败：${err.message}`, { cause: err });
+    } catch (err) {
+      logger.error('[FewShot] Injection failed:', getErrorMessage(err));
+      throw new Error(`Few-Shot 注入失败：${getErrorMessage(err)}`, { cause: err });
     }
   }
 
@@ -74,14 +76,14 @@ export async function retrieveFewShotExamples(
   limit: number = 3
 ): Promise<FewShotExample[]> {
   try {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<RowDataPacket[]>(
       `SELECT id, data_source_id, question, expected_sql FROM few_shot_examples
        WHERE data_source_id = ? ORDER BY id DESC LIMIT 100`,
       [dataSourceId || 'default']
     );
 
     const scored = (Array.isArray(rows) ? rows : [])
-      .map((row: any) => ({
+      .map((row) => ({
         id: Number(row.id),
         dataSourceId: String(row.data_source_id),
         question: String(row.question),
@@ -97,13 +99,13 @@ export async function retrieveFewShotExamples(
       const ids = scored.map((s) => s.id);
       getPool()
         .query(`UPDATE few_shot_examples SET hit_count = hit_count + 1 WHERE id IN (${ids.map(() => '?').join(',')})`, ids)
-        .catch((e: any) => logger.warn('[FewShot] hit_count update failed:', e?.message || e));
+        .catch((e: unknown) => logger.warn('[FewShot] hit_count update failed:', getErrorMessage(e)));
     }
 
     logger.debug('[FewShot] Retrieved:', { count: scored.length });
     return scored.map(({ id, dataSourceId, question, expectedSQL }) => ({ id, dataSourceId, question, expectedSQL }));
-  } catch (err: any) {
-    logger.error('[FewShot] Retrieval failed:', err.message);
+  } catch (err) {
+    logger.error('[FewShot] Retrieval failed:', getErrorMessage(err));
     return [];
   }
 }

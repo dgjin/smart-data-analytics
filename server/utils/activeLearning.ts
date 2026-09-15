@@ -7,6 +7,8 @@
 
 import { getPool } from '../infra/db.js';
 import { logger } from '../infra/logger.js';
+import { getErrorMessage } from '../infra/errorUtils';
+import type { RowDataPacket } from 'mysql2';
 
 /** 样本优先级得分 */
 export interface SamplePriorityScore {
@@ -40,13 +42,13 @@ export interface SamplePriorityScore {
 export async function prioritizePendingSamples(): Promise<SamplePriorityScore[]> {
   try {
     // 获取所有 PENDING 样本
-    const [pendingRows] = await getPool().query(`
+    const [pendingRows] = await getPool().query<RowDataPacket[]>(`
       SELECT id, original_query, original_sql, error_message, data_source_id, user_id, 
              annotation_status, expected_sql, resolved_strategy, created_at
       FROM adversarial_samples
       WHERE annotation_status = 'PENDING'
       ORDER BY created_at DESC
-    `) as any[];
+    `);
 
     if (!Array.isArray(pendingRows) || pendingRows.length === 0) {
       return [];
@@ -142,8 +144,8 @@ export async function prioritizePendingSamples(): Promise<SamplePriorityScore[]>
     });
 
     return scoredSamples;
-  } catch (err: any) {
-    logger.error('[ActiveLearning] Prioritization failed:', err.message);
+  } catch (err) {
+    logger.error('[ActiveLearning] Prioritization failed:', getErrorMessage(err));
     return []; // Fail-safe
   }
 }

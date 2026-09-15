@@ -18,6 +18,7 @@ import type mysql from 'mysql2/promise';
 import { getPool } from '../infra/db';
 import { encryptSecret, decryptSecret } from '../infra/secretsCrypto';
 import { budgetText, EXTERNAL_KB_TOKEN_BUDGET } from '../llm/promptBudget';
+import { getErrorMessage, isAbortError } from '../infra/errorUtils';
 
 export const EXTERNAL_KB_TOP_K = 4;
 export const EXTERNAL_KB_DEFAULT_TIMEOUT_MS = 5000;
@@ -43,7 +44,7 @@ export function setExternalKbFetch(impl: typeof fetch | null) {
   fetchImpl = impl ? impl : ((...args: Parameters<typeof fetch>) => fetch(...args));
 }
 
-function normalizeRow(r: any): ExternalKbSource {
+function normalizeRow(r: mysql.RowDataPacket): ExternalKbSource {
   return {
     id: String(r.id || ''),
     name: String(r.name || ''),
@@ -79,16 +80,17 @@ export function validateExternalKbInput(input: Partial<ExternalKbSource>): strin
  */
 export function parseExternalKbResponse(payload: unknown): { text: string; source?: string }[] {
   const out: { text: string; source?: string }[] = [];
-  const pushItem = (item: any) => {
+  const pushItem = (item: unknown) => {
     if (!item || typeof item !== 'object') {
       if (typeof item === 'string' && item.trim()) out.push({ text: item.trim() });
       return;
     }
-    const text = [item.content, item.text, item.chunk, item.pageContent]
+    const rec = item as Record<string, unknown>;
+    const text = [rec.content, rec.text, rec.chunk, rec.pageContent]
       .map((v) => (typeof v === 'string' ? v.trim() : ''))
       .find((v) => v.length > 0);
     if (!text) return;
-    const source = [item.source, item.title, item.name]
+    const source = [rec.source, rec.title, rec.name]
       .map((v) => (typeof v === 'string' ? v.trim() : ''))
       .find((v) => v.length > 0);
     out.push(source ? { text, source } : { text });
@@ -265,8 +267,8 @@ export async function testExternalKbEndpoint(
   try {
     const chunks = await callExternalKb(input, probeQuery, 2);
     return { ok: true, latencyMs: Date.now() - startedAt, chunks: chunks.length };
-  } catch (err: any) {
-    const msg = String(err?.name === 'AbortError' ? '请求超时' : err?.message || err || '未知错误');
+  } catch (err) {
+    const msg = String(isAbortError(err) ? '请求超时' : getErrorMessage(err) || '未知错误');
     return { ok: false, latencyMs: Date.now() - startedAt, chunks: 0, error: msg.slice(0, 200) };
   }
 }
