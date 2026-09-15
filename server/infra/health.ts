@@ -9,6 +9,7 @@
  */
 import { getPool } from './db';
 import { getStateStore, isRedisEnabled } from './stateStore';
+import { getErrorMessage } from './errorUtils';
 
 export interface HealthProbe {
   name: string;
@@ -55,8 +56,8 @@ export async function runReadiness(probes: HealthProbe[], timeoutMs = 2000): Pro
       try {
         await withTimeout(p.run(), timeoutMs, p.name);
         checks[p.name] = { ok: true, ms: Date.now() - started };
-      } catch (err: any) {
-        checks[p.name] = { ok: false, ms: Date.now() - started, error: err?.message || String(err) };
+      } catch (err) {
+        checks[p.name] = { ok: false, ms: Date.now() - started, error: getErrorMessage(err) || String(err) };
       }
     }),
   );

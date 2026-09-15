@@ -5,6 +5,7 @@
  * 表名：fallback_ab_tests
  */
 
+import type { RowDataPacket } from 'mysql2';
 import { getPool } from './db.js';
 import { logger } from './logger.js';
 
@@ -36,15 +37,15 @@ export async function createAbTestTable(): Promise<void> {
     `);
     
     // 检查索引是否存在
-    const [indexes] = await connection.query(`
+    const [indexes] = await connection.query<RowDataPacket[]>(`
       SHOW INDEX FROM fallback_ab_tests
-    `) as any[];
+    `);
     
     console.log('[ABTest DB] Table fallback_ab_tests ensured exists');
-    console.log('[ABTest DB] Indexes:', indexes?.map((idx: any) => idx.Key_name).join(', ') || 'none');
+    console.log('[ABTest DB] Indexes:', indexes?.map((idx) => idx.Key_name).join(', ') || 'none');
     
     await connection.commit();
-  } catch (err: any) {
+  } catch (err) {
     await connection.rollback();
     logger.error('[ABTest DB] Failed to create table:', err);
     throw err;

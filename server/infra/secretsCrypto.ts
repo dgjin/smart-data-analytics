@@ -43,7 +43,8 @@ export function decryptSecret(value: string): string {
 }
 
 /** 返回 password 已加密的 config 副本（幂等；无 password 时原样返回） */
-export function encryptConfigPassword<T extends Record<string, any>>(config: T): T {
-  if (!config || typeof config !== 'object' || !config.password) return config;
-  return { ...config, password: encryptSecret(String(config.password)) };
+export function encryptConfigPassword<T extends object>(config: T): T {
+  const obj = config as Record<string, unknown>;
+  if (!config || typeof config !== 'object' || !obj.password) return config;
+  return { ...config, password: encryptSecret(String(obj.password)) };
 }

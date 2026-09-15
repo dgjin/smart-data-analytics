@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import type mysql from 'mysql2/promise';
 import { getPool } from './db';
 import { logger } from './logger';
+import { getErrorMessage } from './errorUtils';
 
 export type TaskType = 'report_generate' | 'report_generate_from_query' | 'report_export_pdf';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
@@ -38,7 +39,7 @@ export interface AsyncTask {
 
 /** 任务处理器：payload 为提交时快照；reportProgress 更新进度文案并顺带心跳 */
 export type TaskHandler = (
-  payload: any,
+  payload: unknown,
   ctx: { taskId: string; reportProgress: (text: string) => Promise<void> },
 ) => Promise<unknown>;
 
@@ -141,7 +142,7 @@ export async function submitTask(
  * 原子领取下一个待执行任务（MySQL 8 SKIP LOCKED：多 worker/多实例不会重复领取）。
  * 无任务返回 null。
  */
-export async function claimNextTask(workerId: string, pool?: mysql.Pool): Promise<{ id: string; type: TaskType; payload: any } | null> {
+export async function claimNextTask(workerId: string, pool?: mysql.Pool): Promise<{ id: string; type: TaskType; payload: unknown } | null> {
   const p = pool ?? getPool();
   const conn = await p.getConnection();
   try {
@@ -159,7 +160,7 @@ export async function claimNextTask(workerId: string, pool?: mysql.Pool): Promis
       [workerId, row.id]
     );
     await conn.commit();
-    let payload: any = {};
+    let payload: unknown = {};
     try {
       payload = typeof row.payload_json === 'string' ? JSON.parse(row.payload_json) : row.payload_json;
     } catch {
@@ -227,7 +228,7 @@ export async function recoverOrphanTasks(pool?: mysql.Pool, timeoutMs = taskHear
 }
 
 /** 行记录 → API 出参（result 仅 SUCCESS 时解析下发；鉴权在路由层） */
-export function toAsyncTask(row: any): AsyncTask {
+export function toAsyncTask(row: Record<string, unknown>): AsyncTask {
   let result: unknown;
   if (row.status === 'SUCCESS' && row.result_json != null) {
     try {
@@ -238,8 +239,8 @@ export function toAsyncTask(row: any): AsyncTask {
   }
   return {
     id: String(row.id),
-    type: row.type,
-    status: row.status,
+    type: row.type as TaskType,
+    status: row.status as TaskStatus,
     userId: Number(row.user_id),
     username: String(row.username || ''),
     progress: String(row.progress || ''),
@@ -274,7 +275,7 @@ const workerId = `w_${process.pid}_${randomUUID().slice(0, 8)}`;
 let workerTimer: NodeJS.Timeout | null = null;
 let runningCount = 0;
 
-async function runOneTask(task: { id: string; type: TaskType; payload: any }): Promise<void> {
+async function runOneTask(task: { id: string; type: TaskType; payload: unknown }): Promise<void> {
   const handler = handlers.get(task.type);
   if (!handler) {
     await failTask(task.id, `未注册的任务类型：${task.type}`);
@@ -296,9 +297,9 @@ async function runOneTask(task: { id: string; type: TaskType; payload: any }): P
     const result = await Promise.race([handler(task.payload, { taskId: task.id, reportProgress }), timeoutPromise]);
     await completeTask(task.id, result);
     logger.info(`[TaskQueue] ${task.type} ${task.id} 完成`);
-  } catch (err: any) {
-    await failTask(task.id, err?.message || String(err));
-    logger.warn(`[TaskQueue] ${task.type} ${task.id} 失败:`, err?.message || err);
+  } catch (err) {
+    await failTask(task.id, getErrorMessage(err) || String(err));
+    logger.warn(`[TaskQueue] ${task.type} ${task.id} 失败:`, getErrorMessage(err));
   } finally {
     clearInterval(hbTimer);
     if (timeoutTimer) clearTimeout(timeoutTimer);

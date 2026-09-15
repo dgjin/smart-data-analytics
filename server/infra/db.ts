@@ -9,6 +9,7 @@ import { createSchema } from './schema';
 import { seedInitialData } from './seed';
 import { migrateSchema, migrateData } from './migration';
 import { logger } from './logger';
+import { getErrorMessage } from './errorUtils';
 
 // 注意：ESM import 提升会使模块级 process.env 读取早于 dotenv.config()，
 // 因此所有环境变量必须在使用时惰性读取。
@@ -52,8 +53,8 @@ export async function closePool(): Promise<void> {
   poolClosed = true;
   try {
     await pool.end();
-  } catch (err: any) {
-    logger.warn('[DB] 连接池关闭异常（忽略）：', err?.message || err);
+  } catch (err) {
+    logger.warn('[DB] 连接池关闭异常（忽略）：', getErrorMessage(err));
   }
 }
 

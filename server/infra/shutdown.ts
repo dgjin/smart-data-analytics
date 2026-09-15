@@ -12,6 +12,7 @@
  * 健康检查据此返回 503 让上游把流量摘走。
  */
 import { logger } from './logger';
+import { getErrorMessage } from './errorUtils';
 
 /** 最小可停机 server 接口（http.Server 结构兼容；便于测试注入 mock） */
 export interface ClosableServer {
@@ -57,8 +58,8 @@ export function createShutdownController(deps: ShutdownDeps): ShutdownController
     if (!step) return;
     try {
       await step();
-    } catch (err: any) {
-      log(`[Shutdown] ${label} 执行失败（继续停机）：${err?.message || err}`);
+    } catch (err) {
+      log(`[Shutdown] ${label} 执行失败（继续停机）：${getErrorMessage(err)}`);
     }
   };
 

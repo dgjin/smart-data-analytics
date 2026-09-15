@@ -43,6 +43,7 @@ export default tseslint.config(
   // 批次1 已完成（2026-09-15）：server/routes 全目录 130 处 → 0，24 个文件已移出。
   // 批次2 已完成（2026-09-15）：src/components 全目录 147 处 → 0，42 个文件已移出。
   // 批次3 已完成（2026-09-15）：server/query 全目录 110 处 → 0，18 个文件已移出。
+  // 批次4 已完成（2026-09-15）：server/infra 全目录 32 处 → 0，9 个文件已移出。
   {
     files: [
       'server.ts', // 2
@@ -53,15 +54,6 @@ export default tseslint.config(
       'server/auth/oidc.ts', // 3
       'server/dataVersion.ts', // 3
       'server/driftDetector.ts', // 1
-      'server/infra/createAbTestTable.ts', // 3
-      'server/infra/db.ts', // 1
-      'server/infra/envConfigSync.ts', // 1
-      'server/infra/health.ts', // 1
-      'server/infra/migration.ts', // 17
-      'server/infra/monitoring.ts', // 1
-      'server/infra/secretsCrypto.ts', // 1
-      'server/infra/shutdown.ts', // 1
-      'server/infra/taskQueue.ts', // 6
       'server/knowledge/externalKnowledge.ts', // 3
       'server/knowledge/knowledgeBaseTools.ts', // 1
       'server/knowledge/knowledgeServices.ts', // 4

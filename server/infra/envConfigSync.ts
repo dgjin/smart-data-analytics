@@ -8,6 +8,7 @@
 import { getPool } from './db';
 import { logger } from './logger';
 import { applyEnvConfigToProcess, mergeableRows } from './envConfigCatalog';
+import { getErrorMessage } from './errorUtils';
 
 /** 读取 env_config 并把非空保存值合并进 process.env；返回实际生效（值发生变化）的 key 数 */
 export async function loadEnvConfigIntoProcess(): Promise<number> {
@@ -18,8 +19,8 @@ export async function loadEnvConfigIntoProcess(): Promise<number> {
       logger.info(`[EnvConfig] 面板配置已合并到运行时 ${applied.length} 项：${applied.join(', ')}`);
     }
     return applied.length;
-  } catch (err: any) {
-    logger.warn('[EnvConfig] 面板配置合并失败（忽略，继续以 .env.local 运行）:', err?.message || err);
+  } catch (err) {
+    logger.warn('[EnvConfig] 面板配置合并失败（忽略，继续以 .env.local 运行）:', getErrorMessage(err));
     return 0;
   }
 }

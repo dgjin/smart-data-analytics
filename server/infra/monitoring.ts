@@ -13,6 +13,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { AuditEntry } from './auditLog';
 import type { LlmUsageEntry } from '../llm/llmUsage';
+import { getErrorMessage } from './errorUtils';
 
 export const metricsRegister = new client.Registry();
 client.collectDefaultMetrics({ register: metricsRegister });
@@ -154,7 +155,7 @@ export async function metricsHandler(req: Request, res: Response): Promise<void>
   try {
     res.set('Content-Type', metricsRegister.contentType);
     res.end(await metricsRegister.metrics());
-  } catch (err: any) {
-    res.status(500).end(`metrics error: ${err?.message || 'unknown'}`);
+  } catch (err) {
+    res.status(500).end(`metrics error: ${getErrorMessage(err) || 'unknown'}`);
   }
 }
