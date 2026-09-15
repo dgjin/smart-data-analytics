@@ -12,6 +12,7 @@ import {
   deleteExternalKbSource,
   testExternalKbEndpoint,
 } from '../knowledge/externalKnowledge';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -20,8 +21,8 @@ router.use(authMiddleware, requireRole('ADMIN'));
 router.get('/', async (_req, res) => {
   try {
     res.json({ sources: await listExternalKbSources() });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询外部知识源失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询外部知识源失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -33,8 +34,8 @@ router.post('/', async (req, res) => {
   try {
     const id = await saveExternalKbSource(input, String(req.user?.username || 'admin'));
     res.json({ ok: true, id });
-  } catch (err: any) {
-    res.status(500).json({ error: `新增失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `新增失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -47,8 +48,8 @@ router.put('/:id', async (req, res) => {
   try {
     const updated = await saveExternalKbSource(input, String(req.user?.username || 'admin'), id);
     res.json({ ok: true, id: updated });
-  } catch (err: any) {
-    res.status(500).json({ error: `保存失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `保存失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -58,8 +59,8 @@ router.delete('/:id', async (req, res) => {
     const ok = await deleteExternalKbSource(String(req.params.id));
     if (!ok) return res.status(404).json({ error: '外部知识源不存在' });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `删除失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `删除失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -76,8 +77,8 @@ router.post('/test', async (req, res) => {
       timeoutMs: Number(input.timeoutMs) || 5000,
     });
     res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: `测试失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `测试失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

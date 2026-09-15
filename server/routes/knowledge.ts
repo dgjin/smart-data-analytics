@@ -29,6 +29,7 @@ import { getPool } from '../infra/db';
 import { saveKnowledgeDoc, CHUNK_OVERLAP } from '../knowledge/knowledgeBase';
 import { DATA_RESOURCE_KNOWLEDGE_BASE, DATA_RESOURCE_DS_ID } from '../seedDataResources';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /**
  * 将知识文档的切块序列还原为完整原文：
@@ -85,8 +86,8 @@ router.get('/', async (req, res) => {
         createdAt: r.created_at,
       })),
     });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询知识库失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询知识库失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -101,8 +102,8 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
     const { docId, chunkCount } = await saveKnowledgeDoc(dataSourceId, title.trim(), content, username);
     if (chunkCount === 0) return res.status(400).json({ error: '内容为空，无法切块' });
     res.json({ ok: true, docId, chunkCount });
-  } catch (err: any) {
-    res.status(500).json({ error: `登记失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `登记失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -134,10 +135,10 @@ router.get('/seed-entries', (req, res) => {
       },
       knowledgeList,
     });
-  } catch (err: any) {
+  } catch (err) {
     res.status(500).json({
       success: false,
-      error: err.message,
+      error: getErrorMessage(err),
     });
   }
 });
@@ -217,9 +218,9 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
       `attachment; filename="knowledge-docs-${dataSourceId}-${dateStr}.json"; filename*=UTF-8''${encodeURIComponent(fileName)}`
     );
     res.send(JSON.stringify(exportData, null, 2));
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[KB Export Error]', err);
-    res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导出失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -261,14 +262,14 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
     let docs: Array<{ title: string; content: string }> = [];
     if (fileData.type === 'knowledge-docs' && Array.isArray(fileData.docs)) {
       sourceDsId = String(fileData.dataSourceId || '');
-      docs = fileData.docs.map((d: any) => ({
+      docs = fileData.docs.map((d: Record<string, unknown>) => ({
         title: String(d?.title || '').trim(),
         content: String(d?.content || '').trim(),
       }));
     } else if (Array.isArray(fileData.knowledgeBase)) {
       // v1 旧格式（条目模型导出文件）：每个条目转为一篇知识文档
       sourceDsId = String(fileData?.dataResourceInfo?.dataSourceId || '');
-      docs = fileData.knowledgeBase.map((kb: any) => ({
+      docs = fileData.knowledgeBase.map((kb: Record<string, unknown>) => ({
         title: String(kb?.title || '').trim(),
         content: String(kb?.content || '').trim(),
       }));
@@ -351,9 +352,9 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
         result.importedCount++;
         // 文件内部重复 title 时，后续条目按冲突策略处理（语义与库内已有保持一致）
         existingTitles.add(doc.title);
-      } catch (err: any) {
+      } catch (err) {
         result.errorCount++;
-        result.errors.push({ title: doc.title, message: err?.message || '未知错误' });
+        result.errors.push({ title: doc.title, message: getErrorMessage(err) || '未知错误' });
       }
     }
 
@@ -368,9 +369,9 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
       errors: result.errorCount,
     });
     res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[KB Import Error]', err);
-    res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导入失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -407,8 +408,8 @@ router.get('/:docId', async (req, res) => {
         chunks: rows.map((r, i) => ({ index: i + 1, text: r.chunk_text })),
       },
     });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询详情失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询详情失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -436,8 +437,8 @@ router.put('/:docId', requireRole('ADMIN'), async (req, res) => {
     const { chunkCount } = await saveKnowledgeDoc(meta.data_source_id, title.trim(), content, username, docId);
     if (chunkCount === 0) return res.status(400).json({ error: '内容为空，无法切块' });
     res.json({ ok: true, docId, chunkCount });
-  } catch (err: any) {
-    res.status(500).json({ error: `保存失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `保存失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -448,8 +449,8 @@ router.delete('/:docId', requireRole('ADMIN'), async (req, res) => {
     const [result] = await getPool().query<mysql.ResultSetHeader>('DELETE FROM knowledge_base WHERE doc_id = ?', [docId]);
     if (!result || result.affectedRows === 0) return res.status(404).json({ error: '知识文档不存在' });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `删除失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `删除失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

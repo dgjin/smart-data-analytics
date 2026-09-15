@@ -17,6 +17,7 @@ import {
 } from '../query/ironRules';
 import { getPool } from '../infra/db';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -27,8 +28,8 @@ router.get('/', async (req, res) => {
   if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   try {
     res.json({ rules: await listIronRules(dataSourceId) });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询铁律失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询铁律失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -40,8 +41,8 @@ router.post('/', async (req, res) => {
     const r = await createIronRule(cleaned.rule, String(req.user?.username || 'unknown'));
     if (r.ok !== true) return res.status(409).json({ error: r.error });
     res.json({ ok: true, id: r.id });
-  } catch (err: any) {
-    res.status(500).json({ error: `创建失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `创建失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -63,9 +64,9 @@ router.get('/export', async (req, res) => {
       `attachment; filename="iron-rules-${dataSourceId}-${dateStr}.json"; filename*=UTF-8''${encodeURIComponent(fileName)}`
     );
     res.send(JSON.stringify(exportData, null, 2));
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[IronRules Export Error]', err);
-    res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导出失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -111,9 +112,9 @@ router.post('/import', async (req, res) => {
       errors: result.errorCount,
     });
     res.json({ ...result, dataSourceId, dataSourceName: String(dsRows[0].name || dataSourceId) });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[IronRules Import Error]', err);
-    res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导入失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -128,8 +129,8 @@ router.put('/:id', async (req, res) => {
     const r = await updateIronRule(id, rest);
     if (r.ok !== true) return res.status(r.notFound ? 404 : 409).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `更新失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `更新失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -140,8 +141,8 @@ router.delete('/:id', async (req, res) => {
   try {
     if (!(await deleteIronRule(id))) return res.status(404).json({ error: '铁律不存在' });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `删除失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `删除失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

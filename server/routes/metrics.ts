@@ -31,6 +31,7 @@ import { executeSafeSql } from '../query/sqlExecutor';
 import { maskRows } from '../query/dlp';
 import { writeAudit } from '../infra/auditLog';
 import { AMOUNT_UNIT_OPTIONS, normalizeAmountUnit } from '../query/liveQuery';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware);
@@ -41,8 +42,8 @@ router.get('/', async (req, res) => {
   if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
   try {
     res.json({ metrics: await listMetrics(dataSourceId) });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询指标失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询指标失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -57,8 +58,8 @@ router.post('/', async (req, res) => {
     const r = await createMetric(cleaned.metric, username, { autoApprove: isAdmin });
     if (r.ok !== true) return res.status(409).json({ error: r.error });
     res.json({ ok: true, id: r.id, status: isAdmin ? 'ACTIVE' : 'PENDING' });
-  } catch (err: any) {
-    res.status(500).json({ error: `创建失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `创建失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -69,7 +70,7 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
   const user = req.user!;
   const metricId = Number(req.body?.metricId);
   const dimensions = Array.isArray(req.body?.dimensions)
-    ? req.body.dimensions.filter((d: any) => typeof d === 'string').map((d: string) => d.trim()).filter(Boolean)
+    ? req.body.dimensions.filter((d: unknown) => typeof d === 'string').map((d: string) => d.trim()).filter(Boolean)
     : [];
   const limit = typeof req.body?.limit === 'number' ? req.body.limit : undefined;
   // v0.9.21 金额单位：看板直查跟随全局/模块单位选择传入；白名单归一，非法值按不传处理（原值口径）
@@ -128,8 +129,8 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       executionTimeMs: Date.now() - startedAt,
       ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
     });
-  } catch (err: any) {
-    res.status(500).json({ error: `指标查询失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `指标查询失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -151,9 +152,9 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
       `attachment; filename="metrics-${dataSourceId}-${dateStr}.json"; filename*=UTF-8''${encodeURIComponent(fileName)}`
     );
     res.send(JSON.stringify(exportData, null, 2));
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Metrics Export Error]', err);
-    res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导出失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -199,9 +200,9 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
       errors: result.errorCount,
     });
     res.json({ ...result, dataSourceId, dataSourceName: String(dsRows[0].name || dataSourceId) });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Metrics Import Error]', err);
-    res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导入失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -216,8 +217,8 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
     const r = await updateMetric(id, rest, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.notFound ? 404 : 409).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `更新失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `更新失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -229,8 +230,8 @@ router.post('/:id/approve', requireRole('ADMIN'), async (req, res) => {
     const r = await approveMetric(id, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `审批失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `审批失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -242,8 +243,8 @@ router.post('/:id/reject', requireRole('ADMIN'), async (req, res) => {
     const r = await rejectMetric(id, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `驳回失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `驳回失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -255,8 +256,8 @@ router.post('/:id/repropose', async (req, res) => {
     const r = await reproposeMetric(id, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `重新提议失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `重新提议失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -266,8 +267,8 @@ router.get('/:id/versions', async (req, res) => {
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: '非法指标 ID' });
   try {
     res.json({ versions: await listMetricVersions(id) });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询版本历史失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询版本历史失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -281,8 +282,8 @@ router.post('/:id/restore', requireRole('ADMIN'), async (req, res) => {
     const r = await restoreMetricVersion(id, version, String(req.user?.username || ''));
     if (r.ok !== true) return res.status(r.status).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `回溯失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `回溯失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -293,8 +294,8 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
   try {
     if (!(await deleteMetric(id))) return res.status(404).json({ error: '指标不存在' });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `删除失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `删除失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

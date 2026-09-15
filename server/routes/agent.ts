@@ -12,6 +12,7 @@ import { ERROR_CODES } from '../infra/errorCodes';
 import { logger } from '../infra/logger';
 import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { generateAgentPlan, consumeAgentPlan, storeAgentPlan, runAgentPlan } from '../agent/orchestrator';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware);
@@ -50,8 +51,8 @@ router.post('/plan', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req, r
       dataSourceId,
     });
     res.json({ ok: true, plan });
-  } catch (err: any) {
-    const msg = err?.message || '';
+  } catch (err) {
+    const msg = getErrorMessage(err) || '';
     if (msg.includes('结构校验')) {
       return res.status(422).json({ code: ERROR_CODES.INVALID_INPUT, error: msg });
     }
@@ -107,7 +108,7 @@ router.post('/run', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req, re
       dataSourceId,
     });
     res.json({ ok: outcome.ok, traceId, steps: outcome.steps, finalSummary: outcome.finalSummary });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Agent] run error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '编排执行失败' });
   }

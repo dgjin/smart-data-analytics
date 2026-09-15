@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware, requireRole } from '../auth/auth.js';
 import { getExperimentStats, queryExperimentRecords } from '../utils/abTest.js';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 
@@ -35,11 +36,11 @@ router.get(
         success: true,
         data: stats,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error('[ABTest Stats Error]', err);
       res.status(500).json({
         success: false,
-        error: err.message,
+        error: getErrorMessage(err),
       });
     }
   }
@@ -64,11 +65,11 @@ router.get(
         data: records,
         count: records.length,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error('[ABTest Records Error]', err);
       res.status(500).json({
         success: false,
-        error: err.message,
+        error: getErrorMessage(err),
       });
     }
   }
@@ -116,11 +117,11 @@ router.get(
           },
         },
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error('[ABTest Overview Error]', err);
       res.status(500).json({
         success: false,
-        error: err.message,
+        error: getErrorMessage(err),
       });
     }
   }

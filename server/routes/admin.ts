@@ -10,6 +10,7 @@ import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { logger } from '../infra/logger';
 import { writeAudit } from '../infra/auditLog';
 import { ENV_CONFIG_HIDDEN, sanitizeEnvConfigUpdates, applyEnvConfigToProcess } from '../infra/envConfigCatalog';
+import { getErrorMessage, getErrorCode } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -68,8 +69,8 @@ router.post('/users', async (req, res) => {
       success: true,
       user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE' },
     });
-  } catch (err: any) {
-    if (err?.code === 'ER_DUP_ENTRY') {
+  } catch (err) {
+    if (getErrorCode(err) === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: '用户名已存在' });
     }
     logger.error('[Admin] create user failed:', err);
@@ -86,7 +87,7 @@ router.put('/users/:id', async (req, res) => {
 
   const { displayName, role, status, department } = req.body || {};
   const updates: string[] = [];
-  const params: any[] = [];
+  const params: unknown[] = [];
 
   if (displayName !== undefined) {
     updates.push('display_name = ?');
@@ -220,10 +221,10 @@ router.get('/env-config', async (req, res) => {
     }
 
     // 注意：必须查 updated_at，前端「更新时间」列依赖该字段（漏查会显示 Invalid Date）
-    const [rows]: any = await getPool().query('SELECT `key`, `value`, category, description, is_sensitive, updated_at FROM env_config');
+    const [rows] = await getPool().query<RowDataPacket[]>('SELECT `key`, `value`, category, description, is_sensitive, updated_at FROM env_config');
 
     // 脱敏敏感字段 + v0.9.61 运行时对账（面板保存值 vs process.env 实际生效值；敏感项仅暴露已配置布尔）
-    const sanitizedData = rows.map((row: any) => ({
+    const sanitizedData = rows.map((row) => ({
       ...row,
       value: row.is_sensitive ? ENV_CONFIG_HIDDEN : (row.value || ''),
       runtime_configured: Boolean(process.env[row.key]),
@@ -231,9 +232,9 @@ router.get('/env-config', async (req, res) => {
     }));
 
     res.json({ success: true, data: sanitizedData });
-  } catch (error: any) {
-    logger.error('[EnvConfig] GET failed:', error.message);
-    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  } catch (error) {
+    logger.error('[EnvConfig] GET failed:', getErrorMessage(error));
+    res.status(500).json({ success: false, error: getErrorMessage(error) || 'Internal server error' });
   }
 });
 
@@ -288,9 +289,9 @@ router.put('/env-config', async (req, res) => {
         changes: updates.map(u => u.key)
       }
     });
-  } catch (error: any) {
-    logger.error('[EnvConfig] PUT failed:', error.message);
-    res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+  } catch (error) {
+    logger.error('[EnvConfig] PUT failed:', getErrorMessage(error));
+    res.status(500).json({ success: false, error: getErrorMessage(error) || 'Internal server error' });
   }
 });
 

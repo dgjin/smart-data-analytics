@@ -37,6 +37,7 @@ import { generateQueryPlan, storePlan } from '../query/queryPlan';
 import { appendQueryEvent } from '../query/sseReplayBuffer';
 import { logger } from '../infra/logger';
 import { runNaturalLanguageQuery, replayTraceStream, fetchTraceSteps, type QueryEventSink } from '../query/queryService';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 
@@ -199,9 +200,9 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     await storePlan(plan, user.id, dsIdStr);
     writeAudit({ ...auditBase, question: clean.question, status: 'SUCCESS', detail: `分析计划 ${plan.steps.length} 步（${plan.complexity}）`, durationMs: Date.now() - startedAt });
     return res.json({ success: true, plan, expiresInSec: 600 });
-  } catch (err: any) {
-    logger.error('[Plan] generate failed:', err?.message || err);
-    writeAudit({ ...auditBase, question: clean.question, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+  } catch (err) {
+    logger.error('[Plan] generate failed:', getErrorMessage(err));
+    writeAudit({ ...auditBase, question: clean.question, status: 'ERROR', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: '分析计划生成失败，请稍后重试' });
   } finally {
     await releaseQuerySlot(user.id, planSlotToken);
@@ -325,8 +326,8 @@ router.post('/sql-assist', rateLimiter, authMiddleware, requireRole('ADMIN', 'AN
   try {
     const text = (await callLLMText(system, sql.trim())).trim();
     return res.json({ success: true, text: text || '（AI 未返回内容）' });
-  } catch (err: any) {
-    logger.error('[SqlAssist] failed:', err?.message || err);
+  } catch (err) {
+    logger.error('[SqlAssist] failed:', getErrorMessage(err));
     return res.status(502).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: 'AI 服务暂时不可用，请稍后重试' });
   }
 });

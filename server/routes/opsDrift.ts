@@ -18,6 +18,7 @@ import {
   scanDataSource,
 } from '../driftDetector';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -26,8 +27,8 @@ router.get('/drift', async (_req, res) => {
   try {
     const { events, watched } = await listDriftEvents();
     return res.json({ success: true, events, watched });
-  } catch (err: any) {
-    logger.error('[Drift] 列表失败:', err?.message || err);
+  } catch (err) {
+    logger.error('[Drift] 列表失败:', getErrorMessage(err));
     return res.status(500).json({ error: '漂移事件获取失败' });
   }
 });
@@ -41,8 +42,8 @@ router.post('/drift/scan', async (req, res) => {
     }
     const summaries = await scanAllDataSources();
     return res.json({ success: true, summaries });
-  } catch (err: any) {
-    logger.error('[Drift] 扫描失败:', err?.message || err);
+  } catch (err) {
+    logger.error('[Drift] 扫描失败:', getErrorMessage(err));
     return res.status(500).json({ error: '漂移扫描失败' });
   }
 });
@@ -55,8 +56,8 @@ router.post('/drift/watch', async (req, res) => {
   try {
     await addWatch(dataSourceId.trim(), tableName, columnName);
     return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(400).json({ error: err?.message || '登记失败' });
+  } catch (err) {
+    return res.status(400).json({ error: getErrorMessage(err) || '登记失败' });
   }
 });
 

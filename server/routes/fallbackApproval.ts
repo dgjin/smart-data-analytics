@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { getPool } from '../infra/db.js';
 import { logger } from '../infra/logger.js';
 import { authMiddleware, requireRole } from '../auth/auth.js';
 import { injectFewShotSamples } from '../utils/fewShotService.js';
 import { prioritizePendingSamples, SamplePriorityScore } from '../utils/activeLearning.js';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 
@@ -31,7 +33,7 @@ router.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: 
     }
 
     // 响应简化版本（前端不需要所有内部字段）
-    const responseSamples = samples.map((s): any => ({
+    const responseSamples = samples.map((s) => ({
       id: s.id,
       original_query: s.originalQuery,
       original_sql: s.originalSQL,
@@ -57,9 +59,9 @@ router.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: 
         sortingMethod: 'active_learning_multi_factor',
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Admin] Fallback Approval Load Error:', err);
-    res.status(500).json({ error: '加载样本失败：' + err.message });
+    res.status(500).json({ error: '加载样本失败：' + getErrorMessage(err) });
   }
 });
 
@@ -95,16 +97,16 @@ router.post('/batch', authMiddleware, requireRole('ADMIN'), async (req: Request,
           // v0.9.47 P0 修复：占位符按 sampleSet 重建（原按 batch 构建，filter 后数量不匹配）；
           // 参数对齐 [status, timestamp, ...] 多余错位已移除（原前两个参数顶替了 id 位置）
           const samplePlaceholders = sampleSet.map(() => '?').join(',');
-          const sampleQuery = await getPool().query(`
+          const sampleQuery = await getPool().query<RowDataPacket[]>(`
             SELECT id, original_query, expected_sql, data_source_id 
             FROM adversarial_samples 
             WHERE id IN (${samplePlaceholders})
           `, [...sampleSet]);
                 
-          const samples = (sampleQuery[0] as any[])
+          const samples = sampleQuery[0]
             // 只注入带修正 SQL 的样本（批量采纳未填 expected_sql 的跳过，避免注入空示例）
-            .filter((s: any) => s.expected_sql)
-            .map((s: any) => ({
+            .filter((s) => s.expected_sql)
+            .map((s) => ({
               original_query: s.original_query,
               expected_sql: s.expected_sql,
               data_source_id: s.data_source_id,
@@ -114,8 +116,8 @@ router.post('/batch', authMiddleware, requireRole('ADMIN'), async (req: Request,
           if (samples.length > 0) {
             try {
               await injectFewShotSamples(samples);
-            } catch (err: any) {
-              logger.error('[FallbackApproval] Few-Shot injection failed:', err.message);
+            } catch (err) {
+              logger.error('[FallbackApproval] Few-Shot injection failed:', getErrorMessage(err));
               // Fail-open: 不影响审批流程的返回
             }
           }
@@ -124,9 +126,9 @@ router.post('/batch', authMiddleware, requireRole('ADMIN'), async (req: Request,
     }
 
     res.json({ success: true, message: `${ids.length} 个样本已${action === 'approve' ? '采纳' : '拒绝'}` });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Admin] Batch Action Error:', err);
-    res.status(500).json({ error: '批量操作失败：' + err.message });
+    res.status(500).json({ error: '批量操作失败：' + getErrorMessage(err) });
   }
 });
 
@@ -138,9 +140,9 @@ router.put('/:id/review', authMiddleware, requireRole('ADMIN'), async (req: Requ
   try {
     // 先查询当前状态
     // v0.9.47 P0 修复：原 SELECT 有 ? 占位符但未传 [id] 参数 → ？原样发给 MySQL 必然 500
-    const [current] = await getPool().query(`
+    const [current] = await getPool().query<RowDataPacket[]>(`
       SELECT id, original_query, data_source_id, annotation_status FROM adversarial_samples WHERE id = ?
-    `, [id]) as any[];
+    `, [id]);
 
     if (current.length === 0) {
       return res.status(404).json({ error: '样本不存在' });
@@ -156,11 +158,11 @@ router.put('/:id/review', authMiddleware, requireRole('ADMIN'), async (req: Requ
     // v0.9.47 P0 修复：原"先置 IN_REVIEW 再终态"两步非原子（无事务，第二步失败会卡死中间态），
     // 合并为单步原子 UPDATE（WHERE 带状态条件，并发重复处理时 affectedRows=0）
     if (expected_sql && status === 'APPROVED') {
-      const [updateResult] = await getPool().query(`
+      const [updateResult] = await getPool().query<ResultSetHeader>(`
         UPDATE adversarial_samples 
         SET annotation_status = ?, expected_sql = ?, resolved_strategy = 'human_approval', updated_at = ?
         WHERE id = ? AND annotation_status = 'PENDING'
-      `, [status, expected_sql, timestamp, id]) as any[];
+      `, [status, expected_sql, timestamp, id]);
 
       if (updateResult.affectedRows === 0) {
         return res.status(409).json({ error: '该样本已被其他管理员处理' });
@@ -169,20 +171,20 @@ router.put('/:id/review', authMiddleware, requireRole('ADMIN'), async (req: Requ
       // 审核通过的修正 SQL 同步注入 Few-Shot 示例库（fail-open，不影响审批结果）
       try {
         await injectFewShotSamples([{
-          original_query: String((current[0] as any).original_query ?? ''),
+          original_query: String(current[0].original_query ?? ''),
           expected_sql,
-          data_source_id: String((current[0] as any).data_source_id ?? ''),
+          data_source_id: String(current[0].data_source_id ?? ''),
           sample_id: Number(id),
         }]);
-      } catch (err: any) {
-        logger.error('[FallbackApproval] Few-Shot injection failed:', err.message);
+      } catch (err) {
+        logger.error('[FallbackApproval] Few-Shot injection failed:', getErrorMessage(err));
       }
     } else {
-      const [updateResult] = await getPool().query(`
+      const [updateResult] = await getPool().query<ResultSetHeader>(`
         UPDATE adversarial_samples 
         SET annotation_status = ?, updated_at = ?
         WHERE id = ? AND annotation_status = 'PENDING'
-      `, [status, timestamp, id]) as any[];
+      `, [status, timestamp, id]);
 
       if (updateResult.affectedRows === 0) {
         return res.status(409).json({ error: '该样本已被其他管理员处理' });
@@ -190,9 +192,9 @@ router.put('/:id/review', authMiddleware, requireRole('ADMIN'), async (req: Requ
     }
 
     res.json({ success: true, message: '审核成功' });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Admin] Review Sample Error:', err);
-    res.status(500).json({ error: '审核失败：' + err.message });
+    res.status(500).json({ error: '审核失败：' + getErrorMessage(err) });
   }
 });
 

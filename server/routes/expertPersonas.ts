@@ -12,6 +12,7 @@ import {
   deletePersona,
   sanitizePersonaInput,
 } from '../llm/expertPersona';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -20,8 +21,8 @@ router.use(authMiddleware, requireRole('ADMIN'));
 router.get('/', async (_req, res) => {
   try {
     res.json({ personas: await listPersonas() });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询专家角色失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询专家角色失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -33,8 +34,8 @@ router.post('/', async (req, res) => {
     const r = await createPersona(cleaned.persona, String(req.user?.username || 'unknown'));
     if (r.ok !== true) return res.status(409).json({ error: r.error });
     res.json({ ok: true, id: r.id });
-  } catch (err: any) {
-    res.status(500).json({ error: `创建失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `创建失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -48,8 +49,8 @@ router.put('/:id', async (req, res) => {
     const r = await updatePersona(id, cleaned.persona);
     if (r.ok !== true) return res.status(r.notFound ? 404 : 409).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `更新失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `更新失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -61,8 +62,8 @@ router.delete('/:id', async (req, res) => {
     const r = await deletePersona(id);
     if (r.ok !== true) return res.status(r.notFound ? 404 : 409).json({ error: r.error });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `删除失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `删除失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

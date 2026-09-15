@@ -8,7 +8,7 @@
  * - 审计：所有导出/拦截均落 query_audit_log（endpoint='export'）
  */
 import { Router } from 'express';
-import type { RowDataPacket } from 'mysql2';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { rateLimiter } from '../infra/rateLimiter';
 import { getPool } from '../infra/db';
@@ -116,7 +116,7 @@ router.post('/csv', rateLimiter, async (req, res) => {
   if (needsApproval) {
     const pool = getPool();
     // 已有近 24h 内 APPROVED 的一次性授权 → 放行并消费
-    const [approved] = await pool.query<any[]>(
+    const [approved] = await pool.query<RowDataPacket[]>(
       "SELECT id FROM download_requests WHERE user_id = ? AND data_source_id = ? AND status = 'APPROVED' AND decided_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) ORDER BY id DESC LIMIT 1",
       [user.id, auditBase.dataSourceId],
     );
@@ -124,7 +124,7 @@ router.post('/csv', rateLimiter, async (req, res) => {
       await pool.query("UPDATE download_requests SET status = 'CONSUMED' WHERE id = ?", [approved[0].id]);
     } else {
       // 同用户同数据源已有 PENDING → 返回既有审批单（幂等，不重复建单）
-      const [pending] = await pool.query<any[]>(
+      const [pending] = await pool.query<RowDataPacket[]>(
         "SELECT id FROM download_requests WHERE user_id = ? AND data_source_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
         [user.id, auditBase.dataSourceId],
       );
@@ -132,7 +132,7 @@ router.post('/csv', rateLimiter, async (req, res) => {
       if (pending.length > 0) {
         reqId = pending[0].id;
       } else {
-        const [r] = await pool.query<any>(
+        const [r] = await pool.query<ResultSetHeader>(
           'INSERT INTO download_requests (user_id, username, department, data_source_id, title, row_count) VALUES (?, ?, ?, ?, ?, ?)',
           [user.id, user.username, user.department || '', auditBase.dataSourceId, String(title || '').slice(0, 200), rows.length],
         );
@@ -179,14 +179,14 @@ router.get('/requests', requireRole('ADMIN'), async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : '';
   const pool = getPool();
   const where = ['PENDING', 'APPROVED', 'REJECTED', 'CONSUMED'].includes(status) ? 'WHERE r.status = ?' : '';
-  const args: any[] = where ? [status] : [];
-  const [rows] = await pool.query<any[]>(
+  const args: unknown[] = where ? [status] : [];
+  const [rows] = await pool.query<DownloadReqRow[]>(
     `SELECT r.*, d.name AS ds_name FROM download_requests r
      LEFT JOIN data_sources d ON d.id = r.data_source_id
      ${where} ORDER BY (r.status = 'PENDING') DESC, r.id DESC LIMIT 200`,
     args,
   );
-  return res.json({ success: true, requests: rows.map((r: any) => rowToRequest(r, r.ds_name)) });
+  return res.json({ success: true, requests: rows.map((r) => rowToRequest(r, r.ds_name)) });
 });
 
 // 审批共用：加载 PENDING → 置终态

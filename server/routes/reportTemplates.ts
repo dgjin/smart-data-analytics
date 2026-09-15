@@ -43,20 +43,22 @@ export function toTemplateRecord(row: ReportTemplateRow) {
 
 // 校验模板内容：必须是合法 JSON 且含 sections 数组（每个章节需有 title 与 prompt）
 export function validateTemplateContent(content: string): { ok: true } | { ok: false; reason: string } {
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
     return { ok: false, reason: '模板内容必须是合法的 JSON 格式' };
   }
-  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.sections)) {
+  const sections = (parsed && typeof parsed === 'object' ? (parsed as { sections?: unknown }) : {}).sections;
+  if (!Array.isArray(sections)) {
     return { ok: false, reason: '模板内容必须包含 sections 数组' };
   }
-  if (parsed.sections.length === 0) {
+  if (sections.length === 0) {
     return { ok: false, reason: '模板至少需要一个章节' };
   }
-  for (const s of parsed.sections) {
-    if (!s || typeof s.title !== 'string' || s.title.trim().length === 0) {
+  for (const raw of sections) {
+    const s = (raw ?? {}) as { title?: unknown; prompt?: unknown };
+    if (!raw || typeof s.title !== 'string' || s.title.trim().length === 0) {
       return { ok: false, reason: '每个章节必须包含标题 title' };
     }
     if (typeof s.prompt !== 'string' || s.prompt.trim().length === 0) {
@@ -75,7 +77,7 @@ router.get('/', authMiddleware, async (req, res) => {
     );
     const templates = (rows as ReportTemplateRow[]).map(toTemplateRecord);
     res.json({ ok: true, templates });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('GET /api/report-templates error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取模板列表失败' });
   }
@@ -125,7 +127,7 @@ router.post('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM report_templates WHERE id = ?', [insertId]);
     const template = toTemplateRecord((rows as ReportTemplateRow[])[0]);
     res.json({ ok: true, template });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('POST /api/report-templates error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '新增模板失败' });
   }
@@ -196,7 +198,7 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
     });
 
     res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('PUT /api/report-templates/:id error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '编辑模板失败' });
   }
@@ -243,7 +245,7 @@ router.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => 
     });
 
     res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('DELETE /api/report-templates/:id error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '删除模板失败' });
   }

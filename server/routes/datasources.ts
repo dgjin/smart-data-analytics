@@ -26,6 +26,7 @@ import {
 } from '../query/fileDataSource';
 import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /** P0-2：data_sources 表行（SELECT * 动态列，仅声明取用字段） */
 interface DataSourceDbRow extends mysql.RowDataPacket {
@@ -608,8 +609,8 @@ router.post('/:id/sync-schema', requireRole('ADMIN'), async (req, res) => {
     let tables;
     try {
       tables = await extractDbSchema(String(ds.type), config);
-    } catch (err: any) {
-      return res.status(400).json({ error: `同步失败，无法连接数据库：${err?.message || '未知错误'}` });
+    } catch (err) {
+      return res.status(400).json({ error: `同步失败，无法连接数据库：${getErrorMessage(err) || '未知错误'}` });
     }
 
     // 保留管理员在"指标维度维护"中对仍存在列的手工标注（新列用自动推导结果）
@@ -913,10 +914,10 @@ router.post('/test-connection', requireRole('ADMIN'), async (req, res) => {
         latencyMs: Date.now() - startedAt,
         tableCount: Number(rows[0]?.cnt || 0),
       });
-    } catch (err: any) {
+    } catch (err) {
       return res.status(200).json({
         success: false,
-        message: `连接失败：${err?.message || '未知错误'}`,
+        message: `连接失败：${getErrorMessage(err) || '未知错误'}`,
         latencyMs: Date.now() - startedAt,
         tableCount: 0,
       });
@@ -946,10 +947,10 @@ router.post('/test-connection', requireRole('ADMIN'), async (req, res) => {
         latencyMs: Date.now() - startedAt,
         tableCount: Number(tables[0]?.cnt || 0),
       });
-    } catch (err: any) {
+    } catch (err) {
       return res.status(200).json({
         success: false,
-        message: `连接失败：${err?.message || '未知错误'}`,
+        message: `连接失败：${getErrorMessage(err) || '未知错误'}`,
         latencyMs: Date.now() - startedAt,
         tableCount: 0,
       });

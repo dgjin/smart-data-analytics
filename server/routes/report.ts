@@ -26,6 +26,7 @@ import { getPool } from '../infra/db';
 import { submitTask } from '../infra/taskQueue';
 import type mysql from 'mysql2/promise';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 
@@ -220,9 +221,9 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     const reportPlanId = await storeReportPlan(out.plan, { templateType: safeTemplate, userId: user.id, dataSourceId, amountUnit });
     writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'SUCCESS', durationMs: Date.now() - startedAt });
     return res.json({ success: true, reportPlanId, plan: out.plan, expiresInSec: 600 });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Report Plan Error:', err);
-    writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    writeAudit({ ...auditBase, question: `report-plan:${safeTemplate}`, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.LLM_UNAVAILABLE, error: '报表查询计划生成失败，请稍后重试' });
   }
 });
@@ -306,7 +307,7 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
         templateIdNum = template.id;
         // 将模板内容与用户提问结合
         const templateContent = JSON.parse(template.template_content);
-        const sectionsPrompt = templateContent.sections?.map((s: any) => `${s.title}：${s.prompt}`).join('；') || '';
+        const sectionsPrompt = templateContent.sections?.map((s: { title?: string; prompt?: string }) => `${s.title}：${s.prompt}`).join('；') || '';
         customPrompt = `${safeQuestion}。请按照以下模板结构生成报告：${sectionsPrompt}`;
       }
     }
@@ -364,9 +365,9 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
       templateName,
       dataProvenance: 'simulated',
     });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Generate Report From Query Error:', err);
-    writeAudit({ ...auditBase, question: auditQuestion, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'ERROR', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '报告生成失败，请稍后重试' });
   } finally {
     await releaseQuerySlot(user.id, reportSlotToken);
@@ -412,8 +413,8 @@ router.post('/generate/async', rateLimiter, authMiddleware, requireRole('ADMIN',
       reportPlanId: typeof req.body.reportPlanId === 'string' ? req.body.reportPlanId : undefined,
       user: { id: user.id, username: user.username, role: user.role, department: user.department },
     }, { id: user.id, username: user.username });
-  } catch (err: any) {
-    logger.error('[Report] async submit failed:', err?.message || err);
+  } catch (err) {
+    logger.error('[Report] async submit failed:', getErrorMessage(err));
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
   }
   if (!submitted) {
@@ -467,8 +468,8 @@ router.post('/generate-from-query/async', rateLimiter, authMiddleware, requireRo
       amountUnit: amountUnit ?? undefined,
       user: { id: user.id, username: user.username, role: user.role, department: user.department },
     }, { id: user.id, username: user.username });
-  } catch (err: any) {
-    logger.error('[Report] async submit failed:', err?.message || err);
+  } catch (err) {
+    logger.error('[Report] async submit failed:', getErrorMessage(err));
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
   }
   if (!submitted) {
@@ -502,8 +503,8 @@ router.post('/export-pdf/async', express.json({ limit: '20mb' }), rateLimiter, a
       watermark,
       user: { id: user.id, username: user.username, role: user.role, department: user.department },
     }, { id: user.id, username: user.username });
-  } catch (err: any) {
-    logger.error('[Report] async pdf submit failed:', err?.message || err);
+  } catch (err) {
+    logger.error('[Report] async pdf submit failed:', getErrorMessage(err));
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
   }
   if (!submitted) {
@@ -540,9 +541,9 @@ router.post('/export', express.json({ limit: '20mb' }), rateLimiter, authMiddlew
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt))}`);
     return res.send(buffer);
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Report Export Error:', err);
-    writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    writeAudit({ ...auditBase, question: `export:${data.title}`, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'PPT 生成失败，请稍后重试' });
   }
 });
@@ -575,10 +576,10 @@ router.post('/export-pdf', express.json({ limit: '20mb' }), rateLimiter, authMid
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.pdf'))}`);
     return res.send(pdf);
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Report PDF Export Error:', err);
-    writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
-    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: String(err?.message || 'PDF 生成失败，请稍后重试').slice(0, 200) });
+    writeAudit({ ...auditBase, question: `export-pdf:${data.title}`, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: String(getErrorMessage(err) || 'PDF 生成失败，请稍后重试').slice(0, 200) });
   }
 });
 
@@ -608,9 +609,9 @@ router.post('/export-excel', express.json({ limit: '20mb' }), rateLimiter, authM
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.xlsx'))}`);
     return res.send(buffer);
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Report Excel Export Error:', err);
-    writeAudit({ ...auditBase, question: `export-excel:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    writeAudit({ ...auditBase, question: `export-excel:${data.title}`, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'Excel 生成失败，请稍后重试' });
   }
 });
@@ -641,9 +642,9 @@ router.post('/export-word', express.json({ limit: '20mb' }), rateLimiter, authMi
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(buildExportFilename(data.title, data.createdAt, '.docx'))}`);
     return res.send(buffer);
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Report Word Export Error:', err);
-    writeAudit({ ...auditBase, question: `export-word:${data.title}`, status: 'FALLBACK', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    writeAudit({ ...auditBase, question: `export-word:${data.title}`, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'Word 生成失败，请稍后重试' });
   }
 });

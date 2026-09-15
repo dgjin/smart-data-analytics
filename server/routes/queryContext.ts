@@ -16,7 +16,7 @@ router.use(authMiddleware);
 
 /** 由服务端 Schema 上下文构造前端展示摘要；表级明细仅管理员可见（纯函数，便于单测） */
 export function buildContextSummary(
-  ctx: { schema: any[]; sensitiveRemoved: string[]; status: string | null; dsType: string | null; fileBacked?: boolean },
+  ctx: { schema: unknown[]; sensitiveRemoved: string[]; status: string | null; dsType: string | null; fileBacked?: boolean },
   isAdmin: boolean
 ) {
   return {
@@ -28,10 +28,13 @@ export function buildContextSummary(
     tableCount: Array.isArray(ctx.schema) ? ctx.schema.length : 0,
     // 表级明细仅管理员可见；非管理员只暴露数量
     tables: isAdmin
-      ? (Array.isArray(ctx.schema) ? ctx.schema : []).map((t: any) => ({
-          name: String(t?.name || ''),
-          displayName: String(t?.displayName || t?.name || ''),
-        }))
+      ? (Array.isArray(ctx.schema) ? ctx.schema : []).map((t) => {
+          const item = (t ?? {}) as { name?: unknown; displayName?: unknown };
+          return {
+            name: String(item.name || ''),
+            displayName: String(item.displayName || item.name || ''),
+          };
+        })
       : [],
     sensitiveFiltered: ctx.sensitiveRemoved.length,
     maxTablesInPrompt: MAX_TABLES_IN_PROMPT,

@@ -7,17 +7,19 @@
  * - POST   /api/access-requests/:id/reject   ADMIN 驳回（可附备注）
  */
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { rateLimiter } from '../infra/rateLimiter';
 import { checkDataSourceAccess, grantUserAccess } from '../auth/accessControl';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware);
 
-function rowToRequest(row: any) {
+function rowToRequest(row: RowDataPacket) {
   return {
     id: Number(row.id),
     userId: Number(row.user_id),
@@ -104,7 +106,7 @@ router.get('/', requireRole('ADMIN'), async (req, res) => {
 });
 
 // 审批共用：加载 PENDING 申请 → 执行决策 → 留痕
-async function decide(req: any, res: any, action: 'APPROVED' | 'REJECTED') {
+async function decide(req: Request, res: Response, action: 'APPROVED' | 'REJECTED') {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: '申请 ID 无效' });
   const note = String(req.body?.note || '').trim().slice(0, 300);
@@ -125,9 +127,9 @@ async function decide(req: any, res: any, action: 'APPROVED' | 'REJECTED') {
       [action, req.user!.username, note, id]
     );
     return res.json({ success: true });
-  } catch (err: any) {
+  } catch (err) {
     logger.error(`[AccessRequests] ${action} failed:`, err);
-    return res.status(500).json({ error: err?.message === '数据源不存在' ? '数据源已被删除，无法授权' : '审批操作失败' });
+    return res.status(500).json({ error: getErrorMessage(err) === '数据源不存在' ? '数据源已被删除，无法授权' : '审批操作失败' });
   }
 }
 

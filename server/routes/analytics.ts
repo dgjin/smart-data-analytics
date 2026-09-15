@@ -20,6 +20,7 @@ import { executeSafeSql } from '../query/sqlExecutor';
 import { forecastSeries, MAX_FORECAST_PERIODS, MIN_SERIES_LENGTH, type ForecastModel } from '../analytics/seriesForecast';
 import { attributeDelta, aggregateTwoPeriods, MAX_ATTRIBUTION_ROWS, MAX_ATTRIBUTION_DIMS } from '../analytics/attribution';
 import { generateWhatIfPlan, compareOutcomes, summarizeComparison, MAX_SCENARIO_SQL_LENGTH } from '../analytics/whatIf';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware);
@@ -39,8 +40,8 @@ async function tryInterpret(system: string, user: string): Promise<Record<string
     const parsed = safeParseJson(text);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
     return null;
-  } catch (err: any) {
-    logger.warn('[Analytics] LLM 解读失败（降级为仅统计结果）:', err?.message || err);
+  } catch (err) {
+    logger.warn('[Analytics] LLM 解读失败（降级为仅统计结果）:', getErrorMessage(err));
     return null;
   }
 }
@@ -86,8 +87,8 @@ router.post('/forecast', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (re
   let forecast;
   try {
     forecast = forecastSeries(yValues, { periods, model, seasonalPeriod });
-  } catch (err: any) {
-    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: err?.message || '预测参数不合法' });
+  } catch (err) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: getErrorMessage(err) || '预测参数不合法' });
   }
 
   let interpretation: Record<string, unknown> | null = null;
@@ -169,8 +170,8 @@ router.post('/attribution', rateLimiter, requireRole('ADMIN', 'ANALYST'), async 
   let attribution;
   try {
     attribution = attributeDelta(rows);
-  } catch (err: any) {
-    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: err?.message || '归因数据不合法' });
+  } catch (err) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: getErrorMessage(err) || '归因数据不合法' });
   }
 
   let interpretation: Record<string, unknown> | null = null;
@@ -243,8 +244,8 @@ router.post('/whatif', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req,
     let plan;
     try {
       plan = await generateWhatIfPlan({ baseSql: sql, scenario, schema: ctx.schema, question: question || undefined });
-    } catch (err: any) {
-      return res.status(422).json({ code: ERROR_CODES.INVALID_INPUT, error: `情景改写失败：${err?.message || '模型输出未通过校验'}` });
+    } catch (err) {
+      return res.status(422).json({ code: ERROR_CODES.INVALID_INPUT, error: `情景改写失败：${getErrorMessage(err) || '模型输出未通过校验'}` });
     }
 
     // 3) 执行情景 SQL（executeSafeSql 二次安全校验：单条 SELECT + 表白名单 + 危险关键字）
@@ -276,8 +277,8 @@ router.post('/whatif', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req,
         .filter(Boolean)
         .join('\n');
       interpretation = await tryInterpret(system, userMsg);
-    } catch (err: any) {
-      logger.warn('[Analytics] whatif 解读降级:', err?.message || err);
+    } catch (err) {
+      logger.warn('[Analytics] whatif 解读降级:', getErrorMessage(err));
     }
 
     writeAudit({
@@ -297,7 +298,7 @@ router.post('/whatif', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req,
       summaryLines,
       interpretation,
     });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Analytics] whatif error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '情景推演执行失败' });
   }

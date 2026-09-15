@@ -18,6 +18,7 @@ import {
 } from '../query/queryFeedback';
 import { getPool } from '../infra/db';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
 router.use(authMiddleware);
@@ -29,8 +30,8 @@ router.get('/', async (req, res) => {
   try {
     const examples = await listSqlExamples(dataSourceId);
     res.json({ examples });
-  } catch (err: any) {
-    res.status(500).json({ error: `查询样例库失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `查询样例库失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -44,8 +45,8 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
   try {
     const example = await createSqlExample({ dataSourceId, question, sql }, username);
     res.json({ ok: true, example });
-  } catch (err: any) {
-    res.status(500).json({ error: `登记失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `登记失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -53,14 +54,14 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
 router.post('/generate-questions', requireRole('ADMIN'), async (req, res) => {
   const { sqls } = req.body || {};
   if (!Array.isArray(sqls) || sqls.length === 0) return res.status(400).json({ error: '缺少 sqls 数组' });
-  const list = sqls.filter((s: any) => typeof s === 'string' && s.trim()).map((s: string) => s.trim());
+  const list = sqls.filter((s: unknown) => typeof s === 'string' && s.trim()).map((s: string) => s.trim());
   if (list.length === 0) return res.status(400).json({ error: '没有有效的 SQL' });
   if (list.length > 10) return res.status(400).json({ error: '单次最多导入 10 条 SQL' });
   try {
     const pairs = await generateQuestionsForSqls(list);
     res.json({ pairs });
-  } catch (err: any) {
-    res.status(500).json({ error: `问题反推失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `问题反推失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -80,8 +81,8 @@ router.post('/bulk', requireRole('ADMIN'), async (req, res) => {
     }
     if (saved === 0) return res.status(400).json({ error: '没有可保存的合法样例' });
     res.json({ ok: true, saved });
-  } catch (err: any) {
-    res.status(500).json({ error: `批量保存失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `批量保存失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -103,9 +104,9 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
       `attachment; filename="sql-examples-${dataSourceId}-${dateStr}.json"; filename*=UTF-8''${encodeURIComponent(fileName)}`
     );
     res.send(JSON.stringify(exportData, null, 2));
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[SQL Examples Export Error]', err);
-    res.status(500).json({ error: `导出失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导出失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -151,9 +152,9 @@ router.post('/import', requireRole('ADMIN'), async (req, res) => {
       errors: result.errorCount,
     });
     res.json({ ...result, dataSourceId, dataSourceName: String(dsRows[0].name || dataSourceId) });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[SQL Examples Import Error]', err);
-    res.status(500).json({ error: `导入失败：${err?.message || '未知错误'}` });
+    res.status(500).json({ error: `导入失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -168,8 +169,8 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
     const updated = await updateSqlExample(id, { question, sql });
     if (!updated) return res.status(404).json({ error: '样例不存在' });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `保存失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `保存失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
@@ -181,8 +182,8 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
     const deleted = await deleteSqlExample(id);
     if (!deleted) return res.status(404).json({ error: '样例不存在' });
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(500).json({ error: `删除失败：${err?.message || '未知错误'}` });
+  } catch (err) {
+    res.status(500).json({ error: `删除失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

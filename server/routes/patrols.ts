@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
   const dataSourceId = typeof req.query.dataSourceId === 'string' ? req.query.dataSourceId : '';
   try {
     res.json({ ok: true, patrols: await listPatrols(dataSourceId || undefined) });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('GET /api/patrols error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取巡检计划失败' });
   }
@@ -86,7 +86,7 @@ router.post('/', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       detail: `新建巡检计划 ${plan.patrolId}（每 ${intervalMinutes} 分钟）`,
     });
     res.status(201).json({ ok: true, patrol: plan });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('POST /api/patrols error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '创建巡检计划失败' });
   }
@@ -134,7 +134,7 @@ router.put('/:patrolId', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       detail: `更新巡检计划字段：${Object.keys(patch).join('/')}`,
     });
     res.json({ ok: true, patrol: row ? toPatrolPlan(row) : null });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('PUT /api/patrols/:patrolId error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '更新巡检计划失败' });
   }
@@ -159,7 +159,7 @@ router.delete('/:patrolId', requireRole('ADMIN', 'ANALYST'), async (req, res) =>
       detail: `删除巡检计划：${owned.row.name}`,
     });
     res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('DELETE /api/patrols/:patrolId error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '删除巡检计划失败' });
   }
@@ -186,7 +186,7 @@ router.post('/:patrolId/run', rateLimiter, requireRole('ADMIN', 'ANALYST'), asyn
       durationMs: Date.now() - startedAt,
     });
     res.json({ ok: true, result: outcome });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('POST /api/patrols/:patrolId/run error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '执行巡检失败' });
   }
@@ -200,7 +200,7 @@ router.get('/:patrolId/runs', async (req, res) => {
     const row = await findPatrol(patrolId);
     if (!row) return res.status(404).json({ code: ERROR_CODES.NOT_FOUND, error: '巡检计划不存在' });
     res.json({ ok: true, runs: await listPatrolRuns(patrolId, limit) });
-  } catch (err: any) {
+  } catch (err) {
     logger.error('GET /api/patrols/:patrolId/runs error:', err);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '获取运行历史失败' });
   }

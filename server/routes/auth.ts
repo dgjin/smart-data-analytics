@@ -18,6 +18,7 @@ import {
   findOrCreateOidcUser,
 } from '../auth/oidc';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /** users 表登录查询行（SELECT 指定列） */
 interface UserRow extends mysql.RowDataPacket {
@@ -146,9 +147,9 @@ router.get('/oidc/callback', rateLimiter, async (req, res) => {
     const user = await findOrCreateOidcUser(profile);
     const token = signToken(user);
     return res.redirect(`/?sso_token=${encodeURIComponent(token)}`);
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[OIDC] callback failed:', err);
-    return fail(err?.message || 'OIDC 登录失败');
+    return fail(getErrorMessage(err) || 'OIDC 登录失败');
   }
 });
 
