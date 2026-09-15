@@ -26,14 +26,21 @@ async function pickExecutableSource(request: APIRequestContext): Promise<PickedS
   const candidates = (dataSources as any[])
     .filter((d) => ['mysql', 'postgresql', 'greenplum'].includes(d.type) && d.status === 'connected')
     .sort((a, b) => (a.type === 'mysql' ? 0 : 1) - (b.type === 'mysql' ? 0 : 1));
-  for (const d of candidates) {
-    const all: string[] = (d.tables || []).map((t: any) => String(t?.name || '')).filter(Boolean);
-    const rawScope: any[] = d.scope?.tables || [];
-    const scope = rawScope.map((t) => (typeof t === 'string' ? t : String(t?.name || ''))).filter(Boolean);
-    const inScope = scope.length ? all.filter((t) => scope.includes(t)) : all;
-    if (inScope.length > 0) return { id: String(d.id), tables: inScope };
-  }
-  return null;
+
+  // 两轮择源：优先「问数范围（scope）非空」的源——无范围（全表放行）的库可能含百万行大表，
+  // 真执行会被 EXPLAIN 扫描防线拦截 422（安全设计，非缺陷）；仅在无 scope 非空源时才回退全表源。
+  const pick = (requireScope: boolean): PickedSource | null => {
+    for (const d of candidates) {
+      const all: string[] = (d.tables || []).map((t: any) => String(t?.name || '')).filter(Boolean);
+      const rawScope: any[] = d.scope?.tables || [];
+      const scope = rawScope.map((t) => (typeof t === 'string' ? t : String(t?.name || ''))).filter(Boolean);
+      if (requireScope && scope.length === 0) continue;
+      const inScope = scope.length ? all.filter((t) => scope.includes(t)) : all;
+      if (inScope.length > 0) return { id: String(d.id), tables: inScope };
+    }
+    return null;
+  };
+  return pick(true) ?? pick(false);
 }
 
 /** 登录并进入灵活查询页，按 API 预选结果切换数据源 */

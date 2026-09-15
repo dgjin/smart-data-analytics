@@ -69,14 +69,16 @@ test.describe('冒烟：critical 回归防线', () => {
     expect(Array.isArray(kbBody.docs)).toBeTruthy();
 
     // UI 层防线：面板真实渲染、接口 200、无错误横幅
+    // v0.9.56 起业务知识库与 SQL 样例库由「数据源与 Schema」迁至「系统管理 → 规则治理」（DataSourceManager 已仅留 Schema/血缘视图）
     await loginAsAdmin(page);
-    await page.getByRole('button', { name: /数据源与 Schema/ }).first().click();
+    await page.getByRole('button', { name: /系统管理/ }).first().click();
+    await page.getByRole('button', { name: /^规则治理$/ }).click();
     // 先挂响应监听再点击，避免面板挂载即发的 loadDocs 请求被漏捕
     const kbResponse = page.waitForResponse(
       (r) => r.url().includes('/api/knowledge?') && r.request().method() === 'GET',
       { timeout: 15_000 },
     );
-    await page.getByRole('button', { name: /业务知识库 \(Knowledge Base\)/ }).click();
+    await page.getByRole('button', { name: /^业务知识库$/ }).click();
     expect((await kbResponse).status()).toBe(200);
     // 面板头部与 ADMIN 操作区渲染完成
     await expect(page.getByRole('button', { name: /登记知识/ })).toBeVisible({ timeout: 15_000 });
