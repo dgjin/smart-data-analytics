@@ -9,6 +9,7 @@ import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { serializeSchemaForPrompt } from './schemaGuidance';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { logger } from '../infra/logger';
+import type { SchemaTable } from './schemaTypes';
 
 export interface QueryPlanStep {
   type: string;
@@ -135,13 +136,13 @@ export function parseQueryPlan(text: string, question: string): QueryPlan | null
     understanding: parsed.understanding.trim().slice(0, 500),
     steps,
     relatedTables: Array.isArray(parsed.relatedTables)
-      ? parsed.relatedTables.filter((t: any) => typeof t === 'string').slice(0, 10).map((t: string) => t.slice(0, 64))
+      ? parsed.relatedTables.filter((t: unknown): t is string => typeof t === 'string').slice(0, 10).map((t: string) => t.slice(0, 64))
       : [],
     complexity: parsed.complexity === 'multi-step' ? 'multi-step' : 'simple',
   };
 }
 
-function buildPlanSystem(schema: any[]): string {
+function buildPlanSystem(schema: SchemaTable[]): string {
   return `你是一个数据分析规划引擎。根据数据库 Schema 与用户问题，先制定一份可执行的分析计划（只规划，不执行任何查询）。
 
 数据库 Schema（已经过权限与敏感字段过滤；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
@@ -159,7 +160,7 @@ ${serializeSchemaForPrompt(schema)}
 }
 
 /** 调用 LLM 生成分析计划；首次输出未过结构校验时纠偏重试一次，仍失败抛错由调用方处理 */
-export async function generateQueryPlan(question: string, schema: any[]): Promise<QueryPlan> {
+export async function generateQueryPlan(question: string, schema: SchemaTable[]): Promise<QueryPlan> {
   const system = buildPlanSystem(schema);
   const text = await callLLMJson(system, question);
   const plan = parseQueryPlan(text, question);

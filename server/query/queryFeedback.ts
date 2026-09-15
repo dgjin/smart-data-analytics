@@ -8,7 +8,8 @@ import { getPool } from '../infra/db';
 import { extractTableRefs, stripCommentsAndStrings } from './sqlExecutor';
 import { callLLMJson, callEmbedding } from '../llm/llmClient';
 import { approxTokens, FEWSHOT_TOKEN_BUDGET } from '../llm/promptBudget';
-import type { RowDataPacket } from 'mysql2';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /** 余弦相似度（与 knowledgeBase 同实现；内联避免相互 import 形成循环依赖） */
 function cosine(a: number[], b: number[]): number {
@@ -211,7 +212,7 @@ export async function loadFewShotExamples(
     .filter((r) => r.score > 0);
 
   // 相同 SQL 去重：保留最高分
-  const bySql = new Map<string, any>();
+  const bySql = new Map<string, (typeof scored)[number]>();
   for (const s of scored) {
     const prev = bySql.get(s.sql);
     if (!prev || s.score > prev.score) bySql.set(s.sql, s);
@@ -243,7 +244,7 @@ export interface SqlExampleRecord {
   createdAt: string;
 }
 
-function toExampleRecord(r: any): SqlExampleRecord {
+function toExampleRecord(r: RowDataPacket): SqlExampleRecord {
   return {
     id: Number(r.id),
     dataSourceId: String(r.data_source_id),
@@ -281,11 +282,11 @@ export async function createSqlExample(
   source: 'MANUAL' | 'IMPORT' = 'MANUAL'
 ): Promise<SqlExampleRecord> {
   const embeddingJson = await embedExampleQuestion(input.question);
-  const result: any = await getPool().query(
+  const [result] = await getPool().query<ResultSetHeader>(
     'INSERT INTO sql_examples (data_source_id, question, sql_text, source, created_by, embedding) VALUES (?, ?, ?, ?, ?, ?)',
     [input.dataSourceId.slice(0, 64), input.question.trim().slice(0, 500), normalizeSql(input.sql).slice(0, 2000), source, createdBy.slice(0, 50), embeddingJson]
   );
-  const insertId = Number(result[0]?.insertId);
+  const insertId = Number(result.insertId);
   const [rows] = await getPool().query<RowDataPacket[]>('SELECT * FROM sql_examples WHERE id = ?', [insertId]);
   return toExampleRecord(rows[0]);
 }
@@ -296,16 +297,16 @@ export async function updateSqlExample(
 ): Promise<boolean> {
   // P1-3：问题变更时向量同步重算，避免旧向量与新问题语义脱节
   const embeddingJson = await embedExampleQuestion(input.question);
-  const result: any = await getPool().query(
+  const [result] = await getPool().query<ResultSetHeader>(
     'UPDATE sql_examples SET question = ?, sql_text = ?, embedding = ? WHERE id = ?',
     [input.question.trim().slice(0, 500), normalizeSql(input.sql).slice(0, 2000), embeddingJson, id]
   );
-  return Number(result[0]?.affectedRows) > 0;
+  return Number(result.affectedRows) > 0;
 }
 
 export async function deleteSqlExample(id: number): Promise<boolean> {
-  const result: any = await getPool().query('DELETE FROM sql_examples WHERE id = ?', [id]);
-  return Number(result[0]?.affectedRows) > 0;
+  const [result] = await getPool().query<ResultSetHeader>('DELETE FROM sql_examples WHERE id = ?', [id]);
+  return Number(result.affectedRows) > 0;
 }
 
 /** P2-8 冷启动：给一批 SQL 反推自然语言问题（Vanna generate_question 思路），不入库，供前端预览确认 */
@@ -421,11 +422,12 @@ export async function importSqlExamples(
     'SELECT id, question FROM sql_examples WHERE data_source_id = ?',
     [dataSourceId]
   );
-  const existingByQuestion = new Map<string, number>(rows.map((r: any) => [String(r.question), Number(r.id)]));
+  const existingByQuestion = new Map<string, number>(rows.map((r) => [String(r.question), Number(r.id)]));
 
   for (const raw of items.slice(0, MAX_IMPORT_EXAMPLES)) {
-    const question = typeof (raw as any)?.question === 'string' ? String((raw as any).question).trim() : '';
-    const sql = typeof (raw as any)?.sql === 'string' ? String((raw as any).sql).trim() : '';
+    const item = (raw ?? {}) as Record<string, unknown>;
+    const question = typeof item.question === 'string' ? item.question.trim() : '';
+    const sql = typeof item.sql === 'string' ? item.sql.trim() : '';
     const invalid = validateExampleInput({ question, sql });
     if (invalid) {
       result.summary.invalidItems++;
@@ -458,9 +460,9 @@ export async function importSqlExamples(
         existingByQuestion.set(question, -1);
       }
       result.importedCount++;
-    } catch (err: any) {
+    } catch (err) {
       result.errorCount++;
-      result.errors.push({ question, message: err?.message || '未知错误' });
+      result.errors.push({ question, message: getErrorMessage(err) || '未知错误' });
     }
   }
 

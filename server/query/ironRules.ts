@@ -8,6 +8,7 @@
  */
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { getPool } from '../infra/db';
+import { getErrorMessage } from '../infra/errorUtils';
 
 export type IronRuleStatus = 'ACTIVE' | 'DISABLED';
 
@@ -26,10 +27,11 @@ export interface IronRule {
 const MAX_IRON_RULES_PER_DS = 100;
 
 /** 校验并规整铁律输入；非法时返回 error 说明（路由层据此 400） */
-export function sanitizeIronRuleInput(input: any): { ok: true; rule: Omit<IronRule, 'id'> } | { ok: false; error: string } {
-  const dataSourceId = typeof input?.dataSourceId === 'string' ? input.dataSourceId.trim() : '';
-  const title = typeof input?.title === 'string' ? input.title.trim() : '';
-  const content = typeof input?.content === 'string' ? input.content.trim() : '';
+export function sanitizeIronRuleInput(input: unknown): { ok: true; rule: Omit<IronRule, 'id'> } | { ok: false; error: string } {
+  const obj = (input ?? {}) as { dataSourceId?: unknown; title?: unknown; content?: unknown; status?: unknown };
+  const dataSourceId = typeof obj.dataSourceId === 'string' ? obj.dataSourceId.trim() : '';
+  const title = typeof obj.title === 'string' ? obj.title.trim() : '';
+  const content = typeof obj.content === 'string' ? obj.content.trim() : '';
 
   if (!dataSourceId) return { ok: false, error: '缺少 dataSourceId' };
   if (!title || title.length > 100) return { ok: false, error: '规则标题必填且不超过 100 字' };
@@ -37,7 +39,7 @@ export function sanitizeIronRuleInput(input: any): { ok: true; rule: Omit<IronRu
 
   return {
     ok: true,
-    rule: { dataSourceId, title, content, status: input?.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
+    rule: { dataSourceId, title, content, status: obj.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
   };
 }
 
@@ -50,7 +52,7 @@ export function buildIronRulesPrompt(rules: IronRule[]): string {
 
 // ---------- CRUD（routes/ironRules.ts 调用，全 ADMIN） ----------
 
-function rowToRule(r: any): IronRule {
+function rowToRule(r: RowDataPacket): IronRule {
   return {
     id: Number(r.id),
     dataSourceId: String(r.data_source_id),
@@ -215,11 +217,12 @@ export async function importIronRules(
     'SELECT id, title FROM iron_rules WHERE data_source_id = ?',
     [dataSourceId]
   );
-  const existingByTitle = new Map<string, number>(rows.map((r: any) => [String(r.title), Number(r.id)]));
+  const existingByTitle = new Map<string, number>(rows.map((r) => [String(r.title), Number(r.id)]));
 
   for (const raw of items.slice(0, MAX_IMPORT_ITEMS)) {
-    const title = typeof (raw as any)?.title === 'string' ? String((raw as any).title).trim() : '';
-    const cleaned = sanitizeIronRuleInput({ ...(raw as object), dataSourceId });
+    const item = (raw ?? {}) as Record<string, unknown>;
+    const title = typeof item.title === 'string' ? item.title.trim() : '';
+    const cleaned = sanitizeIronRuleInput({ ...item, dataSourceId });
     if (cleaned.ok !== true) {
       result.summary.invalidItems++;
       result.errorCount++;
@@ -253,9 +256,9 @@ export async function importIronRules(
         existingByTitle.set(cleaned.rule.title, -1);
       }
       result.importedCount++;
-    } catch (err: any) {
+    } catch (err) {
       result.errorCount++;
-      result.errors.push({ title: cleaned.rule.title, message: err?.message || '未知错误' });
+      result.errors.push({ title: cleaned.rule.title, message: getErrorMessage(err) || '未知错误' });
     }
   }
 

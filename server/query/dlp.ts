@@ -89,7 +89,7 @@ function ruleForValue(value: unknown): DlpRule | null {
 }
 
 export interface MaskedRows {
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   /** 被脱敏的列名（供 UI 提示「已脱敏」与审计） */
   maskedColumns: string[];
   /** 命中的规则标签（如 ['手机号','身份证']，供审计/提示） */
@@ -100,7 +100,7 @@ export interface MaskedRows {
  * 对查询结果行集按角色策略脱敏。返回新数组（原数组与行对象不被修改）。
  * ADMIN（豁免开启时）/全局关闭/空集 直接原样返回。
  */
-export function maskRows(rows: Record<string, any>[], user: Pick<AuthUser, 'role'>): MaskedRows {
+export function maskRows(rows: Record<string, unknown>[], user: Pick<AuthUser, 'role'>): MaskedRows {
   if (!isDlpEnabled() || isDlpExempt(user) || !Array.isArray(rows) || rows.length === 0) {
     return { rows, maskedColumns: [], maskedLabels: [] };
   }
@@ -127,7 +127,7 @@ export function maskRows(rows: Record<string, any>[], user: Pick<AuthUser, 'role
   if (colRule.size === 0) return { rows, maskedColumns: [], maskedLabels: [] };
 
   const masked = rows.map((row) => {
-    const next: Record<string, any> = { ...row };
+    const next: Record<string, unknown> = { ...row };
     for (const [col, rule] of colRule) {
       const v = next[col];
       if (v === null || v === undefined || v === '') continue;
@@ -145,17 +145,18 @@ export function maskRows(rows: Record<string, any>[], user: Pick<AuthUser, 'role
  * 问数结果 payload 脱敏：处理 payload.result.rows（存在时），返回新 payload
  * （result 对象同样拷贝，避免污染缓存中的原始引用），并附加 dlp 标记供前端提示。
  */
-export function maskQueryPayload<T extends { result?: { rows?: Record<string, any>[] } }>(
+export function maskQueryPayload<T extends Record<string, unknown>>(
   payload: T,
   user: Pick<AuthUser, 'role'>,
 ): T & { dlp?: { maskedColumns: string[]; maskedLabels: string[] } } {
-  const rows = payload?.result?.rows;
+  const result = payload?.result;
+  const rows = result && typeof result === 'object' ? (result as { rows?: unknown }).rows : undefined;
   if (!Array.isArray(rows) || rows.length === 0) return payload;
-  const { rows: masked, maskedColumns, maskedLabels } = maskRows(rows, user);
+  const { rows: masked, maskedColumns, maskedLabels } = maskRows(rows as Record<string, unknown>[], user);
   if (maskedColumns.length === 0) return payload;
   return {
     ...payload,
-    result: { ...payload.result!, rows: masked },
+    result: { ...(result as Record<string, unknown>), rows: masked },
     dlp: { maskedColumns, maskedLabels },
   };
 }

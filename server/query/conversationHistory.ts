@@ -89,7 +89,7 @@ export async function pruneConversationHistory(userId: number, dataSourceId: str
   return Number(result.affectedRows || 0);
 }
 
-function toRecord(r: any): ConversationRecord {
+function toRecord(r: mysql.RowDataPacket): ConversationRecord {
   return {
     id: Number(r.id),
     question: String(r.question),

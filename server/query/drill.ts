@@ -8,7 +8,9 @@
  */
 // node-sql-parser 是 CJS 包，ESM 下需默认导入后解构（与 sqlExecutor.ts 一致）
 import sqlParserPkg from 'node-sql-parser';
+import type { AST } from 'node-sql-parser';
 import { executeSafeSql } from './sqlExecutor';
+import type { SchemaTable } from './schemaTypes';
 
 const { Parser } = sqlParserPkg;
 const astParser = new Parser();
@@ -22,14 +24,14 @@ export interface DrillInput {
   /** 点击的维度值 */
   dimensionValue: string | number;
   /** 数据源 schema（白名单校验） */
-  schema: any[];
+  schema: SchemaTable[];
   sensitiveRemoved: string[];
   rowFilters?: Record<string, string>;
 }
 
 export interface DrillResult {
   ok: true;
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   rowCount: number;
   finalSql: string;
 }
@@ -68,7 +70,7 @@ export function buildDrillSql(sql: string, dimKey: string, dimValue: string | nu
 
   // 尝试 AST 提取 FROM + WHERE
   try {
-    const parsed: any = astParser.astify(stripped, opt);
+    const parsed = astParser.astify(stripped, opt);
     const root = Array.isArray(parsed) ? parsed[0] : parsed;
     if (!root || root.type !== 'select') return fallbackBuild(stripped, dimKey, dimValue);
 
@@ -76,7 +78,8 @@ export function buildDrillSql(sql: string, dimKey: string, dimValue: string | nu
     const where = root.where;
 
     // 构造新 AST：SELECT * FROM ... [WHERE ... AND dim=val] LIMIT 50
-    const newAst: any = {
+    // 手写 SQL 字面量 AST（columns 为 '*' 简写、groupby 置 null），与库内 Select 类型不逐字段对齐，经 unknown 断言
+    const newAst = {
       type: 'select',
       with: null,
       options: null,
@@ -88,7 +91,7 @@ export function buildDrillSql(sql: string, dimKey: string, dimValue: string | nu
       having: null,
       orderby: null,
       limit: { value: [{ type: 'number', value: 50 }] },
-    };
+    } as unknown as AST;
 
     const rewritten = astParser.sqlify(newAst, opt);
     if (typeof rewritten === 'string' && rewritten.trim()) return rewritten;
@@ -99,12 +102,12 @@ export function buildDrillSql(sql: string, dimKey: string, dimValue: string | nu
   return fallbackBuild(stripped, dimKey, dimValue);
 }
 
-function combineWhere(existing: any, dimKey: string, dimValue: string | number): any {
+function combineWhere(existing: unknown, dimKey: string, dimValue: string | number): Record<string, unknown> {
   const valNode = typeof dimValue === 'number'
     ? { type: 'number', value: dimValue }
     : { type: 'string', value: String(dimValue) };
 
-  const predicate: any = {
+  const predicate: Record<string, unknown> = {
     type: 'binary_expr',
     operator: '=',
     left: { type: 'column_ref', table: null, column: dimKey },

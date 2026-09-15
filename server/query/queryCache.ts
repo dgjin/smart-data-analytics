@@ -35,13 +35,13 @@ export function cacheKey(dataSourceId: string, question: string, variant = ''): 
 }
 
 interface CacheEntry {
-  payload: any;
+  payload: Record<string, unknown>;
   at: number;
 }
 
 const cache = new Map<string, CacheEntry>();
 
-export async function getCachedQuery(key: string, internal = false): Promise<any | null> {
+export async function getCachedQuery(key: string, internal = false): Promise<Record<string, unknown> | null> {
   const hit = () => { if (!internal) observeCacheHit('l1'); }; // internal=true 时为 L2 取载荷，不计 L1 命中（避免重复计数）
   if (isRedisEnabled()) {
     try {
@@ -64,7 +64,7 @@ export async function getCachedQuery(key: string, internal = false): Promise<any
 
 export async function setCachedQuery(
   key: string,
-  payload: any,
+  payload: Record<string, unknown>,
   semantic?: { dataSourceId: string; question: string; variant?: string }
 ): Promise<void> {
   if (isRedisEnabled()) {
@@ -224,7 +224,7 @@ async function indexSemanticEntry(dataSourceId: string, variant: string, key: st
 }
 
 export interface SemanticCacheHit {
-  payload: any;
+  payload: Record<string, unknown>;
   matchedQuestion: string;
   similarity: number;
 }

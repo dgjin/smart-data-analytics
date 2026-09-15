@@ -42,7 +42,7 @@ describe('queryCache: 问数结果缓存', () => {
     await setCachedQuery(key, { success: true, result: { x: 1 } });
     const hit = await getCachedQuery(key);
     expect(hit).toBeTruthy();
-    expect(hit.result.x).toBe(1);
+    expect((hit?.result as Record<string, unknown> | undefined)?.x).toBe(1);
   });
 
   it('未写入的键返回 null', async () => {

@@ -11,7 +11,9 @@ import { callLLMJson, sqlStageRoute } from '../llm/llmClient';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { serializeSchemaForPrompt } from './schemaGuidance';
 import type { TraceStep } from './queryTrace';
+import type { SchemaTable } from './schemaTypes';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
 
 export const CHAIN_MAX_ROWS = 5000;
 export const CHAIN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -46,7 +48,7 @@ export interface ChainOutcome {
 
 // ---------- 复杂度评估 ----------
 
-function buildAssessSystem(schema: any[]): string {
+function buildAssessSystem(schema: SchemaTable[]): string {
   return `你是一个分析复杂度评估引擎。判断用户问题是否需要多步数据清洗/中间计算，并在需要时给出清洗步骤计划（只规划不执行）。
 
 数据库 Schema（已经过权限与敏感字段过滤；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
@@ -96,7 +98,7 @@ export function hasMultiStepSignal(question: string): boolean {
  */
 export async function assessComplexity(
   question: string,
-  schema: any[],
+  schema: SchemaTable[],
   opts?: { force?: boolean }
 ): Promise<ChainAssessment> {
   if (!opts?.force && process.env.ASSESS_ALWAYS_LLM !== '1' && !hasMultiStepSignal(question)) {
@@ -113,7 +115,7 @@ export async function assessComplexity(
 
 // ---------- 清洗步骤 SQL 纠错 ----------
 
-function buildRepairSystem(schema: any[]): string {
+function buildRepairSystem(schema: SchemaTable[]): string {
   return `你是一个 SQL 纠错引擎。一条数据清洗 SQL 在源库执行失败，请根据错误信息输出修正后的 SQL。
 
 数据库 Schema（已经过权限与敏感字段过滤；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
@@ -139,7 +141,7 @@ export async function repairChainStepSql(
   purpose: string,
   failedSql: string,
   execError: string,
-  schema: any[]
+  schema: SchemaTable[]
 ): Promise<string | null> {
   try {
     const userMsg = `步骤用途：${purpose}\n失败的 SQL：${failedSql.slice(0, 1500)}\n执行错误：${String(execError).slice(0, 300)}\n请输出修正后的 SQL。`;
@@ -158,14 +160,14 @@ export async function repairChainStepSql(
 // ---------- 中间表物化 ----------
 
 /** 列名安全化：仅保留合法标识符（源库结果列名），敏感列（裸名）整体剔除 */
-export function pickSafeColumns(rows: Record<string, any>[], sensitiveRemoved: string[]): string[] {
+export function pickSafeColumns(rows: Record<string, unknown>[], sensitiveRemoved: string[]): string[] {
   const sensitive = new Set(sensitiveRemoved.map((c) => String(c).split('.').pop()!.toLowerCase()));
   const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
   return cols.filter((c) => IDENT_RE.test(c) && !sensitive.has(c.toLowerCase()));
 }
 
 /** 列类型推断：样本中数值占多数 → DOUBLE，否则 TEXT */
-export function inferColumnType(rows: Record<string, any>[], col: string): 'DOUBLE' | 'TEXT' {
+export function inferColumnType(rows: Record<string, unknown>[], col: string): 'DOUBLE' | 'TEXT' {
   let numeric = 0;
   let seen = 0;
   for (const r of rows.slice(0, 100)) {
@@ -179,7 +181,7 @@ export function inferColumnType(rows: Record<string, any>[], col: string): 'DOUB
 }
 
 /** 单元格值规整（v0.9.34 起导出，文件数据源导入落库复用同一规则）：空值→null、DOUBLE 非数值→null、其余→截断字符串 */
-export function toCellValue(v: any, type: 'DOUBLE' | 'TEXT'): number | string | null {
+export function toCellValue(v: unknown, type: 'DOUBLE' | 'TEXT'): number | string | null {
   if (v === null || v === undefined || v === '') return null;
   if (type === 'DOUBLE') {
     const n = typeof v === 'number' ? v : Number(v);
@@ -216,7 +218,7 @@ async function dropIntermediateTable(id: string, tableName: string): Promise<voi
  * 写入前剔除敏感列；行数上限由调用方（CHAIN_MAX_ROWS）保证。
  */
 export async function materializeIntermediateTable(
-  rows: Record<string, any>[],
+  rows: Record<string, unknown>[],
   meta: { userId: number; dataSourceId: string; traceId: string; purpose: string },
   sensitiveRemoved: string[] = []
 ): Promise<IntermediateTableInfo | null> {
@@ -257,7 +259,7 @@ export async function materializeIntermediateTable(
 export interface ChainInput {
   question: string;
   dataSourceId: string;
-  schema: any[];
+  schema: SchemaTable[];
   sensitiveRemoved: string[];
   assessment: ChainAssessment;
   userId: number;
@@ -361,7 +363,7 @@ ${lines.join('\n')}
 export async function executeOnAppDb(
   rawSql: unknown,
   registeredAitNames: Set<string>
-): Promise<{ ok: true; result: { rows: Record<string, any>[]; rowCount: number; truncated: boolean; finalSql: string } } | { ok: false; reason: string }> {
+): Promise<{ ok: true; result: { rows: Record<string, unknown>[]; rowCount: number; truncated: boolean; finalSql: string } } | { ok: false; reason: string }> {
   if (typeof rawSql !== 'string' || !rawSql.trim()) return { ok: false, reason: 'SQL 为空或格式无效' };
   const stripped = stripCommentsAndStrings(rawSql).trim().replace(/\s+/g, ' ');
   const withoutTrailing = stripped.replace(/;+\s*$/, '');
@@ -376,10 +378,10 @@ export async function executeOnAppDb(
   const finalSql = /\blimit\s+\d+/i.test(withoutTrailing) ? withoutTrailing : `${withoutTrailing} LIMIT 500`;
   try {
     const [rows] = await getPool().query({ sql: finalSql, timeout: 10_000 });
-    const list = Array.isArray(rows) ? (rows as Record<string, any>[]) : [];
+    const list = Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
     return { ok: true, result: { rows: list.slice(0, 500), rowCount: list.length, truncated: list.length > 500, finalSql } };
-  } catch (err: any) {
-    return { ok: false, reason: `SQL 执行失败：${String(err?.message || err).slice(0, 200)}` };
+  } catch (err) {
+    return { ok: false, reason: `SQL 执行失败：${String(getErrorMessage(err)).slice(0, 200)}` };
   }
 }
 

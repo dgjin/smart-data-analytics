@@ -105,7 +105,7 @@ export function inferFileColumnTypes(rows: unknown[][], colCount: number): ('DOU
     for (let i = 0; i < colCount; i++) obj[String(i)] = r[i];
     return obj;
   });
-  return Array.from({ length: colCount }, (_, i) => inferColumnType(sample as Record<string, any>[], String(i)));
+  return Array.from({ length: colCount }, (_, i) => inferColumnType(sample, String(i)));
 }
 
 /** exceljs 单元格值规整：富文本/超链接/公式取结果；日期转 'YYYY-MM-DD HH:mm:ss' 串；异常对象转 JSON 截断 */

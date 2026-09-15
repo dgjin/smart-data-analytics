@@ -7,18 +7,20 @@ import { callLLMJson, ChatMessage } from '../llm/llmClient';
 import { buildColumnNames, parseRefusal } from './liveQuery';
 import { normalizeQueryResult, safeParseJson } from '../../src/utils/queryResultNormalizer';
 import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
+import type { SchemaTable } from './schemaTypes';
 
 export interface SimulatedQueryInput {
   query: string;
   history: ChatMessage[];
-  schema: any[];
+  schema: SchemaTable[];
   guidance: string;
 }
 
 export interface SimulatedQuerySuccess {
   ok: true;
   /** LLM 原始结构化输出（generatedSQL / aiExplanation 等供审计与对话历史落库） */
-  parsed: any;
+  parsed: Record<string, unknown>;
   /** 通过结构化校验的标准结果（路由层直接作为 result 返回） */
   result: NonNullable<ReturnType<typeof normalizeQueryResult>>;
 }
@@ -37,7 +39,7 @@ export interface SimulatedQueryRefuse {
 export type SimulatedQueryOutcome = SimulatedQuerySuccess | SimulatedQueryFailure | SimulatedQueryRefuse;
 
 /** 演示模式 system prompt（纯函数抽出便于单测；文案与 live 链路共同维护） */
-export function buildSimulatedSystemPrompt(schema: any[], guidance: string): string {
+export function buildSimulatedSystemPrompt(schema: SchemaTable[], guidance: string): string {
   return `
 你是一个顶级的企业级数据分析专家。当前数据源为演示模式（非 MySQL 直连），无法执行真实查询，
 你需要结合给定的 Schema 结构生成逼真的演示数据、可视化配置与决策洞察。
@@ -82,7 +84,7 @@ export async function runSimulatedQuery(input: SimulatedQueryInput): Promise<Sim
     // 中文表头：schema 列业务含义兜底 + LLM 映射覆盖（与 live 链路同一组装逻辑）
     if (parsed && Array.isArray(parsed.data)) {
       parsed.columnNames = buildColumnNames(
-        parsed.data.filter((r: any) => r && typeof r === 'object'),
+        parsed.data.filter((r: unknown) => r && typeof r === 'object'),
         input.schema || [],
         parsed.chartConfig?.yAxisNames,
         parsed.columnNames
@@ -101,13 +103,16 @@ export async function runSimulatedQuery(input: SimulatedQueryInput): Promise<Sim
         }
       }
     }
-    const normalized = parsed ? normalizeQueryResult(parsed) : null;
+    if (!parsed) {
+      return { ok: false, error: 'LLM 返回内容未通过结构化校验' };
+    }
+    const normalized = normalizeQueryResult(parsed);
     if (!normalized) {
       return { ok: false, error: 'LLM 返回内容未通过结构化校验' };
     }
     return { ok: true, parsed, result: normalized };
-  } catch (err: any) {
-    logger.error('NL Query API error:', err?.message || err);
-    return { ok: false, error: String(err?.message || err) };
+  } catch (err) {
+    logger.error('NL Query API error:', getErrorMessage(err));
+    return { ok: false, error: String(getErrorMessage(err)) };
   }
 }

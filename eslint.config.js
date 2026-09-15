@@ -42,6 +42,7 @@ export default tseslint.config(
   // 移出即回到 error 保护，新增文件不在列表 → 立即被门禁拦截。
   // 批次1 已完成（2026-09-15）：server/routes 全目录 130 处 → 0，24 个文件已移出。
   // 批次2 已完成（2026-09-15）：src/components 全目录 147 处 → 0，42 个文件已移出。
+  // 批次3 已完成（2026-09-15）：server/query 全目录 110 处 → 0，18 个文件已移出。
   {
     files: [
       'server.ts', // 2
@@ -67,24 +68,6 @@ export default tseslint.config(
       'server/llm/expertPersona.ts', // 2
       'server/llm/llmResilience.ts', // 2
       'server/llm/llmUsage.ts', // 2
-      'server/query/analysisChain.ts', // 12
-      'server/query/conversationHistory.ts', // 1
-      'server/query/dlp.ts', // 4
-      'server/query/drill.ts', // 7
-      'server/query/fileDataSource.ts', // 1
-      'server/query/ironRules.ts', // 6
-      'server/query/liveQuery.ts', // 3
-      'server/query/liveQueryParsers.ts', // 1
-      'server/query/liveQueryUtils.ts', // 11
-      'server/query/metrics.ts', // 13
-      'server/query/queryCache.ts', // 4
-      'server/query/queryFeedback.ts', // 11
-      'server/query/queryHooks.ts', // 1
-      'server/query/queryPlan.ts', // 3
-      'server/query/queryService.ts', // 12
-      'server/query/queryTrace.ts', // 1
-      'server/query/simulatedQuery.ts', // 5
-      'server/query/sqlExecutor.ts', // 14
       'server/report/liveReport.ts', // 3
       'server/report/reportExport.ts', // 9
       'server/report/simulatedReport.ts', // 3

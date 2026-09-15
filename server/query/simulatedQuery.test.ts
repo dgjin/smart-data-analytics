@@ -58,8 +58,9 @@ describe('runSimulatedQuery: 演示模式问数生成', () => {
     const out = await runSimulatedQuery({ query: 'q', history: [], schema: [], guidance: '' });
     expect(out.ok).toBe(true);
     if (out.ok === true) {
-      expect(out.parsed.chartConfig.yAxisNames.amount).toBe('销售额');
-      expect(out.parsed.chartConfig.xAxisName).toBe('区域');
+      const cfg = out.parsed.chartConfig as { yAxisNames?: Record<string, string>; xAxisName?: string };
+      expect(cfg.yAxisNames?.amount).toBe('销售额');
+      expect(cfg.xAxisName).toBe('区域');
     }
   });
 

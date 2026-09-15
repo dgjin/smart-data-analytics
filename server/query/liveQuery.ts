@@ -71,6 +71,7 @@ import {
   dialectPromptOf,
   extractBusinessNotes,
 } from './liveQueryPrompts';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /** 阶段二回喂 LLM 的真实行采样上限：兼顾 token 预算与统计代表性（列统计另由 buildColumnStats 提供） */
 const SAMPLE_ROWS_FOR_LLM = 15;
@@ -115,7 +116,7 @@ export interface LiveQueryInput {
 export interface LiveQuerySuccess {
   ok: true;
   /** 组装完成、可直接过 normalizeQueryResult 的结果对象 */
-  result: Record<string, any>;
+  result: Record<string, unknown>;
   executedSql: string;
   rowCount: number;
   /** 阶段一/二 LLM 重试次数（0 表示一次通过） */
@@ -689,16 +690,16 @@ Schema: ${serializeSchemaForPrompt(schema)}
     `- 图表配置: ${JSON.stringify(chartConfig)}`,
   ].join('\n');
 
-  let analysis: Record<string, any>;
+  let analysis: Record<string, unknown>;
   let analysisFailed = false;
   try {
     // 阶段二解读支持快速模型路由（LLM_ANALYSIS_ENGINE/LLM_ANALYSIS_MODEL）；未配置时用主模型保证质量
     const text2 = await callLLMJson(buildStage2System(persona.rolePrompt, stage2Unit), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
-  } catch (err: any) {
+  } catch (err) {
     analysis = {};
     analysisFailed = true;
-    logger.warn('[Analysis] 阶段二解读失败，降级规则化解读:', err?.message || err);
+    logger.warn('[Analysis] 阶段二解读失败，降级规则化解读:', getErrorMessage(err));
   }
 
   // 降级：LLM 失败或返回空 aiExplanation 时，用 stats + rows 构造有数据支撑的解读

@@ -9,6 +9,7 @@
  * 最终响应以 QueryOutcome 返回，由路由完成状态码 / JSON / SSE 终态映射。
  */
 import { randomUUID } from 'node:crypto';
+import type { ResultSetHeader } from 'mysql2';
 import { ERROR_CODES } from '../infra/errorCodes';
 import { sanitizeQuestion, sanitizeHistory } from './queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
@@ -33,6 +34,7 @@ import { resolveStageTwoFailure } from '../utils/fallback/fallbackPipeline.js';
 import { recordConversation } from './conversationHistory';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import type { AuthUser } from '../auth/auth';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /**
  * 请求入口参数：由路由完成 HTTP 层解析（字段提取 / 布尔归一化 / dataSourceId 兜底空串）后传入。
@@ -277,7 +279,7 @@ export async function runNaturalLanguageQuery(
         const refuseReason = enrichRefusalReason(live.reason, effectiveSchema);
         writeAudit({ ...auditBase, question: query, status: 'REFUSED', detail: refuseReason.slice(0, 200), durationMs: Date.now() - startedAt });
         emitAfterQuery(hookCtx, { status: 'REFUSED', durationMs: Date.now() - startedAt });
-        recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
+        recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: unknown) => logger.error('[Conversation] record failed:', getErrorMessage(e)));
         return {
           kind: 'result',
           event: 'refuse',
@@ -302,7 +304,7 @@ export async function runNaturalLanguageQuery(
           // L1 精确 + L2 语义索引一并写入（含原问题与 embedding，供同义改写命中）
           await setCachedQuery(ck, { ...basePayload, executedSql: live.executedSql, rowCount: live.rowCount }, { dataSourceId, question: query, variant: cacheVariant });
           // 对话历史服务端落库：成功问答 fire-and-forget 落库（历史面板 + 个人 few-shot 自学习），失败不阻断主链路
-          recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(normalized.aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
+          recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(normalized.aiExplanation || ''), status: 'SUCCESS', provenance: 'live', rowCount: live.rowCount, durationMs: Date.now() - startedAt }).catch((e: unknown) => logger.error('[Conversation] record failed:', getErrorMessage(e)));
           // P2-12 DLP：缓存已写入原始数据（上方 setCachedQuery），响应出口按角色脱敏
           return { kind: 'result', event: 'done', streamAware: true, body: maskQueryPayload({ ...basePayload, traceId, executionTimeMs: Date.now() - startedAt }, user) };
         }
@@ -325,17 +327,17 @@ export async function runNaturalLanguageQuery(
             logger,
             // v0.9.47 P0：困难样本真实落库 adversarial_samples（表早已建好，此前为 console.log 占位）
             persistHardNegative: async (sample) => {
-              const [result] = await getPool().query(
+              const [result] = await getPool().query<ResultSetHeader>(
                 `INSERT INTO adversarial_samples (original_query, original_sql, error_message, data_source_id, user_id, username)
                  VALUES (?, ?, ?, ?, ?, ?)`,
                 [sample.originalQuery.slice(0, 500), sample.originalSql.slice(0, 2000),
                  (sample.errorMessage || '').slice(0, 500), sample.dataSourceId,
                  parseInt(sample.userId, 10) || 0, user.username]
-              ) as any[];
-              return String((result as any).insertId ?? '');
+              );
+              return String(result.insertId ?? '');
             },
             // v0.9.47 P0：策略成功审计真实落库 fallback_audit_log
-            logFallbackAudit: async (_sql: string, params: any[]) => {
+            logFallbackAudit: async (_sql: string, params: unknown[]) => {
               const [dsId, q, sql, strategy] = params;
               await getPool().query(
                 `INSERT INTO fallback_audit_log (trace_id, query, failed_sql, used_strategy, latency_ms, success)
@@ -377,8 +379,8 @@ export async function runNaturalLanguageQuery(
                 executedSql: fallbackResult.sql,
                 durationMs: Date.now() - startedAt,
                 rowCount: rows.length,
-                fallbackLatencyMs: fallbackLatency as any,
-                fallbackStrategy: fallbackResult.strategy as any
+                fallbackLatencyMs: fallbackLatency,
+                fallbackStrategy: fallbackResult.strategy
               };
               writeAudit(auditWithFallback);
               emitAfterQuery(hookCtx, { status: 'SUCCESS', durationMs: Date.now() - startedAt });
@@ -425,7 +427,7 @@ export async function runNaturalLanguageQuery(
       });
       emitAfterQuery(hookCtx, { status: 'FALLBACK', durationMs: Date.now() - startedAt });
       // 对话历史落库：降级路径同样留痕（状态 FALLBACK，不参与个人 few-shot 检索）
-      recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(live.ok === true ? 'LLM 分析结果结构校验失败' : live.error).slice(0, 200), status: 'FALLBACK', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
+      recordConversation({ userId: user.id, username: user.username, dataSourceId, question: query, executedSql: live.executedSql, answerSummary: String(live.ok === true ? 'LLM 分析结果结构校验失败' : live.error).slice(0, 200), status: 'FALLBACK', provenance: 'live', durationMs: Date.now() - startedAt }).catch((e: unknown) => logger.error('[Conversation] record failed:', getErrorMessage(e)));
       const fallbackRaw = generateFallbackQueryResult(query, effectiveSchema);
       return {
         kind: 'result',
@@ -467,7 +469,7 @@ export async function runNaturalLanguageQuery(
       // 拒答：问题与数据源无关/超出能力，如实反馈（不生成演示数据托底）；小模型照抄模板句时兜底增强理由
       const refuseReason = enrichRefusalReason(sim.reason, effectiveSchema);
       writeAudit({ ...auditBase, question: query, status: 'REFUSED', detail: refuseReason.slice(0, 200), durationMs: Date.now() - startedAt });
-      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
+      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: refuseReason.slice(0, 200), status: 'REFUSED', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: unknown) => logger.error('[Conversation] record failed:', getErrorMessage(e)));
       return {
         kind: 'result',
         event: 'done',
@@ -488,7 +490,7 @@ export async function runNaturalLanguageQuery(
       // P0 性能优化：演示模式成功结果写缓存（与 live 同机制，含 L2 语义索引），相似提问直接复用
       await setCachedQuery(simCk, { success: true, result: sim.result, defense, dataProvenance: 'simulated' }, { dataSourceId, question: query, variant: cacheVariant });
       // 对话历史落库：演示模式问答同样留痕（provenance=simulated，不参与个人 few-shot 检索）
-      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(sim.parsed?.generatedSQL || ''), answerSummary: String(sim.parsed?.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
+      recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, executedSql: String(sim.parsed?.generatedSQL || ''), answerSummary: String(sim.parsed?.aiExplanation || ''), status: 'SUCCESS', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: unknown) => logger.error('[Conversation] record failed:', getErrorMessage(e)));
       return {
         kind: 'result',
         event: 'done',
@@ -505,7 +507,7 @@ export async function runNaturalLanguageQuery(
 
     // L6 审计层：降级落账（记录触发降级的错误）
     writeAudit({ ...auditBase, question: query, status: 'FALLBACK', detail: sim.error.slice(0, 200), durationMs: Date.now() - startedAt });
-    recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: sim.error.slice(0, 200), status: 'FALLBACK', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: any) => logger.error('[Conversation] record failed:', e?.message || e));
+    recordConversation({ userId: user.id, username: user.username, dataSourceId: auditBase.dataSourceId, question: query, answerSummary: sim.error.slice(0, 200), status: 'FALLBACK', provenance: 'simulated', durationMs: Date.now() - startedAt }).catch((e: unknown) => logger.error('[Conversation] record failed:', getErrorMessage(e)));
     return {
       kind: 'result',
       event: 'done',
@@ -519,11 +521,11 @@ export async function runNaturalLanguageQuery(
         dataProvenance: 'simulated',
       },
     };
-  } catch (err: any) {
+  } catch (err) {
     // 兜底：链路未捕获异常（LLM 通道 / DB / StateStore 等）。槽释放由 finally 保证；
     // SSE 已开始时以 error 事件收尾（避免 JSON 落在已发送的流上），否则返回 500 JSON 由路由映射
-    logger.error('[Query] natural-language failed:', err?.message || err);
-    writeAudit({ ...auditBase, question: query, status: 'ERROR', detail: String(err?.message || err).slice(0, 200), durationMs: Date.now() - startedAt });
+    logger.error('[Query] natural-language failed:', getErrorMessage(err));
+    writeAudit({ ...auditBase, question: query, status: 'ERROR', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     emitAfterQuery(hookCtx, { status: 'ERROR', durationMs: Date.now() - startedAt });
     if (sink.started()) {
       sink.send('error', { error: '查询处理异常，请稍后重试' });

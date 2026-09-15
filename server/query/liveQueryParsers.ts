@@ -114,6 +114,6 @@ export function parseIntrospection(text: string): { sql: string; note: string } 
 }
 
 /** 自省结果回喂格式：最多 30 行真实取值，JSON 紧凑呈现 */
-export function formatIntrospectionRows(rows: Record<string, any>[]): string {
+export function formatIntrospectionRows(rows: Record<string, unknown>[]): string {
   return JSON.stringify(rows.slice(0, 30));
 }

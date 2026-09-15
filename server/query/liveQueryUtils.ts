@@ -30,8 +30,17 @@ export function buildAmountUnitPrompt(unit?: string): string {
 
 // ---------- 真实 rows 后处理与统计 ----------
 
+/** 列统计摘要（buildColumnStats 产出）：数值列给 总计/均值/最小/最大，维度列给 去重取值数 */
+export type ColumnStats = Record<string, {
+  总计?: number;
+  均值?: number;
+  最小?: number | string;
+  最大?: number | string;
+  去重取值数?: number;
+}>;
+
 /** mysql2 将 DECIMAL/聚合值返回为字符串；把可安全转换的列统一转为 number，便于图表与统计 */
-export function coerceNumericColumns(rows: Record<string, any>[]): Record<string, any>[] {
+export function coerceNumericColumns(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   if (rows.length === 0) return rows;
   const cols = Object.keys(rows[0]);
   const numericCols = cols.filter((c) => {
@@ -47,7 +56,7 @@ export function coerceNumericColumns(rows: Record<string, any>[]): Record<string
   });
   if (numericCols.length === 0) return rows;
   return rows.map((r) => {
-    const next: Record<string, any> = { ...r };
+    const next: Record<string, unknown> = { ...r };
     for (const c of numericCols) {
       const v = next[c];
       if (typeof v === 'string' && v.trim() !== '') {
@@ -60,9 +69,9 @@ export function coerceNumericColumns(rows: Record<string, any>[]): Record<string
 }
 
 /** 列统计摘要：数值列给 sum/avg/min/max，维度列给 distinct，辅助阶段二不编造数值 */
-export function buildColumnStats(rows: Record<string, any>[]): Record<string, any> {
+export function buildColumnStats(rows: Record<string, unknown>[]): ColumnStats {
   if (rows.length === 0) return {};
-  const stats: Record<string, any> = {};
+  const stats: ColumnStats = {};
   for (const c of Object.keys(rows[0])) {
     const nums = rows
       .map((r) => r[c])
@@ -85,7 +94,7 @@ export function buildColumnStats(rows: Record<string, any>[]): Record<string, an
 
 /** 矫正图表轴键：必须与真实 rows 的列名一致，否则前端渲染空白 */
 export function rectifyChartKeys(
-  rows: Record<string, any>[],
+  rows: Record<string, unknown>[],
   xAxisKey: unknown,
   yAxisKeys: unknown
 ): { xAxisKey: string; yAxisKeys: string[] } {
@@ -244,7 +253,7 @@ export function replaceIdentifiersWithChinese(text: string, nameMap: Record<stri
  * 覆盖表头值、图表轴名/标题、推导过程与阶段二全部文案字段；
  * 无法映射的别名保持原值（如实兜底，不编造中文名）。
  */
-export function sanitizeQueryResultChinese<T extends Record<string, any>>(result: T, schema: SchemaTable[]): T {
+export function sanitizeQueryResultChinese<T extends Record<string, unknown>>(result: T, schema: SchemaTable[]): T {
   const nameMap = buildIdentifierNameMap(schema);
   if (Object.keys(nameMap).length === 0) return result;
   const fix = (s: unknown): unknown => (typeof s === 'string' ? replaceIdentifiersWithChinese(s, nameMap) : s);
@@ -255,7 +264,7 @@ export function sanitizeQueryResultChinese<T extends Record<string, any>>(result
     for (const [k, v] of Object.entries(m as Record<string, unknown>)) out[k] = fix(v);
     return out;
   };
-  const out: Record<string, any> = { ...result };
+  const out: Record<string, unknown> = { ...result };
   out.columnNames = fixMap(out.columnNames);
   if (out.chartConfig && typeof out.chartConfig === 'object') {
     const cc = { ...(out.chartConfig as Record<string, unknown>) };
@@ -297,9 +306,9 @@ export function selfCorrectCandidates(complex?: boolean): number {
 }
 
 /** 结果集规范化签名（多数表决用）：列名排序 + 数值列归一，消除列序/数值字符串差异 */
-export function resultSignature(rows: Record<string, any>[]): string {
+export function resultSignature(rows: Record<string, unknown>[]): string {
   const normalized = coerceNumericColumns(rows).map((r) => {
-    const sorted: Record<string, any> = {};
+    const sorted: Record<string, unknown> = {};
     for (const k of Object.keys(r).sort()) sorted[k] = r[k];
     return sorted;
   });
@@ -315,7 +324,7 @@ export function resultSignature(rows: Record<string, any>[]): string {
  */
 export function buildFallbackAnalysis(
   rows: Array<Record<string, unknown>>,
-  stats: Record<string, { 总计?: number; 均值?: number; 最小?: number | string; 最大?: number | string; 去重取值数?: number }>,
+  stats: ColumnStats,
   columnNames: Record<string, string>,
   chartConfig: { xAxisKey?: string; yAxisKeys?: string[] }
 ): { aiExplanation: string; keyInsights: string[]; kpiMetrics: Array<{ label: string; value: string; subtext: string }> } {

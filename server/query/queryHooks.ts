@@ -12,7 +12,7 @@ export interface QueryHookContext {
   question: string;
   startedAt: number;
   /** 链路元信息（是否 live、是否流式等），供钩子按需消费 */
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
 }
 
 export interface QueryOutcome {

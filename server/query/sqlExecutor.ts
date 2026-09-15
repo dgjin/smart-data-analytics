@@ -18,6 +18,7 @@ import { decryptSecret } from '../infra/secretsCrypto';
 import { callLLMJson } from '../llm/llmClient';
 import { logger } from '../infra/logger';
 import { getFilePhysicalTable } from './fileDataSource';
+import { getErrorMessage } from '../infra/errorUtils';
 
 const { Parser: SqlAstParser } = sqlParserPkg;
 
@@ -410,26 +411,29 @@ export function injectRowFilters(
 
   const opt = { database: dialect === 'pg' ? 'PostgreSQL' : 'MySQL' };
   try {
-    const parsed: any = astParser.astify(sql, opt);
+    const parsed = astParser.astify(sql, opt);
 
     // 谓词 → 派生表 expr：解析 `SELECT * FROM (SELECT * FROM t WHERE pred) AS t`
     // 直接复用解析产物（而非手工拼 AST），保证 sqlify 回写时派生表带括号；
     // 谓词非法自然抛错，fail-closed。
-    const wrappedOf = (table: string, pred: string): any => {
-      const helper: any = astParser.astify(`SELECT * FROM (SELECT * FROM ${table} WHERE ${pred}) AS ${table}`, opt);
+    const wrappedOf = (table: string, pred: string): unknown => {
+      const helper = astParser.astify(`SELECT * FROM (SELECT * FROM ${table} WHERE ${pred}) AS ${table}`, opt);
       const h = Array.isArray(helper) ? helper[0] : helper;
-      const item = h && Array.isArray(h.from) ? h.from[0] : null;
+      const from = h ? (h as unknown as Record<string, unknown>).from : undefined;
+      const item = Array.isArray(from) ? (from[0] as Record<string, unknown> | undefined) : undefined;
       if (!item || !item.expr) throw new Error('谓词解析失败');
       return item.expr;
     };
 
-    const wrapFrom = (from: any): void => {
+    const wrapFrom = (from: unknown): void => {
       if (!Array.isArray(from)) return;
-      for (const item of from) {
+      for (const rawItem of from) {
+        const item = rawItem as Record<string, unknown> | undefined;
         if (!item) continue;
         // 派生表（FROM (SELECT ...)）递归下钻：5.x 为 { ast, parentheses } 包裹层，旧版直接是 select 节点
         if (item.expr && typeof item.expr === 'object') {
-          const inner = item.expr.ast && typeof item.expr.ast === 'object' ? item.expr.ast : item.expr;
+          const expr = item.expr as Record<string, unknown>;
+          const inner = expr.ast && typeof expr.ast === 'object' ? expr.ast : item.expr;
           walkNode(inner);
         }
         const tableName = typeof item.table === 'string' ? item.table : '';
@@ -442,39 +446,43 @@ export function injectRowFilters(
         item.db = null;
       }
     };
-    const walkNode = (node: any): void => {
+    const walkNode = (node: unknown): void => {
       if (!node || typeof node !== 'object') return;
       if (Array.isArray(node)) {
         node.forEach(walkNode);
         return;
       }
-      if (node.type === 'select') {
-        wrapFrom(node.from);
+      const n = node as Record<string, unknown>;
+      if (n.type === 'select') {
+        wrapFrom(n.from);
         // v0.4.15：WITH CTE 定义内的真实表引用也须包裹行过滤——ast.with[i].stmt.ast 为各 CTE 子查询 AST，
         // 不递归会导致 CTE 内受控表静默漏注（越权读）；CTE 名本身不在 rowFilters 键中，主查询引用 CTE 不受影响
-        if (Array.isArray(node.with)) {
-          for (const cte of node.with) {
-            if (cte && cte.stmt && typeof cte.stmt === 'object') walkNode(cte.stmt.ast);
+        if (Array.isArray(n.with)) {
+          for (const rawCte of n.with) {
+            const cte = rawCte as Record<string, unknown> | undefined;
+            const stmt = cte?.stmt as Record<string, unknown> | undefined;
+            if (cte && stmt && typeof stmt === 'object') walkNode(stmt.ast);
           }
         }
         // WHERE/HAVING 等表达式中的子查询（IN (SELECT ...)、EXISTS 等）
-        walkExprSubqueries(node.where);
-        walkExprSubqueries(node.having);
+        walkExprSubqueries(n.where);
+        walkExprSubqueries(n.having);
         // UNION/UNION ALL 链（node-sql-parser 5.x 用 _next 链 + set_op）
-        if (node._next) walkNode(node._next);
+        if (n._next) walkNode(n._next);
       }
     };
-    const walkExprSubqueries = (expr: any): void => {
+    const walkExprSubqueries = (expr: unknown): void => {
       if (!expr || typeof expr !== 'object') return;
       if (Array.isArray(expr)) {
         expr.forEach(walkExprSubqueries);
         return;
       }
-      if (expr.ast && typeof expr.ast === 'object') walkNode(expr.ast);
-      walkExprSubqueries(expr.left);
-      walkExprSubqueries(expr.right);
-      if (expr.value !== undefined) walkExprSubqueries(expr.value);
-      if (Array.isArray(expr.args)) walkExprSubqueries(expr.args);
+      const e = expr as Record<string, unknown>;
+      if (e.ast && typeof e.ast === 'object') walkNode(e.ast);
+      walkExprSubqueries(e.left);
+      walkExprSubqueries(e.right);
+      if (e.value !== undefined) walkExprSubqueries(e.value);
+      if (Array.isArray(e.args)) walkExprSubqueries(e.args);
     };
 
     walkNode(Array.isArray(parsed) ? parsed[0] : parsed);
@@ -515,7 +523,7 @@ export function invalidateExecutorPool(dataSourceId?: string): void {
 }
 
 export interface ExecResult {
-  rows: Record<string, any>[];
+  rows: Record<string, unknown>[];
   rowCount: number;
   /** true 表示结果被 MAX_ROWS 截断 */
   truncated: boolean;
@@ -653,10 +661,10 @@ async function explainGuard(
     }
     observeExplainGuard('passed', entry.dialect);
     return { blocked: false };
-  } catch (err: any) {
+  } catch (err) {
     // fail-open：EXPLAIN 失败（权限/方言特性等）不阻断正常执行
     observeExplainGuard('error', entry.dialect);
-    logger.warn('[explain-guard] EXPLAIN 评估失败（放行执行）:', String(err?.message || err).slice(0, 120));
+    logger.warn('[explain-guard] EXPLAIN 评估失败（放行执行）:', String(getErrorMessage(err)).slice(0, 120));
     return { blocked: false };
   }
 }
@@ -668,7 +676,7 @@ interface DataSourceConfigRow extends mysql.RowDataPacket {
 }
 
 /** 读取数据源连接配置（含密码，仅服务端使用；dataVersion 指纹探测亦复用） */
-export async function loadDataSourceConfig(dataSourceId: string): Promise<{ type: string; config: any } | null> {
+export async function loadDataSourceConfig(dataSourceId: string): Promise<{ type: string; config: Record<string, unknown> } | null> {
   const [rows] = await getPool().query<DataSourceConfigRow[]>('SELECT type, config_json FROM data_sources WHERE id = ?', [dataSourceId]);
   const ds = rows[0];
   if (!ds) return null;
@@ -683,7 +691,12 @@ export async function loadDataSourceConfig(dataSourceId: string): Promise<{ type
   return { type: String(ds.type || ''), config };
 }
 
-export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any, scenario: QueryScenario = 'interactive'): DsPoolEntry {
+/** 数据源配置字段安全取值：config 来自落库 JSON 解析对象，字段按非空字符串口径收窄 */
+function cfgString(v: unknown, fallback: string): string {
+  return typeof v === 'string' && v !== '' ? v : fallback;
+}
+
+export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: Record<string, unknown>, scenario: QueryScenario = 'interactive'): DsPoolEntry {
   const key = dsPoolKey(dataSourceId, scenario);
   let entry = dsPools.get(key);
   if (!entry) {
@@ -695,11 +708,11 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
       entry = {
         dialect: 'pg',
         pool: new pg.Pool({
-          host: config?.host || '127.0.0.1',
+          host: cfgString(config?.host, '127.0.0.1'),
           port: Number(config?.port) || 5432,
-          user: config?.username || 'postgres',
-          password: config?.password || '',
-          database: config?.database || undefined,
+          user: cfgString(config?.username, 'postgres'),
+          password: cfgString(config?.password, ''),
+          database: cfgString(config?.database, '') || undefined,
           max: poolMax,
           connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
           statement_timeout: timeoutMs,
@@ -709,11 +722,11 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: any
       entry = {
         dialect: 'mysql',
         pool: mysql.createPool({
-          host: config?.host || '127.0.0.1',
+          host: cfgString(config?.host, '127.0.0.1'),
           port: Number(config?.port) || 3306,
-          user: config?.username || 'root',
-          password: config?.password || '',
-          database: config?.database || undefined,
+          user: cfgString(config?.username, 'root'),
+          password: cfgString(config?.password, ''),
+          database: cfgString(config?.database, '') || undefined,
           connectionLimit: poolMax,
           connectTimeout: CONNECT_TIMEOUT_MS,
           multipleStatements: false,
@@ -786,7 +799,7 @@ async function executeSafeSqlImpl(
       const timeoutMs = scenarioTimeoutMs(scenario);
       const execSql = injectMysqlMaxExecTime(finalSql, timeoutMs);
       const [fileRows] = await getPool().query({ sql: execSql, timeout: timeoutMs });
-      const fileList = (Array.isArray(fileRows) ? fileRows : []) as Record<string, any>[];
+      const fileList = (Array.isArray(fileRows) ? fileRows : []) as Record<string, unknown>[];
       return {
         ok: true,
         result: {
@@ -803,7 +816,7 @@ async function executeSafeSqlImpl(
     // EXPLAIN 防线：真执行前预估扫描量，超阈值拦截（大扫描防拖垮业务库；EXPLAIN 失败 fail-open）
     const guard = await explainGuard(entry, finalSql, scenario);
     if (guard.blocked) return { ok: false, reason: guard.reason, guardBlocked: true };
-    let list: Record<string, any>[];
+    let list: Record<string, unknown>[];
     if (entry.dialect === 'pg') {
       // pg 驱动：超时由建池时的场景化 statement_timeout 承担，结果在 result.rows
       const result = await entry.pool.query(finalSql);
@@ -813,7 +826,7 @@ async function executeSafeSqlImpl(
       // 不改变返回给调用方的 finalSql，审计/展示口径保持业务 SQL 原貌）
       const execSql = injectMysqlMaxExecTime(finalSql, timeoutMs);
       const [rows] = await entry.pool.query({ sql: execSql, timeout: timeoutMs });
-      list = (Array.isArray(rows) ? rows : []) as Record<string, any>[];
+      list = (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
     }
     return {
       ok: true,
@@ -825,7 +838,7 @@ async function executeSafeSqlImpl(
         astFallback: check.astFallback === true,
       },
     };
-  } catch (err: any) {
-    return { ok: false, reason: `SQL 执行失败：${String(err?.message || err).slice(0, 200)}` };
+  } catch (err) {
+    return { ok: false, reason: `SQL 执行失败：${String(getErrorMessage(err)).slice(0, 200)}` };
   }
 }

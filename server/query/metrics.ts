@@ -15,6 +15,7 @@
  */
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { getPool } from '../infra/db';
+import { getErrorMessage } from '../infra/errorUtils';
 
 /** P1-8 治理状态机：PENDING 待审批 → ACTIVE 生效 / REJECTED 驳回；DISABLED 停用 */
 export type MetricStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'DISABLED';
@@ -47,19 +48,20 @@ export interface MetricDefinition {
 const MAX_METRICS_PER_DS = 200;
 
 /** 校验并规整指标输入；非法时返回 error 说明（路由层据此 400） */
-export function sanitizeMetricInput(input: any): { ok: true; metric: Omit<MetricDefinition, 'id'> } | { ok: false; error: string } {
-  const dataSourceId = typeof input?.dataSourceId === 'string' ? input.dataSourceId.trim() : '';
-  const name = typeof input?.name === 'string' ? input.name.trim() : '';
-  const expr = typeof input?.expr === 'string' ? input.expr.trim() : '';
-  const tableName = typeof input?.tableName === 'string' ? input.tableName.trim() : '';
-  const filters = typeof input?.filters === 'string' ? input.filters.trim() : '';
+export function sanitizeMetricInput(input: unknown): { ok: true; metric: Omit<MetricDefinition, 'id'> } | { ok: false; error: string } {
+  const obj = (input ?? {}) as Record<string, unknown>;
+  const dataSourceId = typeof obj.dataSourceId === 'string' ? obj.dataSourceId.trim() : '';
+  const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+  const expr = typeof obj.expr === 'string' ? obj.expr.trim() : '';
+  const tableName = typeof obj.tableName === 'string' ? obj.tableName.trim() : '';
+  const filters = typeof obj.filters === 'string' ? obj.filters.trim() : '';
   // P2-14 维度白名单：仅接受合法标识符（防注入），去重，上限 10 个
-  const dimensions = Array.isArray(input?.dimensions)
-    ? [...new Set(input.dimensions.filter((d: any) => typeof d === 'string').map((d: string) => d.trim()).filter(Boolean))] as string[]
+  const dimensions = Array.isArray(obj.dimensions)
+    ? [...new Set(obj.dimensions.filter((d: unknown): d is string => typeof d === 'string').map((d) => d.trim()).filter(Boolean))]
     : [];
-  const description = typeof input?.description === 'string' ? input.description.trim().slice(0, 300) : '';
-  const aliases = Array.isArray(input?.aliases)
-    ? input.aliases.filter((a: any) => typeof a === 'string' && a.trim()).map((a: string) => a.trim().slice(0, 50)).slice(0, 10)
+  const description = typeof obj.description === 'string' ? obj.description.trim().slice(0, 300) : '';
+  const aliases = Array.isArray(obj.aliases)
+    ? obj.aliases.filter((a: unknown): a is string => typeof a === 'string' && !!a.trim()).map((a) => a.trim().slice(0, 50)).slice(0, 10)
     : [];
 
   if (!dataSourceId) return { ok: false, error: '缺少 dataSourceId' };
@@ -76,11 +78,11 @@ export function sanitizeMetricInput(input: any): { ok: true; metric: Omit<Metric
   return {
     ok: true,
     // status 输入仅接受 ACTIVE/DISABLED；PENDING/REJECTED 由治理流程驱动，不接受外部直填
-    metric: { dataSourceId, name, aliases, description, expr, tableName, filters, dimensions, status: input?.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
+    metric: { dataSourceId, name, aliases, description, expr, tableName, filters, dimensions, status: obj.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
   };
 }
 
-function normalizeStatus(raw: any): MetricStatus {
+function normalizeStatus(raw: unknown): MetricStatus {
   return raw === 'PENDING' || raw === 'REJECTED' || raw === 'DISABLED' ? raw : 'ACTIVE';
 }
 
@@ -163,18 +165,18 @@ export function buildMetricQuerySql(
 
 // ---------- CRUD（routes/metrics.ts 调用） ----------
 
-function rowToMetric(r: any): MetricDefinition {
+function rowToMetric(r: RowDataPacket): MetricDefinition {
   let aliases: string[];
   try {
     const parsed = JSON.parse(String(r.aliases_json || '[]'));
-    aliases = Array.isArray(parsed) ? parsed.filter((a: any) => typeof a === 'string') : [];
+    aliases = Array.isArray(parsed) ? parsed.filter((a: unknown): a is string => typeof a === 'string') : [];
   } catch {
     aliases = [];
   }
   let dimensions: string[];
   try {
     const parsed = JSON.parse(String(r.dimensions_json || '[]'));
-    dimensions = Array.isArray(parsed) ? parsed.filter((d: any) => typeof d === 'string') : [];
+    dimensions = Array.isArray(parsed) ? parsed.filter((d: unknown): d is string => typeof d === 'string') : [];
   } catch {
     dimensions = [];
   }
@@ -338,7 +340,7 @@ export async function listMetricVersions(id: number): Promise<MetricVersionEntry
     'SELECT * FROM metric_versions WHERE metric_id = ? ORDER BY version DESC, id DESC LIMIT 100',
     [id]
   );
-  return rows.map((r: any) => {
+  return rows.map((r) => {
     let snapshot: Partial<MetricDefinition> = {};
     try { snapshot = JSON.parse(String(r.snapshot_json || '{}')); } catch { /* 忽略坏快照 */ }
     return {
@@ -361,7 +363,7 @@ export async function restoreMetricVersion(id: number, version: number, actor: s
     [id, version]
   );
   if (rows.length === 0) return { ok: false, status: 404, error: '版本不存在' };
-  let snap: any;
+  let snap: Record<string, unknown>;
   try { snap = JSON.parse(String(rows[0].snapshot_json || '{}')); } catch { return { ok: false, status: 500, error: '版本快照损坏' }; }
   const cleaned = sanitizeMetricInput({ ...snap, dataSourceId: cur.dataSourceId });
   if (cleaned.ok !== true) return { ok: false, status: 500, error: `版本快照校验失败：${cleaned.error}` };
@@ -481,11 +483,12 @@ export async function importMetrics(
     'SELECT id, name FROM metric_definitions WHERE data_source_id = ?',
     [dataSourceId]
   );
-  const existingByName = new Map<string, number>(rows.map((r: any) => [String(r.name), Number(r.id)]));
+  const existingByName = new Map<string, number>(rows.map((r) => [String(r.name), Number(r.id)]));
 
   for (const raw of items.slice(0, MAX_IMPORT_ITEMS)) {
-    const name = typeof (raw as any)?.name === 'string' ? String((raw as any).name).trim() : '';
-    const cleaned = sanitizeMetricInput({ ...(raw as object), dataSourceId });
+    const item = (raw ?? {}) as Record<string, unknown>;
+    const name = typeof item.name === 'string' ? item.name.trim() : '';
+    const cleaned = sanitizeMetricInput({ ...item, dataSourceId });
     if (cleaned.ok !== true) {
       result.summary.invalidItems++;
       result.errorCount++;
@@ -519,9 +522,9 @@ export async function importMetrics(
         existingByName.set(cleaned.metric.name, -1);
       }
       result.importedCount++;
-    } catch (err: any) {
+    } catch (err) {
       result.errorCount++;
-      result.errors.push({ name: cleaned.metric.name, message: err?.message || '未知错误' });
+      result.errors.push({ name: cleaned.metric.name, message: getErrorMessage(err) || '未知错误' });
     }
   }
 
