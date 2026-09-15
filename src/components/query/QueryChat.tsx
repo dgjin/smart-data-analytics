@@ -1,31 +1,19 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  Send,
-  Sparkles,
-  Bot,
-  Trash2,
-  Search,
-  ArrowUpRight,
-  Mic,
-  MicOff,
-  Volume2,
-  ShieldCheck,
-  History,
-  Download,
-} from 'lucide-react';
+import { Bot } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useModelCatalog } from '../../hooks/useModelCatalog';
 import { apiFetch } from '../../api/client';
 import { applyDataScope } from '../../utils/dataScope';
-import { buildQueryPlaceholder, generateSchemaSuggestions } from '../../utils/querySuggestions';
+import { generateSchemaSuggestions } from '../../utils/querySuggestions';
 import { SQLPreviewModal } from './SQLPreviewModal';
 import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ChatMessageItem } from './ChatMessageItem';
-import { QueryModeBar } from './QueryModeBar';
-import { SkillMenuButton } from './SkillMenuButton';
-import { TraceStepper, TraceStepInfo } from './AnalysisTracePanel';
+import { TraceStepInfo } from './AnalysisTracePanel';
+import { QueryLoadingIndicator } from './QueryLoadingIndicator';
+import { ChatInputArea } from './ChatInputArea';
+import { ChatTopBar, QueryContextSummary } from './ChatTopBar';
 import { useConversationHistory } from '../../hooks/useConversationHistory';
 import { useEffectiveAmountUnit } from '../../hooks/useAmountUnitStore';
 import { ReportTemplate } from '../../types/analytics';
@@ -33,18 +21,15 @@ import { useSpeechInput } from '../../hooks/useSpeechInput';
 import { readSseStream } from '../../utils/sseStream';
 import { pollTask } from '../../utils/asyncTask';
 import { ChatMessage, QueryPlanData, QueryResultData, AgentPlanData, AgentRunData } from '../../types/analytics';
+import { useQueryModes } from './hooks/useQueryModes';
+import { useStreamState } from './hooks/useStreamState';
+import { useSkillLibrary } from './hooks/useSkillLibrary';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
 const MAX_QUERY_INPUT_LENGTH = 500;
 // 模型自选持久化键（值为 "engine::model"，空串表示跟随服务端默认）
 const SELECTED_MODEL_KEY = 'app-selected-model';
 // 金额单位：由 useAmountUnitStore 统一管理（全局默认 + 模块覆盖，v0.5.4 起）
-// M2 计划模式持久化键（'1' = 开启「先制定计划」）
-const PLAN_MODE_KEY = 'app-plan-mode';
-// P1-7 Agent 编排持久化键（'1' = 开启「Agent 编排」，与计划模式互斥）
-const AGENT_MODE_KEY = 'app-agent-mode';
-// M3 深度分析持久化键（'1' = 强制启用中间表清洗链）
-const DEEP_ANALYSIS_KEY = 'app-deep-analysis';
 
 export const QueryChat: React.FC = () => {
   const {
@@ -70,123 +55,48 @@ export const QueryChat: React.FC = () => {
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [toast, setToast] = useState<string | null>(null);
-  // P2-A Skills：可复用分析技能（点击填充提问模板，占位符由用户替换后提交）
-  const [skills, setSkills] = useState<{ id: string; name: string; description: string; promptTemplate: string }[]>([]);
-  const [skillLibraryOpen, setSkillLibraryOpen] = useState(false);
-  // 技能「+」弹出菜单（参照 Qoder IDE「+」交互：点击输入框旁 + 号向上弹出技能选择面板）
-  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
-  const skillMenuRef = useRef<HTMLDivElement>(null);
+  // P0 拆分：技能库状态/加载/菜单外点关闭收敛至 useSkillLibrary
+  const {
+    skills,
+    skillLibraryOpen,
+    setSkillLibraryOpen,
+    skillMenuOpen,
+    setSkillMenuOpen,
+    skillMenuRef,
+    loadSkills,
+  } = useSkillLibrary();
   // 已点选确认的澄清消息 id（确认后禁用选项，防止重复提交）
   const [resolvedClarifications, setResolvedClarifications] = useState<Set<string>>(new Set());
-  // P2-7 SSE 流式进度：服务端阶段事件推送的实时状态文案
-  const [streamProgress, setStreamProgress] = useState<string | null>(null);
-  // P2-1 SQL 先行回显：sql_ready/executed 阶段携带的 SQL，长等待期提前展示
-  const [streamPreviewSql, setStreamPreviewSql] = useState<string | null>(null);
-  // P1-2 Token 级流式输出：LLM 生成内容的增量缓冲区（打字机效果）
-  const [streamingContent, setStreamingContent] = useState<string>('');
-  // 当前查询是否正在接收流式内容
-  const [isReceivingStream, setIsReceivingStream] = useState<boolean>(false);
-  // M1 推导留痕：SSE trace 事件实时追加的步骤链（查询中展示步骤器）
-  const [liveTraceSteps, setLiveTraceSteps] = useState<TraceStepInfo[]>([]);
-  // M2 计划模式：「先制定计划」开关（localStorage 持久化）；已批准/取消的计划卡片 id 置灰
-  const [planMode, setPlanMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(PLAN_MODE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  // P0 拆分：SSE 流式链路五个状态收敛至 useStreamState
+  const {
+    streamProgress,
+    setStreamProgress,
+    streamPreviewSql,
+    setStreamPreviewSql,
+    streamingContent,
+    setStreamingContent,
+    isReceivingStream,
+    setIsReceivingStream,
+    liveTraceSteps,
+    setLiveTraceSteps,
+  } = useStreamState();
+  // P0 拆分：四个模式开关（计划/Agent/深度/报告）+ 互斥与持久化逻辑收敛至 useQueryModes
+  const {
+    planMode,
+    togglePlanMode,
+    agentMode,
+    toggleAgentMode,
+    deepMode,
+    toggleDeepMode,
+    reportMode,
+    toggleReportMode,
+  } = useQueryModes();
+  // M2 计划模式：已批准/取消的计划卡片 id 置灰
   const [resolvedPlans, setResolvedPlans] = useState<Set<string>>(new Set());
-  const togglePlanMode = () => {
-    setPlanMode((prev) => {
-      const next = !prev;
-      try {
-        if (next) localStorage.setItem(PLAN_MODE_KEY, '1');
-        else localStorage.removeItem(PLAN_MODE_KEY);
-      } catch {
-        // 存储不可用时仅本次会话生效
-      }
-      return next;
-    });
-    // P1-7：计划模式与 Agent 编排互斥，开启本模式时关闭另一个
-    setAgentMode(false);
-    try {
-      localStorage.removeItem(AGENT_MODE_KEY);
-    } catch {
-      // 忽略存储异常
-    }
-  };
-  // P1-7 Agent 编排：「提问→规划多能力步骤→批准→逐步执行」开关（localStorage 持久化；与计划模式互斥）
-  const [agentMode, setAgentMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(AGENT_MODE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  // 已处理（批准/放弃）的 Agent 计划卡片 id 置灰
+  // P1-7 Agent 编排：已处理（批准/放弃）的计划卡片 id 置灰
   const [resolvedAgentPlans, setResolvedAgentPlans] = useState<Set<string>>(new Set());
-  const toggleAgentMode = () => {
-    setAgentMode((prev) => {
-      const next = !prev;
-      try {
-        if (next) localStorage.setItem(AGENT_MODE_KEY, '1');
-        else localStorage.removeItem(AGENT_MODE_KEY);
-      } catch {
-        // 存储不可用时仅本次会话生效
-      }
-      return next;
-    });
-    setPlanMode(false);
-    try {
-      localStorage.removeItem(PLAN_MODE_KEY);
-    } catch {
-      // 忽略存储异常
-    }
-  };
-  // M3 深度分析：强制启用中间表清洗链（关闭时由服务端复杂度评估自动判定）
-  const [deepMode, setDeepMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(DEEP_ANALYSIS_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const toggleDeepMode = () => {
-    setDeepMode((prev) => {
-      const next = !prev;
-      try {
-        if (next) localStorage.setItem(DEEP_ANALYSIS_KEY, '1');
-        else localStorage.removeItem(DEEP_ANALYSIS_KEY);
-      } catch {
-        // 存储不可用时仅本次会话生效
-      }
-      return next;
-    });
-  };
-  // v0.5.0 报告模式：开启后提问直接生成完整报告（支持模板选择或智能推断）
-  const REPORT_MODE_KEY = 'app-report-mode';
-  const [reportMode, setReportMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(REPORT_MODE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [reportTemplates, setReportTemplates] = useState<ReportTemplate[]>([]);
-  const toggleReportMode = () => {
-    setReportMode((prev) => {
-      const next = !prev;
-      try {
-        if (next) localStorage.setItem(REPORT_MODE_KEY, '1');
-        else localStorage.removeItem(REPORT_MODE_KEY);
-      } catch {
-        // 存储不可用时仅本次会话生效
-      }
-      return next;
-    });
-  };
   // 加载报告模板列表
   useEffect(() => {
     if (!reportMode) return;
@@ -228,26 +138,6 @@ export const QueryChat: React.FC = () => {
     const model = rest.join('::');
     return engine && model ? { engine, model } : undefined;
   }, [selectedModel]);
-  const loadSkills = React.useCallback(() => {
-    apiFetch('/api/skills')
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data?.skills)) setSkills(data.skills);
-      })
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    loadSkills();
-  }, [loadSkills]);
-  // 技能「+」菜单：点击面板外部自动关闭
-  useEffect(() => {
-    if (!skillMenuOpen) return;
-    const onDocDown = (e: MouseEvent) => {
-      if (skillMenuRef.current && !skillMenuRef.current.contains(e.target as Node)) setSkillMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDocDown);
-    return () => document.removeEventListener('mousedown', onDocDown);
-  }, [skillMenuOpen]);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -323,16 +213,7 @@ export const QueryChat: React.FC = () => {
 
   // 问数上下文摘要：与实际问数链路同源的服务端单一事实源（scope 白名单 + 敏感列过滤后），
   // 状态条展示的表范围以此为准，避免前端 store 缓存的 tables/scope 过期导致显示与实际不一致
-  const [queryContext, setQueryContext] = useState<{
-    status: string | null;
-    dsType: string | null;
-    /** v0.9.34 文件数据源已落应用库物理表（服务端摘要下发），真实执行入口判定与库型源对齐 */
-    fileBacked?: boolean;
-    tableCount: number;
-    tables: { name: string; displayName: string }[];
-    sensitiveFiltered: number;
-    maxTablesInPrompt: number;
-  } | null>(null);
+  const [queryContext, setQueryContext] = useState<QueryContextSummary | null>(null);
   useEffect(() => {
     if (!activeDataSourceId) return;
     // 进入问数页/切换数据源时顺带刷新 store 数据源（tables/scope 可能已被管理员变更）
@@ -971,77 +852,17 @@ export const QueryChat: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 overflow-hidden relative">
-      {/* Top Banner / Active DS Info */}
-      <div className="px-6 py-2.5 bg-slate-900/60 border-b border-slate-800/80 flex items-center justify-between text-xs shrink-0">
-        <div className="flex items-center space-x-2">
-          <span className={`w-2 h-2 rounded-full ${aiSwitchOff ? 'bg-rose-400' : 'bg-emerald-400 animate-ping'}`} />
-          <span className="text-slate-300 font-medium">
-            当前智能问答数据上下文: <strong className="text-indigo-300">{activeDS?.name}</strong>
-          </span>
-          {aiSwitchOff && (
-            <span className="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 text-[10px] font-semibold">
-              问数已停用
-            </span>
-          )}
-          {/* 问数表范围：以服务端上下文摘要（scope 白名单 + 敏感列过滤后）为单一事实源，
-              与实际参与问数的范围保持一致；未落库数据源（演示模式）无服务端范围 */}
-          {queryContext && queryContext.status !== null && (
-            queryContext.tableCount > 0 ? (
-              <span
-                className="px-1.5 py-0.5 rounded bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 text-[10px] font-semibold"
-                title={
-                  currentUser?.role === 'ADMIN' && queryContext.tables.length > 0
-                    ? `实际参与问数的数据表（已按问数范围与敏感策略过滤）:\n${queryContext.tables.map((t) => `- ${t.displayName} (${t.name})`).join('\n')}`
-                    : '实际参与问数的数据表数量（已按问数范围与敏感策略过滤）'
-                }
-              >
-                问数范围 {queryContext.tableCount} 张表
-                {queryContext.tableCount > queryContext.maxTablesInPrompt && '（提问时自动圈选最相关表）'}
-              </span>
-            ) : (
-              <span
-                className="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 text-[10px] font-semibold"
-                title="请管理员在「数据源管理 → 问数范围配置」中勾选允许问数的数据表"
-              >
-                问数范围为空
-              </span>
-            )
-          )}
-          {/* 管理员可悬停查看实际参与问数的表名清单（来自服务端上下文摘要） */}
-          {currentUser?.role === 'ADMIN' && queryContext && queryContext.tables.length > 0 && (
-            <span className="text-slate-500 font-mono truncate max-w-[420px]" title={queryContext.tables.map((t) => t.name).join(', ')}>
-              ({queryContext.tables.map((t) => t.displayName || t.name).join(', ')})
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={handleExportConversation}
-            className="flex items-center space-x-1 text-slate-400 hover:text-indigo-400 transition-colors"
-            title="将当前数据源的对话导出为 Markdown 文件"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>导出</span>
-          </button>
-          <button
-            onClick={toggleHistoryPanel}
-            className={`flex items-center space-x-1 transition-colors ${historyOpen ? 'text-indigo-400' : 'text-slate-400 hover:text-indigo-400'}`}
-            title="查看服务端落库的对话历史（搜索 / 重问 / 删除，跨设备共享）"
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>历史对话</span>
-          </button>
-          <button
-            onClick={clearChat}
-            className="flex items-center space-x-1 text-slate-400 hover:text-rose-400 transition-colors"
-            title="清空当前数据源的对话记录（不影响其他数据源）"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>重置对话</span>
-          </button>
-        </div>
-      </div>
+      {/* Top Banner / Active DS Info（P0 拆至 ChatTopBar 纯展示组件） */}
+      <ChatTopBar
+        aiSwitchOff={aiSwitchOff}
+        activeDSName={activeDS?.name}
+        queryContext={queryContext}
+        isAdmin={currentUser?.role === 'ADMIN'}
+        historyOpen={historyOpen}
+        onExportConversation={handleExportConversation}
+        onToggleHistoryPanel={toggleHistoryPanel}
+        onClearChat={clearChat}
+      />
 
       {/* 对话历史面板（服务端落库）：P1-6 拆分至 ChatHistoryPanel 纯展示组件 */}
       {historyOpen && (
@@ -1102,240 +923,60 @@ export const QueryChat: React.FC = () => {
           />
         ))}
 
-        {/* Loading Spinner Indicator */}
+        {/* Loading Spinner Indicator（P0 拆至 QueryLoadingIndicator 纯展示组件） */}
         {isQueryLoading && (
-          <div className="flex items-start space-x-3">
-            <div className="w-8 h-8 rounded-xl bg-slate-800 text-indigo-400 flex items-center justify-center border border-slate-700 animate-pulse">
-              <Bot className="w-4 h-4" />
-            </div>
-            <div className="flex-1 space-y-2">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 text-xs text-slate-300 flex items-center space-x-3">
-                <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                <span>{streamProgress || 'AI 正在解析 Schema 并生成智能可视化数据...'}</span>
-              </div>
-              {/* P2-1 SQL 先行回显：阶段一完成即展示生成的 SQL，缩短长执行的感知等待 */}
-              {streamPreviewSql && (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3">
-                  <div className="text-[10px] font-bold text-emerald-400/80 mb-1.5">已生成 SQL（先行预览，最终以执行结果为准）</div>
-                  <pre className="text-[10px] leading-relaxed text-slate-400 font-mono whitespace-pre-wrap break-all max-h-32 overflow-y-auto select-all">{streamPreviewSql}</pre>
-                </div>
-              )}
-              {/* M1 分析过程显性呈现：实时步骤器展示已完成的推导环节 */}
-              {liveTraceSteps.length > 0 && <TraceStepper steps={liveTraceSteps} />}
-            </div>
-          </div>
+          <QueryLoadingIndicator
+            streamProgress={streamProgress}
+            streamPreviewSql={streamPreviewSql}
+            liveTraceSteps={liveTraceSteps}
+          />
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Box Area */}
-      <div className="p-3 md:p-4 bg-slate-900/90 border-t border-slate-800 shrink-0 space-y-2">
-        {/* AI Switch Off Notice（L7 AI 开关） */}
-        {aiSwitchOff && (
-          <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-300 text-xs flex items-center space-x-2">
-            <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span>该数据源的智能问数功能已被管理员停用，可在「数据源管理」中重新连接启用。</span>
-          </div>
-        )}
-
-        {/* Quick Prompt Pills */}
-        {presetQueries.length > 0 && !aiSwitchOff && (
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-            <span className="text-slate-400 font-medium shrink-0 flex items-center space-x-1">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>快速问题推荐:</span>
-            </span>
-            {presetQueries.map((pq, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSendQuery(pq)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700/80 text-slate-300 hover:text-slate-100 border border-slate-700 rounded-lg shrink-0 transition-colors"
-              >
-                {pq}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Main Input Form with Autocomplete Dropdown */}
-        <div className="relative">
-          {/* Autocomplete Suggestions Popup */}
-          {isSuggestionsOpen && filteredSuggestions.length > 0 && (
-            <div className="absolute bottom-full mb-2 left-0 right-0 bg-slate-900 border border-indigo-500/30 rounded-2xl p-2.5 shadow-2xl z-50 space-y-1">
-              <div className="flex items-center justify-between px-2.5 py-1 border-b border-slate-800 text-[10px] text-slate-400">
-                <span className="flex items-center space-x-1 text-indigo-400 font-semibold">
-                  <Search className="w-3 h-3" />
-                  <span>实时查询推荐与 Schema 提示 ({filteredSuggestions.length})</span>
-                </span>
-                <span className="text-slate-500 font-mono hidden sm:inline">
-                  ↑↓ 切换 | Enter 选择 | Tab 补全 | Esc 关闭
-                </span>
-              </div>
-
-              <div className="max-h-56 overflow-y-auto space-y-0.5">
-                {filteredSuggestions.map((suggestion, idx) => {
-                  const isSelected = selectedIndex === idx;
-                  return (
-                    <div
-                      key={idx}
-                      onClick={() => handleSendQuery(suggestion)}
-                      onMouseEnter={() => setSelectedIndex(idx)}
-                      className={`px-3 py-2 rounded-xl text-xs flex items-center justify-between cursor-pointer transition-colors ${
-                        isSelected
-                          ? 'bg-indigo-600 text-white font-medium shadow-sm'
-                          : 'text-slate-200 hover:bg-slate-800/80'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5 truncate">
-                        <Sparkles className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-white' : 'text-indigo-400'}`} />
-                        <span className="truncate">{suggestion}</span>
-                      </div>
-
-                      <div className="flex items-center space-x-1 text-[10px] opacity-80 shrink-0">
-                        <span className="hidden md:inline font-mono">点击直接查询</span>
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Voice Listening Banner */}
-          {isListening && (
-            <div className="mb-2 p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/50 flex items-center justify-between text-xs text-rose-200 animate-pulse">
-              <div className="flex items-center space-x-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
-                <Volume2 className="w-4 h-4 text-rose-400" />
-                <span className="font-semibold">正在语音实时录音识别中，请说话...</span>
-              </div>
-              <button
-                onClick={toggleSpeechRecognition}
-                className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-bold"
-              >
-                停止录音
-              </button>
-            </div>
-          )}
-
-          {speechError && (
-            <div className="mb-2 p-2 rounded-xl bg-amber-950/60 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between">
-              <span>{speechError}</span>
-              <button
-                onClick={clearSpeechError}
-                className="text-amber-400 text-[10px] underline ml-2"
-              >
-                关闭
-              </button>
-            </div>
-          )}
-
-          {/* 模式选项行：P0-1 拆至 QueryModeBar（计划/深度/报告模式 + 金额单位 + 模型自选） */}
-          <QueryModeBar
-            aiSwitchOff={aiSwitchOff}
-            canPlanMode={canPlanMode}
-            planMode={planMode}
-            onTogglePlanMode={togglePlanMode}
-            agentMode={agentMode}
-            onToggleAgentMode={toggleAgentMode}
-            deepMode={deepMode}
-            onToggleDeepMode={toggleDeepMode}
-            reportMode={reportMode}
-            onToggleReportMode={toggleReportMode}
-            reportTemplates={reportTemplates}
-            selectedTemplateId={selectedTemplateId}
-            onSelectTemplate={setSelectedTemplateId}
-            isQueryLoading={isQueryLoading}
-            modelCatalog={modelCatalog}
-            selectedModel={selectedModel}
-            onSelectModel={handleSelectModel}
-          />
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendQuery();
-            }}
-            className="flex items-center space-x-2"
-          >
-            {/* P2-A 技能「+」入口：P0-1 拆至 SkillMenuButton（选中技能填充提问模板） */}
-            <SkillMenuButton
-              aiSwitchOff={aiSwitchOff}
-              skills={skills}
-              menuOpen={skillMenuOpen}
-              onToggleMenu={() => setSkillMenuOpen((v) => !v)}
-              menuRef={skillMenuRef}
-              onSelectSkill={handleSelectSkill}
-              onOpenLibrary={handleOpenSkillLibrary}
-            />
-
-            <div className="relative flex-1 flex items-center">
-              <input
-                ref={inputRef}
-                type="text"
-                value={currentQuery}
-                onChange={(e) => setCurrentQuery(e.target.value)}
-                onFocus={() => {
-                  if (currentQuery.trim() && filteredSuggestions.length > 0) {
-                    setIsSuggestionsOpen(true);
-                  }
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  aiSwitchOff
-                    ? '该数据源的问数功能已停用'
-                    : buildQueryPlaceholder(schemaSuggestions, '用自然语言提问（或点击右侧麦克风语音输入）...')
-                }
-                maxLength={MAX_QUERY_INPUT_LENGTH}
-                disabled={isQueryLoading || aiSwitchOff}
-                className={`w-full bg-slate-950 border rounded-xl pl-4 pr-10 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                  isListening
-                    ? 'border-rose-500 shadow-md shadow-rose-500/20'
-                    : 'border-slate-700/80 focus:border-indigo-500'
-                }`}
-              />
-
-              {/* Voice Input Mic Button */}
-              <button
-                type="button"
-                onClick={toggleSpeechRecognition}
-                title={isListening ? '点击停止语音输入' : '开启语音转文字输入'}
-                className={`absolute right-2.5 p-1.5 rounded-lg transition-all ${
-                  isListening
-                    ? 'bg-rose-600 text-white animate-pulse'
-                    : 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800'
-                }`}
-              >
-                {isListening ? (
-                  <MicOff className="w-4 h-4" />
-                ) : (
-                  <Mic className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-
-            <button
-              type="submit"
-              disabled={!currentQuery.trim() || isQueryLoading || aiSwitchOff}
-              className="px-5 py-3 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-xs flex items-center space-x-1.5 shadow-lg shadow-indigo-600/30 transition-all shrink-0"
-            >
-              <Send className="w-4 h-4" />
-              <span>智能查询</span>
-            </button>
-          </form>
-
-          {/* Input Length Counter（L1：接近 500 字上限时提示） */}
-          {currentQuery.length >= MAX_QUERY_INPUT_LENGTH - 50 && (
-            <div className={`mt-1.5 text-right text-[10px] font-mono ${
-              currentQuery.length >= MAX_QUERY_INPUT_LENGTH ? 'text-rose-400' : 'text-amber-400'
-            }`}>
-              {currentQuery.length}/{MAX_QUERY_INPUT_LENGTH}
-            </div>
-          )}
-        </div>
-      </div>
+      {/* Input Box Area（P0 拆至 ChatInputArea 受控子组件） */}
+      <ChatInputArea
+        aiSwitchOff={aiSwitchOff}
+        canPlanMode={canPlanMode}
+        isQueryLoading={isQueryLoading}
+        currentQuery={currentQuery}
+        setCurrentQuery={setCurrentQuery}
+        inputRef={inputRef}
+        schemaSuggestions={schemaSuggestions}
+        presetQueries={presetQueries}
+        filteredSuggestions={filteredSuggestions}
+        isSuggestionsOpen={isSuggestionsOpen}
+        setIsSuggestionsOpen={setIsSuggestionsOpen}
+        selectedIndex={selectedIndex}
+        setSelectedIndex={setSelectedIndex}
+        onSendQuery={handleSendQuery}
+        onKeyDown={handleKeyDown}
+        isListening={isListening}
+        speechError={speechError}
+        toggleSpeechRecognition={toggleSpeechRecognition}
+        clearSpeechError={clearSpeechError}
+        planMode={planMode}
+        onTogglePlanMode={togglePlanMode}
+        agentMode={agentMode}
+        onToggleAgentMode={toggleAgentMode}
+        deepMode={deepMode}
+        onToggleDeepMode={toggleDeepMode}
+        reportMode={reportMode}
+        onToggleReportMode={toggleReportMode}
+        reportTemplates={reportTemplates}
+        selectedTemplateId={selectedTemplateId}
+        onSelectTemplate={setSelectedTemplateId}
+        modelCatalog={modelCatalog}
+        selectedModel={selectedModel}
+        onSelectModel={handleSelectModel}
+        skills={skills}
+        skillMenuOpen={skillMenuOpen}
+        onToggleSkillMenu={() => setSkillMenuOpen((v) => !v)}
+        skillMenuRef={skillMenuRef}
+        onSelectSkill={handleSelectSkill}
+        onOpenSkillLibrary={handleOpenSkillLibrary}
+      />
 
       {/* Toast Notification */}
       {toast && (
