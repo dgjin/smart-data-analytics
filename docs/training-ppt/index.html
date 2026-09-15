@@ -17,7 +17,7 @@
   <div style="position:absolute;right:4%;bottom:-130px;width:430px;height:430px;border-radius:50%;filter:blur(64px);background:rgba(217,119,6,0.12);"></div>
   <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:34px;align-items:center;width:100%;">
     <div data-anim="fade-up">
-      <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.9.57</div>
+      <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.9.62</div>
       <h1 style="font-size:58px;">智能问数分析系统<br>功能培训</h1>
       <p class="subtitle">用中文提问，让数据自己开口说话 —— 从自然语言到图表、报告、洞察与决策简报</p>
     </div>
@@ -30,7 +30,7 @@
     <div class="card flat"><div class="pill c3">培训时长</div><p class="lead" style="font-size:15px;margin-top:10px;">约 75 分钟 + 现场实操与答疑</p></div>
     <div class="card flat"><div class="pill c4">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取使用指南与更新日志</p></div>
   </div>
-  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，把真实查询结果变成图表、KPI 和洞察解读，还能一键产出完整分析报告和高管决策简报。今天的培训大约七十五分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容对齐系统内置帮助中心的功能说明书，覆盖到最新版本 v0.9.57——包括 Agent 多步编排、看板高级分析三件套、专家角色、灵活查询、报告模式、铁律规则库和 Fallback 对抗训练，以及治理资产统一入口、系统管理分类 Tab 化这些最新变化。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
+  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，把真实查询结果变成图表、KPI 和洞察解读，还能一键产出完整分析报告和高管决策简报。今天的培训大约七十五分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容对齐系统内置帮助中心的功能说明书，覆盖到最新版本 v0.9.62——包括 Agent 多步编排、看板高级分析三件套、专家角色、灵活查询、报告模式、铁律规则库和 Fallback 对抗训练，以及治理资产统一入口、系统管理分类 Tab 化，和云端 DeepSeek 引擎接入（本地 / 云端模型对比评测已完成）这些最新变化。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
 </section>
 
 <!-- ============ P2 培训目标与议程 ============ -->
@@ -707,9 +707,9 @@
       <div class="card" data-anim="fade-up">
         <h3 style="font-size:16px;margin-bottom:10px;">🔎 读图要点</h3>
         <ul class="plain" style="font-size:13.5px;color:var(--text-2);line-height:1.72;">
-          <li>· <b>自上而下九段</b>：客户端 → 前端应用层 → API 安全网关 → 业务逻辑层（30 路由 + 40+ 核心服务）→ AI 引擎层 → 数据与存储层 → 基础设施 / 部署 / 质量</li>
+          <li>· <b>自上而下九段</b>：客户端 → 前端应用层 → API 安全网关 → 业务逻辑层（31 路由 + 40+ 核心服务）→ AI 引擎层 → 数据与存储层 → 基础设施 / 部署 / 质量</li>
           <li>· <b>业务逻辑层按三类看</b>：编排（问数 / 报表 / 异步任务）、能力（Schema 两件套 / 执行器 / Fallback）、上下文治理（知识库 / 反馈闭环 / 指标 / 铁律 / 专家角色）</li>
-          <li>· <b>工程口径</b>：125 REST 端点 · 99 测试文件 / 1107 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
+          <li>· <b>工程口径</b>：159 REST 端点 · 112 测试文件 / 1552 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
           <li>· <b>部署形态</b>：Node 运行时一体的开发态 → esbuild 打包 + Docker 容器 → Prometheus / Grafana 监控</li>
           <li>· <b>图例</b>：蓝=主流程、绿=数据读写、紫=LLM 调用、灰=基础设施、橙=v0.6+ 新增能力</li>
         </ul>
@@ -720,28 +720,33 @@
       <p class="small muted" style="margin-top:10px;">💡 左侧为矢量图，点击可打开原图放大细读（矢量不失真）。</p>
     </div>
   </div>
-  <div class="notes">这张是系统的技术底盘图，给管理员和运维同学建立整体坐标。从上往下一共九段：客户端浏览器、前端应用层、API 安全网关、业务逻辑层、AI 引擎层、数据与存储层，再到基础设施与部署质量。最值得关注的是业务逻辑层——30 个路由、40 多个核心服务都集中在这里，可以按三类记：编排类（问数编排、报表双阶段、异步任务）、能力类（Schema 关联与上下文、SQL 执行器、Fallback）、上下文治理类（知识库、反馈闭环、语义指标、铁律、专家角色）。图例说明：蓝箭头是主流程，绿色是数据读写，紫色是 LLM 调用，橙色是 v0.6 后新增能力。部署形态从开发态的 Node 一体，到生产的 esbuild 打包加 Docker 容器、Prometheus 加 Grafana 监控。以后排查问题，先在这张图上定位是哪一层：入口问题看前端、越权问题看网关、出数问题看引擎、连不上看基础设施。完整矢量版会后可在文档目录放大细读。</div>
+  <div class="notes">这张是系统的技术底盘图，给管理员和运维同学建立整体坐标。从上往下一共九段：客户端浏览器、前端应用层、API 安全网关、业务逻辑层、AI 引擎层、数据与存储层，再到基础设施与部署质量。最值得关注的是业务逻辑层——31 个路由、40 多个核心服务都集中在这里，可以按三类记：编排类（问数编排、报表双阶段、异步任务）、能力类（Schema 关联与上下文、SQL 执行器、Fallback）、上下文治理类（知识库、反馈闭环、语义指标、铁律、专家角色）。图例说明：蓝箭头是主流程，绿色是数据读写，紫色是 LLM 调用，橙色是 v0.6 后新增能力。部署形态从开发态的 Node 一体，到生产的 esbuild 打包加 Docker 容器、Prometheus 加 Grafana 监控。以后排查问题，先在这张图上定位是哪一层：入口问题看前端、越权问题看网关、出数问题看引擎、连不上看基础设施。完整矢量版会后可在文档目录放大细读。</div>
 </section>
 
 <!-- ============ P26 AI 引擎 ============ -->
 <section class="slide" data-mod="4">
   <div class="kicker">MODULE 04 · AI 引擎</div>
-  <h2>AI 三引擎：可切换、可降级、可本地化</h2>
-  <div class="grid grid-3 anim-stagger-list" style="margin-top:14px;">
+  <h2>AI 四引擎：可切换、可降级、可本地化</h2>
+  <div class="grid grid-4 anim-stagger-list" style="margin-top:14px;">
     <div class="card">
-      <div class="pill ok">当前主力 · 本地</div>
-      <h3 style="font-size:16px;margin:10px 0 6px;">Ollama · deepseek-r1:32b</h3>
-      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">本地推理，数据不出内网；深度思考能力适配复杂口径的 SQL 生成，适合数据敏感场景与日常主力。</p>
+      <div class="pill ok">当前主力 · 云端</div>
+      <h3 style="font-size:15px;margin:10px 0 6px;">DeepSeek · deepseek-flash</h3>
+      <p style="font-size:13px;color:var(--text-2);line-height:1.6;">云端主力引擎，响应快、成本可控，日常问数默认走这条线；按管理员配置可随时切换。</p>
+    </div>
+    <div class="card">
+      <div class="pill c2">本地 · 兜底</div>
+      <h3 style="font-size:15px;margin:10px 0 6px;">Ollama · deepseek-r1:32b</h3>
+      <p style="font-size:13px;color:var(--text-2);line-height:1.6;">本地推理，数据不出内网；断网 / 涉密场景兜底，复杂口径深度思考能力同样在线。</p>
     </div>
     <div class="card">
       <div class="pill c3">云端 · 备选</div>
-      <h3 style="font-size:16px;margin:10px 0 6px;">Qwen · qwen3.8-max</h3>
-      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">云端大参数模型，复杂推理与长上下文能力强；按 API 计费，适合高峰期分流与高质量需求。</p>
+      <h3 style="font-size:15px;margin:10px 0 6px;">Qwen · qwen3.8-max</h3>
+      <p style="font-size:13px;color:var(--text-2);line-height:1.6;">云端大参数模型，复杂推理与长上下文能力强；按 API 计费，适合高峰期分流与高质量需求。</p>
     </div>
     <div class="card">
       <div class="pill c4">云端 · 备选</div>
-      <h3 style="font-size:16px;margin:10px 0 6px;">Gemini</h3>
-      <p style="font-size:13.5px;color:var(--text-2);line-height:1.6;">多模态云端引擎，作为第三选择扩展模型多样性；由管理员按合规要求启停。</p>
+      <h3 style="font-size:15px;margin:10px 0 6px;">Gemini</h3>
+      <p style="font-size:13px;color:var(--text-2);line-height:1.6;">多模态云端引擎，作为第四选择扩展模型多样性；由管理员按合规要求启停。</p>
     </div>
   </div>
   <div class="split" style="margin-top:20px;">
@@ -755,7 +760,7 @@
     </div>
   </div>
   <img src="assets/images/engine-chain.png" alt="" data-anim="zoom-in" style="display:block;height:165px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
-  <div class="notes">AI 引擎是这个系统的大脑供给线，目前接入三家。当前主力是本地部署的 Ollama 跑 deepseek-r1 三十二 B：数据完全不出内网，推理能力也足够应付复杂口径，敏感场景放心用。云端两家，Qwen 的 qwen3.8-max 参数量大、长上下文强，适合高峰分流和高质量需求；Gemini 作为第三选择扩展多样性。这里最值得讲的是故障转移：主引擎挂了，系统按管理员配置的顺序自动切到下一个可用引擎，用户几乎无感；万一全挂了，还有演示数据兜底，界面照常出结果但明确标识降级，审计记 FALLBACK。涉密数据的用法也强调一下：让管理员把敏感源的分析锁定在本地引擎上，提示词不出去，数据不出去，合规安心。</div>
+  <div class="notes">AI 引擎是这个系统的大脑供给线，目前接入四家。当前主力是云端 DeepSeek 的 deepseek-flash：响应快、成本可控，日常问数默认走这条线。本地部署的 Ollama 跑 deepseek-r1 三十二 B 作为兜底——数据完全不出内网，断网或涉密场景切过去照样能问；本地和云端的实测对比已经出过专门报告，结论是云端主力、本地兜底的分工最划算。另外两家云端备选，Qwen 的 qwen3.8-max 参数量大、长上下文强，适合高峰分流和高质量需求；Gemini 作为第四选择扩展多样性。这里最值得讲的是故障转移：主引擎挂了，系统按管理员配置的顺序自动切到下一个可用引擎，用户几乎无感；万一全挂了，还有演示数据兜底，界面照常出结果但明确标识降级，审计记 FALLBACK。涉密数据的用法也强调一下：让管理员把敏感源的分析锁定在本地引擎上，提示词不出去，数据不出去，合规安心。</div>
 </section>
 
 <!-- ============ P28 质量保障与部署 ============ -->
@@ -763,10 +768,10 @@
   <div class="kicker">MODULE 04 · 质量与部署</div>
   <h2>质量保障与部署形态</h2>
   <div class="grid grid-4 anim-stagger-list" style="margin-top:16px;">
-    <div class="stat"><div class="v">1107</div><div class="l">单元测试全部通过，覆盖 SQL 安全校验、权限注入、Fallback 对抗训练等核心链路</div></div>
-    <div class="stat"><div class="v">10</div><div class="l">端到端 E2E 用例（3 套套件），模拟真实用户完整操作路径</div></div>
-    <div class="stat"><div class="v">125</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
-    <div class="stat"><div class="v">0</div><div class="l">TypeScript 三档严格编译（前端 + 服务端 + 空值检查）错误</div></div>
+    <div class="stat"><div class="v">1552</div><div class="l">单元测试全部通过（112 文件），覆盖 SQL 安全校验、权限注入、Fallback 对抗训练等核心链路</div></div>
+    <div class="stat"><div class="v">9</div><div class="l">端到端 E2E 用例（3 套套件），模拟真实用户完整操作路径</div></div>
+    <div class="stat"><div class="v">159</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">TypeScript 三档严格编译错误 · ESLint any / console 规则零豁免</div></div>
   </div>
   <div class="split" style="margin-top:24px;">
     <div class="card" data-anim="fade-up">
@@ -775,11 +780,11 @@
     </div>
     <div class="card tinted" data-anim="fade-up">
       <h3 style="font-size:16px;margin-bottom:8px;">🏗 技术栈与门禁</h3>
-      <p style="font-size:14px;color:var(--accent-2);line-height:1.7;">React + TypeScript 前端 · Node 服务端 · SSE 流式 · MySQL/PG/GP 多源 · Ollama 本地推理 · JWT 鉴权 · Docker Compose；推送前 7 道自动化门禁（编译 / 契约 / 状态巡检 / 全量测试）把关。</p>
+      <p style="font-size:14px;color:var(--accent-2);line-height:1.7;">React + TypeScript 前端 · Node 服务端 · SSE 流式 · MySQL/PG/GP 多源 · 本地 + 云端双引擎推理 · JWT 鉴权 · Docker Compose；推送前 7 道自动化门禁（编译 / 契约 / 状态巡检 / 全量测试）把关。</p>
     </div>
   </div>
   <img src="assets/images/deploy-rocket.png" alt="" data-anim="zoom-in" style="display:block;height:170px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
-  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：一千一百零七个单元测试全部通过，覆盖了最要命的安全校验、权限注入，以及最新的 Fallback 对抗训练链路；十个端到端用例分三套套件，模拟真实用户的完整操作路径；一百二十五个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前端、服务端加空值检查三档 TypeScript 严格模式编译零错误。而且这些不是摆设——每次代码推送前有七道自动化门禁，任何一道红灯都会被拒绝，质量不是口号，是门禁。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地推理。对企业来说，这意味着低运维成本和长期可维护性。</div>
+  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：一千五百五十二个单元测试全部通过，覆盖了最要命的安全校验、权限注入，以及最新的 Fallback 对抗训练链路；九个端到端用例分三套套件，模拟真实用户的完整操作路径；一百五十九个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前端、服务端加空值检查三档 TypeScript 严格模式编译零错误，ESLint 的 any 与 console 规则零豁免。而且这些不是摆设——每次代码推送前有七道自动化门禁，任何一道红灯都会被拒绝，质量不是口号，是门禁。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地与云端双引擎推理。对企业来说，这意味着低运维成本和长期可维护性。</div>
 </section>
 
 <!-- ============ P29 总结与 FAQ ============ -->
