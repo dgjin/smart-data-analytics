@@ -407,13 +407,13 @@ export async function runNaturalLanguageQuery(
           }
 
           // 策略生成了 SQL 但安全执行失败：落入下方统一降级
-          console.warn(`[Fallback] Strategy ${fallbackResult.strategy} produced SQL but safe execution failed`);
+          logger.warn(`[Fallback] Strategy ${fallbackResult.strategy} produced SQL but safe execution failed`);
         }
 
         // ❌ 所有策略均失败
-        console.warn(`[Fallback] All strategies exhausted after ${fallbackLatency}ms`, fallbackResult.error);
+        logger.warn(`[Fallback] All strategies exhausted after ${fallbackLatency}ms`, fallbackResult.error);
       } catch (err) {
-        console.error('[Fallback] Exception during resolution:', err instanceof Error ? err.message : err);
+        logger.error('[Fallback] Exception during resolution:', err instanceof Error ? err.message : err);
       }
 
       // 降级为演示模式（可用性优先）

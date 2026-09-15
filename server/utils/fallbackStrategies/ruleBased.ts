@@ -7,6 +7,7 @@
  */
 
 import type { FallbackResult } from '../fallback/types.js';
+import { logger } from '../../infra/logger.js';
 
 /**
  * 时间范围匹配正则（支持多种中文表述）
@@ -140,7 +141,7 @@ export async function applyRuleBasedResolution(
     const result = generateTimeRangeSQL(query, dsId);
 
     // 记录审计日志
-    console.log(`[Rule-based Fallback] Generated SQL in ${Date.now() - startTime}ms`, {
+    logger.info(`[Rule-based Fallback] Generated SQL in ${Date.now() - startTime}ms`, {
       queryLength: query.length,
       sqlLength: result.sql.length,
       timeRange: `${timeInfo.startDate} -> ${timeInfo.endDate}`
@@ -154,7 +155,7 @@ export async function applyRuleBasedResolution(
     };
 
   } catch (error) {
-    console.warn('[Rule-based Fallback] Strategy failed:', error instanceof Error ? error.message : error);
+    logger.warn('[Rule-based Fallback] Strategy failed:', error instanceof Error ? error.message : error);
     throw error;
   }
 }

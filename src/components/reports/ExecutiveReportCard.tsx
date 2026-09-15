@@ -52,6 +52,7 @@ import { CHART_THEMES } from '../../utils/chartThemes';
 import { apiFetch } from '../../api/client';
 import { pollTask, downloadTaskResult } from '../../utils/asyncTask';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { logger } from '../../utils/logger';
 
 interface ExecutiveReportCardProps {
   /** 报告完整数据（含标题/摘要/KPI/洞察/图表/批注/异常） */
@@ -325,7 +326,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('PPT Export Error:', err);
+      logger.error('PPT Export Error:', err);
       setPptError(getErrorMessage(err) || 'PPT 导出失败，请稍后重试');
       setTimeout(() => setPptError(null), 5000);
     } finally {
@@ -366,7 +367,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
       setPdfExportSuccess(true);
       setTimeout(() => setPdfExportSuccess(false), 2000);
     } catch (err) {
-      console.error('PDF Export Error:', err);
+      logger.error('PDF Export Error:', err);
       alert(`PDF 导出失败：${getErrorMessage(err) || '未知错误'}`);
     } finally {
       setIsExportingPDF(false);
@@ -412,7 +413,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     try {
       await exportReportFile('export-excel', '.xlsx');
     } catch (err) {
-      console.error('Excel Export Error:', err);
+      logger.error('Excel Export Error:', err);
       setOfficeError(getErrorMessage(err) || 'Excel 导出失败，请稍后重试');
       setTimeout(() => setOfficeError(null), 5000);
     } finally {
@@ -428,7 +429,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     try {
       await exportReportFile('export-word', '.docx');
     } catch (err) {
-      console.error('Word Export Error:', err);
+      logger.error('Word Export Error:', err);
       setOfficeError(getErrorMessage(err) || 'Word 导出失败，请稍后重试');
       setTimeout(() => setOfficeError(null), 5000);
     } finally {

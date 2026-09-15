@@ -22,7 +22,8 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       // 代码质量优化（阶段0 门禁加固，2026-09-15）：any/console 升级为 error，
       // 新增代码立即被门禁拦截；any 存量已于阶段4 全部清零（业务代码 546 处 → 0），
-      // console 存量经下方 overrides 过渡，阶段5 收敛至 logger 门面后移除。
+      // console 存量已于阶段5 收敛至 logger 门面（业务代码 51 处 → 0），
+      // 仅两个 logger 实现文件与 fallbackPipeline 保留 console（见下方永久豁免）。
       '@typescript-eslint/no-explicit-any': 'error',
       'no-console': 'error',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
@@ -39,13 +40,14 @@ export default tseslint.config(
     },
   },
   // ── 存量债务豁免区（只减不增，清零后移除对应块）────────────────────────
-  // any 存量豁免已全部移除（阶段4 完成，2026-09-15）：业务代码 546 处 → 0，
-  // 批次1~6 白名单逐批清零后分别移出，any 现由上方 error 规则全量保护。
-  // console 存量豁免：基线 34 处 + server.ts 启动日志，阶段5 统一收敛至 logger 门面后移除。
+  // 存量豁免已全部移除（any 阶段4 完成 / console 阶段5 完成，2026-09-15）：
+  // any 业务代码 546 处 → 0；console 业务代码 51 处 → 0，均由上方 error 规则全量保护。
+  // 永久豁免：logger 门面实现（底层即 console，零依赖设计）+ fallbackPipeline（架构约束：
+  // 不导入 server 模块，noopLogger 的 console 兜底）——console 输出即其唯一职责。
   {
-    files: ['server/**/*.ts', 'server.ts', 'src/**/*.tsx', 'src/**/*.ts'],
+    files: ['server/infra/logger.ts', 'src/utils/logger.ts', 'server/utils/fallback/fallbackPipeline.ts'],
     rules: {
-      'no-console': 'warn',
+      'no-console': 'off',
     },
   },
   // 永久豁免：CLI 评测脚本、单测、E2E、脚本的 console 输出即用户界面/调试信息，属合法用途。

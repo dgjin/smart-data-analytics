@@ -75,6 +75,7 @@ import analyticsRoutes from './server/routes/analytics';
 import agentRoutes from './server/routes/agent';
 import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol';
 import { getErrorMessage } from './server/infra/errorUtils';
+import { logger } from './server/infra/logger';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -86,10 +87,10 @@ import { getErrorMessage } from './server/infra/errorUtils';
 // unhandledRejection，Node 15+ 默认直接崩溃退出）。这里记录日志而非崩溃，
 // 保证单次链路异常不拖垮整个服务；具体路由已在各自 try/catch 中补齐响应。
 process.on('unhandledRejection', (reason) => {
-  console.error('[Fatal] unhandledRejection:', reason);
+  logger.error('[Fatal] unhandledRejection:', reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[Fatal] uncaughtException:', err);
+  logger.error('[Fatal] uncaughtException:', err);
 });
 
 async function startServer() {
@@ -104,7 +105,7 @@ async function startServer() {
   // P0 生产安全检查：关键密钥缺失直接拒绝启动（fail-fast），
   // 防止 JWT 落到 dev 默认密钥被伪造 token（数据源凭据加密缺省时也依赖 JWT_SECRET）。
   if (isProd && !process.env.JWT_SECRET) {
-    console.error('[Security] 生产环境必须设置 JWT_SECRET 环境变量，拒绝启动');
+    logger.error('[Security] 生产环境必须设置 JWT_SECRET 环境变量，拒绝启动');
     process.exit(1);
   }
 
@@ -128,22 +129,22 @@ async function startServer() {
     const { ensureExpertPersonasSeeded, syncBuiltinPersonaContent } = await import('./server/llm/expertPersona');
     await ensureExpertPersonasSeeded();
     const synced = await syncBuiltinPersonaContent();
-    if (synced > 0) console.log(`[ExpertPersonas] 内置角色内容已同步至最新版本（更新 ${synced} 条）`);
+    if (synced > 0) logger.info(`[ExpertPersonas] 内置角色内容已同步至最新版本（更新 ${synced} 条）`);
   } catch (err) {
-    console.warn('[ExpertPersonas] 种子播种失败（问数将使用内置常量路由）:', (err as Error)?.message || err);
+    logger.warn('[ExpertPersonas] 种子播种失败（问数将使用内置常量路由）:', (err as Error)?.message || err);
   }
 
   // P2-13 多实例：启动时预热 Redis 连接（消除 offlineQueue 禁用在连接建立窗口内的
   // 限流 fail-closed 429 / 缓存全未命中冷启动抖动）；超时仅告警不阻断（降级路径安全）
   if (isRedisEnabled()) {
     const warm = await warmStateStore(5000);
-    if (warm) console.log('[stateStore] Redis ready（多实例共享状态已外置）');
-    else console.warn('[stateStore] Redis 预热超时（5s），启动继续——限流将 fail-closed、缓存 fail-open 直至连接恢复');
+    if (warm) logger.info('[stateStore] Redis ready（多实例共享状态已外置）');
+    else logger.warn('[stateStore] Redis 预热超时（5s），启动继续——限流将 fail-closed、缓存 fail-open 直至连接恢复');
   }
 
   // M3 中间表清洗链：启动时先清理一次过期中间表，之后每小时定时清理
   startChainCleanupScheduler();
-  cleanupExpiredIntermediateTables().catch((err) => console.warn('[Chain] 启动清理失败:', err?.message || err));
+  cleanupExpiredIntermediateTables().catch((err) => logger.warn('[Chain] 启动清理失败:', err?.message || err));
 
   // v0.9.2 长任务队列（改进计划 2-1）：注册处理器 + 启动内置 worker（含孤儿任务恢复）
   registerBuiltinTaskHandlers();
@@ -208,7 +209,7 @@ async function startServer() {
     next();
   });
 
-  console.log(`[AI Engine] ${llmEngineLabel()}`);
+  logger.info(`[AI Engine] ${llmEngineLabel()}`);
 
   // 1. API Endpoint: Health check (public)
   app.get('/api/health', (_req, res) => {
@@ -232,7 +233,7 @@ async function startServer() {
   // Prometheus 抓取端点（不走 JWT，基础设施端点不参与 OpenAPI 校验；可选 METRICS_TOKEN 保护）
   app.get('/metrics', metricsHandler);
   if (isProd && !process.env.METRICS_TOKEN) {
-    console.warn('[Security] 生产环境未设置 METRICS_TOKEN：/metrics 指标（含业务量级）将无鉴权公开暴露，建议配置，见 docs/DEPLOYMENT.md');
+    logger.warn('[Security] 生产环境未设置 METRICS_TOKEN：/metrics 指标（含业务量级）将无鉴权公开暴露，建议配置，见 docs/DEPLOYMENT.md');
   }
 
   // 1b. API Endpoint: 当前 AI 引擎信息（登录用户；前端按实际模型展示提示，不暴露内网地址）
@@ -246,7 +247,7 @@ async function startServer() {
       const models = await listAvailableModels();
       res.json({ models });
     } catch (err) {
-      console.error('[Models] list failed:', err);
+      logger.error('[Models] list failed:', err);
       res.status(500).json({ error: '模型目录获取失败' });
     }
   });
@@ -258,7 +259,7 @@ async function startServer() {
       const [usage, byUser] = await Promise.all([summarizeLlmUsage(days), summarizeLlmUsageByUser(days)]);
       res.json({ days, usage, byUser });
     } catch (err) {
-      console.error('[LlmUsage] summarize failed:', getErrorMessage(err));
+      logger.error('[LlmUsage] summarize failed:', getErrorMessage(err));
       res.status(500).json({ error: '用量统计获取失败' });
     }
   });
@@ -329,7 +330,7 @@ async function startServer() {
     if (res.headersSent) return;
     const e = (err ?? {}) as { status?: unknown; statusCode?: unknown; message?: unknown };
     const status = Number(e.status) || Number(e.statusCode) || 500;
-    console.error('[Fatal] unhandled route error:', e.message || err);
+    logger.error('[Fatal] unhandled route error:', e.message || err);
     res.status(status).json({ error: e.message || '服务器内部错误' });
   });
 
@@ -350,7 +351,7 @@ async function startServer() {
   }
 
   const httpServer = app.listen(PORT, HOST, () => {
-    console.log(`[Smart Data Analytics Engine] Running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    logger.info(`[Smart Data Analytics Engine] Running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   });
 
   // P1-2 优雅停机：SIGTERM/SIGINT 时停止领任务 → 排空在途请求（限时）→ 关闭连接池后退出；

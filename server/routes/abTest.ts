@@ -8,6 +8,7 @@ import { Router, Request, Response } from 'express';
 import { authMiddleware, requireRole } from '../auth/auth.js';
 import { getExperimentStats, queryExperimentRecords, type ABExperimentGroupStats } from '../utils/abTest.js';
 import { getErrorMessage } from '../infra/errorUtils';
+import { logger } from '../infra/logger';
 
 const router = Router();
 
@@ -37,7 +38,7 @@ router.get(
         data: stats,
       });
     } catch (err) {
-      console.error('[ABTest Stats Error]', err);
+      logger.error('[ABTest Stats Error]', err);
       res.status(500).json({
         success: false,
         error: getErrorMessage(err),
@@ -66,7 +67,7 @@ router.get(
         count: records.length,
       });
     } catch (err) {
-      console.error('[ABTest Records Error]', err);
+      logger.error('[ABTest Records Error]', err);
       res.status(500).json({
         success: false,
         error: getErrorMessage(err),
@@ -118,7 +119,7 @@ router.get(
         },
       });
     } catch (err) {
-      console.error('[ABTest Overview Error]', err);
+      logger.error('[ABTest Overview Error]', err);
       res.status(500).json({
         success: false,
         error: getErrorMessage(err),

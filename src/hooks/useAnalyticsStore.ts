@@ -17,6 +17,7 @@ import { scanReportForAnomalies } from '../utils/anomalyDetector';
 import { pickMigratableReports, reportFromRecord } from '../utils/reportPersistence';
 import { pickMigratableWidgets, widgetFromRecord } from '../utils/widgetPersistence';
 import { trimChatMessages } from '../utils/chatRetention';
+import { logger } from '../utils/logger';
 
 // 默认固化监控图表（widget-1..5）源自「数据资源」库的不良资产宽表（fct_jc_*）；
 // 旧持久化数据缺失 dataSourceId 时，按最新数据资源库推演上游：
@@ -472,7 +473,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
     } catch (err) {
       // keepLocalOnError：v0.4.8 自动重放快照更新（VIEWER 无写权限 403 或网络异常）——保留本地新数据不回滚，避免看板数字闪回
       if (options?.keepLocalOnError) {
-        console.warn('[dashboard-widgets] 远端同步失败（仅本次会话生效）:', err);
+        logger.warn('[dashboard-widgets] 远端同步失败（仅本次会话生效）:', err);
         return;
       }
       set((state) => ({
@@ -616,7 +617,7 @@ export const useAnalyticsStore = create<AnalyticsState>()(
         body: JSON.stringify({ comments: report.comments || [] }),
       });
     } catch {
-      console.warn('[savedReports] 批注同步到服务器失败：', reportId);
+      logger.warn('[savedReports] 批注同步到服务器失败：', reportId);
     }
   },
 

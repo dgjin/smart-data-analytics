@@ -30,6 +30,7 @@ import { scanReportForAnomalies } from '../../utils/anomalyDetector';
 import { pollTask } from '../../utils/asyncTask';
 import { useDataVersion } from '../../hooks/useDataVersion';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { logger } from '../../utils/logger';
 
 // v0.5.4 金额单位：由 useAmountUnitStore 统一管理（全局默认 + 模块覆盖），
 // 报表模块生效单位 = 模块内选择（优先）或全局设置（Header 维护）；提交时实时读取，避免闭包过期
@@ -273,7 +274,7 @@ export const ReportGenerator: React.FC = () => {
         if (reportPlanId) setPendingPlan(null);
       }
     } catch (err) {
-      console.error('Report Generation Failed:', err);
+      logger.error('Report Generation Failed:', err);
       setGenerateError(getErrorMessage(err) || '网络异常，报表生成失败');
     } finally {
       setIsGenerating(false);
@@ -297,7 +298,7 @@ export const ReportGenerator: React.FC = () => {
         setGenerateError(data.error || '报表查询计划生成失败，请稍后重试');
       }
     } catch (err) {
-      console.error('Report Plan Failed:', err);
+      logger.error('Report Plan Failed:', err);
       setGenerateError(getErrorMessage(err) || '网络异常，计划生成失败');
     } finally {
       setIsPlanning(false);

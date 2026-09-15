@@ -22,6 +22,7 @@ import { useStreamState } from './hooks/useStreamState';
 import { useSkillLibrary } from './hooks/useSkillLibrary';
 import { useSendQuery } from './hooks/useSendQuery';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { logger } from '../../utils/logger';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
 const MAX_QUERY_INPUT_LENGTH = 500;
@@ -106,7 +107,7 @@ export const QueryChat: React.FC = () => {
           setReportTemplates(data.templates);
         }
       } catch (err) {
-        console.error('Failed to load report templates:', err);
+        logger.error('Failed to load report templates:', err);
       }
     })();
   }, [reportMode]);

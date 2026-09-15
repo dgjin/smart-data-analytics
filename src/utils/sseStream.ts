@@ -2,6 +2,7 @@
  * P1-6 QueryChat 拆分：SSE 流解析通用工具（P2-7 问数流式链路）。
  * 按 event/data 分段解析服务端 text/event-stream 响应；错误事件直接抛异常由调用方统一降级。
  */
+import { logger } from './logger';
 
 /** SSE 阶段事件 → 用户可读的进度文案 */
 export function stageLabel(stage: string): string {
@@ -76,11 +77,11 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
           }
           
           if (chunkData.done) {
-            console.log('[P1-2 Stream] Content stream done, total:', streamContentBuffer.length);
+            logger.info('[P1-2 Stream] Content stream done, total:', streamContentBuffer.length);
           }
           
           if (chunkData.error) {
-            console.error('[P1-2 Stream] Error:', chunkData.error);
+            logger.error('[P1-2 Stream] Error:', chunkData.error);
           }
         } catch (e) {
           // 忽略解析错误

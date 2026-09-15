@@ -3,6 +3,7 @@
  * 识别结果整段回调（调用方自行截断/回填），错误转用户可读提示。
  */
 import { useEffect, useRef, useState } from 'react';
+import { logger } from '../utils/logger';
 
 export interface SpeechInput {
   isListening: boolean;
@@ -83,7 +84,7 @@ export function useSpeechInput(onTranscript: (text: string) => void): SpeechInpu
       };
 
       recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
-        console.error('Speech recognition error:', event.error);
+        logger.error('Speech recognition error:', event.error);
         if (event.error === 'not-allowed') {
           setSpeechError('麦克风权限已被拒绝，请在浏览器地址栏侧点击允许麦克风权限。');
         } else if (event.error !== 'no-speech') {
@@ -99,7 +100,7 @@ export function useSpeechInput(onTranscript: (text: string) => void): SpeechInpu
       recognitionRef.current = recognition;
       recognition.start();
     } catch (err) {
-      console.error('Failed to start speech recognition:', err);
+      logger.error('Failed to start speech recognition:', err);
       setIsListening(false);
     }
   };

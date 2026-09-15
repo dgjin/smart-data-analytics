@@ -9,6 +9,7 @@ import { ForceChangePassword } from './components/auth/ForceChangePassword';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { useAnalyticsStore } from './hooks/useAnalyticsStore';
 import { useAuthStore } from './hooks/useAuthStore';
+import { logger } from './utils/logger';
 
 // v0.4.14：bundle 优化——重组件懒加载（减少首屏体积）
 const CustomDashboard = lazy(() => import('./components/dashboard/CustomDashboard').then((m) => ({ default: m.CustomDashboard })));
@@ -28,7 +29,7 @@ export default function App() {
     if (!ssoToken) return;
     window.history.replaceState(null, '', window.location.pathname);
     loginWithToken(ssoToken).catch((err) => {
-      console.error('[SSO] 登录态校验失败:', err);
+      logger.error('[SSO] 登录态校验失败:', err);
       window.history.replaceState(null, '', `/?sso_error=${encodeURIComponent(err?.message || 'SSO 登录失败')}`);
       window.location.reload();
     });

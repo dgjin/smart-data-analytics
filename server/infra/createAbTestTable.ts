@@ -41,8 +41,8 @@ export async function createAbTestTable(): Promise<void> {
       SHOW INDEX FROM fallback_ab_tests
     `);
     
-    console.log('[ABTest DB] Table fallback_ab_tests ensured exists');
-    console.log('[ABTest DB] Indexes:', indexes?.map((idx) => idx.Key_name).join(', ') || 'none');
+    logger.info('[ABTest DB] Table fallback_ab_tests ensured exists');
+    logger.info('[ABTest DB] Indexes:', indexes?.map((idx) => idx.Key_name).join(', ') || 'none');
     
     await connection.commit();
   } catch (err) {
@@ -58,11 +58,11 @@ export async function createAbTestTable(): Promise<void> {
 if (require.main === module) {
   createAbTestTable()
     .then(() => {
-      console.log('✅ A/B Test table creation completed!');
+      logger.info('✅ A/B Test table creation completed!');
       process.exit(0);
     })
     .catch((err) => {
-      console.error('❌ Failed to create A/B Test table:', err.message);
+      logger.error('❌ Failed to create A/B Test table:', err.message);
       process.exit(1);
     });
 }

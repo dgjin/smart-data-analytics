@@ -20,6 +20,7 @@ import {
   Database,
   Users,
 } from 'lucide-react';
+import { logger } from '../../utils/logger';
 
 /** A/B Test 统计数据类型 */
 interface ABTestStats {
@@ -89,7 +90,7 @@ export function ABTestDashboard() {
         }
       }
     } catch (err) {
-      console.error('[ABTest] Load stats failed:', err);
+      logger.error('[ABTest] Load stats failed:', err);
     } finally {
       setLoading(false);
     }
@@ -106,7 +107,7 @@ export function ABTestDashboard() {
         setRecords(data.data);
       }
     } catch (err) {
-      console.error('[ABTest] Load records failed:', err);
+      logger.error('[ABTest] Load records failed:', err);
     }
   };
 

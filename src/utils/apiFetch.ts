@@ -2,6 +2,7 @@
  * API 请求封装工具
  * 统一的 fetch 封装，处理错误和响应
  */
+import { logger } from './logger';
 
 export async function apiFetch<T = unknown>(
   url: string,
@@ -23,7 +24,7 @@ export async function apiFetch<T = unknown>(
 
     return await response.json();
   } catch (error) {
-    console.error('[apiFetch] Error:', error);
+    logger.error('[apiFetch] Error:', error);
     throw error;
   }
 }

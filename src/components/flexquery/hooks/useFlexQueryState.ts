@@ -30,6 +30,7 @@ import {
   FlexResult,
 } from '../flexQueryShared';
 import { getErrorMessage } from '../../../utils/errorUtils';
+import { logger } from '../../../utils/logger';
 
 /** v0.9.24 迁移遗留键：服务端持久化后仅存留一次性迁移源，迁移成功即清除 */
 const SAVED_KEY = 'app-flex-queries';
@@ -257,7 +258,7 @@ export function useFlexQueryState() {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ items: list }),
-    }).catch((err) => console.warn('[flex-query] 查询历史同步失败:', err));
+    }).catch((err) => logger.warn('[flex-query] 查询历史同步失败:', err));
   };
 
   // ---------- v0.9.24 服务端持久化初始化：迁移 localStorage 遗留 → 拉取服务端权威数据 ----------
