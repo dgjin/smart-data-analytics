@@ -39,6 +39,22 @@ interface QueryResponseLike {
   error?: string;
 }
 
+/** 异步报告任务 result 载荷（与服务端 taskHandlers.runReportGenerate 返回结构对应） */
+interface ReportTaskResult {
+  success?: boolean;
+  isFallback?: boolean;
+  dataProvenance?: string;
+  reportId?: string;
+  templateName?: string;
+  report?: {
+    title: string;
+    summary?: string;
+    kpiList?: unknown[];
+    charts?: unknown[];
+    insights?: unknown[];
+  };
+}
+
 /**
  * useSendQuery 依赖集合（P0 上帝组件拆分：自 QueryChat 提取 handleSendQuery，行为保持一致）。
  * 所有依赖由调用方（QueryChat）受控注入，Hook 内部不直接持有业务状态。
@@ -244,8 +260,8 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
           throw new Error(submitted?.error || '报告任务提交失败');
         }
         const task = await pollTask(submitted.taskId);
-        const reportData = task.result;
-        if (!reportData?.success || !reportData.report) {
+        const reportData = (task.result ?? {}) as ReportTaskResult;
+        if (!reportData.success || !reportData.report) {
           throw new Error('报告生成失败');
         }
         const r = reportData.report;
@@ -270,7 +286,7 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
           timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
           question: textToSubmit,
           reportCard: {
-            reportId: reportData.reportId,
+            reportId: reportData.reportId as string,
             title: r.title,
             summary: (r.summary || '').slice(0, 100),
             kpiCount: Array.isArray(r.kpiList) ? r.kpiList.length : 0,
@@ -483,7 +499,7 @@ export function useSendQuery(deps: SendQueryDeps): SendQueryHandlers {
                 setIsReceivingStream(false);
                 // 清理临时状态
                 setStreamingContent('');
-                consumeResponse(data);
+                consumeResponse(data as QueryResponseLike);
               },
             });
           } else {

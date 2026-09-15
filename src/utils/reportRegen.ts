@@ -38,12 +38,26 @@ export function canRegenerateReport(
 }
 
 /**
+ * 重新生成任务产物中的报表载荷（任务 result.report 字段；LLM 输出未经验证的原始结构，
+ * insights/kpiList/charts 由本模块断言为 SavedReport 对应字段类型，与重构前 any 直传行为等价）。
+ */
+export interface RegenReportPayload {
+  title?: string;
+  summary?: string;
+  createdAt?: string;
+  insights?: unknown[];
+  kpiList?: unknown[];
+  charts?: unknown[];
+  executedSqls?: string[];
+}
+
+/**
  * 重新生成成功后的就地替换合并：保留原报表 id 与批注（charts 级批注随 charts 整体替换），
  * 更新内容字段与生成条件快照；createdAt 取新报表生成日期。
  */
 export function applyRegenResult(
   original: SavedReport,
-  data: { title?: string; summary?: string; createdAt?: string; insights?: any[]; kpiList?: any[]; charts?: any[]; executedSqls?: string[] },
+  data: RegenReportPayload,
   params: ResolvedRegenParams,
   dataProvenance: 'live' | 'simulated'
 ): SavedReport {
@@ -52,9 +66,9 @@ export function applyRegenResult(
     title: data.title || original.title,
     summary: data.summary || original.summary,
     createdAt: data.createdAt || new Date().toISOString().split('T')[0],
-    insights: data.insights || [],
-    kpiList: data.kpiList || [],
-    charts: data.charts || [],
+    insights: (data.insights as SavedReport['insights'] | undefined) || [],
+    kpiList: (data.kpiList as SavedReport['kpiList'] | undefined) || [],
+    charts: (data.charts as SavedReport['charts'] | undefined) || [],
     ...(Array.isArray(data.executedSqls) ? { executedSqls: data.executedSqls } : {}),
     comments: original.comments, // 重新生成不清空已有批注
     customPrompt: params.customPrompt.trim() ? params.customPrompt.trim() : undefined,

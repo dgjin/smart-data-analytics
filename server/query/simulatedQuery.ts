@@ -83,24 +83,27 @@ export async function runSimulatedQuery(input: SimulatedQueryInput): Promise<Sim
     const parsed = safeParseJson(resultText);
     // 中文表头：schema 列业务含义兜底 + LLM 映射覆盖（与 live 链路同一组装逻辑）
     if (parsed && Array.isArray(parsed.data)) {
+      const chartConfigSrc = parsed.chartConfig as Record<string, unknown> | undefined;
       parsed.columnNames = buildColumnNames(
         parsed.data.filter((r: unknown) => r && typeof r === 'object'),
         input.schema || [],
-        parsed.chartConfig?.yAxisNames,
-        parsed.columnNames
+        chartConfigSrc?.yAxisNames as Record<string, string> | undefined,
+        parsed.columnNames as Record<string, string> | undefined
       );
       // 图表轴名中文化：yAxisNames 缺失指标补齐 + 维度中文名（图例/tooltip 不出现英文列名）
-      const cc = parsed.chartConfig;
+      const cc = parsed.chartConfig as Record<string, unknown> | undefined;
       if (cc && typeof cc === 'object') {
-        cc.yAxisNames = cc.yAxisNames && typeof cc.yAxisNames === 'object' ? cc.yAxisNames : {};
+        const yNames = (cc.yAxisNames && typeof cc.yAxisNames === 'object' ? cc.yAxisNames : {}) as Record<string, string>;
+        const columnNames = parsed.columnNames as Record<string, string>;
         for (const k of Array.isArray(cc.yAxisKeys) ? cc.yAxisKeys : []) {
-          if (typeof k === 'string' && !cc.yAxisNames[k] && parsed.columnNames[k]) {
-            cc.yAxisNames[k] = parsed.columnNames[k];
+          if (typeof k === 'string' && !yNames[k] && columnNames[k]) {
+            yNames[k] = columnNames[k];
           }
         }
-        if (typeof cc.xAxisKey === 'string' && !cc.xAxisName && parsed.columnNames[cc.xAxisKey]) {
-          cc.xAxisName = parsed.columnNames[cc.xAxisKey];
+        if (typeof cc.xAxisKey === 'string' && !cc.xAxisName && columnNames[cc.xAxisKey]) {
+          cc.xAxisName = columnNames[cc.xAxisKey];
         }
+        cc.yAxisNames = yNames;
       }
     }
     if (!parsed) {

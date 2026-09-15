@@ -69,7 +69,7 @@ export const CHART_THEMES: Record<string, ChartTheme> = {
  * and dynamically calculates optimal high-contrast color assignments.
  */
 export function getAutoOptimizedColors(
-  data: Record<string, any>[],
+  data: Record<string, unknown>[],
   yAxisKeys: string[],
   selectedThemeId: string = 'cyber'
 ): { colors: string[]; explanation: string } {
@@ -83,7 +83,10 @@ export function getAutoOptimizedColors(
 
   // Check 1: Revenue vs Profit or Positive vs Negative metric detection
   const hasNegative = data.some((d) =>
-    yAxisKeys.some((k) => typeof d[k] === 'number' && d[k] < 0)
+    yAxisKeys.some((k) => {
+      const v = d[k];
+      return typeof v === 'number' && v < 0;
+    })
   );
 
   const keysLower = yAxisKeys.map((k) => k.toLowerCase());

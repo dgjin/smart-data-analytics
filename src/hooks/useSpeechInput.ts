@@ -74,7 +74,7 @@ export function useSpeechInput(onTranscript: (text: string) => void): SpeechInpu
         setSpeechError(null);
       };
 
-      recognition.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEventLike) => {
         let transcript = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
           transcript += event.results[i][0].transcript;
@@ -82,7 +82,7 @@ export function useSpeechInput(onTranscript: (text: string) => void): SpeechInpu
         if (transcript) transcriptRef.current(transcript);
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
         console.error('Speech recognition error:', event.error);
         if (event.error === 'not-allowed') {
           setSpeechError('麦克风权限已被拒绝，请在浏览器地址栏侧点击允许麦克风权限。');
@@ -98,7 +98,7 @@ export function useSpeechInput(onTranscript: (text: string) => void): SpeechInpu
 
       recognitionRef.current = recognition;
       recognition.start();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to start speech recognition:', err);
       setIsListening(false);
     }

@@ -4,6 +4,7 @@
  * 鉴权复用 apiFetch（自动带 Bearer token + 401 会话失效处理）。
  */
 import { apiFetch, parseApiErrorBody } from '../api/client';
+import { getErrorMessage } from './errorUtils';
 
 export interface AsyncTaskStatus {
   id: string;
@@ -11,7 +12,8 @@ export interface AsyncTaskStatus {
   status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
   progress: string;
   error: string;
-  result?: any;
+  /** 任务结果载荷（由各任务类型自定义结构；消费方按需收窄） */
+  result?: unknown;
 }
 
 export interface PollTaskOptions {
@@ -47,9 +49,9 @@ export async function pollTask(taskId: string, opts: PollTaskOptions = {}): Prom
       }
       task = (await resp.json()) as AsyncTaskStatus;
       consecutiveErrors = 0;
-    } catch (err: any) {
+    } catch (err) {
       // 404 与 401（apiFetch 内抛 ApiError）不可恢复，直接抛；其余视为瞬时抖动
-      const msg = String(err?.message || '');
+      const msg = String(getErrorMessage(err) || '');
       if (msg.includes('任务不存在') || err?.name === 'ApiError') throw err;
       consecutiveErrors += 1;
       if (consecutiveErrors >= 5) {

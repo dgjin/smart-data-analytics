@@ -36,13 +36,13 @@ export function parseStage1(text: string): Stage1Plan | null {
   return {
     sql: parsed.sql,
     title: typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title : '查询结果',
-    chartType: (VALID_STAGE1_CHARTS as readonly string[]).includes(parsed.chartType) ? parsed.chartType : 'bar',
+    chartType: typeof parsed.chartType === 'string' && (VALID_STAGE1_CHARTS as readonly string[]).includes(parsed.chartType) ? parsed.chartType : 'bar',
     xAxisKey: typeof parsed.xAxisKey === 'string' ? parsed.xAxisKey : '',
     yAxisKeys: Array.isArray(parsed.yAxisKeys)
       ? parsed.yAxisKeys.filter((k: unknown): k is string => typeof k === 'string')
       : [],
-    yAxisNames: parsed.yAxisNames && typeof parsed.yAxisNames === 'object' ? parsed.yAxisNames : undefined,
-    columnNames: parsed.columnNames && typeof parsed.columnNames === 'object' ? parsed.columnNames : undefined,
+    yAxisNames: parsed.yAxisNames && typeof parsed.yAxisNames === 'object' ? (parsed.yAxisNames as Record<string, string>) : undefined,
+    columnNames: parsed.columnNames && typeof parsed.columnNames === 'object' ? (parsed.columnNames as Record<string, string>) : undefined,
     thoughtProcess: Array.isArray(parsed.thoughtProcess)
       ? parsed.thoughtProcess.filter((s: unknown): s is string => typeof s === 'string').slice(0, 6)
       : [],
@@ -53,7 +53,7 @@ export function parseStage1(text: string): Stage1Plan | null {
 export function parseClarification(text: string): Clarification | null {
   const parsed = safeParseJson(text);
   if (!parsed || parsed.needClarification !== true) return null;
-  const c = parsed.clarification;
+  const c = parsed.clarification as Record<string, unknown> | undefined;
   if (!c || typeof c !== 'object') return null;
   if (typeof c.question !== 'string' || !c.question.trim()) return null;
   if (!Array.isArray(c.options)) return null;

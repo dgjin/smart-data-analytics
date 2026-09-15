@@ -26,9 +26,10 @@ export function makeLlmError(
 }
 
 /** 从任意异常提取 HTTP 状态码（优先 err.status，兜底匹配 message 中的 3 位状态码） */
-export function extractStatus(err: any): number | undefined {
-  if (typeof err?.status === 'number') return err.status;
-  const m = /(?:error|status)[:\s]*(\d{3})\b/i.exec(String(err?.message || ''));
+export function extractStatus(err: unknown): number | undefined {
+  const e = (err ?? {}) as { status?: unknown; message?: unknown };
+  if (typeof e.status === 'number') return e.status;
+  const m = /(?:error|status)[:\s]*(\d{3})\b/i.exec(String(e.message || ''));
   return m ? Number(m[1]) : undefined;
 }
 
@@ -39,9 +40,10 @@ export function extractStatus(err: any): number | undefined {
  * - 4xx（除 429）→ 不可重试（鉴权失败、参数错误重试无意义）
  * - 无状态码（网络层错误 fetch failed/ECONNRESET 等）→ 可重试
  */
-export function isRetryable(err: any): boolean {
-  if (err?.code === 'TIMEOUT' || err?.name === 'AbortError') return true;
-  if (err?.code === 'CIRCUIT_OPEN') return false;
+export function isRetryable(err: unknown): boolean {
+  const e = (err ?? {}) as { code?: unknown; name?: unknown };
+  if (e.code === 'TIMEOUT' || e.name === 'AbortError') return true;
+  if (e.code === 'CIRCUIT_OPEN') return false;
   const status = extractStatus(err);
   if (status === undefined) return true;
   if (status === 429) return true;

@@ -3,7 +3,7 @@
  * 统一的 fetch 封装，处理错误和响应
  */
 
-export async function apiFetch<T = any>(
+export async function apiFetch<T = unknown>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {

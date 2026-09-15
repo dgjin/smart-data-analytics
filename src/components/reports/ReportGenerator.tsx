@@ -20,7 +20,7 @@ import { useAuthStore } from '../../hooks/useAuthStore';
 import { useEngineInfo } from '../../hooks/useEngineInfo';
 import { resolveAmountUnit, AMOUNT_UNITS } from '../../hooks/useAmountUnitStore';
 import { AmountUnitSelect } from '../common/AmountUnitSelect';
-import { resolveReportGenParams, canRegenerateReport, applyRegenResult } from '../../utils/reportRegen';
+import { resolveReportGenParams, canRegenerateReport, applyRegenResult, type RegenReportPayload } from '../../utils/reportRegen';
 import { apiFetch } from '../../api/client';
 import { ExecutiveReportCard } from './ExecutiveReportCard';
 import { SavedReport } from '../../types/analytics';
@@ -146,7 +146,7 @@ export const ReportGenerator: React.FC = () => {
         return;
       }
       const task = await pollTask(submitted.taskId);
-      const data = task.result || {};
+      const data = (task.result || {}) as { success?: boolean; error?: string; dataProvenance?: string; report?: RegenReportPayload };
       if (data.success && data.report) {
         // v0.9.22：统一走 applyRegenResult（就地替换、保留批注、同步更新条件快照）
         const fresh = applyRegenResult(original, data.report, params, data.dataProvenance === 'simulated' ? 'simulated' : 'live');
@@ -352,7 +352,7 @@ export const ReportGenerator: React.FC = () => {
         return;
       }
       const task = await pollTask(submitted.taskId);
-      const data = task.result || {};
+      const data = (task.result || {}) as { success?: boolean; error?: string; dataProvenance?: string; report?: RegenReportPayload };
       if (data.success && data.report) {
         const fresh = applyRegenResult(
           target!,

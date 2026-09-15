@@ -149,7 +149,7 @@ export function invalidateExpertPersonaCache(): void {
   personaCache = null;
 }
 
-function rowToPersona(r: any): PersonaRecord {
+function rowToPersona(r: RowDataPacket): PersonaRecord {
   let keywords: string[] = [];
   try {
     const parsed = JSON.parse(String(r.keywords || '[]'));
@@ -248,10 +248,11 @@ export async function syncBuiltinPersonaContent(): Promise<number> {
 // ---------- CRUD（routes/expertPersonas.ts 调用，全 ADMIN） ----------
 
 /** 校验并规整角色输入；非法时返回 error 说明（路由层据此 400） */
-export function sanitizePersonaInput(input: any): { ok: true; persona: Omit<PersonaRecord, 'id' | 'personaKey' | 'isBuiltin'> } | { ok: false; error: string } {
-  const label = typeof input?.label === 'string' ? input.label.trim() : '';
-  const rolePrompt = typeof input?.rolePrompt === 'string' ? input.rolePrompt.trim() : '';
-  const rawKeywords = Array.isArray(input?.keywords) ? input.keywords : [];
+export function sanitizePersonaInput(input: unknown): { ok: true; persona: Omit<PersonaRecord, 'id' | 'personaKey' | 'isBuiltin'> } | { ok: false; error: string } {
+  const obj = (input ?? {}) as Record<string, unknown>;
+  const label = typeof obj.label === 'string' ? obj.label.trim() : '';
+  const rolePrompt = typeof obj.rolePrompt === 'string' ? obj.rolePrompt.trim() : '';
+  const rawKeywords: unknown[] = Array.isArray(obj.keywords) ? obj.keywords : [];
   const keywords: string[] = [];
   for (const k of rawKeywords) {
     if (typeof k !== 'string') continue;
@@ -261,7 +262,7 @@ export function sanitizePersonaInput(input: any): { ok: true; persona: Omit<Pers
     if (!keywords.includes(t)) keywords.push(t);
     if (keywords.length > 20) return { ok: false, error: '触发关键词最多 20 个' };
   }
-  const sortOrder = Number.isInteger(Number(input?.sortOrder)) ? Math.max(0, Math.min(9999, Number(input.sortOrder))) : 100;
+  const sortOrder = Number.isInteger(Number(obj.sortOrder)) ? Math.max(0, Math.min(9999, Number(obj.sortOrder))) : 100;
 
   if (!label || label.length > 50) return { ok: false, error: '角色标签必填且不超过 50 字' };
   if (!rolePrompt || rolePrompt.length > 2000) return { ok: false, error: '角色提示词（rolePrompt）必填且不超过 2000 字' };
@@ -273,7 +274,7 @@ export function sanitizePersonaInput(input: any): { ok: true; persona: Omit<Pers
       keywords,
       rolePrompt,
       sortOrder,
-      status: input?.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
+      status: obj.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
     },
   };
 }

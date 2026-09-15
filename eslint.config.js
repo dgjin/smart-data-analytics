@@ -44,6 +44,7 @@ export default tseslint.config(
   // 批次2 已完成（2026-09-15）：src/components 全目录 147 处 → 0，42 个文件已移出。
   // 批次3 已完成（2026-09-15）：server/query 全目录 110 处 → 0，18 个文件已移出。
   // 批次4 已完成（2026-09-15）：server/infra 全目录 32 处 → 0，9 个文件已移出。
+  // 批次5 已完成（2026-09-15）：src/utils + server/llm + src/hooks 共 35 处 → 0，11 个文件已移出。
   {
     files: [
       'server.ts', // 2
@@ -57,9 +58,6 @@ export default tseslint.config(
       'server/knowledge/externalKnowledge.ts', // 3
       'server/knowledge/knowledgeBaseTools.ts', // 1
       'server/knowledge/knowledgeServices.ts', // 4
-      'server/llm/expertPersona.ts', // 2
-      'server/llm/llmResilience.ts', // 2
-      'server/llm/llmUsage.ts', // 2
       'server/report/liveReport.ts', // 3
       'server/report/reportExport.ts', // 9
       'server/report/simulatedReport.ts', // 3
@@ -71,15 +69,7 @@ export default tseslint.config(
       'server/utils/fallback/fallbackPipeline.ts', // 5
       'server/utils/fallbackStrategies/simplerPrompt.ts', // 6
       'server/utils/fewShotService.ts', // 4
-      'src/hooks/useSpeechInput.ts', // 3
       'src/types/analytics.ts', // 3
-      'src/utils/apiFetch.ts', // 1
-      'src/utils/asyncTask.ts', // 2
-      'src/utils/chartThemes.ts', // 1
-      'src/utils/exportCsv.ts', // 1
-      'src/utils/queryResultNormalizer.ts', // 14
-      'src/utils/reportRegen.ts', // 3
-      'src/utils/sseStream.ts', // 4
     ],
     plugins: { '@typescript-eslint': tseslint.plugin },
     rules: {

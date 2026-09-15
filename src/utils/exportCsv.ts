@@ -1,4 +1,5 @@
 import { apiFetch } from '../api/client';
+import { getErrorMessage } from './errorUtils';
 
 /**
  * P2-12 DLP 统一导出通道：前端 CSV 导出一律走服务端 /api/export/csv。
@@ -52,7 +53,7 @@ export async function downloadServerCsv(opts: {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     return { ok: true, message: `已导出 CSV（${rows.length} 行，含溯源水印）` };
-  } catch (err: any) {
-    return { ok: false, message: err?.message || '导出失败' };
+  } catch (err) {
+    return { ok: false, message: getErrorMessage(err) || '导出失败' };
   }
 }

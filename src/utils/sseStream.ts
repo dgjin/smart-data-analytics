@@ -23,13 +23,13 @@ export function stageLabel(stage: string): string {
 
 export interface SseStreamHandlers {
   /** 阶段进度事件（stage 文案直接可渲染；info 携带事件附加字段，如 sql_ready/executed 的 sql） */
-  onStage?: (label: string, stage: string, info?: Record<string, any>) => void;
+  onStage?: (label: string, stage: string, info?: Record<string, unknown>) => void;
   /** M1 推导留痕步骤事件（追加步骤器） */
-  onTrace?: (step: any) => void;
+  onTrace?: (step: unknown) => void;
   /** P1-2 Token 级流式输出：LLM 生成内容逐字推送（打字机效果） */
   onChunk?: (content: string) => void;
   /** 终端事件（done / clarify / refuse），payload 与非流式 JSON 响应同构 */
-  onTerminal?: (event: 'done' | 'clarify' | 'refuse', data: any) => void;
+  onTerminal?: (event: 'done' | 'clarify' | 'refuse', data: unknown) => void;
   /** P2-5 断线续传：每个事件的服务端序号（SSE id 字段），调用方记录最后已收序号用于断点续传 */
   onEventId?: (id: string) => void;
 }
@@ -88,7 +88,7 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
         continue;
       }
       
-      let data: any;
+      let data: Record<string, unknown>;
       try {
         data = JSON.parse(dataStr);
       } catch {
@@ -97,7 +97,7 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
       
       if (eventName === 'stage') {
         const stage = String(data?.stage || '');
-        const { stage: _stage, ...info } = data || {};
+        const { stage: _stage, ...info } = (data || {}) as Record<string, unknown>;
         handlers.onStage?.(stageLabel(stage), stage, info);
       } else if (eventName === 'trace') {
         if (data && typeof data.title === 'string') handlers.onTrace?.(data);
