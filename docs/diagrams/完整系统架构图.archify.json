@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "智能问数分析系统 · 完整架构图",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/完整系统架构图.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/dgjin/smart-data-analytics",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "28b48806ebfa044915515e58c3a64a2f4cfd236f"
+    },
+    "views": [
+      { "id": "ask-path", "label": "一次问数请求", "focus": ["users", "web", "server", "service", "nlsql", "exec", "ds"], "note": "从前端提问出发，经六层防护、双阶段编排与只读执行到达真实数据源。" },
+      { "id": "model-and-knowledge", "label": "模型与知识", "focus": ["nlsql", "kb", "llm", "ollama", "cloud_llm"], "note": "编排层向上取知识、向右调用模型通道，本地引擎与云端引擎按配置路由。" },
+      { "id": "state-and-ops", "label": "状态与运维", "focus": ["server", "service", "mysql_app", "redis", "ops"], "note": "限流配额与缓存在 Redis 外置，元数据、审计与巡检报表落在应用库。" }
+    ]
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "用户", "sublabel": "管理员 · 分析师 · 只读", "pos": [40, 150], "size": [150, 64] },
+    { "id": "kb", "type": "backend", "label": "知识服务", "sublabel": "本地检索 + 外部 RAG", "pos": [790, 150], "size": [150, 64], "sources": [{ "path": "server/knowledge/knowledgeBase.ts", "label": "RAG 片段注入" }, { "path": "server/knowledge/externalKnowledge.ts", "label": "外部知识库适配" }] },
+    { "id": "ollama", "type": "external", "label": "Ollama 本地引擎", "sublabel": "主推理 + embedding", "pos": [1040, 150], "size": [150, 64] },
+    { "id": "web", "type": "frontend", "label": "React 19 SPA", "sublabel": "问数 · 看板 · 报告", "pos": [40, 275], "size": [150, 64] },
+    { "id": "server", "type": "backend", "label": "Express 应用服务", "sublabel": "34 个 /api 路由", "pos": [290, 275], "size": [150, 64], "tag": "单体 · 多实例" },
+    { "id": "service", "type": "backend", "label": "问数服务层", "sublabel": "六层防护 · 缓存留痕", "pos": [540, 275], "size": [150, 64], "sources": [{ "path": "server/query/queryService.ts", "line": 91, "end_line": 257, "label": "runNaturalLanguageQuery" }] },
+    { "id": "nlsql", "type": "backend", "label": "双阶段 NL2SQL 编排", "sublabel": "七路上下文 · 多候选", "pos": [790, 275], "size": [150, 64], "sources": [{ "path": "server/query/liveQuery.ts", "line": 190, "end_line": 749, "label": "runLiveQuery" }] },
+    { "id": "llm", "type": "backend", "label": "统一 LLM 通道", "sublabel": "重试 · 熔断 · 信号量", "pos": [1040, 275], "size": [150, 64], "sources": [{ "path": "server/llm/llmClient.ts", "label": "统一通道" }, { "path": "server/llm/llmResilience.ts", "label": "重试 / 熔断 / 信号量" }] },
+    { "id": "ops", "type": "cloud", "label": "巡检与漂移引擎", "sublabel": "阈值告警 · 知识漂移", "pos": [40, 400], "size": [150, 64], "sources": [{ "path": "server/anomalyPatrol.ts", "label": "巡检计划 + 调度器" }] },
+    { "id": "mysql_app", "type": "database", "label": "应用库 MySQL 8", "sublabel": "元数据 · 审计 · 留痕", "pos": [290, 400], "size": [150, 64], "sources": [{ "path": "server/infra/schema.ts", "label": "幂等建表 DDL" }] },
+    { "id": "redis", "type": "database", "label": "Redis（可选）", "sublabel": "限流 / 配额 / 缓存", "pos": [540, 400], "size": [150, 64], "sources": [{ "path": "server/infra/stateStore.ts", "label": "内存 / Redis 双模" }] },
+    { "id": "exec", "type": "security", "label": "SQL 安全执行层", "sublabel": "只读 · 行权限 · EXPLAIN", "pos": [790, 400], "size": [150, 64], "sources": [{ "path": "server/query/sqlExecutor.ts", "line": 160, "end_line": 368, "label": "validateSelectSql" }] },
+    { "id": "cloud_llm", "type": "external", "label": "云端模型引擎", "sublabel": "百炼 / Gemini / DeepSeek", "pos": [1040, 400], "size": [150, 64] },
+    { "id": "ds", "type": "database", "label": "业务数据源", "sublabel": "MySQL / PG / Greenplum", "pos": [790, 525], "size": [150, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "前端呈现层", "wraps": ["web"] },
+    { "kind": "region", "label": "应用元数据与状态", "wraps": ["mysql_app", "redis"] },
+    { "kind": "region", "label": "本地与云端模型引擎", "wraps": ["ollama", "llm", "cloud_llm"] }
+  ],
+  "connections": [
+    { "id": "login", "from": "users", "to": "web", "label": "HTTPS", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "ask", "from": "web", "to": "server", "label": "/api/*", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "auth-route", "from": "server", "to": "service", "label": "鉴权后", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "run", "from": "service", "to": "nlsql", "label": "双阶段编排", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "prompt", "from": "nlsql", "to": "llm", "label": "提示词调用", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "knowledge", "from": "nlsql", "to": "kb", "label": "知识注入", "fromSide": "top", "toSide": "bottom" },
+    { "id": "local-llm", "from": "llm", "to": "ollama", "label": "本地推理", "fromSide": "top", "toSide": "bottom" },
+    { "id": "sql-contract", "from": "nlsql", "to": "exec", "label": "候选 SQL", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "cloud-llm", "from": "llm", "to": "cloud_llm", "label": "云端兜底", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "read-only", "from": "exec", "to": "ds", "label": "只读执行", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "meta", "from": "server", "to": "mysql_app", "label": "元数据", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "limit-cache", "from": "service", "to": "redis", "label": "限流与配额", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "patrol-read", "from": "mysql_app", "to": "ops", "label": "巡检读取", "fromSide": "left", "toSide": "right" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "请求主链", "items": ["浏览器 → Express 应用服务 → 问数服务层 → 双阶段编排 → 只读执行 → 业务数据源", "SSE 阶段事件（understanding / sql_ready / executed / analyzing）沿原路流回前端", "报告生成与导出、决策看板、灵活查询共用同一条服务层与安全执行层"] },
+    { "dot": "rose", "title": "安全纵深", "items": ["输入净化 → 鉴权与 ACL → 限流配额并发槽 → Scope 白名单 → 敏感列过滤 → 只读执行 → 审计 → 可观测", "行级权限以 AST 过滤派生表强制注入，注入失败即拒绝执行", "数据源凭据 AES-256-GCM 落库；生产环境缺失 JWT_SECRET 拒绝启动"] },
+    { "dot": "emerald", "title": "模型、知识与状态", "items": ["统一 LLM 通道按配置路由本地 Ollama 与云端引擎，带重试、熔断与并发信号量", "知识服务并行检索本地知识库与外部 RAG，单源失败降级不阻断", "限流、配额与缓存通过 stateStore 外置 Redis；CSV / JSON / HTTP API 以文件数据源形式接入"] }
+  ]
+}

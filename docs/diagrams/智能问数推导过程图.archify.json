@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "智能问数分析系统 · 智能问数推导过程图",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/智能问数推导过程图.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1050, 640],
+    "views": [
+      { "id": "entry-and-guard", "label": "入口与防护", "focus": ["asker", "spa", "svc"], "note": "提问先过净化、鉴权、ACL 与限流配额，再进入服务层组装上下文。" },
+      { "id": "context-and-candidates", "label": "上下文与候选", "focus": ["svc", "orch", "llm"], "note": "七路上下文并行注入提示词，生成多档候选 SQL 并自纠错重排。" },
+      { "id": "contract-and-execute", "label": "契约与执行", "focus": ["orch", "exec", "ds"], "note": "四契约校验通过才只读执行，结果回到编排层做阶段二解读与回写。" }
+    ]
+  },
+  "participants": [
+    { "id": "asker", "type": "external", "label": "业务用户", "sublabel": "角色化接入" },
+    { "id": "spa", "type": "frontend", "label": "问数前端", "sublabel": "流式渲染" },
+    { "id": "svc", "type": "backend", "label": "问数服务", "sublabel": "限流 · 缓存" },
+    { "id": "orch", "type": "backend", "label": "推导编排", "sublabel": "候选 · 自纠错" },
+    { "id": "llm", "type": "backend", "label": "模型通道", "sublabel": "本地 / 云端" },
+    { "id": "exec", "type": "security", "label": "安全执行", "sublabel": "只读 · 行权限" },
+    { "id": "ds", "type": "database", "label": "业务数据源", "sublabel": "MySQL / PG" }
+  ],
+  "segments": [
+    { "from": 146, "to": 226, "label": "接入与防护" },
+    { "from": 238, "to": 340, "label": "上下文与候选" },
+    { "from": 352, "to": 436, "label": "契约与执行" },
+    { "from": 448, "to": 556, "label": "结果与回写" }
+  ],
+  "messages": [
+    { "from": "asker", "to": "spa", "y": 160, "label": "输入问题与模式", "variant": "emphasis" },
+    { "from": "spa", "to": "svc", "y": 188, "label": "POST /api/query", "variant": "emphasis" },
+    { "from": "svc", "to": "orch", "y": 216, "label": "鉴权 · ACL · 限流", "variant": "security" },
+    { "from": "svc", "to": "orch", "y": 248, "label": "七路上下文并行检索", "variant": "emphasis" },
+    { "from": "orch", "to": "llm", "y": 276, "label": "组装提示词", "variant": "emphasis" },
+    { "from": "llm", "to": "orch", "y": 304, "label": "候选 SQL（多档）", "variant": "return" },
+    { "from": "orch", "to": "llm", "y": 332, "label": "自纠错：重排与修复", "variant": "dashed" },
+    { "from": "orch", "to": "exec", "y": 368, "label": "候选 SQL 送审", "variant": "emphasis" },
+    { "from": "exec", "to": "orch", "y": 396, "label": "四契约不通过即拒绝", "variant": "security" },
+    { "from": "exec", "to": "ds", "y": 424, "label": "只读执行 · 行权限注入", "variant": "emphasis" },
+    { "from": "exec", "to": "orch", "y": 452, "label": "结果集 · 耗时 · 审计", "variant": "return" },
+    { "from": "orch", "to": "llm", "y": 480, "label": "阶段二解读 · 采样", "variant": "emphasis" },
+    { "from": "llm", "to": "orch", "y": 508, "label": "归因与结论", "variant": "return" },
+    { "from": "orch", "to": "spa", "y": 536, "label": "SSE：executed 与回写", "variant": "dashed" }
+  ],
+  "activations": [
+    { "participant": "spa", "from": 154, "to": 192, "type": "frontend" },
+    { "participant": "svc", "from": 182, "to": 300, "type": "backend" },
+    { "participant": "orch", "from": 210, "to": 542, "type": "backend" },
+    { "participant": "llm", "from": 270, "to": 338, "type": "backend" },
+    { "participant": "exec", "from": 362, "to": 458, "type": "security" },
+    { "participant": "ds", "from": 418, "to": 430, "type": "database" },
+    { "participant": "llm", "from": 474, "to": 514, "type": "backend" },
+    { "participant": "spa", "from": 530, "to": 542, "type": "frontend" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "两阶段推导", "items": ["阶段一分档生成候选，自纠错重排后送审", "阶段二在结果集上采样，产出图表与归因", "SSE 事件全程回传，前端边推导边渲染"] },
+    { "dot": "rose", "title": "四契约与安全执行", "items": ["只读校验拒绝一切非 SELECT，并限时", "行权限以 AST 注入，失败即拒绝执行", "EXPLAIN 预估扫描量超阈值直接拒绝"] },
+    { "dot": "emerald", "title": "边界与回写", "items": ["澄清追问与越界拒答只在首轮触发", "上下文、SQL、结果与耗时写入 trace", "对话历史与用量随结果回写，下轮命中缓存"] }
+  ]
+}

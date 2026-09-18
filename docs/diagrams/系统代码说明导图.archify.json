@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "智能问数分析系统 · 系统代码说明导图",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/系统代码说明导图.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/dgjin/smart-data-analytics",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "28b48806ebfa044915515e58c3a64a2f4cfd236f"
+    },
+    "views": [
+      { "id": "front-to-entry", "label": "前端到服务端", "focus": ["spa", "fe-query", "fe-admin", "fe-hooks", "entry", "routes"], "note": "四类前端职责分别落到问数请求、治理接口、状态轮询三条接口面，入口再装配路由。" },
+      { "id": "domains", "label": "防护与业务域", "focus": ["query", "authz", "health", "llm", "knowledge", "report"], "note": "查询域取知识与模型域能力，鉴权与健康端点守住访问与可观测性。" },
+      { "id": "foundation", "label": "数据与保障", "focus": ["analytics", "infra", "db", "eval", "opsJobs"], "note": "基础设施提供建表与状态，应用库承载留痕；评测与巡检任务守住质量。" }
+    ]
+  },
+  "components": [
+    { "id": "spa", "type": "frontend", "label": "React 19 应用", "sublabel": "Vite · 单页路由", "pos": [40, 150], "size": [130, 64] },
+    { "id": "fe-query", "type": "frontend", "label": "问数与报告页", "sublabel": "query · reports", "pos": [255, 150], "size": [130, 64] },
+    { "id": "fe-admin", "type": "frontend", "label": "治理控制台", "sublabel": "admin · metrics", "pos": [470, 150], "size": [130, 64] },
+    { "id": "fe-hooks", "type": "frontend", "label": "Hooks 与工具层", "sublabel": "hooks 11 · utils 35", "pos": [685, 150], "size": [130, 64] },
+    { "id": "entry", "type": "backend", "label": "server.ts 入口", "sublabel": "中间件装配", "pos": [900, 150], "size": [130, 64] },
+    { "id": "routes", "type": "backend", "label": "路由层 routes/", "sublabel": "31 个模块", "pos": [1115, 150], "size": [130, 64] },
+    { "id": "knowledge", "type": "backend", "label": "知识域", "sublabel": "本地 · 外部 RAG", "pos": [40, 330], "size": [130, 64], "sources": [{ "path": "server/knowledge/knowledgeBase.ts", "label": "本地知识检索" }, { "path": "server/knowledge/externalKnowledge.ts", "label": "外部知识库适配" }] },
+    { "id": "query", "type": "backend", "label": "查询域", "sublabel": "server/query 27", "pos": [255, 330], "size": [130, 64], "sources": [{ "path": "server/query/liveQuery.ts", "line": 190, "end_line": 749, "label": "runLiveQuery 双阶段编排" }, { "path": "server/query/sqlExecutor.ts", "line": 160, "end_line": 368, "label": "validateSelectSql 只读校验" }] },
+    { "id": "authz", "type": "security", "label": "鉴权与访问控制", "sublabel": "auth · ACL · OIDC", "pos": [470, 330], "size": [130, 64] },
+    { "id": "health", "type": "cloud", "label": "健康与指标端点", "sublabel": "/api/health · /metrics", "pos": [685, 330], "size": [130, 64] },
+    { "id": "llm", "type": "backend", "label": "模型域", "sublabel": "server/llm 8", "pos": [900, 330], "size": [130, 64], "sources": [{ "path": "server/llm/llmClient.ts", "label": "统一模型通道" }, { "path": "server/llm/llmResilience.ts", "label": "重试 / 熔断 / 信号量" }] },
+    { "id": "report", "type": "backend", "label": "报告与导出域", "sublabel": "PPTX · DOCX", "pos": [1115, 330], "size": [130, 64] },
+    { "id": "analytics", "type": "backend", "label": "分析与 Agent", "sublabel": "预测 · 归因", "pos": [40, 510], "size": [130, 64] },
+    { "id": "infra", "type": "cloud", "label": "基础设施层", "sublabel": "server/infra 20", "pos": [255, 510], "size": [130, 64], "sources": [{ "path": "server/infra/schema.ts", "label": "幂等建表 DDL" }, { "path": "server/infra/stateStore.ts", "label": "内存 / Redis 双模" }] },
+    { "id": "db", "type": "database", "label": "应用库与 DDL", "sublabel": "schema · seedData", "pos": [470, 510], "size": [130, 64] },
+    { "id": "eval", "type": "cloud", "label": "评测与回归", "sublabel": "148 + 54 + 60 用例", "pos": [685, 510], "size": [130, 64] },
+    { "id": "opsJobs", "type": "cloud", "label": "巡检与漂移任务", "sublabel": "anomalyPatrol · 定时", "pos": [900, 510], "size": [130, 64], "sources": [{ "path": "server/anomalyPatrol.ts", "label": "巡检计划 + 调度器" }] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "前端应用（src/）", "wraps": ["spa", "fe-query", "fe-admin", "fe-hooks"] },
+    { "kind": "region", "label": "服务端入口与路由", "wraps": ["entry", "routes"] },
+    { "kind": "region", "label": "防护与业务域（server/*）", "wraps": ["knowledge", "query", "authz", "health", "llm", "report"] },
+    { "kind": "region", "label": "数据 · 评测 · 任务", "wraps": ["analytics", "infra", "db", "eval", "opsJobs"] }
+  ],
+  "connections": [
+    { "id": "fe-query-api", "from": "fe-query", "to": "query", "label": "HTTP / SSE", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "fe-admin-authz", "from": "fe-admin", "to": "authz", "label": "治理接口调用", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "fe-hooks-health", "from": "fe-hooks", "to": "health", "label": "状态轮询", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "entry-routes", "from": "entry", "to": "routes", "label": "装配路由", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "id": "routes-report", "from": "routes", "to": "report", "label": "分发到各域", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "query-knowledge", "from": "query", "to": "knowledge", "label": "知识注入", "fromSide": "left", "toSide": "right" },
+    { "id": "query-db", "from": "query", "to": "db", "label": "留痕与缓存", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 40 },
+    { "id": "llm-report", "from": "llm", "to": "report", "label": "归因回填", "fromSide": "right", "toSide": "left" },
+    { "id": "infra-db", "from": "infra", "to": "db", "label": "建表 DDL", "fromSide": "right", "toSide": "left" },
+    { "id": "ops-health", "from": "opsJobs", "to": "health", "label": "巡检读取指标", "variant": "dashed", "fromSide": "top", "toSide": "bottom" },
+    { "id": "eval-db", "from": "eval", "to": "db", "label": "评测取数", "variant": "dashed", "fromSide": "left", "toSide": "right" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "前端应用（src/）", "items": ["页面域按业务分目录：query / reports / charts / dashboard、admin / datasource、analytics、flexquery 与 help", "跨页面复用的流式读取、轮询与图表逻辑收敛在 hooks 与 utils，接口调用统一走 src/api/client.ts", "生产模式下由 Express 托管构建产物并做 SPA 回退，开发态走 Vite 代理"] },
+    { "dot": "rose", "title": "入口、路由与防护", "items": ["server.ts 装配中间件、挂载 31 个路由模块，并启动巡检与漂移调度器", "每个请求先过鉴权与访问控制（本地账号与 OIDC），再进限流配额与并发槽", "/api/health、/api/health/live|ready 与 /metrics 暴露健康与指标，供探针与看板使用"] },
+    { "dot": "emerald", "title": "业务域与数据保障", "items": ["业务域按职责分包：query / llm / knowledge / auth / report / analytics / agent 与 utils 工具集", "应用库承载元数据、审计、对话与用量；schema.ts 幂等建表，seedData 提供演示数据", "评测集 148 + 54 + 60 用例守住回归；巡检与漂移任务定时跑批并回写告警"] }
+  ]
+}
