@@ -152,7 +152,7 @@ docker run -d -p 3000:3000 \
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | 初始管理员账号 | admin / admin123 |
 | `DS_SECRET_KEY` | 数据源凭据加密密钥 | 缺省回退 JWT_SECRET |
 | `PORT` / `HOST` | 服务端口 / 绑定地址 | 3000 / 127.0.0.1 |
-| `RATE_LIMIT_MAX` / `USER_QUERY_RATE_MAX` | 全局限流 / 每用户问数配额 | — |
+| `RATE_LIMIT_MAX` / `USER_QUERY_RATE_MAX` | 全局限流 / 每用户问数配额（每用户配额填 `0` = 取消次数限制，不限次数） | — |
 | `SQL_EXPLAIN_MAX_ROWS` | EXPLAIN 防线：预估扫描行数超阈值则拦截并提示收窄条件（export 场景自动 ×10；0=关闭） | 1000000 |
 | `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂 3 / 简单 1 |
 | `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入） | 20 |

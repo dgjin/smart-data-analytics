@@ -60,6 +60,27 @@ describe('checkUserQueryLimit（L5 频率层：20 次/小时滑动窗口）', ()
     expect((await checkUserQueryLimit(1, t0 + 2)).ok).toBe(true);
     expect((await checkUserQueryLimit(1, t0 + 3)).ok).toBe(false);
   });
+
+  it('USER_QUERY_RATE_MAX=0 取消次数配额：任意次数均通过且不累积计数', async () => {
+    process.env.USER_QUERY_RATE_MAX = '0';
+    const t0 = 1_000_000;
+    for (let i = 0; i < 200; i++) {
+      expect((await checkUserQueryLimit(1, t0 + i)).ok).toBe(true);
+    }
+    // 取消配额期间不落计数：恢复配额后窗口内无历史记录，不会被动拒绝
+    process.env.USER_QUERY_RATE_MAX = '3';
+    expect((await checkUserQueryLimit(1, t0 + 300)).ok).toBe(true);
+  });
+
+  it('非法值/负值/空白回退默认 20（不做静默放开）', async () => {
+    const t0 = 1_000_000;
+    for (const bad of ['abc', '-1', ' ']) {
+      _resetForTest();
+      process.env.USER_QUERY_RATE_MAX = bad;
+      for (let i = 0; i < 20; i++) expect((await checkUserQueryLimit(9, t0 + i)).ok).toBe(true);
+      expect((await checkUserQueryLimit(9, t0 + 20)).ok).toBe(false);
+    }
+  });
 });
 
 describe('acquireQuerySlot / releaseQuerySlot（L5 频率层：同用户并发限 1）', () => {

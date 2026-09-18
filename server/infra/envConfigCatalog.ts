@@ -61,7 +61,7 @@ export const ENV_CONFIG_SEED: readonly EnvConfigSeedItem[] = [
   { key: 'JWT_SECRET', category: 'auth', description: 'JWT 签名密钥（修改后所有登录态立即失效；已加密的数据源凭据需重新录入）', sensitive: true },
   { key: 'JWT_EXPIRES_IN', category: 'auth', description: '登录态有效期（默认 12h）' },
   // ---- 系统参数 ----
-  { key: 'USER_QUERY_RATE_MAX', category: 'system', description: '每用户问数限流上限（默认 20）' },
+  { key: 'USER_QUERY_RATE_MAX', category: 'system', description: '每用户问数限流上限（默认 20；填 0 = 取消次数限制，不限次数）' },
   { key: 'APP_URL', category: 'system', description: '应用托管地址（部署/链接相关）' },
 ];
 

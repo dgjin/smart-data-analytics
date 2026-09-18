@@ -340,7 +340,7 @@ DEEPSEEK_API_KEY=sk-your-key
 | `HOST` | 监听地址 | `127.0.0.1`（生产设为 `0.0.0.0`） |
 | `REDIS_URL` | 状态外置（多实例扩展） | 无（进程内存） |
 | `RATE_LIMIT_MAX` | 全局限流阈值 | `100` |
-| `USER_QUERY_RATE_MAX` | 每用户查询限流 | `20` |
+| `USER_QUERY_RATE_MAX` | 每用户查询限流（每用户每小时最大问数；填 `0` = 取消次数限制，不限次数，同用户并发互斥仍生效） | `20` |
 | `SQL_EXPLAIN_MAX_ROWS` | EXPLAIN 防线：SQL 真执行前预估扫描行数，超阈值拦截并提示用户收窄条件（防大扫描拖垮业务库；export 场景阈值自动 ×10；`0` 关闭） | `1000000` |
 | `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂问题 3 / 简单问题 1 |
 | `SEMANTIC_CACHE_THRESHOLD` | L2 语义缓存命中阈值（0.5-1.0，误命中代价高宜保守；实测同域近似问题 0.85~0.95 区间会误命中，故默认 0.95，更换 embedding 模型需重新标定） | `0.95` |
