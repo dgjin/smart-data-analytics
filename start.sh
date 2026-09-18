@@ -19,6 +19,20 @@ ok()   { say "[ OK ] $*"; }
 warn() { say "[提示] $*"; }
 fail() { say "[失败] $*"; exit 1; }
 
+# ollama 模型是否已安装：$1=模型名
+# 注意：ollama list 显示的模型名带标签（如 nomic-embed-text:latest），而配置里常写不带标签的名字，
+# 因此同名（带任意标签或不带标签）均视为已安装，避免误报「未安装」
+model_present() {
+  ollama list 2>/dev/null | awk -v want="$1" '
+    NR > 1 {
+      if ($1 == want) found = 1;
+      split($1, parts, ":");
+      if (parts[1] == want) found = 1;
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
 # 轮询等待端口就绪：$1=端口 $2=超时秒 $3=名称
 wait_port() {
   for _ in $(seq 1 "$2"); do
@@ -103,10 +117,10 @@ fi
 
 # 模型存在性软检查（缺失仅提示不阻断）：主模型 + embedding 模型（语义缓存精排/知识库导入用）
 MAIN_MODEL=$(env_get LLM_MODEL); MAIN_MODEL=${MAIN_MODEL:-qwen3.8:27b-mlx}
-ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "${MAIN_MODEL}" \
+model_present "${MAIN_MODEL}" \
   || warn "主模型 ${MAIN_MODEL} 未安装，首次问数前请执行：ollama pull ${MAIN_MODEL}"
 EMBED_MODEL=$(env_get EMBED_MODEL); EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
-ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "${EMBED_MODEL}" \
+model_present "${EMBED_MODEL}" \
   || warn "embedding 模型 ${EMBED_MODEL} 未安装（影响语义缓存命中与知识库导入精度）：ollama pull ${EMBED_MODEL}"
 
 # ---------- 4. 可选依赖：reportlab（报表 PDF 导出用） ----------
