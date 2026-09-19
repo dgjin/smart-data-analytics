@@ -1,6 +1,7 @@
 /**
  * orgUnits 路由契约测试（v0.9.66 组织架构树）：总部→机构→部门→团队。
- * 覆盖：鉴权（401/403）+ 层级强校验 + 同级重名 + 排序边界 + 删除保护 + 改名同步（用户部门与数据源 ACL）。
+ * 覆盖：鉴权（401/403）+ 层级强校验 + 同级重名 + 排序边界 + 删除保护 + 改名同步（用户部门与数据源 ACL）
+ *     + 数据标识自动编码（v0.9.67：层级路径编号与一键补全）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
@@ -10,7 +11,7 @@ import type { DbStubRule } from './routeTestKit';
 const querySpy = vi.fn();
 vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: unknown[]) => querySpy(...args) }) }));
 
-import orgUnitRoutes from './orgUnits';
+import orgUnitRoutes, { buildDataCode } from './orgUnits';
 
 applyTestEnv();
 
@@ -36,6 +37,9 @@ const R = {
   siblings: 'WHERE parent_id <=> ? ORDER BY sort_order',
   maxOrder: 'MAX(sort_order)',
   insert: 'INSERT INTO org_units',
+  allCodes: 'SELECT data_code FROM org_units',
+  allNodes: 'SELECT id, parent_id, level, name, data_code FROM org_units',
+  updateDataCode: 'UPDATE org_units SET data_code',
   updateNode: 'UPDATE org_units SET',
   updateOrder: 'UPDATE org_units SET sort_order',
   updateUserDept: 'UPDATE users SET department',
@@ -189,12 +193,47 @@ describe('POST /api/admin/org-units：新增节点', () => {
     expect(querySpy.mock.calls.some((c) => String(c[0]).includes(R.audit))).toBe(true);
   });
 
+  it('未传数据标识 → 按层级路径自动生成（机构 BR03）', async () => {
+    querySpy.mockImplementation(
+      adminStub(
+        { match: R.loadNode, rows: () => [nodeRow({ id: 1, parent_id: null, level: 'HQ', name: '总部', data_code: '' })] },
+        { match: R.sibling, rows: [] },
+        { match: R.allCodes, rows: () => [{ data_code: 'BR01' }, { data_code: 'BR02' }, { data_code: '' }] },
+        { match: R.maxOrder, rows: () => [{ maxOrder: 0 }] },
+        { match: R.insert, rows: resultSet({ insertId: 7, affectedRows: 1 }) },
+        { match: R.audit, rows: [] }
+      )
+    );
+    const res = await post('/api/admin/org-units', { parentId: 1, level: 'BRANCH', name: '江苏分公司' });
+    expect(res.status).toBe(201);
+    expect(res.body.unit.dataCode).toBe('BR03');
+    const insertCall = querySpy.mock.calls.find((c) => String(c[0]).includes(R.insert));
+    expect((insertCall?.[1] as unknown[])[3]).toBe('BR03');
+  });
+
+  it('部门自动生成父路径编号（BR01-D02）', async () => {
+    querySpy.mockImplementation(
+      adminStub(
+        { match: R.loadNode, rows: () => [nodeRow({ id: 3, level: 'BRANCH', name: '安徽分公司', data_code: 'BR01' })] },
+        { match: R.sibling, rows: [] },
+        { match: R.allCodes, rows: () => [{ data_code: 'BR01' }, { data_code: 'BR01-D01' }] },
+        { match: R.maxOrder, rows: () => [{ maxOrder: 10 }] },
+        { match: R.insert, rows: resultSet({ insertId: 8, affectedRows: 1 }) },
+        { match: R.audit, rows: [] }
+      )
+    );
+    const res = await post('/api/admin/org-units', { parentId: 3, level: 'DEPT', name: '投资二部' });
+    expect(res.status).toBe(201);
+    expect(res.body.unit.dataCode).toBe('BR01-D02');
+  });
+
   it('DB 唯一键冲突 → 409', async () => {
     querySpy.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes(R.insert)) throw Object.assign(new Error('dup'), { code: 'ER_DUP_ENTRY' });
       return adminStub(
         { match: R.loadNode, rows: () => [nodeRow({ id: 1, parent_id: null, level: 'HQ', name: '总部', data_code: '' })] },
         { match: R.sibling, rows: [] },
+        { match: R.allCodes, rows: () => [] },
         { match: R.maxOrder, rows: () => [{ maxOrder: 0 }] }
       )(sql, params);
     });
@@ -369,5 +408,92 @@ describe('DELETE /api/admin/org-units/:id：删除节点', () => {
     const res = await del('/api/admin/org-units/3');
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+});
+
+describe('buildDataCode：层级路径编号（v0.9.67）', () => {
+  it('机构：空集合 → BR01；已有 BR01/BR02 → BR03', () => {
+    expect(buildDataCode('BRANCH', '', [])).toBe('BR01');
+    expect(buildDataCode('BRANCH', '', ['BR01', 'BR02'])).toBe('BR03');
+  });
+
+  it('部门：以机构编码为前缀，按同前缀序号递增', () => {
+    expect(buildDataCode('DEPT', 'BR01', [])).toBe('BR01-D01');
+    expect(buildDataCode('DEPT', 'BR01', ['BR01-D01', 'BR01-D02', 'BR02-D01'])).toBe('BR01-D03');
+  });
+
+  it('团队：以部门编码为前缀', () => {
+    expect(buildDataCode('TEAM', 'BR01-D01', [])).toBe('BR01-D01-T01');
+    expect(buildDataCode('TEAM', 'BR01-D01', ['BR01-D01-T01'])).toBe('BR01-D01-T02');
+  });
+
+  it('父编码缺失 → 退化为 D01 / T01', () => {
+    expect(buildDataCode('DEPT', '', [])).toBe('D01');
+    expect(buildDataCode('TEAM', '', ['T01', 'T02'])).toBe('T03');
+  });
+
+  it('序号两位补零，超过 99 自然进位', () => {
+    expect(buildDataCode('BRANCH', '', ['BR09'])).toBe('BR10');
+    expect(buildDataCode('BRANCH', '', ['BR99'])).toBe('BR100');
+  });
+
+  it('手动编码不干扰序号识别（仅同前缀精确匹配）', () => {
+    expect(buildDataCode('BRANCH', '', ['AH', 'BR02', 'BR01'])).toBe('BR03');
+    expect(buildDataCode('DEPT', 'BR01', ['BR010-D01'])).toBe('BR01-D01');
+  });
+});
+
+describe('POST /api/admin/org-units/auto-code：一键补全数据标识', () => {
+  it('仅补空节点，已有编码保留，子节点取父级编号为前缀', async () => {
+    querySpy.mockImplementation(
+      adminStub(
+        {
+          match: R.allNodes,
+          rows: () => [
+            { id: 1, parent_id: null, level: 'HQ', name: '总部', data_code: '' },
+            { id: 2, parent_id: 1, level: 'BRANCH', name: '安徽分公司', data_code: 'AH' },
+            { id: 3, parent_id: 1, level: 'BRANCH', name: '江苏分公司', data_code: '' },
+            { id: 4, parent_id: 2, level: 'DEPT', name: '投资一部', data_code: '' },
+            { id: 5, parent_id: 4, level: 'TEAM', name: '投资一队', data_code: '' },
+          ],
+        },
+        { match: R.updateDataCode, rows: resultSet({ affectedRows: 1 }) },
+        { match: R.audit, rows: [] }
+      )
+    );
+    const res = await post('/api/admin/org-units/auto-code', {});
+    expect(res.status).toBe(200);
+    expect(res.body.filled).toBe(3);
+    expect(res.body.codes).toEqual([
+      { id: 3, name: '江苏分公司', dataCode: 'BR01' },
+      { id: 4, name: '投资一部', dataCode: 'AH-D01' },
+      { id: 5, name: '投资一队', dataCode: 'AH-D01-T01' },
+    ]);
+    // 总部与已有编码节点不被改写，且逐条 UPDATE 落库
+    const updates = querySpy.mock.calls.filter((c) => String(c[0]).includes(R.updateDataCode));
+    expect(updates.map((c) => (c[1] as unknown[])[1])).toEqual([3, 4, 5]);
+    expect(querySpy.mock.calls.some((c) => String(c[0]).includes(R.audit))).toBe(true);
+  });
+
+  it('全部已配置或仅总部 → filled=0 且不写审计', async () => {
+    querySpy.mockImplementation(
+      adminStub({
+        match: R.allNodes,
+        rows: () => [
+          { id: 1, parent_id: null, level: 'HQ', name: '总部', data_code: '' },
+          { id: 2, parent_id: 1, level: 'BRANCH', name: '安徽分公司', data_code: 'AH' },
+        ],
+      })
+    );
+    const res = await post('/api/admin/org-units/auto-code', {});
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, filled: 0, codes: [] });
+    expect(querySpy.mock.calls.some((c) => String(c[0]).includes(R.audit))).toBe(false);
+  });
+
+  it('DB 异常 → 500 兜底文案', async () => {
+    const res = await post('/api/admin/org-units/auto-code', {});
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('数据标识自动编码失败');
   });
 });

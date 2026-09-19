@@ -5,6 +5,8 @@
  * - 删除保护：总部不可删；存在下级或仍有用户归属时拒绝
  * - 改名同步：节点名即用户 `department` 文本，而该文本是数据源可见性 ACL 的匹配键，
  *   改名不同步会导致被授权用户被静默拒之门外，故一并改写 users.department 与 data_sources.acl_json
+ * - 数据标识自动编码（v0.9.67，层级路径编号）：机构 BR01 / 部门 {机构编码}-D01 / 团队 {部门编码}-T01；
+ *   新增缺省自动生成，POST /auto-code 一键补全存量空节点（总部无数据标识）
  */
 import { Router } from 'express';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
@@ -26,6 +28,10 @@ const CHILD_LEVEL: Record<OrgLevel, OrgLevel | null> = { HQ: 'BRANCH', BRANCH: '
 const STEP = 10;
 const NAME_MAX = 100;
 const DATA_CODE_MAX = 100;
+/** 可参与自动编码的层级（总部不参与：数据范围选总部 = 全辖不限，不取标识值） */
+const FILL_LEVELS: ReadonlyArray<Exclude<OrgLevel, 'HQ'>> = ['BRANCH', 'DEPT', 'TEAM'];
+const DATA_CODE_SEQ_PAD = 2;
+const CODE_ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
 
 interface OrgRow extends RowDataPacket {
   id: number;
@@ -34,6 +40,29 @@ interface OrgRow extends RowDataPacket {
   name: string;
   data_code: string;
   sort_order: number;
+}
+
+/**
+ * 层级路径编号（v0.9.67）：机构 BR01；部门 {机构编码}-D01；团队 {部门编码}-T01。
+ * 序号 = 现有编码中同前缀最大值 + 1（两位补零，超过 99 自然进位三位）；父编码缺失时退化为 D01 / T01。
+ * 与前端 src/utils/orgDataCode.ts 的 buildOrgDataCode 保持同规则（弹窗预填用）。
+ */
+export function buildDataCode(level: Exclude<OrgLevel, 'HQ'>, parentCode: string, existingCodes: Iterable<string>): string {
+  const local = level === 'BRANCH' ? 'BR' : level === 'DEPT' ? 'D' : 'T';
+  const prefix = level === 'BRANCH' || !parentCode ? local : `${parentCode}-${local}`;
+  const pattern = new RegExp(`^${prefix.replace(CODE_ESCAPE_RE, '\\$&')}(\\d+)$`);
+  let max = 0;
+  for (const code of existingCodes) {
+    const matched = pattern.exec(String(code || '').trim());
+    if (matched) max = Math.max(max, Number(matched[1]));
+  }
+  return `${prefix}${String(max + 1).padStart(DATA_CODE_SEQ_PAD, '0')}`;
+}
+
+/** 全库已用数据标识（自动编码去重用；组织节点数量级小，整表取列） */
+async function loadAllDataCodes(): Promise<string[]> {
+  const [rows] = await getPool().query<RowDataPacket[]>('SELECT data_code FROM org_units');
+  return rows.map((row) => String(row.data_code || '').trim()).filter(Boolean);
 }
 
 async function loadNode(id: number): Promise<OrgRow | null> {
@@ -134,7 +163,7 @@ router.post('/', async (req, res) => {
   if (!trimmedName || trimmedName.length > NAME_MAX) {
     return res.status(400).json({ error: `节点名称需为 1-${NAME_MAX} 个字符` });
   }
-  const dataCode = String((req.body || {}).dataCode ?? '').trim();
+  let dataCode = String((req.body || {}).dataCode ?? '').trim();
   if (dataCode.length > DATA_CODE_MAX) {
     return res.status(400).json({ error: `数据标识不能超过 ${DATA_CODE_MAX} 个字符` });
   }
@@ -153,6 +182,12 @@ router.post('/', async (req, res) => {
     if (await siblingNameTaken(parentId, trimmedName)) {
       return res.status(409).json({ error: '同级下已存在同名节点' });
     }
+    // 数据标识缺省 = 服务端按层级路径自动编码（前端已预填，此处兜底 API 直调）
+    let autoCoded = false;
+    if (!dataCode) {
+      dataCode = buildDataCode(level, String(parent.data_code || '').trim(), await loadAllDataCodes());
+      autoCoded = true;
+    }
     const [maxRows] = await getPool().query<RowDataPacket[]>(
       'SELECT COALESCE(MAX(sort_order), 0) AS maxOrder FROM org_units WHERE parent_id <=> ?',
       [parentId]
@@ -162,7 +197,7 @@ router.post('/', async (req, res) => {
       'INSERT INTO org_units (parent_id, level, name, data_code, sort_order, created_by) VALUES (?, ?, ?, ?, ?, ?)',
       [parentId, level, trimmedName, dataCode, sortOrder, req.user!.username]
     );
-    audit(req, `新增组织节点 ${LEVEL_LABELS[level]}「${trimmedName}」（上级：${parent.name}）`);
+    audit(req, `新增组织节点 ${LEVEL_LABELS[level]}「${trimmedName}」（上级：${parent.name}${autoCoded ? `；数据标识 ${dataCode} 自动生成` : ''}）`);
     return res.status(201).json({
       success: true,
       unit: { id: result.insertId, parentId, level, name: trimmedName, dataCode, sortOrder, userCount: 0, childCount: 0 },
@@ -173,6 +208,39 @@ router.post('/', async (req, res) => {
     }
     logger.error('[OrgUnits] create failed:', getErrorMessage(err));
     return res.status(500).json({ error: '组织节点创建失败' });
+  }
+});
+
+// POST /api/admin/org-units/auto-code —— 为未配置数据标识的节点按层级路径批量生成（v0.9.67；总部除外）
+router.post('/auto-code', async (req, res) => {
+  try {
+    const [rows] = await getPool().query<OrgRow[]>('SELECT id, parent_id, level, name, data_code FROM org_units');
+    const codeOf = new Map<number, string>();
+    for (const row of rows) {
+      const code = String(row.data_code || '').trim();
+      if (code) codeOf.set(Number(row.id), code);
+    }
+    const filled: Array<{ id: number; name: string; dataCode: string }> = [];
+    // 自上而下逐层生成，子节点取父级已生成（或已有）的编码作为前缀
+    for (const level of FILL_LEVELS) {
+      for (const row of rows) {
+        if (row.level !== level) continue;
+        const id = Number(row.id);
+        if (codeOf.has(id)) continue;
+        const parentCode = row.parent_id === null ? '' : codeOf.get(Number(row.parent_id)) || '';
+        const code = buildDataCode(level, parentCode, codeOf.values());
+        await getPool().query('UPDATE org_units SET data_code = ? WHERE id = ?', [code, id]);
+        codeOf.set(id, code);
+        filled.push({ id, name: String(row.name), dataCode: code });
+      }
+    }
+    if (filled.length > 0) {
+      audit(req, `一键补全组织节点数据标识（${filled.length} 个）`);
+    }
+    return res.json({ success: true, filled: filled.length, codes: filled });
+  } catch (err) {
+    logger.error('[OrgUnits] auto-code failed:', getErrorMessage(err));
+    return res.status(500).json({ error: '数据标识自动编码失败' });
   }
 });
 

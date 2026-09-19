@@ -3,6 +3,8 @@
  * - 折叠 / 全部展开收起；行内操作：添加下级 / 重命名 / 上移 / 下移 / 删除
  * - 新增与重命名用弹窗（不用 window.prompt）；新增下级时按层级约束自动限定节点类型
  * - 节点名 = 用户「部门」文本（改名由服务端同步用户与数据源 ACL）；数据标识供数据范围联动取值
+ * - 数据标识自动编码（v0.9.67）：新增下级弹窗按层级路径预填（BR01 / BR01-D01 / BR01-D01-T01），
+ *   面板可一键补全缺失节点（服务端 POST /auto-code），编码可改为业务实际取值
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -16,6 +18,7 @@ import {
   ArrowDown,
   Trash2,
   RefreshCw,
+  Wand2,
   AlertCircle,
   CheckCircle2,
   X,
@@ -31,6 +34,7 @@ import {
   ORG_LEVEL_ICONS,
 } from '../common/OrgUnitPicker';
 import type { OrgTreeNode } from '../common/OrgUnitPicker';
+import { suggestOrgDataCode } from '../../utils/orgDataCode';
 
 /** 各层级允许的下级（与 server/routes/orgUnits.ts 的 CHILD_LEVEL 对齐；团队为末级） */
 const CHILD_LEVEL: Record<OrgUnitLevel, OrgUnitLevel | null> = { HQ: 'BRANCH', BRANCH: 'DEPT', DEPT: 'TEAM', TEAM: null };
@@ -51,6 +55,7 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
   const [dataCodeInput, setDataCodeInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [filling, setFilling] = useState(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
@@ -74,6 +79,9 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
     return out;
   }, [tree]);
 
+  /** 未配置数据标识的节点数（总部不参与自动编码） */
+  const missingCodeCount = useMemo(() => units.filter((u) => u.level !== 'HQ' && !u.dataCode.trim()).length, [units]);
+
   /** 同级列表（按 sortOrder,id 排序；用于上下移边界禁用的前后判定） */
   const siblingIdsOf = (node: OrgUnit): number[] =>
     units
@@ -84,7 +92,9 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
   const openCreate = (parent: OrgUnit) => {
     setDialog({ mode: 'create', parent });
     setNameInput('');
-    setDataCodeInput('');
+    // 数据标识按层级路径自动编码预填（服务端创建时同规则兜底）
+    const childLevel = CHILD_LEVEL[parent.level];
+    setDataCodeInput(childLevel ? suggestOrgDataCode(units, parent, childLevel) : '');
   };
 
   const openEdit = (node: OrgUnit) => {
@@ -124,7 +134,8 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
       if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
       if (dialog.mode === 'create') {
         const childLevel = CHILD_LEVEL[dialog.parent.level];
-        showNotice('success', `已新增${childLevel ? ORG_LEVEL_LABELS[childLevel] : '节点'}「${name}」`);
+        const savedCode = typeof data.unit?.dataCode === 'string' ? data.unit.dataCode : '';
+        showNotice('success', `已新增${childLevel ? ORG_LEVEL_LABELS[childLevel] : '节点'}「${name}」${savedCode ? `（数据标识 ${savedCode}）` : ''}`);
       } else {
         const synced =
           typeof data.syncedUsers === 'number'
@@ -157,6 +168,23 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
       showNotice('error', getErrorMessage(err));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  /** 一键为未配置数据标识的节点按层级路径生成编码（服务端 POST /auto-code） */
+  const handleFillCodes = async () => {
+    if (filling) return;
+    setFilling(true);
+    try {
+      const res = await apiFetch('/api/admin/org-units/auto-code', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '补全失败');
+      showNotice('success', data.filled > 0 ? `已为 ${data.filled} 个节点自动生成数据标识` : '所有节点均已配置数据标识');
+      await refresh();
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    } finally {
+      setFilling(false);
     }
   };
 
@@ -311,6 +339,16 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
+              onClick={() => void handleFillCodes()}
+              disabled={filling || missingCodeCount === 0}
+              title={missingCodeCount === 0 ? '所有节点均已配置数据标识' : `为 ${missingCodeCount} 个未配置的节点按层级路径自动编号`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Wand2 className="w-3.5 h-3.5" />
+              {filling ? '生成中…' : `补全数据标识${missingCodeCount > 0 ? `（${missingCodeCount}）` : ''}`}
+            </button>
+            <button
+              type="button"
               onClick={() => setCollapsed(new Set())}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-medium transition-colors"
             >
@@ -359,7 +397,7 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
 
         <div className="px-6 py-3 border-t border-slate-800">
           <p className="text-[11px] leading-relaxed text-slate-500">
-            数据标识用于「用户数据范围」联动取值（机构编号 / 部门与团队在数据中的取值）；修改数据标识不会回写已配置的数据范围值，请变更后按需核对。
+            数据标识用于「用户数据范围」联动取值（机构编号 / 部门与团队在数据中的取值）；新增节点按层级路径自动编号（机构 BR01、部门 BR01-D01、团队 BR01-D01-T01），可用上方「补全数据标识」为缺失节点一键生成，也可按业务实际取值修改。修改数据标识不会回写已配置的数据范围值，请变更后按需核对。
             重命名节点会自动同步已归属用户的部门文本与数据源授权清单中的同名部门。
           </p>
         </div>
@@ -409,7 +447,7 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
               </div>
               <div className="space-y-1.5">
                 <label className="text-slate-400 font-medium">
-                  数据标识 <span className="text-slate-500">（可选；数据范围联动取值）</span>
+                  数据标识 <span className="text-slate-500">（自动编号，可改为业务实际取值）</span>
                 </label>
                 <input
                   type="text"
@@ -423,6 +461,11 @@ export const OrgStructurePanel: React.FC<OrgStructurePanelProps> = ({ units, loa
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
+              {dialog.mode === 'create' && (
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  已按层级路径自动编号（机构 BR01 / 部门 BR01-D01 / 团队 BR01-D01-T01），可按业务数据中的实际取值修改。
+                </p>
+              )}
               {dialog.mode === 'edit' && (
                 <p className="text-[11px] leading-relaxed text-slate-500 bg-slate-950/60 border border-slate-800 rounded-lg p-3">
                   修改名称将同步更新已归属用户的部门文本与数据源授权清单中的同名部门；修改数据标识不会回写已配置的数据范围值。
