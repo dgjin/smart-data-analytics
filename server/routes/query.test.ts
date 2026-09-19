@@ -44,7 +44,8 @@ vi.mock('../query/liveQuery', () => ({
 }));
 vi.mock('../query/simulatedQuery', () => ({ runSimulatedQuery: vi.fn() }));
 vi.mock('../query/drill', () => ({ runDrill: vi.fn() }));
-vi.mock('../query/sqlExecutor', () => ({ executeSafeSql: vi.fn() }));
+// MAX_ROWS：路由层 /execute-sql 响应的 rowLimit 字段依赖该导出（与 sqlExecutor 硬上限保持一致）
+vi.mock('../query/sqlExecutor', () => ({ executeSafeSql: vi.fn(), MAX_ROWS: 100000 }));
 vi.mock('../query/queryFeedback', () => ({ saveFeedback: vi.fn() }));
 vi.mock('../auth/accessControl', () => ({ checkDataSourceAccess: vi.fn() }));
 vi.mock('../query/conversationHistory', () => ({ recordConversation: vi.fn() }));

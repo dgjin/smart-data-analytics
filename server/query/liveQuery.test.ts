@@ -71,6 +71,16 @@ describe('buildStage2System: 金额单位口径注入（v0.9.41）', () => {
   it('阶段一金额原值保护条款声明单位约定例外（v0.9.41）', () => {
     expect(buildStage1System([], '')).toContain('【金额单位约定】即为用户明确要求');
   });
+
+  it('行数指引按 QUERY_RESULT_ROWS_MAX 动态注入，不再无条件「结果行数 ≤100」（v0.9.64）', () => {
+    delete process.env.QUERY_RESULT_ROWS_MAX;
+    const dflt = buildStage1System([], '');
+    expect(dflt).toContain('上限 500 行');
+    expect(dflt).not.toContain('结果行数 ≤100（聚合或 LIMIT）');
+    process.env.QUERY_RESULT_ROWS_MAX = '0';
+    expect(buildStage1System([], '')).toContain('上限 100000 行');
+    delete process.env.QUERY_RESULT_ROWS_MAX;
+  });
 });
 
 describe('VALID_STAGE1_CHARTS: P2-B 图表类型白名单', () => {

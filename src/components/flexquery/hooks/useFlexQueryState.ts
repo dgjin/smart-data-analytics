@@ -355,7 +355,8 @@ export function useFlexQueryState() {
     setFilters([]);
     setHavings([]);
     setOrderBy(null);
-    setLimit(100);
+    // v0.9.64：重置回默认行数（与初始值一致），此前重置为 100 会让「取回全部明细」类取数被静默压到 100 行
+    setLimit(10000);
     setResult(null);
     setExecError(null);
     setPivotMode(false);

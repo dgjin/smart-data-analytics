@@ -18,7 +18,7 @@ import { loadSchemaContext, isLiveCapableType } from './schemaContext';
 import { setLlmOverride, validateModelSelection, type ChatMessage } from '../llm/llmClient';
 import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from './liveQuery';
 import { runSimulatedQuery } from './simulatedQuery';
-import { executeSafeSql } from './sqlExecutor';
+import { executeSafeSql, resultRowsMax } from './sqlExecutor';
 import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from './queryCache';
 import { maskQueryPayload } from './dlp';
 import { recordTraceStep, getTraceSteps, type TraceMeta } from './queryTrace';
@@ -356,7 +356,7 @@ export async function runNaturalLanguageQuery(
           // ✅ Fallback 策略成功生成 SQL → 真实安全执行
           //（v0.9.47 P0：原代码把 SQL 字符串直接传 normalizeQueryResult → 必然 null，fallback 成功结果被静默丢弃）
           // SELECT-only 白名单 + 行级权限与主链路同口径
-          const fallbackExec = await executeSafeSql(dataSourceId, fallbackResult.sql, effectiveSchema, ctx.sensitiveRemoved, 500, ctx.rowFilters);
+          const fallbackExec = await executeSafeSql(dataSourceId, fallbackResult.sql, effectiveSchema, ctx.sensitiveRemoved, resultRowsMax(), ctx.rowFilters);
           if (fallbackExec.ok === true) {
             const rows = fallbackExec.result.rows;
             const normalized = normalizeQueryResult({

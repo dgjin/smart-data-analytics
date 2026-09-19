@@ -28,7 +28,7 @@ import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { callLLMText, validateModelSelection, setLlmOverride } from '../llm/llmClient';
 import { buildColumnNames } from '../query/liveQuery';
 import { runDrill } from '../query/drill';
-import { executeSafeSql } from '../query/sqlExecutor';
+import { executeSafeSql, MAX_ROWS } from '../query/sqlExecutor';
 import { saveFeedback } from '../query/queryFeedback';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { maskRows } from '../query/dlp';
@@ -299,6 +299,8 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
     rows: dlpOut.rows,
     rowCount: outcome.result.rowCount,
     truncated: outcome.result.truncated,
+    // 前端截断提示用真实上限（本端点 maxRows 不传 = 系统硬上限），避免文案写死行数
+    rowLimit: MAX_ROWS,
     finalSql: outcome.result.finalSql,
     dataProvenance: 'live',
     ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),

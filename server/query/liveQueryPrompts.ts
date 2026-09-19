@@ -8,6 +8,7 @@ import { describeIntermediateTables } from './analysisChain';
 import type { IntermediateTableInfo } from './analysisChain';
 import type { NegativeExample } from './queryFeedback';
 import { serializeSchemaForPrompt } from './schemaGuidance';
+import { resultRowsMax } from './sqlExecutor';
 
 // ---------- 阶段一：NL → SQL ----------
 
@@ -60,7 +61,7 @@ ${introspectionEnabled ? `③ 数据自省 {"needIntrospection":true,"intermedia
 【SQL 规则】
 - 单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项；严禁添加 tbl_/t_等前后缀或编造不存在的表/列
 - 指标用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），AS 起简洁英文/拼音别名（禁中文、禁空格）；金额、比率、均值类指标用 ROUND(表达式，2) 保留两位小数（除法/换算必须包裹 ROUND），计数/个数类保持整数
-- 结果行数 ≤100（聚合或 LIMIT）；SELECT 只含分组维度列与聚合结果列，禁止常量标签列（如'项目总数' AS category）
+- 结果行数：聚合/排名/趋势类保持精简（≤100 行）；用户明确要求「全部/所有/明细/全量/逐笔/导出」时按其要求给足行数（上限 ${resultRowsMax()} 行），禁止无依据地一律压到 100；SELECT 只含分组维度列与聚合结果列，禁止常量标签列（如'项目总数' AS category）
 - 金额原值保护：除非用户明确要求换算单位（如「换算成亿元」「以万元为单位」；用户消息开头的【金额单位约定】即为用户明确要求，此时必须按约定换算），禁止对金额列做除法换算，直接输出聚合原值
 ${dialect.rules}
 【复杂分析范式（v0.4.15 新增，本地算力前提全量注入）】

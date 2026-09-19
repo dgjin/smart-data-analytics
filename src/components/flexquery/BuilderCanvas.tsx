@@ -436,7 +436,8 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
           onChange={(e) => setLimit(Number(e.target.value))}
           className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none"
         >
-          {[100, 500, 1000, 5000, 10000, 50000].map((n) => (
+          {/* v0.9.64：补 100000 选项（与执行层硬上限一致），取全部明细时无需再受 50000 限制 */}
+          {[100, 500, 1000, 5000, 10000, 50000, 100000].map((n) => (
             <option key={n} value={n}>
               {n}
             </option>

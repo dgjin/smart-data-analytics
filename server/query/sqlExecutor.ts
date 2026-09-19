@@ -39,7 +39,8 @@ function dialectPromptOf(dsType?: string): { label: string; rules: string } {
   return { label: 'MySQL', rules: '' };
 }
 
-const MAX_ROWS = 100000; // v0.4.14：500→100000，满足真实记录数输出，保留兜底防 OOM
+/** 系统硬上限（兜底防 OOM）：任何查询返回行数都不会超过该值（v0.4.14：500→100000） */
+export const MAX_ROWS = 100000;
 const CONNECT_TIMEOUT_MS = 5_000;
 
 /**
@@ -545,6 +546,19 @@ export function explainGuardMaxRows(scenario: QueryScenario = 'interactive'): nu
   if (base === 0) return 0;
   // 后台导出/报告任务天然倾向大范围聚合，阈值放宽 10 倍（仍是防线，防的是"失控"而非"大"）
   return scenario === 'export' ? base * 10 : base;
+}
+
+/**
+ * 交互/链路问数结果行数上限：环境变量 QUERY_RESULT_ROWS_MAX（默认 500；填 0 = 不限制，回落到硬上限 MAX_ROWS=10 万行）。
+ * 供「提示词行数指引」与「执行层强制 LIMIT」共用同一事实源——两处若各写各的，模型给足行数也会被执行层静默压窄。
+ */
+export function resultRowsMax(): number {
+  const raw = (process.env.QUERY_RESULT_ROWS_MAX ?? '').trim();
+  if (raw === '') return 500;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 500;
+  const v = Math.floor(n);
+  return v === 0 ? MAX_ROWS : Math.min(v, MAX_ROWS);
 }
 
 /** 递归遍历 EXPLAIN FORMAT=JSON 计划树，收集扫描行数估计（取最大值）。

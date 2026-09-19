@@ -14,7 +14,7 @@
  * liveQueryPrompts / liveQueryParsers / liveQueryUtils，经下方 re-export 保持统一入口 API 面不变。
  */
 import { callLLMJson, sqlStageRoute, analysisStageRoute, ChatMessage } from '../llm/llmClient';
-import { executeSafeSql } from './sqlExecutor';
+import { executeSafeSql, resultRowsMax } from './sqlExecutor';
 import { resolveExpertPersonaAsync } from '../llm/expertPersona';
 import { selectRelevantTablesAsync, pruneWideTableColumnsAsync, metricColumnsByTable } from './schemaLinking';
 import { loadFewShotExamples, FewShotExample, loadNegativeExamples, NegativeExample } from './queryFeedback';
@@ -474,7 +474,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
           introspected = true;
           input.onStage?.('introspecting', { note: intro.note });
           const introAt = Date.now();
-          const introExec = await executeSafeSql(dataSourceId, intro.sql, schema, sensitiveRemoved, 500, input.rowFilters || {});
+          const introExec = await executeSafeSql(dataSourceId, intro.sql, schema, sensitiveRemoved, resultRowsMax(), input.rowFilters || {});
           if (introExec.ok === true) {
             trace({
               stepType: 'introspection',
@@ -535,7 +535,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
       if (aitRefs.length > 0) {
         cur = await executeOnAppDb(p.sql, registeredAit);
       } else {
-        cur = await executeSafeSql(dataSourceId, p.sql, schema, sensitiveRemoved, 500, input.rowFilters || {});
+        cur = await executeSafeSql(dataSourceId, p.sql, schema, sensitiveRemoved, resultRowsMax(), input.rowFilters || {});
       }
       if (cur.ok === true) {
         successes.push({ p, exec: cur });

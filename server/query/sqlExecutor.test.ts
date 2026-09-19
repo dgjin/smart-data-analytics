@@ -3,7 +3,7 @@
  * 仅覆盖纯校验逻辑（validateSelectSql / extractTableRefs），不触碰真实数据库。
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, extractCteNames, stripCommentsAndStrings, injectRowFilters, injectMysqlMaxExecTime, repairTablePrefixes, dsPoolMax, explainGuardMaxRows, parseMysqlExplainRows, parsePgExplainRows } from './sqlExecutor';
+import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, extractCteNames, stripCommentsAndStrings, injectRowFilters, injectMysqlMaxExecTime, repairTablePrefixes, dsPoolMax, explainGuardMaxRows, parseMysqlExplainRows, parsePgExplainRows, MAX_ROWS, resultRowsMax } from './sqlExecutor';
 import { appPoolMax } from '../infra/db';
 
 const ALLOWED = [
@@ -661,5 +661,31 @@ describe('EXPLAIN 防线：parsePgExplainRows 解析', () => {
     expect(parsePgExplainRows([])).toBe(0);
     expect(parsePgExplainRows([{}] as any)).toBe(0);
     expect(parsePgExplainRows([{ 'QUERY PLAN': [] }] as any)).toBe(0);
+  });
+});
+
+describe('resultRowsMax: 问数结果行数上限（v0.9.64）', () => {
+  const ENV = 'QUERY_RESULT_ROWS_MAX';
+  afterEach(() => { delete process.env[ENV]; });
+
+  it('未配置/非法值回退默认 500（不做静默放开）', () => {
+    delete process.env[ENV];
+    expect(resultRowsMax()).toBe(500);
+    for (const bad of ['abc', '-1', ' ']) {
+      process.env[ENV] = bad;
+      expect(resultRowsMax()).toBe(500);
+    }
+  });
+
+  it('显式数值原样生效，超过硬上限则 clamp 到 10 万', () => {
+    process.env[ENV] = '5000';
+    expect(resultRowsMax()).toBe(5000);
+    process.env[ENV] = '999999';
+    expect(resultRowsMax()).toBe(MAX_ROWS);
+  });
+
+  it('填 0 = 不限制：回落到硬上限 10 万行（OOM 兜底仍在）', () => {
+    process.env[ENV] = '0';
+    expect(resultRowsMax()).toBe(MAX_ROWS);
   });
 });

@@ -631,7 +631,7 @@ export const QueryChat: React.FC = () => {
                 executionTimeMs: Number(data.executionTimeMs) || 0,
                 generatedSQL: data.finalSql || sql,
                 dataProvenance: 'live',
-                aiExplanation: `SQL 重跑完成，返回 ${Number(data.rowCount) || rows.length} 行真实数据${data.truncated ? '（结果已按 500 行上限截断）' : ''}。`,
+                aiExplanation: `SQL 重跑完成，返回 ${Number(data.rowCount) || rows.length} 行真实数据${data.truncated ? `（结果已按 ${Number(data.rowLimit) || '系统'} 行上限截断）` : ''}。`,
                 keyInsights: [],
                 suggestedQuestions: [],
                 ...(xAxisKey && yAxisKeys.length > 0
