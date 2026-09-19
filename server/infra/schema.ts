@@ -18,29 +18,9 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
       role ENUM('ADMIN','ANALYST','VIEWER') NOT NULL DEFAULT 'VIEWER',
       status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
       must_change_password TINYINT(1) NOT NULL DEFAULT 0,
-      org_scope_json TEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       last_login_at TIMESTAMP NULL DEFAULT NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  `);
-
-  // v0.9.66 组织架构树：总部→机构→部门→团队四级（单表自关联；层级合法性由服务端强校验）。
-  // data_code 为该节点在业务数据中的取值（机构编号如 AH、团队名如「投资一部」），
-  // 供「用户数据范围」与「数据源访问控制」从树中直接选中，免手填。
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS org_units (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      parent_id INT NULL,
-      level ENUM('HQ','BRANCH','DEPT','TEAM') NOT NULL,
-      name VARCHAR(100) NOT NULL,
-      data_code VARCHAR(100) NOT NULL DEFAULT '',
-      sort_order INT NOT NULL DEFAULT 0,
-      created_by VARCHAR(50) NOT NULL DEFAULT '',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uniq_org_parent_name (parent_id, name),
-      INDEX idx_org_parent (parent_id, sort_order)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
@@ -52,7 +32,6 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
       config_json TEXT,
       schema_json MEDIUMTEXT,
       scope_json TEXT,
-      org_columns_json TEXT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'connected',
       created_by VARCHAR(50) NOT NULL DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

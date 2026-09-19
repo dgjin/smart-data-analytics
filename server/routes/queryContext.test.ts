@@ -37,27 +37,6 @@ describe('buildContextSummary: 问数上下文摘要（显示范围与实际问�
     expect(out.tables).toEqual([]);
   });
 
-  it('v0.9.65 组织数据范围：档位描述下发，谓词已生效时标记 applied', () => {
-    const out = buildContextSummary({ ...ctxBase, orgScopeHint: '【数据范围约束（系统级强制）】' }, false, {
-      level: 'ORG',
-      orgs: ['A01'],
-    });
-    expect(out.dataScope).toBe('本机构：A01');
-    expect(out.dataScopeApplied).toBe(true);
-  });
-
-  it('数据源未配置组织隔离列（无谓词）时保留描述但标记未生效', () => {
-    const out = buildContextSummary(ctxBase, false, { level: 'TEAM', teams: ['T1'] });
-    expect(out.dataScope).toBe('本项目团队：T1');
-    expect(out.dataScopeApplied).toBe(false);
-  });
-
-  it('未配置数据范围（存量用户）不下发范围描述', () => {
-    const out = buildContextSummary(ctxBase, true);
-    expect(out.dataScope).toBeNull();
-    expect(out.dataScopeApplied).toBe(false);
-  });
-
   it('未落库数据源（演示模式 status=null）原样透传', () => {
     const out = buildContextSummary(
       { schema: [{ name: 't1' }], sensitiveRemoved: [], status: null, dsType: null },

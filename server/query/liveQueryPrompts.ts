@@ -33,7 +33,7 @@ export function dialectPromptOf(dsType?: string): { label: string; rules: string
   return { label: 'MySQL', rules: '' };
 }
 
-export function buildStage1System(schema: SchemaTable[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = [], dataSourceName = '', ironRulesPrompt = '', orgScopeHint = ''): string {
+export function buildStage1System(schema: SchemaTable[], guidance: string, knowledge = '', fewShotCount = 0, dsType?: string, introspectionEnabled = false, approvedPlan?: QueryPlan, chainTables?: IntermediateTableInfo[], metricPrompt = '', negativeExamples: NegativeExample[] = [], dataSourceName = '', ironRulesPrompt = ''): string {
   const dialect = dialectPromptOf(dsType);
   const planSection = approvedPlan
     ? `【用户已批准的分析计划】（生成 SQL 时必须按此计划执行）
@@ -47,8 +47,6 @@ ${approvedPlan.steps.map((s, i) => `${i + 1}. [${s.type}] ${s.title}：${s.descr
   const dsNameContext = dataSourceName
     ? `\n【当前数据源】名为「${dataSourceName}」。这是系统数据源名称，不是业务数据值，**严禁**将其用作 WHERE 过滤条件（例如不要写 WHERE 某列 = '${dataSourceName}'）。当用户问题中提到该名称时，表示查询本数据源的整体数据，直接按 Schema 中的表和字段正常生成 SQL，**不要**因此触发澄清。\n`
     : '';
-  // 组织权限模型：用户数据范围约束（执行层已强制注入过滤，提示词仅做语义对齐防跨范围分析意图）
-  const orgScopeSection = orgScopeHint ? `\n${orgScopeHint}\n` : '';
   return `你是一个企业级 NL2SQL 引擎。根据数据库 Schema 与用户问题，生成一条 ${dialect.label} SELECT 查询与图表配置。你不生成任何数据，只生成 SQL。
 ${dsNameContext}
 数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
@@ -65,7 +63,7 @@ ${introspectionEnabled ? `③ 数据自省 {"needIntrospection":true,"intermedia
 - 指标用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），AS 起简洁英文/拼音别名（禁中文、禁空格）；金额、比率、均值类指标用 ROUND(表达式，2) 保留两位小数（除法/换算必须包裹 ROUND），计数/个数类保持整数
 - 结果行数：聚合/排名/趋势类保持精简（≤100 行）；用户明确要求「全部/所有/明细/全量/逐笔/导出」时按其要求给足行数（上限 ${resultRowsMax()} 行），禁止无依据地一律压到 100；SELECT 只含分组维度列与聚合结果列，禁止常量标签列（如'项目总数' AS category）
 - 金额原值保护：除非用户明确要求换算单位（如「换算成亿元」「以万元为单位」；用户消息开头的【金额单位约定】即为用户明确要求，此时必须按约定换算），禁止对金额列做除法换算，直接输出聚合原值
-${dialect.rules}${orgScopeSection}
+${dialect.rules}
 【复杂分析范式（v0.4.15 新增，本地算力前提全量注入）】
 - 同比环比：两期对比可用 LEFT JOIN 派生表（FROM (SELECT dim, SUM(amt) FROM t WHERE yr=? GROUP BY dim) r LEFT JOIN (SELECT dim, SUM(amt) FROM t WHERE yr=? GROUP BY dim) p ON r.dim=p.dim）
 - TOP-N 占比：使用 WITH CTE + RANK() OVER() 窗口函数生成排名并计算占比（ROUND(pct, 2)）

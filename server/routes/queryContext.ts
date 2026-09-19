@@ -6,8 +6,7 @@
  */
 import { Router } from 'express';
 import { authMiddleware, requireRole } from '../auth/auth';
-import { loadSchemaContextForUser } from '../query/schemaContext';
-import { describeOrgScope, type UserOrgScope } from '../query/orgScope';
+import { loadSchemaContext } from '../query/schemaContext';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { MAX_TABLES_IN_PROMPT } from '../query/schemaLinking';
 import { logger } from '../infra/logger';
@@ -17,22 +16,10 @@ router.use(authMiddleware);
 
 /** 由服务端 Schema 上下文构造前端展示摘要；表级明细仅管理员可见（纯函数，便于单测） */
 export function buildContextSummary(
-  ctx: {
-    schema: unknown[];
-    sensitiveRemoved: string[];
-    status: string | null;
-    dsType: string | null;
-    fileBacked?: boolean;
-    orgScopeHint?: string;
-  },
-  isAdmin: boolean,
-  orgScope?: UserOrgScope | null
+  ctx: { schema: unknown[]; sensitiveRemoved: string[]; status: string | null; dsType: string | null; fileBacked?: boolean },
+  isAdmin: boolean
 ) {
-  // v0.9.65 组织数据范围：档位人类可读描述 + 是否已在本数据源生效（服务端已生成行级谓词才会带 orgScopeHint）
-  const dataScope = orgScope ? describeOrgScope(orgScope) : null;
   return {
-    dataScope,
-    dataScopeApplied: dataScope !== null && Boolean(ctx.orgScopeHint),
     ok: true,
     status: ctx.status,
     dsType: ctx.dsType,
@@ -64,8 +51,8 @@ router.get('/context', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
     }
     // 不传前端 schema：完全以服务端落库上下文为准（与问数执行链路同源）
-    const ctx = await loadSchemaContextForUser(dataSourceId, [], req.user);
-    return res.json(buildContextSummary(ctx, req.user?.role === 'ADMIN', req.user?.orgScope));
+    const ctx = await loadSchemaContext(dataSourceId, []);
+    return res.json(buildContextSummary(ctx, req.user?.role === 'ADMIN'));
   } catch (err) {
     logger.error('[QueryContext] failed:', err);
     return res.status(500).json({ error: '问数上下文获取失败' });

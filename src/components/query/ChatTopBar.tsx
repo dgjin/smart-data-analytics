@@ -11,10 +11,6 @@ export interface QueryContextSummary {
   tables: { name: string; displayName: string }[];
   sensitiveFiltered: number;
   maxTablesInPrompt: number;
-  /** v0.9.65 组织数据范围：当前用户档位的人类可读描述（未配置范围时不下发，为 null） */
-  dataScope?: string | null;
-  /** 数据范围是否已在本数据源生效（服务端已生成行级谓词）；false 表示数据源未配置组织隔离列 */
-  dataScopeApplied?: boolean;
 }
 
 interface ChatTopBarProps {
@@ -78,25 +74,6 @@ export const ChatTopBar: React.FC<ChatTopBarProps> = ({
               问数范围为空
             </span>
           )
-        )}
-        {/* v0.9.65 组织数据范围：用户档位（本机构/本项目团队/仅本人）对应的行级隔离说明，
-            与执行层 AST 注入的谓词同源；数据源未配置组织隔离列时以告警色提示未生效 */}
-        {queryContext && queryContext.status !== null && queryContext.dataScope && (
-          <span
-            className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${
-              queryContext.dataScopeApplied
-                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
-                : 'bg-amber-950/40 border-amber-500/30 text-amber-300'
-            }`}
-            title={
-              queryContext.dataScopeApplied
-                ? `行级数据范围已生效：${queryContext.dataScope}（执行层已自动对相关表注入机构/团队过滤，无法查看范围外数据）`
-                : `数据范围「${queryContext.dataScope}」在当前数据源未生效：该数据源尚未配置组织隔离列，请联系管理员在「数据源管理 → 组织隔离」中配置`
-            }
-          >
-            数据范围 {queryContext.dataScope}
-            {queryContext.dataScopeApplied ? '' : '（未生效）'}
-          </span>
         )}
         {/* 管理员可悬停查看实际参与问数的表名清单（来自服务端上下文摘要） */}
         {isAdmin && queryContext && queryContext.tables.length > 0 && (

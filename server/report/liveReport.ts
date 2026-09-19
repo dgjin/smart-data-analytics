@@ -79,8 +79,6 @@ export interface LiveReportInput {
   sensitiveRemoved: string[];
   /** P1-3 行级权限（实际表名 → 谓词）：执行层 AST 强制注入 */
   rowFilters?: Record<string, string>;
-  /** 组织权限模型：用户数据范围约束文案（阶段一提示词语义对齐；执行层已强制隔离） */
-  orgScopeHint?: string;
   /** M4 报告计划批准：用户已批准的查询计划，存在时跳过阶段一重新生成 */
   approvedPlans?: { reportTitle: string; plans: ReportQueryPlan[] };
   /** v0.5.2 金额单位（亿元/百万元/万元/元）：与问数口径一致，注入阶段一 SQL 换算约定 */
@@ -198,7 +196,7 @@ export async function clearReportPlanStoreForTest(): Promise<void> {
 export async function generateReportPlans(input: Omit<LiveReportInput, 'approvedPlans'>): Promise<
   { ok: true; plan: { reportTitle: string; plans: ReportQueryPlan[] } } | { ok: false; error: string }
 > {
-  const parsed = await generateStage1Plans(input.templateType, input.customPrompt, input.schema, input.guidance, input.dsType, input.amountUnit, input.dataSourceId, input.orgScopeHint);
+  const parsed = await generateStage1Plans(input.templateType, input.customPrompt, input.schema, input.guidance, input.dsType, input.amountUnit, input.dataSourceId);
   if (!parsed) return { ok: false, error: '报表查询计划生成失败' };
   return { ok: true, plan: parsed };
 }
@@ -244,8 +242,7 @@ async function generateStage1Plans(
   guidance: string,
   dsType?: string,
   amountUnit?: string,
-  dataSourceId?: string,
-  orgScopeHint?: string
+  dataSourceId?: string
 ): Promise<{ reportTitle: string; plans: ReportQueryPlan[] } | null> {
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = null;
   let lastError = '';
@@ -264,7 +261,7 @@ async function generateStage1Plans(
         : `${unitPrompt}报表主题：${templateType}\n额外要求：${customPrompt}\n\n（上次输出未通过校验：${lastError}，请修正后按同一 JSON 契约重新输出。）`;
     let text: string;
     try {
-      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType, metricPrompt, ironRulesPrompt, knowledgePrompt, orgScopeHint), userPrompt);
+      text = await callLLMJson(buildReportStage1System(schema, guidance, dsType, metricPrompt, ironRulesPrompt, knowledgePrompt), userPrompt);
     } catch {
       return null;
     }
@@ -275,17 +272,15 @@ async function generateStage1Plans(
   return parsed;
 }
 
-function buildReportStage1System(schema: SchemaTable[], guidance: string, dsType?: string, metricPrompt = '', ironRulesPrompt = '', knowledgePrompt = '', orgScopeHint = ''): string {
+function buildReportStage1System(schema: SchemaTable[], guidance: string, dsType?: string, metricPrompt = '', ironRulesPrompt = '', knowledgePrompt = ''): string {
   const dialect = dialectPromptOf(dsType);
-  // 组织权限模型：用户数据范围约束（执行层已强制注入过滤，提示词仅做语义对齐）
-  const orgScopeSection = orgScopeHint ? `${orgScopeHint}\n` : '';
   return `你是企业级 NL2SQL 引擎，为高管报表规划真实数据查询。根据报表主题与数据库 Schema，生成 2-4 条 ${dialect.label} SELECT 聚合查询。你不生成任何数据，只生成 SQL。
 
 数据库 Schema（已经过权限与敏感字段过滤，只能使用其中的表与列；格式：表 {"name","displayName"?,"description"?,"columns":[[列名,类型,中文说明?],…]}）:
 ${serializeSchemaForPrompt(schema)}
 
 ${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}
-${metricPrompt}${ironRulesPrompt}${knowledgePrompt}${orgScopeSection}【强制约束】
+${metricPrompt}${ironRulesPrompt}${knowledgePrompt}【强制约束】
 - 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","purpose"}]}
 - columnNames: 该查询 SQL 输出每一列的中文表头映射 {"列名/别名": "中文名"}，维度列与聚合别名都要覆盖
 - 每条 sql 为单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标用聚合函数并用 AS 起英文/拼音别名
@@ -353,13 +348,13 @@ export function buildReportStage2System(schema: SchemaTable[], amountUnit?: stri
  * @returns 成功或失败二分支结果（executedSqls 与报告 charts 索引对齐，供图表下钻使用）
  */
 export async function runLiveReport(input: LiveReportInput): Promise<LiveReportOutcome> {
-  const { templateType, customPrompt, schema, guidance, dataSourceId, dsType, sensitiveRemoved, rowFilters, amountUnit, orgScopeHint } = input;
+  const { templateType, customPrompt, schema, guidance, dataSourceId, dsType, sensitiveRemoved, rowFilters, amountUnit } = input;
   const executedSqls: string[] = [];
 
   // 阶段一：生成查询计划（已批准计划直接复用，跳过重新生成）
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = input.approvedPlans ?? null;
   if (!parsed) {
-    parsed = await generateStage1Plans(templateType, customPrompt, schema, guidance, dsType, amountUnit, dataSourceId, orgScopeHint);
+    parsed = await generateStage1Plans(templateType, customPrompt, schema, guidance, dsType, amountUnit, dataSourceId);
   }
   if (!parsed) {
     return { ok: false, error: '查询计划生成失败', executedSqls };

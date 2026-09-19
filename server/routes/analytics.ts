@@ -15,7 +15,7 @@ import { ERROR_CODES } from '../infra/errorCodes';
 import { logger } from '../infra/logger';
 import { callLLMJson } from '../llm/llmClient';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
-import { loadSchemaContextForUser, isLiveCapableType } from '../query/schemaContext';
+import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { executeSafeSql } from '../query/sqlExecutor';
 import { forecastSeries, MAX_FORECAST_PERIODS, MIN_SERIES_LENGTH, type ForecastModel } from '../analytics/seriesForecast';
 import { attributeDelta, aggregateTwoPeriods, MAX_ATTRIBUTION_ROWS, MAX_ATTRIBUTION_DIMS } from '../analytics/attribution';
@@ -228,7 +228,7 @@ router.post('/whatif', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req,
   }
 
   try {
-    const ctx = await loadSchemaContextForUser(dataSourceId, undefined, req.user);
+    const ctx = await loadSchemaContext(dataSourceId, undefined);
     if (!isLiveCapableType(ctx.dsType, ctx.fileBacked)) {
       return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '当前数据源不支持情景推演（需数据库型或已落库文件数据源）' });
     }

@@ -69,9 +69,6 @@ describe('sanitizeEnvConfigUpdates: PUT 输入校验与过滤', () => {
 describe('applyEnvConfigToProcess: 面板值热更合并规则', () => {
   it('非空值覆盖 process.env 并返回实际写入的 key', () => {
     process.env.AI_ENGINE = 'ollama';
-    // 显式置空：合并规则会跳过「与现值相同」的键，避免本机 .env.local 的
-    // DEEPSEEK_MODEL 与用例写入值相同而被跳过，导致 applied 断言随环境漂移
-    delete process.env.DEEPSEEK_MODEL;
     const applied = applyEnvConfigToProcess([
       { key: 'AI_ENGINE', value: 'deepseek' },
       { key: 'DEEPSEEK_MODEL', value: 'deepseek-flash' },

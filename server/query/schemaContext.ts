@@ -8,14 +8,6 @@
 import { getPool } from '../infra/db';
 import { getStateStore } from '../infra/stateStore';
 import { applyDataScope, rowFiltersByTableName } from './scope';
-import {
-  buildOrgRowFilters,
-  mergeRowFilters,
-  orgScopePromptHint,
-  parseOrgColumns,
-  type OrgColumns,
-} from './orgScope';
-import type { AuthUser } from '../auth/auth';
 import { summarizeSchema } from './schemaGuidance';
 import { filterSensitiveColumns } from './queryGuard';
 import { getFilePhysicalTable, isFileDataSourceType } from './fileDataSource';
@@ -28,7 +20,6 @@ interface DataSourceRow extends mysql.RowDataPacket {
   name: string;
   schema_json: string | null;
   scope_json: string | null;
-  org_columns_json: string | null;
   status: string;
   type: string;
   allow_introspection: number;
@@ -54,8 +45,6 @@ interface CacheEntry {
   dataSourceName: string;
   /** v0.9.34 文件数据源已落应用库物理表（csv/json/excel + config.physicalTable）；旧缓存无此字段按 false 处理 */
   fileBacked?: boolean;
-  /** 组织权限模型：该数据源的组织列映射（org/team/owner），NULL = 不做组织隔离 */
-  orgColumns?: OrgColumns | null;
 }
 
 /** 数据源配置/结构变更后调用，使缓存失效（跨实例：Redis 模式下 deleteByPrefix 广播清理） */
@@ -81,10 +70,6 @@ export interface SchemaContext {
   dataSourceName: string;
   /** 文件数据源已落应用库物理表（问数/报表走真实执行链路）；演示模式恒 false */
   fileBacked: boolean;
-  /** 组织权限模型：该数据源登记的组织列映射；NULL = 不做组织隔离 */
-  orgColumns: OrgColumns | null;
-  /** 组织权限模型：用户数据范围约束文案（loadSchemaContextForUser 注入提示词用；无范围时缺省） */
-  orgScopeHint?: string;
 }
 
 /**
@@ -117,7 +102,6 @@ function fromClientSchema(clientSchema: unknown): SchemaContext {
     rowFilters: {},
     dataSourceName: '',
     fileBacked: false,
-    orgColumns: null,
   };
 }
 
@@ -141,7 +125,6 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
         rowFilters: cached.rowFilters,
         dataSourceName: cached.dataSourceName || '',
         fileBacked: cached.fileBacked === true,
-        orgColumns: cached.orgColumns || null,
       };
     } catch {
       // 缓存体损坏视为未命中，走查库重建
@@ -150,7 +133,7 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
 
   try {
     const [rows] = await getPool().query<DataSourceRow[]>(
-      'SELECT name, schema_json, scope_json, org_columns_json, status, type, allow_introspection, config_json FROM data_sources WHERE id = ?',
+      'SELECT name, schema_json, scope_json, status, type, allow_introspection, config_json FROM data_sources WHERE id = ?',
       [dataSourceId]
     );
     const ds = rows[0];
@@ -168,7 +151,6 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       rowFilters: rowFiltersByTableName(scoped, parseJson(ds.scope_json, null)),
       dataSourceName: String(ds.name || ''),
       fileBacked: isFileDataSourceType(String(ds.type || '')) && getFilePhysicalTable(parseJson(ds.config_json, {})) !== null,
-      orgColumns: parseOrgColumns(ds.org_columns_json),
     };
     await getStateStore().setEx(cacheKey, JSON.stringify(entry), CACHE_TTL_SEC);
     return {
@@ -181,34 +163,9 @@ export async function loadSchemaContext(dataSourceId: unknown, clientSchema: unk
       rowFilters: entry.rowFilters,
       dataSourceName: entry.dataSourceName,
       fileBacked: entry.fileBacked === true,
-      orgColumns: entry.orgColumns || null,
     };
   } catch (err) {
     logger.warn('[Schema] load datasource schema failed, fallback to client schema:', err);
     return fromClientSchema(clientSchema);
   }
-}
-
-/**
- * 带「用户组织数据范围」的上下文加载（组织权限模型统一入口）：
- * 在数据源级上下文之上叠加用户级行过滤谓词——数据源级（scope_json.rowFilters）与用户级
- * （org_scope_json × org_columns_json）同表时 AND 合并，交执行层 AST 强制注入（fail-closed）。
- * 不限制（orgScope 为 null）或数据源未登记组织列时与原行为完全一致；无谓词生成时不产生提示文案。
- */
-export async function loadSchemaContextForUser(
-  dataSourceId: unknown,
-  clientSchema: unknown,
-  user?: Pick<AuthUser, 'orgScope'> | null
-): Promise<SchemaContext> {
-  const ctx = await loadSchemaContext(dataSourceId, clientSchema);
-  const scope = user?.orgScope ?? null;
-  if (!scope || !ctx.orgColumns) return ctx;
-
-  const extra = buildOrgRowFilters(ctx.schema, ctx.orgColumns, scope);
-  if (Object.keys(extra).length === 0) return ctx;
-  return {
-    ...ctx,
-    rowFilters: mergeRowFilters(ctx.rowFilters, extra),
-    orgScopeHint: orgScopePromptHint(ctx.orgColumns, scope),
-  };
 }

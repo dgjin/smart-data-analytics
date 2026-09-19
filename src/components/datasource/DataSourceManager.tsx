@@ -17,7 +17,6 @@ import {
   SlidersHorizontal,
   ListChecks,
   ShieldCheck,
-  Users,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { apiFetch } from '../../api/client';
@@ -25,7 +24,6 @@ import { SchemaViewer } from './SchemaViewer';
 import { DataLineageView } from './DataLineageView';
 import { SchemaMetaEditor } from './SchemaMetaEditor';
 import { AclConfigModal } from './AclConfigModal';
-import { OrgColumnsConfigModal } from './OrgColumnsConfigModal';
 import { ScopeConfigModal } from './ScopeConfigModal';
 import { DataScope, DataSource, DataSourceType, TableSchema } from '../../types/analytics';
 import { getErrorMessage } from '../../utils/errorUtils';
@@ -93,12 +91,6 @@ export const DataSourceManager: React.FC = () => {
   const [aclDepts, setAclDepts] = useState('');
   const [aclUserIds, setAclUserIds] = useState('');
   const [aclSaving, setAclSaving] = useState(false);
-  // 组织权限模型：数据源组织隔离列配置弹窗状态（机构/团队/责任人列名）
-  const [orgDs, setOrgDs] = useState<DataSource | null>(null);
-  const [orgColOrg, setOrgColOrg] = useState('');
-  const [orgColTeam, setOrgColTeam] = useState('');
-  const [orgColOwner, setOrgColOwner] = useState('');
-  const [orgColSaving, setOrgColSaving] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -378,43 +370,6 @@ export const DataSourceManager: React.FC = () => {
       setActionError(getErrorMessage(err) || '访问控制保存失败');
     } finally {
       setAclSaving(false);
-    }
-  };
-
-  // ---- 组织权限模型：组织隔离列配置 ----
-  const openOrgEditor = (ds: DataSource) => {
-    setOrgDs(ds);
-    setOrgColOrg(ds.orgColumns?.org || '');
-    setOrgColTeam(ds.orgColumns?.team || '');
-    setOrgColOwner(ds.orgColumns?.owner || '');
-  };
-
-  const handleSaveOrgColumns = async () => {
-    if (!orgDs || orgColSaving) return;
-    setOrgColSaving(true);
-    try {
-      const org = orgColOrg.trim();
-      const team = orgColTeam.trim();
-      const owner = orgColOwner.trim();
-      const orgColumns = org || team || owner ? { org: org || undefined, team: team || undefined, owner: owner || undefined } : null;
-      const res = await apiFetch(`/api/datasources/${orgDs.id}/org-columns`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgColumns }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
-      updateDataSource(data.dataSource as DataSource);
-      setImportNotice(
-        orgColumns
-          ? `「${orgDs.name}」组织隔离已启用，用户数据范围将按所登记列生效。`
-          : `「${orgDs.name}」已解除组织隔离，全员可见全部数据。`
-      );
-      setOrgDs(null);
-    } catch (err) {
-      setActionError(getErrorMessage(err) || '组织隔离保存失败');
-    } finally {
-      setOrgColSaving(false);
     }
   };
 
@@ -891,22 +846,6 @@ export const DataSourceManager: React.FC = () => {
                           <ShieldCheck className="w-3.5 h-3.5" />
                         </button>
                       </TipAction>
-                      <TipAction tip="配置组织隔离：登记机构/团队/责任人列名，与用户的数据范围（系统管理 → 用户）相乘后自动过滤行级数据；未登记则不隔离">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openOrgEditor(ds);
-                          }}
-                          aria-label="配置组织隔离"
-                          className={`p-1 rounded-lg border transition-colors ${
-                            ds.orgColumns
-                              ? 'text-indigo-300 bg-indigo-950/40 border-indigo-800/50'
-                              : 'text-slate-500 hover:text-indigo-300 hover:bg-indigo-950/40 border-transparent hover:border-indigo-800/50'
-                          }`}
-                        >
-                          <Users className="w-3.5 h-3.5" />
-                        </button>
-                      </TipAction>
                       <TipAction tip="删除数据源：解除连接并清除本地缓存（数据库本身不受影响）">
                         <button
                           onClick={(e) => {
@@ -998,23 +937,8 @@ export const DataSourceManager: React.FC = () => {
         />
       )}
 
-      {/* 组织隔离列配置弹窗（组织权限模型） */}
-      <OrgColumnsConfigModal
-        ds={orgDs}
-        org={orgColOrg}
-        onOrgChange={setOrgColOrg}
-        team={orgColTeam}
-        onTeamChange={setOrgColTeam}
-        owner={orgColOwner}
-        onOwnerChange={setOrgColOwner}
-        saving={orgColSaving}
-        onSave={handleSaveOrgColumns}
-        onClose={() => setOrgDs(null)}
-      />
-
-      {/* P2-11 ACL 访问控制弹窗：P0-1 拆至 AclConfigModal；v0.9.66 key 使每次打开重置部门清单的树/手动模式推断 */}
+      {/* P2-11 ACL 访问控制弹窗：P0-1 拆至 AclConfigModal */}
       <AclConfigModal
-        key={aclDs?.id ?? 'closed'}
         ds={aclDs}
         depts={aclDepts}
         onDeptsChange={setAclDepts}

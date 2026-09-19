@@ -14,13 +14,12 @@ import { ERROR_CODES } from '../infra/errorCodes';
 import { sanitizeQuestion, sanitizeHistory } from './queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
 import { writeAudit } from '../infra/auditLog';
-import { loadSchemaContextForUser, isLiveCapableType } from './schemaContext';
+import { loadSchemaContext, isLiveCapableType } from './schemaContext';
 import { setLlmOverride, validateModelSelection, type ChatMessage } from '../llm/llmClient';
 import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from './liveQuery';
 import { runSimulatedQuery } from './simulatedQuery';
 import { executeSafeSql, resultRowsMax } from './sqlExecutor';
 import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from './queryCache';
-import { orgScopeFingerprint } from './orgScope';
 import { maskQueryPayload } from './dlp';
 import { recordTraceStep, getTraceSteps, type TraceMeta } from './queryTrace';
 import { consumePlan, type QueryPlan } from './queryPlan';
@@ -140,8 +139,7 @@ export async function runNaturalLanguageQuery(
     return { kind: 'json', status: 400, body: { code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' } };
   }
   // 单位进缓存键：显式选单位与不选（依赖知识库默认口径）分别缓存，防口径互串
-  // 组织权限模型：用户数据范围指纹一并入键——不同机构/团队绝不共用同一份问数结果（防跨用户越权命中）
-  const cacheVariant = [modelVariant, amountUnit || '', orgScopeFingerprint(user.orgScope)].filter(Boolean).join(':');
+  const cacheVariant = [modelVariant, amountUnit || ''].filter(Boolean).join(':');
 
   // L5 频率层：每用户 20 次/小时滑动窗口
   const limit = await checkUserQueryLimit(user.id);
@@ -179,7 +177,7 @@ export async function runNaturalLanguageQuery(
     // L3 上下文层：落库 schema + scope 白名单 + 敏感列过滤 + 5min 缓存（不信任前端提交的 schema）
     // 必须在并发槽获取之后的同一 try 内执行：StateStore/DB 异常时 finally 才能保证释放槽，
     // 否则一次抛错会把该用户的并发槽永久卡死（内存模式无 TTL 时只能重启恢复）
-    const ctx = await loadSchemaContextForUser(dataSourceId, params.schemaHint, user);
+    const ctx = await loadSchemaContext(dataSourceId, params.schemaHint);
 
     // 数据源级 AI 开关：数据源被停用（disconnected）后拒绝问数
     if (ctx.status === 'disconnected') {
@@ -243,7 +241,6 @@ export async function runNaturalLanguageQuery(
         dsType: ctx.dsType || undefined,
         sensitiveRemoved: ctx.sensitiveRemoved,
         rowFilters: ctx.rowFilters,
-        orgScopeHint: ctx.orgScopeHint,
         allowIntrospection: ctx.allowIntrospection,
         approvedPlan,
         deepAnalysis: params.deepAnalysis,

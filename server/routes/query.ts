@@ -24,7 +24,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { sanitizeQuestion } from '../query/queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
 import { writeAudit } from '../infra/auditLog';
-import { loadSchemaContextForUser, isLiveCapableType } from '../query/schemaContext';
+import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { callLLMText, validateModelSelection, setLlmOverride } from '../llm/llmClient';
 import { buildColumnNames } from '../query/liveQuery';
 import { runDrill } from '../query/drill';
@@ -188,7 +188,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
   }
   try {
     // 计划模式仅支持真实可执行的数据库型数据源（演示模式无执行意义）
-    const ctx = await loadSchemaContextForUser(dataSourceId, schema, user);
+    const ctx = await loadSchemaContext(dataSourceId, schema);
     if (ctx.status === 'disconnected') {
       return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
     }
@@ -268,7 +268,7 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
     return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
   }
 
-  const ctx = await loadSchemaContextForUser(dataSourceId, undefined, user);
+  const ctx = await loadSchemaContext(dataSourceId, undefined);
   if (ctx.status === 'disconnected') {
     return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
@@ -356,7 +356,7 @@ router.post('/drill', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST
     return res.status(403).json({ code: ERROR_CODES.DS_ACCESS_DENIED, error: '没有该数据源的访问权限，可向管理员申请开通' });
   }
 
-  const ctx = await loadSchemaContextForUser(dataSourceId, undefined, user);
+  const ctx = await loadSchemaContext(dataSourceId, undefined);
   if (ctx.status === 'disconnected') {
     return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }

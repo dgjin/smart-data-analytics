@@ -11,55 +11,12 @@ import { logger } from '../infra/logger';
 import { writeAudit } from '../infra/auditLog';
 import { ENV_CONFIG_HIDDEN, sanitizeEnvConfigUpdates, applyEnvConfigToProcess } from '../infra/envConfigCatalog';
 import { getErrorMessage, getErrorCode } from '../infra/errorUtils';
-import { parseUserOrgScope, hasExplicitOrgScope, MAX_SCOPE_ITEMS } from '../query/orgScope';
-import { resolveEffectiveOrgScopes } from '../query/orgUnitScope';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
 
 const VALID_ROLES = ['ADMIN', 'ANALYST', 'VIEWER'] as const;
 const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
-const SCOPE_LEVELS = ['ALL', 'ORG', 'TEAM', 'SELF'] as const;
-
-/**
- * 校验并序列化用户数据范围（组织权限模型）：
- * 未配置/空 = 存 NULL（v0.9.69 起：这类用户按「所属组织」自动派生数据范围）；
- * 显式 ALL = 存 {"level":"ALL"}（管理员明确授权全辖，不再派生）；
- * ORG/TEAM/SELF 要求授权值非空，非法档位/空值显式拒绝，
- * 避免「配了档位却没给值」被当作不限制而静默失效（解析层同样做兜底）。
- */
-function serializeOrgScopeInput(raw: unknown): { ok: true; json: string | null } | { ok: false; error: string } {
-  if (raw === null || raw === undefined || raw === '') return { ok: true, json: null };
-  if (typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '数据范围格式无效' };
-  const obj = raw as Record<string, unknown>;
-  const level = String(obj.level || '').toUpperCase();
-  if (!SCOPE_LEVELS.includes(level as (typeof SCOPE_LEVELS)[number])) {
-    return { ok: false, error: '数据范围档位无效，可选：ALL（全辖）/ ORG（本机构）/ TEAM（本项目团队）/ SELF（仅本人）' };
-  }
-  // v0.9.69 显式全辖需与「从未配置」区分（后者按所属组织派生），故存档位 JSON 而非 NULL
-  if (level === 'ALL') return { ok: true, json: JSON.stringify({ level: 'ALL' }) };
-  if (level === 'ORG' && Array.isArray(obj.orgs) && obj.orgs.length > MAX_SCOPE_ITEMS) {
-    return { ok: false, error: `机构数量不能超过 ${MAX_SCOPE_ITEMS} 个` };
-  }
-  if (level === 'TEAM' && Array.isArray(obj.teams) && obj.teams.length > MAX_SCOPE_ITEMS) {
-    return { ok: false, error: `团队数量不能超过 ${MAX_SCOPE_ITEMS} 个` };
-  }
-  const scope = parseUserOrgScope({ ...obj, level });
-  if (!scope) {
-    const hint = level === 'ORG' ? '机构档位需至少填写一个机构编号' : level === 'TEAM' ? '团队档位需至少填写一个团队名称' : '本人档位需填写经办人编号';
-    return { ok: false, error: hint };
-  }
-  return { ok: true, json: JSON.stringify(scope) };
-}
-
-/**
- * 组织架构树（v0.9.66）：按节点 ID 取节点名。
- * 用户 department 文本由节点名派生——该文本是数据源可见性 ACL 的匹配键，两处必须同源。
- */
-async function loadOrgUnitName(orgUnitId: number): Promise<string | null> {
-  const [rows] = await getPool().query<RowDataPacket[]>('SELECT name FROM org_units WHERE id = ? LIMIT 1', [orgUnitId]);
-  return rows[0] ? String(rows[0].name) : null;
-}
 
 async function countActiveAdmins(excludeId?: number): Promise<number> {
   const [rows] = await getPool().query<RowDataPacket[]>(
@@ -72,41 +29,21 @@ async function countActiveAdmins(excludeId?: number): Promise<number> {
 // GET /api/admin/users
 router.get('/users', async (_req, res) => {
   try {
-    const [rows] = await getPool().query<RowDataPacket[]>(
-      `SELECT id, username, display_name AS displayName, department, org_unit_id AS orgUnitId, role, status, must_change_password AS mustChangePassword,
-              org_scope_json AS orgScopeJson,
+    const [rows] = await getPool().query(
+      `SELECT id, username, display_name AS displayName, department, role, status, must_change_password AS mustChangePassword,
               created_at AS createdAt, last_login_at AS lastLoginAt
        FROM users ORDER BY id ASC`
     );
-    // 数据范围以解析后的对象返回（存储为 JSON 文本，前端直接用于编辑表单）；
-    // orgScopeEffective = 实际生效范围（v0.9.69：未显式配置时按「所属组织」派生），orgScopeDerived 标记派生来源
-    const scopeResults = await resolveEffectiveOrgScopes(
-      rows.map((row) => ({
-        rawScope: (row as RowDataPacket & { orgScopeJson: string | null }).orgScopeJson,
-        orgUnitId: (row as RowDataPacket & { orgUnitId: number | null }).orgUnitId,
-      }))
-    );
-    const users = rows.map((row, i) => {
-      const { orgScopeJson, ...rest } = row as RowDataPacket & { orgScopeJson: string | null };
-      return {
-        ...rest,
-        orgScope: parseUserOrgScope(orgScopeJson),
-        // 是否显式配置过（含显式全辖）：前端据此区分「按组织派生」与「显式授权全辖」
-        orgScopeConfigured: hasExplicitOrgScope(orgScopeJson),
-        orgScopeEffective: scopeResults[i].effective,
-        orgScopeDerived: scopeResults[i].derived,
-      };
-    });
-    return res.json({ success: true, users });
+    return res.json({ success: true, users: rows });
   } catch (err) {
     logger.error('[Admin] list users failed:', err);
     return res.status(500).json({ error: '用户列表获取失败' });
   }
 });
 
-// POST /api/admin/users { username, password, displayName, role, department?, orgScope?, orgUnitId? }（orgUnitId 优先，部门文本由节点名派生）
+// POST /api/admin/users { username, password, displayName, role, department? }
 router.post('/users', async (req, res) => {
-  const { username, password, displayName, role, department, orgScope, orgUnitId } = req.body || {};
+  const { username, password, displayName, role, department } = req.body || {};
   if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) {
     return res.status(400).json({ error: '用户名需为 3-20 位字母、数字或下划线' });
   }
@@ -121,36 +58,16 @@ router.post('/users', async (req, res) => {
   if (!strength.ok) {
     return res.status(400).json({ error: strength.error });
   }
-  // 组织权限模型：可选的数据范围（未传/ALL = 不限制）
-  const scopeInput = serializeOrgScopeInput(orgScope);
-  if (scopeInput.ok === false) {
-    return res.status(400).json({ error: scopeInput.error });
-  }
-
-  // v0.9.66 组织架构树：可选的组织归属节点；部门文本由节点名派生，避免与树两处不一致
-  let boundOrgUnitId: number | null = null;
-  let resolvedDepartment = String(department || '').trim().slice(0, 100);
-  if (orgUnitId !== undefined && orgUnitId !== null && orgUnitId !== '') {
-    if (!Number.isInteger(orgUnitId)) {
-      return res.status(400).json({ error: '组织节点无效' });
-    }
-    const unitName = await loadOrgUnitName(orgUnitId);
-    if (!unitName) {
-      return res.status(400).json({ error: '组织节点不存在' });
-    }
-    boundOrgUnitId = orgUnitId;
-    resolvedDepartment = unitName.slice(0, 100);
-  }
 
   try {
     const [result] = await getPool().query<ResultSetHeader>(
-      'INSERT INTO users (username, password_hash, display_name, department, org_unit_id, role, org_scope_json, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
-      [username, hashPassword(password), String(displayName || username).slice(0, 50), resolvedDepartment, boundOrgUnitId, role, scopeInput.json]
+      'INSERT INTO users (username, password_hash, display_name, department, role, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
+      [username, hashPassword(password), String(displayName || username).slice(0, 50), String(department || '').trim().slice(0, 100), role]
     );
     const insertId = result.insertId;
     return res.status(201).json({
       success: true,
-      user: { id: insertId, username, displayName: displayName || username, department: resolvedDepartment, orgUnitId: boundOrgUnitId, role, status: 'ACTIVE', orgScope: parseUserOrgScope(scopeInput.json) },
+      user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE' },
     });
   } catch (err) {
     if (getErrorCode(err) === 'ER_DUP_ENTRY') {
@@ -161,50 +78,25 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:id { displayName?, role?, status?, department?, orgScope?, orgUnitId? }（orgUnitId=null 解除关联）
+// PUT /api/admin/users/:id { displayName?, role?, status?, department? }
 router.put('/users/:id', async (req, res) => {
   const targetId = Number(req.params.id);
   if (!Number.isInteger(targetId)) {
     return res.status(400).json({ error: '用户 ID 无效' });
   }
 
-  const { displayName, role, status, department, orgScope, orgUnitId } = req.body || {};
+  const { displayName, role, status, department } = req.body || {};
   const updates: string[] = [];
   const params: unknown[] = [];
-
-  // v0.9.66 组织架构树：orgUnitId 优先于手填 department（部门文本由节点名派生）
-  let derivedDepartment: string | undefined;
-  let orgUnitUpdate: number | null | undefined;
-  if (orgUnitId !== undefined) {
-    if (orgUnitId === null || orgUnitId === '') {
-      orgUnitUpdate = null; // 解除关联；department 文本保留原样供展示与 ACL 匹配
-    } else if (Number.isInteger(orgUnitId)) {
-      const unitName = await loadOrgUnitName(orgUnitId);
-      if (!unitName) {
-        return res.status(400).json({ error: '组织节点不存在' });
-      }
-      orgUnitUpdate = orgUnitId;
-      derivedDepartment = unitName.slice(0, 100);
-    } else {
-      return res.status(400).json({ error: '组织节点无效' });
-    }
-  }
 
   if (displayName !== undefined) {
     updates.push('display_name = ?');
     params.push(String(displayName).slice(0, 50));
   }
-  if (derivedDepartment !== undefined) {
-    updates.push('department = ?');
-    params.push(derivedDepartment);
-  } else if (department !== undefined) {
+  if (department !== undefined) {
     // P2-11 组织维度：部门是数据源授权的匹配键，仅管理员可改（防止用户自助改部门越权）
     updates.push('department = ?');
     params.push(String(department).trim().slice(0, 100));
-  }
-  if (orgUnitUpdate !== undefined) {
-    updates.push('org_unit_id = ?');
-    params.push(orgUnitUpdate);
   }
   if (role !== undefined) {
     if (!VALID_ROLES.includes(role)) {
@@ -212,15 +104,6 @@ router.put('/users/:id', async (req, res) => {
     }
     updates.push('role = ?');
     params.push(role);
-  }
-  if (orgScope !== undefined) {
-    // 组织权限模型：未配置/空存 NULL（按所属组织派生）；显式全辖存 {"level":"ALL"}；仅管理员可改
-    const serialized = serializeOrgScopeInput(orgScope);
-    if (serialized.ok === false) {
-      return res.status(400).json({ error: serialized.error });
-    }
-    updates.push('org_scope_json = ?');
-    params.push(serialized.json);
   }
   if (status !== undefined) {
     if (!['ACTIVE', 'DISABLED'].includes(status)) {

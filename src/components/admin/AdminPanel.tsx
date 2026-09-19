@@ -27,14 +27,11 @@ import {
   AlertTriangle,
   Scale,
   Server,
-  Network,
-  Link2,
-  X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
-import { UserRole, OrgUnit } from '../../types/analytics';
+import { UserRole } from '../../types/analytics';
 import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
 import { DriftAlertPanel } from './DriftAlertPanel';
@@ -48,106 +45,23 @@ import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
 import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
-// v0.9.66 组织架构树：面板 + 用户归属选择器 + 数据范围联动（节点数据共享 useOrgUnits）
-import { OrgStructurePanel } from './OrgStructurePanel';
-import { useOrgUnits } from '../../hooks/useOrgUnits';
-import { OrgUnitPicker } from '../common/OrgUnitPicker';
 // v0.9.56 规则治理整合：业务知识库与 SQL 样例库由「数据源与 Schema」迁入
 import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
 import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
 // v0.9.57 分类内多面板统一顶部 Tab 分类条
 import { SectionTabs, SectionTabItem } from './SectionTabs';
 import { getErrorMessage } from '../../utils/errorUtils';
-// v0.9.68 新建用户表单即时校验（规则与 server/auth/passwords.ts、server/routes/admin.ts 同步）
-import { USERNAME_PATTERN, USERNAME_HINT, PASSWORD_HINT, checkPasswordStrength } from '../../utils/passwordStrength';
 
 interface AdminUser {
   id: number;
   username: string;
   displayName: string;
   department?: string;
-  /** v0.9.66 组织架构树：归属节点 ID（null/缺省 = 未关联组织，部门文本沿用旧值） */
-  orgUnitId?: number | null;
   role: UserRole;
   status: 'ACTIVE' | 'DISABLED';
   mustChangePassword?: boolean;
-  /** 组织数据范围（三层权限模型）：显式配置；null/缺省 = 未单独配置（与 server/query/orgScope.ts 同形） */
-  orgScope?: UserOrgScope | null;
-  /** v0.9.69 是否显式配置过（含显式全辖）；false/缺省 = 未配置 → 按所属组织自动派生 */
-  orgScopeConfigured?: boolean;
-  /** v0.9.69 实际生效范围：未单独配置时按「所属组织」自动派生（总部不限制 / 机构=本机构 / 部门=本部门+下辖团队 / 团队=本团队） */
-  orgScopeEffective?: UserOrgScope | null;
-  /** v0.9.69 true = 生效范围由所属组织自动派生（非显式配置） */
-  orgScopeDerived?: boolean;
   createdAt: string;
   lastLoginAt: string | null;
-}
-
-/** 组织数据范围档位：ALL 全辖 / ORG 本机构 / TEAM 本项目团队 / SELF 仅本人 */
-type OrgScopeLevel = 'ALL' | 'ORG' | 'TEAM' | 'SELF';
-
-interface UserOrgScope {
-  level: OrgScopeLevel;
-  orgs?: string[];
-  teams?: string[];
-  selfCode?: string;
-}
-
-const SCOPE_LEVEL_LABELS: Record<OrgScopeLevel, string> = {
-  ALL: '全辖',
-  ORG: '本机构',
-  TEAM: '本项目团队',
-  SELF: '仅本人经办',
-};
-
-/** 用户数据范围 → 简洁文案（列表展示用） */
-function orgScopeText(scope?: UserOrgScope | null): string {
-  if (!scope) return '全辖（不限制）';
-  if (scope.level === 'ALL') return '全辖（不限制）';
-  if (scope.level === 'ORG') return `机构：${(scope.orgs || []).join('、')}`;
-  if (scope.level === 'TEAM') return `团队：${(scope.teams || []).join('、')}`;
-  return `经办人：${scope.selfCode || ''}`;
-}
-
-/** v0.9.69 生效范围取值：服务端已合并「显式配置 / 按组织派生」，旧响应无该字段时回退显式配置 */
-function effectiveScopeOf(u: AdminUser): { scope: UserOrgScope | null; derived: boolean } {
-  const scope = u.orgScopeEffective !== undefined ? u.orgScopeEffective : u.orgScope ?? null;
-  return { scope, derived: Boolean(u.orgScopeDerived) };
-}
-
-/** v0.9.66 组织树模式推断：按已有数据范围配置判断能否用树表达（机构/团队取值全部命中节点 data_code）；SELF 与存量手填值无法映射时返回 null（转手动模式） */
-function inferScopeTreeSelection(u: AdminUser, units: OrgUnit[]): number[] | null {
-  const scope = u.orgScope;
-  const hq = units.find((n) => n.level === 'HQ');
-  if (!scope || scope.level === 'ALL') return hq ? [hq.id] : null;
-  if (scope.level === 'SELF') return null;
-  const codes = scope.level === 'ORG' ? scope.orgs || [] : scope.teams || [];
-  if (codes.length === 0) return null;
-  const ids: number[] = [];
-  for (const code of codes) {
-    const node = units.find((n) =>
-      n.dataCode === code && (scope.level === 'ORG' ? n.level === 'BRANCH' : n.level === 'DEPT' || n.level === 'TEAM')
-    );
-    if (!node) return null;
-    ids.push(node.id);
-  }
-  return ids;
-}
-
-/** v0.9.66 树多选 → 数据范围载荷：总部=显式全辖 {level:'ALL'}；全为机构=ORG；全为部门/团队=TEAM；机构与部门/团队混选拒绝；未选节点=清除配置（恢复按所属组织派生） */
-function deriveScopeFromTree(ids: number[], units: OrgUnit[]): { payload?: UserOrgScope | null; error?: string } {
-  const nodes = ids.map((id) => units.find((n) => n.id === id)).filter((n): n is OrgUnit => Boolean(n));
-  if (nodes.length === 0) return { payload: null };
-  if (nodes.some((n) => n.level === 'HQ')) {
-    return nodes.length === 1 ? { payload: { level: 'ALL' } } : { error: '总部代表全辖，不能与其他节点同时选择' };
-  }
-  const branches = nodes.filter((n) => n.level === 'BRANCH');
-  const teamsLike = nodes.filter((n) => n.level === 'DEPT' || n.level === 'TEAM');
-  if (branches.length > 0 && teamsLike.length > 0) {
-    return { error: '机构与部门/团队不可混选（数据范围档位互斥），请分开配置' };
-  }
-  if (branches.length > 0) return { payload: { level: 'ORG', orgs: branches.map((n) => n.dataCode) } };
-  return { payload: { level: 'TEAM', teams: teamsLike.map((n) => n.dataCode) } };
 }
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -156,10 +70,9 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（8 项，左栏导航切换；v0.9.66 新增组织架构） */
+/** 系统管理分类（7 项，左栏导航切换） */
 type AdminSection =
   | 'users'
-  | 'org-structure'
   | 'permission-approval'
   | 'rule-governance'
   | 'ai-audit'
@@ -183,7 +96,6 @@ const SECTION_GROUPS: {
     line: 'from-indigo-500 to-amber-500',
     items: [
       { id: 'users', label: '基础管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
-      { id: 'org-structure', label: '组织架构', icon: Network, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       { id: 'permission-approval', label: '权限审批', icon: ShieldCheck, color: 'text-amber-400', bar: 'bg-amber-500' },
     ],
   },
@@ -267,32 +179,14 @@ export const AdminPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // v0.9.66 组织架构树：组织架构面板、用户归属选择器与数据范围联动共用同一份节点数据
-  const { units: orgUnits, loading: orgUnitsLoading, refresh: refreshOrgUnits } = useOrgUnits();
-
   // Create form
   const [isCreating, setIsCreating] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newOrgUnitId, setNewOrgUnitId] = useState<number | null>(null);
+  const [newDepartment, setNewDepartment] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('ANALYST');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // 组织数据范围编辑（弹窗）：目标用户 + 档位 + 各维度取值（逗号分隔输入）
-  const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
-  const [scopeLevel, setScopeLevel] = useState<OrgScopeLevel>('ALL');
-  const [scopeOrgs, setScopeOrgs] = useState('');
-  const [scopeTeams, setScopeTeams] = useState('');
-  const [scopeSelfCode, setScopeSelfCode] = useState('');
-  const [isScopeSaving, setIsScopeSaving] = useState(false);
-  // v0.9.66 数据范围「从组织树选择 / 手动填写」双模式（打开时按已有配置推断）与树选中节点
-  const [scopeMode, setScopeMode] = useState<'tree' | 'manual'>('tree');
-  const [scopeTreeIds, setScopeTreeIds] = useState<number[]>([]);
-  // v0.9.66 组织归属设置弹窗（替换原 window.prompt 文本编辑）
-  const [deptUser, setDeptUser] = useState<AdminUser | null>(null);
-  const [deptDraftId, setDeptDraftId] = useState<number | null>(null);
-  const [isDeptSaving, setIsDeptSaving] = useState(false);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -330,12 +224,6 @@ export const AdminPanel: React.FC = () => {
     return () => clearTimeout(timer);
   }, [loadUsers]);
 
-  // v0.9.68 新建用户校验：确认按钮禁用条件与服务端规则对齐（用户名格式 + 密码强度），并在字段下方给出原因
-  const trimmedNewUsername = newUsername.trim();
-  const usernameValid = USERNAME_PATTERN.test(trimmedNewUsername);
-  const passwordCheck = checkPasswordStrength(newPassword, trimmedNewUsername);
-  const canSubmitCreate = usernameValid && passwordCheck.ok;
-
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
@@ -348,7 +236,7 @@ export const AdminPanel: React.FC = () => {
           username: newUsername.trim(),
           displayName: newDisplayName.trim() || newUsername.trim(),
           password: newPassword,
-          orgUnitId: newOrgUnitId,
+          department: newDepartment.trim(),
           role: newRole,
         }),
       });
@@ -359,7 +247,7 @@ export const AdminPanel: React.FC = () => {
       setNewUsername('');
       setNewDisplayName('');
       setNewPassword('');
-      setNewOrgUnitId(null);
+      setNewDepartment('');
       setNewRole('ANALYST');
       loadUsers();
     } catch (err) {
@@ -403,100 +291,21 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  /** v0.9.66 打开组织归属设置弹窗：回填当前归属节点（未关联则为空） */
-  const openDeptEditor = (u: AdminUser) => {
-    setDeptUser(u);
-    setDeptDraftId(u.orgUnitId ?? null);
-  };
-
-  /** 保存组织归属：orgUnitId=null 解除关联（服务端保留 department 旧文本供展示与 ACL 匹配） */
-  const handleSaveDepartment = async () => {
-    if (!deptUser || isDeptSaving) return;
-    setIsDeptSaving(true);
+  const handleEditDepartment = async (u: AdminUser) => {
+    const input = window.prompt(`修改用户 ${u.username} 的所属部门（数据源授权按部门匹配，留空为未设置）:`, u.department || '');
+    if (input === null) return;
     try {
-      const res = await apiFetch(`/api/admin/users/${deptUser.id}`, {
+      const res = await apiFetch(`/api/admin/users/${u.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgUnitId: deptDraftId }),
+        body: JSON.stringify({ department: input.trim() }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
-      const node = orgUnits.find((n) => n.id === deptDraftId);
-      showNotice(
-        'success',
-        deptDraftId ? `已将 ${deptUser.username} 归属到「${node?.name ?? deptDraftId}」` : `已解除 ${deptUser.username} 的组织归属（部门文本保留）`
-      );
-      setDeptUser(null);
+      showNotice('success', `已更新 ${u.username} 的部门为「${input.trim() || '未设置'}」`);
       loadUsers();
     } catch (err) {
       showNotice('error', getErrorMessage(err));
-    } finally {
-      setIsDeptSaving(false);
-    }
-  };
-
-  /** 打开数据范围编辑弹窗：按当前配置回填（树模式能表达时优先树，否则手动填写） */
-  const openScopeEditor = (u: AdminUser) => {
-    setScopeUser(u);
-    setScopeLevel(u.orgScope?.level || 'ALL');
-    setScopeOrgs((u.orgScope?.orgs || []).join(', '));
-    setScopeTeams((u.orgScope?.teams || []).join(', '));
-    setScopeSelfCode(u.orgScope?.selfCode || '');
-    // v0.9.69 未单独配置过的用户：树默认选中其「所属组织」节点，直观展示当前自动生效范围
-    const selfUnitId = u.orgScopeConfigured === false && u.orgUnitId && orgUnits.some((n) => n.id === u.orgUnitId) ? [u.orgUnitId] : null;
-    const inferred = selfUnitId ?? inferScopeTreeSelection(u, orgUnits);
-    setScopeTreeIds(inferred ?? []);
-    setScopeMode(inferred ? 'tree' : 'manual');
-  };
-
-  const handleSaveScope = async () => {
-    if (!scopeUser) return;
-    let payload: UserOrgScope | null;
-    if (scopeMode === 'tree') {
-      // v0.9.66 树模式：选择节点自动生成档位与取值（机构与部门/团队混选拒绝）
-      const derived = deriveScopeFromTree(scopeTreeIds, orgUnits);
-      if (derived.error) {
-        showNotice('error', derived.error);
-        return;
-      }
-      payload = derived.payload ?? null;
-    } else {
-      const split = (s: string) => s.split(/[,\uFF0C\s]+/).map((v) => v.trim()).filter(Boolean);
-      // 服务端会做完整校验（档位/非空/数量上限），此处仅防明显空值提交
-      // v0.9.69：全辖存为显式 {"level":"ALL"}（与「从未配置」区分，后者按所属组织派生）
-      payload =
-        scopeLevel === 'ALL'
-          ? { level: 'ALL' }
-          : scopeLevel === 'ORG'
-          ? { level: 'ORG', orgs: split(scopeOrgs) }
-          : scopeLevel === 'TEAM'
-          ? { level: 'TEAM', teams: split(scopeTeams) }
-          : { level: 'SELF', selfCode: scopeSelfCode.trim() };
-      if ((payload.level === 'ORG' || payload.level === 'TEAM') && !(payload.level === 'ORG' ? payload.orgs?.length : payload.teams?.length)) {
-        showNotice('error', payload.level === 'ORG' ? '请填写机构编号' : '请填写团队名称');
-        return;
-      }
-      if (payload.level === 'SELF' && !payload.selfCode) {
-        showNotice('error', '请填写经办人编号');
-        return;
-      }
-    }
-    setIsScopeSaving(true);
-    try {
-      const res = await apiFetch(`/api/admin/users/${scopeUser.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orgScope: payload }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
-      showNotice('success', `已更新 ${scopeUser.username} 的数据范围为「${orgScopeText(payload)}」`);
-      setScopeUser(null);
-      loadUsers();
-    } catch (err) {
-      showNotice('error', getErrorMessage(err));
-    } finally {
-      setIsScopeSaving(false);
     }
   };
 
@@ -512,9 +321,6 @@ export const AdminPanel: React.FC = () => {
       showNotice('error', getErrorMessage(err));
     }
   };
-
-  // v0.9.66 数据范围树模式的实时派生（档位 + 取值预览；混选等非法组合给出错误提示）
-  const scopeTreeDerived = scopeMode === 'tree' && scopeUser ? deriveScopeFromTree(scopeTreeIds, orgUnits) : null;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -609,7 +415,7 @@ export const AdminPanel: React.FC = () => {
               <form onSubmit={handleCreate}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
                   <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">用户名 <span className="text-slate-500">(3-20 位字母/数字/下划线)</span></label>
+                    <label className="text-slate-400 font-medium">用户名 <span className="text-slate-500">(3-20 位)</span></label>
                     <input
                       type="text"
                       value={newUsername}
@@ -617,9 +423,6 @@ export const AdminPanel: React.FC = () => {
                       placeholder="zhangsan"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
                     />
-                    {newUsername && !usernameValid && (
-                      <p className="text-[11px] text-rose-400">{USERNAME_HINT}</p>
-                    )}
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-slate-400 font-medium">显示名称</label>
@@ -632,7 +435,7 @@ export const AdminPanel: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">初始密码 <span className="text-slate-500">({PASSWORD_HINT})</span></label>
+                    <label className="text-slate-400 font-medium">初始密码</label>
                     <input
                       type="password"
                       value={newPassword}
@@ -641,19 +444,16 @@ export const AdminPanel: React.FC = () => {
                       autoComplete="new-password"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
                     />
-                    {newPassword && !passwordCheck.ok && (
-                      <p className="text-[11px] text-rose-400">{passwordCheck.error}</p>
-                    )}
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">部门（组织节点）</label>
-                    <OrgUnitPicker
-                      units={orgUnits}
-                      loading={orgUnitsLoading}
-                      mode="single"
-                      selectedIds={newOrgUnitId ? [newOrgUnitId] : []}
-                      onChange={(ids) => setNewOrgUnitId(ids[0] ?? null)}
-                      listClassName="max-h-32"
+                    <label className="text-slate-400 font-medium">部门</label>
+                    <input
+                      type="text"
+                      value={newDepartment}
+                      onChange={(e) => setNewDepartment(e.target.value)}
+                      placeholder="财务部"
+                      maxLength={100}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -680,8 +480,12 @@ export const AdminPanel: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={isSubmitting || !canSubmitCreate}
-                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
+                    disabled={
+                      isSubmitting ||
+                      !/^[a-zA-Z0-9_]{3,20}$/.test(newUsername.trim()) ||
+                      newPassword.length < 6
+                    }
+                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
                   >
                     {isSubmitting ? '创建中…' : '确认创建'}
                   </button>
@@ -690,235 +494,6 @@ export const AdminPanel: React.FC = () => {
             </div>
           )}
       
-          {/* 数据范围编辑弹窗（组织权限模型）：档位 + 取值；全辖 = 不限制 */}
-          {scopeUser && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-              <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
-                <div className="px-6 py-4 border-b border-slate-800 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                  <h3 className="text-base font-bold text-slate-100">配置数据范围 — {scopeUser.username}</h3>
-                </div>
-                <div className="p-6 space-y-4 text-xs">
-                  {/* v0.9.69 生效范围来源提示：未单独配置时按「所属组织」自动派生（管理员保存后才转为显式配置） */}
-                  {scopeUser.orgScopeConfigured === false && (
-                    <div
-                      className={`rounded-lg p-3 border leading-relaxed ${
-                        scopeUser.orgScopeDerived
-                          ? 'bg-emerald-500/5 border-emerald-900/50 text-emerald-300/90'
-                          : 'bg-amber-500/5 border-amber-900/50 text-amber-300/90'
-                      }`}
-                    >
-                      {scopeUser.orgScopeDerived ? (
-                        <>
-                          当前未单独配置数据范围，问数时按所属组织「{scopeUser.department || '未关联'}」自动限制为
-                          <span className="font-semibold"> {orgScopeText(scopeUser.orgScopeEffective)}</span>
-                          。组织树或所属节点调整后自动跟随；在此保存则转为单独配置（不再自动跟随）。
-                        </>
-                      ) : scopeUser.orgUnitId ? (
-                        <>所属组织为「{scopeUser.department || '未命名节点'}」（总部 / 无数据标识节点），问数不受组织范围限制。</>
-                      ) : (
-                        <>当前未关联组织节点，问数不受组织范围限制。设置「所属组织」后会自动按组织隔离数据。</>
-                      )}
-                    </div>
-                  )}
-                  {/* 配置方式切换（v0.9.66）：组织树选择（联动档位与取值）/ 手动填写（兼容存量） */}
-                  <div className="flex gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1">
-                    <button
-                      type="button"
-                      onClick={() => setScopeMode('tree')}
-                      className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                        scopeMode === 'tree' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      从组织树选择
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScopeMode('manual')}
-                      className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                        scopeMode === 'manual' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      手动填写
-                    </button>
-                  </div>
-
-                  {scopeMode === 'tree' && (
-                    <>
-                      <div className="space-y-1.5">
-                        <label className="text-slate-400 font-medium">
-                          选择组织节点（可多选；总部 = 全辖不限制，机构 → 本机构，部门/团队 → 本项目团队）
-                        </label>
-                        <OrgUnitPicker
-                          units={orgUnits}
-                          loading={orgUnitsLoading}
-                          mode="multi"
-                          selectedIds={scopeTreeIds}
-                          onChange={(ids) => setScopeTreeIds(ids)}
-                          requireDataCode
-                          listClassName="max-h-52"
-                        />
-                      </div>
-                      {/* 实时值预览：保存前核对将写入 org_scope_json 的档位与取值 */}
-                      <div
-                        className={`rounded-lg p-3 border ${
-                          scopeTreeDerived?.error ? 'bg-rose-500/5 border-rose-900/50' : 'bg-slate-950/60 border-slate-800'
-                        }`}
-                      >
-                        <div className="text-slate-500 mb-1">将保存的数据范围：</div>
-                        {scopeTreeDerived?.error ? (
-                          <p className="text-rose-400">{scopeTreeDerived.error}</p>
-                        ) : scopeTreeDerived?.payload && scopeTreeDerived.payload.level !== 'ALL' ? (
-                          <div className="space-y-0.5">
-                            <div className="text-slate-300">档位：{SCOPE_LEVEL_LABELS[scopeTreeDerived.payload.level]}</div>
-                            <code className="text-emerald-300 font-mono text-[11px] break-all">
-                              {scopeTreeDerived.payload.level === 'ORG'
-                                ? `orgs: ${JSON.stringify(scopeTreeDerived.payload.orgs)}`
-                                : `teams: ${JSON.stringify(scopeTreeDerived.payload.teams)}`}
-                            </code>
-                          </div>
-                        ) : scopeTreeDerived?.payload ? (
-                          <p className="text-slate-300">全辖（不限制）：不注入行过滤</p>
-                        ) : (
-                          <p className="text-slate-300">未选择节点：清除单独配置，按「所属组织」自动生效（未关联组织则全辖不限制）</p>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {scopeMode === 'manual' && (
-                  <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">范围档位</label>
-                    <select
-                      value={scopeLevel}
-                      onChange={(e) => setScopeLevel(e.target.value as OrgScopeLevel)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                    >
-                      {(Object.keys(SCOPE_LEVEL_LABELS) as OrgScopeLevel[]).map((lv) => (
-                        <option key={lv} value={lv}>
-                          {SCOPE_LEVEL_LABELS[lv]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  )}
-
-                  {scopeMode === 'manual' && scopeLevel === 'ORG' && (
-                    <div className="space-y-1.5">
-                      <label className="text-slate-400 font-medium">机构编号（多个用逗号分隔，如 A01, A02）</label>
-                      <input
-                        type="text"
-                        value={scopeOrgs}
-                        onChange={(e) => setScopeOrgs(e.target.value)}
-                        placeholder="A01, A02"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
-                      />
-                    </div>
-                  )}
-
-                  {scopeMode === 'manual' && scopeLevel === 'TEAM' && (
-                    <div className="space-y-1.5">
-                      <label className="text-slate-400 font-medium">团队名称（多个用逗号分隔，如 投资一部, 投资二部）</label>
-                      <input
-                        type="text"
-                        value={scopeTeams}
-                        onChange={(e) => setScopeTeams(e.target.value)}
-                        placeholder="投资一部, 投资二部"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                      />
-                    </div>
-                  )}
-
-                  {scopeMode === 'manual' && scopeLevel === 'SELF' && (
-                    <div className="space-y-1.5">
-                      <label className="text-slate-400 font-medium">经办人编号</label>
-                      <input
-                        type="text"
-                        value={scopeSelfCode}
-                        onChange={(e) => setScopeSelfCode(e.target.value)}
-                        placeholder="U1001"
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
-                      />
-                    </div>
-                  )}
-
-                  <p className="text-[11px] leading-relaxed text-slate-500 bg-slate-950/60 border border-slate-800 rounded-lg p-3">
-                    问数与报表将在执行层按该范围自动注入行过滤（机构列 / 团队列 / 责任人列由「数据源与 Schema → 组织隔离」登记）。
-                    未登记组织列的数据源不受影响；全辖档位等同不限制。
-                  </p>
-                </div>
-                <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-3">
-                  <button
-                    onClick={() => setScopeUser(null)}
-                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleSaveScope}
-                    disabled={isScopeSaving || Boolean(scopeTreeDerived?.error)}
-                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
-                  >
-                    {isScopeSaving ? '保存中…' : '保存'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* v0.9.66 组织归属设置弹窗（替换原 window.prompt 文本编辑；部门文本由节点名派生） */}
-          {deptUser && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
-              <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
-                <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-                  <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                    <Network className="w-4 h-4 text-emerald-400" />
-                    设置组织归属 — {deptUser.username}
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setDeptUser(null)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="p-6 space-y-4 text-xs">
-                  <p className="leading-relaxed text-slate-500 bg-slate-950/60 border border-slate-800 rounded-lg p-3">
-                    当前部门文本：{deptUser.department || '未设置'}；
-                    {deptUser.orgUnitId ? '已关联组织节点。' : '未关联组织节点。'}
-                    选择节点后「部门」将取节点名称（数据源授权按该名称匹配）；再次点击已选节点可取消选择（解除关联保留当前部门文本）。
-                  </p>
-                  <OrgUnitPicker
-                    units={orgUnits}
-                    loading={orgUnitsLoading}
-                    mode="single"
-                    selectedIds={deptDraftId ? [deptDraftId] : []}
-                    onChange={(ids) => setDeptDraftId(ids[0] ?? null)}
-                    listClassName="max-h-64"
-                  />
-                </div>
-                <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setDeptUser(null)}
-                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveDepartment()}
-                    disabled={isDeptSaving}
-                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
-                  >
-                    {isDeptSaving ? '保存中…' : '保存'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* 用户列表卡片 */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             {/* 卡片头部 */}
@@ -956,7 +531,6 @@ export const AdminPanel: React.FC = () => {
                   <tr>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">用户名 / 显示名</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">部门</th>
-                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">数据范围</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">角色</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">状态</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">最近登录</th>
@@ -973,7 +547,7 @@ export const AdminPanel: React.FC = () => {
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center">
+                      <td colSpan={6} className="px-6 py-12 text-center">
                         <Users className="w-12 h-12 mx-auto mb-3 text-slate-600" />
                         <p className="text-sm text-slate-500">暂无用户数据</p>
                       </td>
@@ -981,7 +555,6 @@ export const AdminPanel: React.FC = () => {
                   ) : (
                     users.map((u) => {
                       const isSelf = u.id === currentUser?.id;
-                      const { scope: effScope, derived: scopeDerived } = effectiveScopeOf(u);
                       return (
                         <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
                           <td className="px-6 py-4">
@@ -1004,37 +577,10 @@ export const AdminPanel: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-400">
                             <button
-                              onClick={() => openDeptEditor(u)}
-                              title="点击设置组织归属节点（部门文本由节点名派生）"
-                              className="inline-flex items-center gap-1.5 hover:text-indigo-400 hover:underline transition-colors"
+                              onClick={() => handleEditDepartment(u)}
+                              className="hover:text-indigo-400 hover:underline transition-colors"
                             >
-                              <span>{u.department || <span className="text-slate-600 italic">未设置</span>}</span>
-                              {u.orgUnitId ? (
-                                <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                              ) : (
-                                <span className="text-[9px] text-amber-300 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30 shrink-0">
-                                  未关联组织
-                                </span>
-                              )}
-                            </button>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <button
-                              onClick={() => openScopeEditor(u)}
-                              title={
-                                scopeDerived
-                                  ? `未单独配置数据范围，按所属组织「${u.department || '未关联'}」自动生效；点击可改为显式配置`
-                                  : '点击配置数据范围（全辖/本机构/本项目团队/仅本人）'
-                              }
-                              className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md border transition-colors hover:border-indigo-500/60 ${
-                                effScope || scopeDerived ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-500 border-slate-700/60'
-                              }`}
-                            >
-                              <span>
-                                {orgScopeText(effScope)}
-                                {scopeDerived && <span className="text-slate-500">（按所属组织）</span>}
-                              </span>
-                              {scopeDerived && <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />}
+                              {u.department || <span className="text-slate-600 italic">未设置</span>}
                             </button>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -1103,11 +649,6 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
       
-      {/* ============ 区块一·补充：组织架构（v0.9.66 四级树维护：总部→机构→部门→团队） ============ */}
-      {section === 'org-structure' && (
-        <OrgStructurePanel units={orgUnits} loading={orgUnitsLoading} refresh={refreshOrgUnits} />
-      )}
-
       {/* ============ 区块二：质量监控（v0.9.57 起四张监控面板顶部 Tab 分类：知识漂移 / 北极星指标 / Token 用量 / A/B 实验） ============ */}
       {section === 'quality-monitoring' && (
         <div className="space-y-6">

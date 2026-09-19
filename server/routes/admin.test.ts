@@ -323,31 +323,22 @@ describe('DELETE /api/admin/users/:id：删除用户', () => {
 
 describe('GET /api/admin/env-config：环境配置读取', () => {
   it('成功 → 200 且敏感项脱敏为哨兵、非敏感项保留原值', async () => {
-    // runtime_value 反映进程内生效值：显式清空再断言，避免本机 .env.local 的 LLM_MODEL
-    // 被 vitest 注入 process.env 后断言随环境漂移（用例内自洽，不依赖外部 .env）
-    const prevModel = process.env.LLM_MODEL;
-    delete process.env.LLM_MODEL;
-    try {
-      querySpy.mockImplementation(
-        adminStub({
-          match: 'FROM env_config',
-          rows: [
-            { key: 'LLM_MODEL', value: 'qwen3:8b', category: 'ai_engine', description: 'd', is_sensitive: 0, updated_at: '2026-01-01T00:00:00.000Z' },
-            { key: 'QWEN_API_KEY', value: 'sk-secret', category: 'ai_engine', description: 'd', is_sensitive: 1, updated_at: null },
-          ],
-        }),
-      );
-      const res = await request(app).get('/api/admin/env-config').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data[0].value).toBe('qwen3:8b');
-      expect(res.body.data[0].runtime_value).toBe('');
-      expect(res.body.data[1].value).toBe('***hidden***');
-      expect(typeof res.body.data[0].runtime_configured).toBe('boolean');
-    } finally {
-      if (prevModel === undefined) delete process.env.LLM_MODEL;
-      else process.env.LLM_MODEL = prevModel;
-    }
+    querySpy.mockImplementation(
+      adminStub({
+        match: 'FROM env_config',
+        rows: [
+          { key: 'LLM_MODEL', value: 'qwen3:8b', category: 'ai_engine', description: 'd', is_sensitive: 0, updated_at: '2026-01-01T00:00:00.000Z' },
+          { key: 'QWEN_API_KEY', value: 'sk-secret', category: 'ai_engine', description: 'd', is_sensitive: 1, updated_at: null },
+        ],
+      }),
+    );
+    const res = await request(app).get('/api/admin/env-config').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data[0].value).toBe('qwen3:8b');
+    expect(res.body.data[0].runtime_value).toBe('');
+    expect(res.body.data[1].value).toBe('***hidden***');
+    expect(typeof res.body.data[0].runtime_configured).toBe('boolean');
   });
 
   it('缺少 token → 401', async () => {
@@ -408,147 +399,5 @@ describe('PUT /api/admin/env-config：环境配置更新（仅断言契约，不
   it('缺少 token → 401', async () => {
     const res = await request(app).put('/api/admin/env-config').send({ updates: [] });
     expect(res.status).toBe(401);
-  });
-});
-
-// v0.9.66 组织架构树：用户组织归属节点，department 文本由节点名派生（与数据源授权 ACL 同源）
-describe('组织架构树联动（orgUnitId）', () => {
-  const postUser = (body: Record<string, unknown>) =>
-    request(app).post('/api/admin/users').set('Authorization', `Bearer ${ADMIN_TOKEN}`).send(body);
-  const putUser = (id: string, body: Record<string, unknown>) =>
-    request(app).put(`/api/admin/users/${id}`).set('Authorization', `Bearer ${ADMIN_TOKEN}`).send(body);
-
-  /** org_units 节点取名（loadOrgUnitName 的 SELECT 对齐） */
-  const orgUnitRule: DbStubRule = { match: 'SELECT name FROM org_units WHERE id', rows: () => [{ name: '投资一部' }] };
-
-  it('列表下发 orgUnitId', async () => {
-    querySpy.mockImplementation(
-      adminStub(
-        { match: 'FROM users ORDER BY id ASC', rows: [listRow({ orgUnitId: 12 })] },
-        // v0.9.69：未配置数据范围的用户会触发组织树查询（此处索引为空 → 不派生）
-        { match: 'SELECT id, parent_id, level, data_code FROM org_units', rows: [] },
-      ),
-    );
-    const res = await request(app).get('/api/admin/users').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.body.users[0]).toMatchObject({ orgUnitId: 12 });
-  });
-
-  it('创建用户指定 orgUnitId → department 由节点名派生（覆盖手填值）', async () => {
-    querySpy.mockImplementation(
-      adminStub(orgUnitRule, { match: 'INSERT INTO users', rows: resultSet({ insertId: 51, affectedRows: 1 }) }),
-    );
-    const res = await postUser({
-      username: 'newuser',
-      password: 'New#Passw0rd',
-      role: 'ANALYST',
-      department: '手填部门',
-      orgUnitId: 12,
-    });
-    expect(res.status).toBe(201);
-    expect(res.body.user).toMatchObject({ displayName: 'newuser', department: '投资一部', orgUnitId: 12 });
-    const insert = querySpy.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'));
-    expect(insert?.[1]).toContain('投资一部');
-    expect(insert?.[1]).not.toContain('手填部门');
-  });
-
-  it('orgUnitId 非整数 → 400', async () => {
-    const res = await postUser({ username: 'newuser', password: 'New#Passw0rd', role: 'ANALYST', orgUnitId: 'abc' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('组织节点无效');
-  });
-
-  it('orgUnitId 节点不存在 → 400', async () => {
-    querySpy.mockImplementation(adminStub({ match: 'SELECT name FROM org_units WHERE id', rows: [] }));
-    const res = await postUser({ username: 'newuser', password: 'New#Passw0rd', role: 'ANALYST', orgUnitId: 999 });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe('组织节点不存在');
-  });
-
-  it('调整归属节点 → 同时写 department 与 org_unit_id', async () => {
-    querySpy.mockImplementation(
-      adminStub(orgUnitRule, { match: 'UPDATE users SET', rows: resultSet({ affectedRows: 1 }) }),
-    );
-    const res = await putUser('9', { orgUnitId: 12 });
-    expect(res.status).toBe(200);
-    const upd = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE users SET'));
-    const sql = String(upd?.[0]);
-    expect(sql).toContain('department = ?');
-    expect(sql).toContain('org_unit_id = ?');
-    expect(upd?.[1]).toEqual(['投资一部', 12, 9]);
-  });
-
-  it('orgUnitId=null → 解除关联（部门文本保留）', async () => {
-    querySpy.mockImplementation(adminStub({ match: 'UPDATE users SET', rows: resultSet({ affectedRows: 1 }) }));
-    const res = await putUser('9', { orgUnitId: null });
-    expect(res.status).toBe(200);
-    const upd = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE users SET'));
-    expect(String(upd?.[0])).not.toContain('department = ?');
-    expect(upd?.[1]).toEqual([null, 9]);
-  });
-});
-
-// v0.9.69 未单独配置数据范围的用户，生效范围按「所属组织」自动派生（列表可见，问数同源）
-describe('数据范围按所属组织派生（v0.9.69）', () => {
-  const putUser = (id: string, body: Record<string, unknown>) =>
-    request(app).put(`/api/admin/users/${id}`).set('Authorization', `Bearer ${ADMIN_TOKEN}`).send(body);
-
-  /** 组织树：总部 → 机构 → 部门（下辖 一团队、二团队） */
-  const orgTreeRule: DbStubRule = {
-    match: 'SELECT id, parent_id, level, data_code FROM org_units',
-    rows: () => [
-      { id: 1, parent_id: null, level: 'HQ', data_code: 'AH' },
-      { id: 2, parent_id: 1, level: 'BRANCH', data_code: 'AH-B01' },
-      { id: 3, parent_id: 2, level: 'DEPT', data_code: '一部门' },
-      { id: 4, parent_id: 3, level: 'TEAM', data_code: '一团队' },
-      { id: 5, parent_id: 3, level: 'TEAM', data_code: '二团队' },
-    ],
-  };
-
-  it('未配置 + 已绑定部门 → 列表下发派生范围（orgScopeDerived=true）', async () => {
-    querySpy.mockImplementation(
-      adminStub({ match: 'FROM users ORDER BY id ASC', rows: [listRow({ id: 22, orgUnitId: 3 })] }, orgTreeRule),
-    );
-    const res = await request(app).get('/api/admin/users').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.body.users[0]).toMatchObject({
-      orgScope: null,
-      orgScopeConfigured: false,
-      orgScopeDerived: true,
-      orgScopeEffective: { level: 'TEAM', teams: ['一部门', '一团队', '二团队'] },
-    });
-  });
-
-  it('显式配置 → 原样下发且不派生（不查组织树）', async () => {
-    querySpy.mockImplementation(
-      adminStub({
-        match: 'FROM users ORDER BY id ASC',
-        rows: [listRow({ id: 22, orgUnitId: 3, orgScopeJson: JSON.stringify({ level: 'TEAM', teams: ['T101'] }) })],
-      }),
-    );
-    const res = await request(app).get('/api/admin/users').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
-    expect(res.body.users[0]).toMatchObject({
-      orgScope: { level: 'TEAM', teams: ['T101'] },
-      orgScopeConfigured: true,
-      orgScopeDerived: false,
-      orgScopeEffective: { level: 'TEAM', teams: ['T101'] },
-    });
-    expect(querySpy.mock.calls.some((c) => String(c[0]).includes('data_code FROM org_units'))).toBe(false);
-  });
-
-  it('显式全辖 → 落库 {"level":"ALL"}（与「从未配置」区分）', async () => {
-    querySpy.mockImplementation(adminStub({ match: 'UPDATE users SET', rows: resultSet({ affectedRows: 1 }) }));
-    const res = await putUser('9', { orgScope: { level: 'ALL' } });
-    expect(res.status).toBe(200);
-    const upd = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE users SET'));
-    expect(upd?.[1]).toContain('{"level":"ALL"}');
-  });
-
-  it('清除单独配置（orgScope=null）→ 落库 NULL（恢复按所属组织派生）', async () => {
-    querySpy.mockImplementation(adminStub({ match: 'UPDATE users SET', rows: resultSet({ affectedRows: 1 }) }));
-    const res = await putUser('9', { orgScope: null });
-    expect(res.status).toBe(200);
-    const upd = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE users SET'));
-    expect(upd?.[1]).toEqual([null, 9]);
   });
 });
