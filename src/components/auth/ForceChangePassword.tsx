@@ -3,6 +3,8 @@ import { ShieldAlert, KeyRound, RefreshCw, AlertCircle, LogOut } from 'lucide-re
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
+// v0.9.68 密码强度校验与服务端同规则，避免「按钮可点却被服务端拒绝」
+import { PASSWORD_HINT, checkPasswordStrength } from '../../utils/passwordStrength';
 
 /**
  * P0-1 强制改密页：首登（初始密码/管理员重置）后必须修改密码才能进入系统。
@@ -18,8 +20,10 @@ export const ForceChangePassword: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // v0.9.68 与服务端 validatePasswordStrength 对齐（8-64 位、含字母数字、非弱口令、不含用户名）
+  const passwordCheck = checkPasswordStrength(newPassword, user?.username);
   const valid =
-    oldPassword && newPassword.length >= 8 && newPassword === confirmPassword && !isSubmitting;
+    Boolean(oldPassword) && passwordCheck.ok && newPassword === confirmPassword && !isSubmitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,10 +86,13 @@ export const ForceChangePassword: React.FC = () => {
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="8-64 位，需包含字母和数字"
+              placeholder={PASSWORD_HINT}
               autoComplete="new-password"
               className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500"
             />
+            {newPassword && !passwordCheck.ok && (
+              <p className="text-[11px] text-rose-400">{passwordCheck.error}</p>
+            )}
           </div>
 
           <div className="space-y-1">

@@ -58,6 +58,8 @@ import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
 // v0.9.57 分类内多面板统一顶部 Tab 分类条
 import { SectionTabs, SectionTabItem } from './SectionTabs';
 import { getErrorMessage } from '../../utils/errorUtils';
+// v0.9.68 新建用户表单即时校验（规则与 server/auth/passwords.ts、server/routes/admin.ts 同步）
+import { USERNAME_PATTERN, USERNAME_HINT, PASSWORD_HINT, checkPasswordStrength } from '../../utils/passwordStrength';
 
 interface AdminUser {
   id: number;
@@ -314,6 +316,12 @@ export const AdminPanel: React.FC = () => {
     const timer = setTimeout(() => loadUsers(), 0);
     return () => clearTimeout(timer);
   }, [loadUsers]);
+
+  // v0.9.68 新建用户校验：确认按钮禁用条件与服务端规则对齐（用户名格式 + 密码强度），并在字段下方给出原因
+  const trimmedNewUsername = newUsername.trim();
+  const usernameValid = USERNAME_PATTERN.test(trimmedNewUsername);
+  const passwordCheck = checkPasswordStrength(newPassword, trimmedNewUsername);
+  const canSubmitCreate = usernameValid && passwordCheck.ok;
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -585,7 +593,7 @@ export const AdminPanel: React.FC = () => {
               <form onSubmit={handleCreate}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
                   <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">用户名 <span className="text-slate-500">(3-20 位)</span></label>
+                    <label className="text-slate-400 font-medium">用户名 <span className="text-slate-500">(3-20 位字母/数字/下划线)</span></label>
                     <input
                       type="text"
                       value={newUsername}
@@ -593,6 +601,9 @@ export const AdminPanel: React.FC = () => {
                       placeholder="zhangsan"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
                     />
+                    {newUsername && !usernameValid && (
+                      <p className="text-[11px] text-rose-400">{USERNAME_HINT}</p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-slate-400 font-medium">显示名称</label>
@@ -605,7 +616,7 @@ export const AdminPanel: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">初始密码</label>
+                    <label className="text-slate-400 font-medium">初始密码 <span className="text-slate-500">({PASSWORD_HINT})</span></label>
                     <input
                       type="password"
                       value={newPassword}
@@ -614,6 +625,9 @@ export const AdminPanel: React.FC = () => {
                       autoComplete="new-password"
                       className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
                     />
+                    {newPassword && !passwordCheck.ok && (
+                      <p className="text-[11px] text-rose-400">{passwordCheck.error}</p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-slate-400 font-medium">部门（组织节点）</label>
@@ -650,12 +664,8 @@ export const AdminPanel: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={
-                      isSubmitting ||
-                      !/^[a-zA-Z0-9_]{3,20}$/.test(newUsername.trim()) ||
-                      newPassword.length < 6
-                    }
-                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
+                    disabled={isSubmitting || !canSubmitCreate}
+                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
                   >
                     {isSubmitting ? '创建中…' : '确认创建'}
                   </button>
