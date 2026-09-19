@@ -29,6 +29,13 @@ export async function migrateSchema(pool: mysql.Pool): Promise<void> {
     if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // 组织架构树：用户归属节点（NULL = 未关联，department 保留手工文本）
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN org_unit_id INT NULL AFTER department');
+  } catch (err) {
+    if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
   // 存量库迁移：补充 scope_json 列（问数范围配置；NULL = 不限制）
   try {
     await pool.query('ALTER TABLE data_sources ADD COLUMN scope_json TEXT NULL AFTER schema_json');

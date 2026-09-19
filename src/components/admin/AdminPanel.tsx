@@ -27,11 +27,16 @@ import {
   AlertTriangle,
   Scale,
   Server,
+  Network,
+  X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { UserRole } from '../../types/analytics';
+import { useOrgUnits } from '../../hooks/useOrgUnits';
+import { OrgUnitPicker } from '../common/OrgUnitPicker';
+import { OrgStructurePanel } from './OrgStructurePanel';
 import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
 import { DriftAlertPanel } from './DriftAlertPanel';
@@ -57,6 +62,8 @@ interface AdminUser {
   username: string;
   displayName: string;
   department?: string;
+  /** 组织架构树归属节点 ID（null/缺省 = 未关联，部门文本沿用自由值） */
+  orgUnitId?: number | null;
   role: UserRole;
   status: 'ACTIVE' | 'DISABLED';
   mustChangePassword?: boolean;
@@ -70,9 +77,10 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（7 项，左栏导航切换） */
+/** 系统管理分类（8 项，左栏导航切换） */
 type AdminSection =
   | 'users'
+  | 'org-structure'
   | 'permission-approval'
   | 'rule-governance'
   | 'ai-audit'
@@ -96,6 +104,7 @@ const SECTION_GROUPS: {
     line: 'from-indigo-500 to-amber-500',
     items: [
       { id: 'users', label: '基础管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
+      { id: 'org-structure', label: '组织架构', icon: Network, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       { id: 'permission-approval', label: '权限审批', icon: ShieldCheck, color: 'text-amber-400', bar: 'bg-amber-500' },
     ],
   },
@@ -164,8 +173,10 @@ export const AdminPanel: React.FC = () => {
   // v0.9.56 规则治理整合：知识库 / SQL 样例库面板需要数据源列表与当前数据源（登录后已由 App 加载）
   const dataSources = useAnalyticsStore((s) => s.dataSources);
   const activeDataSourceId = useAnalyticsStore((s) => s.activeDataSourceId);
+  // 组织架构树：组织架构面板与用户「组织归属」选择器共用同一份节点数据
+  const { units: orgUnits, loading: orgUnitsLoading, refresh: refreshOrgUnits } = useOrgUnits();
 
-  // 左栏分类切换：7 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
+  // 左栏分类切换：8 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
   const [section, setSection] = useState<AdminSection>('users');
   // 规则治理分类内顶部 Tab（v0.9.56）：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色
   const [ruleTab, setRuleTab] = useState<RuleGovernanceTab>('metrics');
@@ -184,9 +195,14 @@ export const AdminPanel: React.FC = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newDepartment, setNewDepartment] = useState('');
+  const [newOrgUnitId, setNewOrgUnitId] = useState<number | null>(null);
   const [newRole, setNewRole] = useState<UserRole>('ANALYST');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 组织归属设置弹窗（替换原先的 window.prompt 文本编辑）
+  const [deptUser, setDeptUser] = useState<AdminUser | null>(null);
+  const [deptDraftId, setDeptDraftId] = useState<number | null>(null);
+  const [deptSaving, setDeptSaving] = useState(false);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -236,7 +252,7 @@ export const AdminPanel: React.FC = () => {
           username: newUsername.trim(),
           displayName: newDisplayName.trim() || newUsername.trim(),
           password: newPassword,
-          department: newDepartment.trim(),
+          orgUnitId: newOrgUnitId,
           role: newRole,
         }),
       });
@@ -247,7 +263,7 @@ export const AdminPanel: React.FC = () => {
       setNewUsername('');
       setNewDisplayName('');
       setNewPassword('');
-      setNewDepartment('');
+      setNewOrgUnitId(null);
       setNewRole('ANALYST');
       loadUsers();
     } catch (err) {
@@ -291,21 +307,37 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleEditDepartment = async (u: AdminUser) => {
-    const input = window.prompt(`修改用户 ${u.username} 的所属部门（数据源授权按部门匹配，留空为未设置）:`, u.department || '');
-    if (input === null) return;
+  /** 打开组织归属弹窗：回填当前归属节点（未关联则为空） */
+  const handleEditOrgUnit = (u: AdminUser) => {
+    setDeptUser(u);
+    setDeptDraftId(u.orgUnitId ?? null);
+  };
+
+  /** 保存组织归属：null = 解除关联（department 文本保留，供展示与数据源授权匹配） */
+  const handleSaveOrgUnit = async () => {
+    if (!deptUser || deptSaving) return;
+    setDeptSaving(true);
     try {
-      const res = await apiFetch(`/api/admin/users/${u.id}`, {
+      const res = await apiFetch(`/api/admin/users/${deptUser.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ department: input.trim() }),
+        body: JSON.stringify({ orgUnitId: deptDraftId }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
-      showNotice('success', `已更新 ${u.username} 的部门为「${input.trim() || '未设置'}」`);
+      if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
+      const node = orgUnits.find((n) => n.id === deptDraftId);
+      showNotice(
+        'success',
+        deptDraftId
+          ? `已将 ${deptUser.username} 归属到「${node?.name ?? deptDraftId}」`
+          : `已解除 ${deptUser.username} 的组织归属（部门文本保留）`
+      );
+      setDeptUser(null);
       loadUsers();
     } catch (err) {
       showNotice('error', getErrorMessage(err));
+    } finally {
+      setDeptSaving(false);
     }
   };
 
@@ -413,7 +445,7 @@ export const AdminPanel: React.FC = () => {
               </div>
       
               <form onSubmit={handleCreate}>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
                   <div className="space-y-1.5">
                     <label className="text-slate-400 font-medium">用户名 <span className="text-slate-500">(3-20 位)</span></label>
                     <input
@@ -446,17 +478,6 @@ export const AdminPanel: React.FC = () => {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-slate-400 font-medium">部门</label>
-                    <input
-                      type="text"
-                      value={newDepartment}
-                      onChange={(e) => setNewDepartment(e.target.value)}
-                      placeholder="财务部"
-                      maxLength={100}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
                     <label className="text-slate-400 font-medium">角色</label>
                     <select
                       value={newRole}
@@ -468,6 +489,20 @@ export const AdminPanel: React.FC = () => {
                       <option value="ADMIN">管理员</option>
                     </select>
                   </div>
+                </div>
+
+                {/* 组织归属：从组织架构树中选节点，用户「部门」文本由所选节点名派生 */}
+                <div className="mt-4 space-y-1.5 text-xs">
+                  <label className="text-slate-400 font-medium">
+                    组织归属 <span className="text-slate-500">（可留空；「部门」文本由所选节点名派生）</span>
+                  </label>
+                  <OrgUnitPicker
+                    units={orgUnits}
+                    loading={orgUnitsLoading}
+                    selectedId={newOrgUnitId}
+                    onChange={setNewOrgUnitId}
+                    listClassName="max-h-44"
+                  />
                 </div>
       
                 <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-slate-800">
@@ -530,7 +565,7 @@ export const AdminPanel: React.FC = () => {
                 <thead className="bg-slate-950">
                   <tr>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">用户名 / 显示名</th>
-                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">部门</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">部门 / 组织归属</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">角色</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">状态</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">最近登录</th>
@@ -577,11 +612,17 @@ export const AdminPanel: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-400">
                             <button
-                              onClick={() => handleEditDepartment(u)}
+                              onClick={() => handleEditOrgUnit(u)}
+                              title="设置组织归属"
                               className="hover:text-indigo-400 hover:underline transition-colors"
                             >
                               {u.department || <span className="text-slate-600 italic">未设置</span>}
                             </button>
+                            {u.department && !u.orgUnitId && (
+                              <span className="ml-2 text-[10px] text-amber-400/80" title="该部门文本非来自组织架构树">
+                                未关联组织
+                              </span>
+                            )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
@@ -649,7 +690,12 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
       
-      {/* ============ 区块二：质量监控（v0.9.57 起四张监控面板顶部 Tab 分类：知识漂移 / 北极星指标 / Token 用量 / A/B 实验） ============ */}
+      {/* ============ 区块二：组织架构（总部→机构→部门→团队四级树） ============ */}
+      {section === 'org-structure' && (
+        <OrgStructurePanel units={orgUnits} loading={orgUnitsLoading} refresh={refreshOrgUnits} />
+      )}
+
+      {/* ============ 区块三：质量监控（v0.9.57 起四张监控面板顶部 Tab 分类：知识漂移 / 北极星指标 / Token 用量 / A/B 实验） ============ */}
       {section === 'quality-monitoring' && (
         <div className="space-y-6">
           <SectionTabs<QualityTab> tabs={QUALITY_TABS} active={qualityTab} onChange={setQualityTab} accent="emerald" />
@@ -719,6 +765,63 @@ export const AdminPanel: React.FC = () => {
       {section === 'patrol' && <PatrolPanel />}
         </div>
       </div>
+
+      {/* 组织归属设置弹窗：从组织架构树选择节点；不选 = 解除关联（部门文本保留） */}
+      {deptUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <Network className="w-4 h-4 text-emerald-400" />
+                组织归属 — {deptUser.username}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeptUser(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6 space-y-3 text-xs">
+              <p className="text-slate-500 leading-relaxed">
+                当前部门文本：
+                <span className="text-slate-300">{deptUser.department || '未设置'}</span>
+                {deptUser.department && !deptUser.orgUnitId && (
+                  <span className="ml-2 text-amber-400/80">（非来自组织架构树）</span>
+                )}
+              </p>
+              <OrgUnitPicker
+                units={orgUnits}
+                loading={orgUnitsLoading}
+                selectedId={deptDraftId}
+                onChange={setDeptDraftId}
+                listClassName="max-h-64"
+              />
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                选择节点后，该用户的「部门」文本将同步为节点名（数据源授权按该文本匹配）；不选择则解除关联并保留原部门文本。
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeptUser(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveOrgUnit()}
+                disabled={deptSaving}
+                className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-emerald-600/30 transition-all"
+              >
+                {deptSaving ? '保存中…' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

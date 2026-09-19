@@ -16,6 +16,26 @@ export interface AuthUser {
 
 export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery';
 
+// ---- 组织架构（总部→机构→部门→团队四级树） ----
+export type OrgUnitLevel = 'HQ' | 'BRANCH' | 'DEPT' | 'TEAM';
+
+/** 组织节点；接口下发扁平列表，前端按 parentId 组树 */
+export interface OrgUnit {
+  id: number;
+  /** 上级节点 ID；总部为根，parentId 为 null */
+  parentId: number | null;
+  level: OrgUnitLevel;
+  /** 节点名，同时是用户「所属部门」文本（数据源授权按该文本匹配） */
+  name: string;
+  /** 该节点在业务数据中的取值（机构编号如 AH、团队名如「投资一部」） */
+  dataCode: string;
+  sortOrder: number;
+  /** 归属该节点的用户数（删除保护提示用） */
+  userCount: number;
+  /** 下级节点数（删除保护提示用） */
+  childCount: number;
+}
+
 export interface ColumnSchema {
   name: string;
   type: 'string' | 'number' | 'boolean' | 'date' | 'category';

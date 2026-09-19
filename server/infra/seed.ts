@@ -154,4 +154,11 @@ export async function seedInitialData(pool: mysql.Pool): Promise<void> {
   }
   if (seededEnvKeys > 0) logger.info(`[DB] Seeded ${seededEnvKeys} env_config keys（空值=跟随 .env.local）`);
 
+  // 组织架构根节点：总部为系统内置唯一根（幂等；不存在 HQ 时插入，机构/部门/团队由管理员在面板维护）
+  const [hqRows] = await pool.query<mysql.RowDataPacket[]>("SELECT id FROM org_units WHERE level = 'HQ' LIMIT 1");
+  if (hqRows.length === 0) {
+    await pool.query("INSERT INTO org_units (parent_id, level, name, sort_order, created_by) VALUES (NULL, 'HQ', '总部', 0, 'system-seed')");
+    logger.info('[DB] Seeded org root node: 总部');
+  }
+
 }

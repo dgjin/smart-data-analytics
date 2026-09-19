@@ -24,6 +24,24 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // 组织架构树：总部→机构→部门→团队四级单表自关联（层级合法性由服务端强校验，见 routes/orgUnits.ts）。
+  // data_code 为该节点在业务数据中的取值（机构编号如 AH、团队名如「投资一部」），供与业务口径对齐。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_units (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      parent_id INT NULL,
+      level ENUM('HQ','BRANCH','DEPT','TEAM') NOT NULL,
+      name VARCHAR(100) NOT NULL,
+      data_code VARCHAR(100) NOT NULL DEFAULT '',
+      sort_order INT NOT NULL DEFAULT 0,
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_org_parent_name (parent_id, name),
+      INDEX idx_org_parent (parent_id, sort_order)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS data_sources (
       id VARCHAR(64) PRIMARY KEY,
