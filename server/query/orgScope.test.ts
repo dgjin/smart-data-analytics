@@ -6,13 +6,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildOrgRowFilters,
+  buildUnitScopeIndex,
+  deriveOrgScopeFromUnit,
   describeOrgScope,
+  hasExplicitOrgScope,
   mergeRowFilters,
   orgScopeFingerprint,
   orgScopePromptHint,
   parseOrgColumns,
   parseUserOrgScope,
+  resolveOrgScopeWithUnit,
   type OrgColumns,
+  type OrgUnitScopeSource,
   type UserOrgScope,
 } from './orgScope';
 import type { SchemaTable } from './schemaTypes';
@@ -176,5 +181,105 @@ describe('describeOrgScope / orgScopePromptHint：文案', () => {
     expect(orgScopePromptHint(COLS, null)).toBe('');
     // SELF 档但未登记责任人列：无实际过滤 → 不产生提示（避免误导 LLM）
     expect(orgScopePromptHint({ org: 'JGBH' }, { level: 'SELF', selfCode: 'U100' })).toBe('');
+  });
+});
+
+// v0.9.69 用户「所属组织」→ 数据范围派生（未显式配置时的缺省隔离）
+/** 构造节点来源（level 取运行时可出现的任意非法值，验证防御） */
+const unitOf = (level: string, dataCode: string, descendantCodes?: string[]) =>
+  ({ level, dataCode, descendantCodes }) as unknown as OrgUnitScopeSource;
+
+describe('deriveOrgScopeFromUnit：按所属组织节点派生范围', () => {
+  it('总部 → null（全辖不限制）', () => {
+    expect(deriveOrgScopeFromUnit(unitOf('HQ', 'AH'))).toBeNull();
+  });
+
+  it('机构 → ORG（本机构编号）', () => {
+    expect(deriveOrgScopeFromUnit(unitOf('BRANCH', 'AH'))).toEqual({ level: 'ORG', orgs: ['AH'] });
+  });
+
+  it('部门 → TEAM（本部门 + 下辖全部团队，去重剔空保序）', () => {
+    expect(deriveOrgScopeFromUnit(unitOf('DEPT', 'D01', ['T01', 'T02', 'D01', ' ']))).toEqual({
+      level: 'TEAM',
+      teams: ['D01', 'T01', 'T02'],
+    });
+  });
+
+  it('团队 → TEAM（仅本团队）；层级大小写不敏感', () => {
+    expect(deriveOrgScopeFromUnit(unitOf('TEAM', 'T01'))).toEqual({ level: 'TEAM', teams: ['T01'] });
+    expect(deriveOrgScopeFromUnit(unitOf('team', 'T09'))).toEqual({ level: 'TEAM', teams: ['T09'] });
+  });
+
+  it('数据标识为空 / 节点缺失 / 层级未知 → null（防御：无值可匹配时不误隔离）', () => {
+    expect(deriveOrgScopeFromUnit(null)).toBeNull();
+    expect(deriveOrgScopeFromUnit(undefined)).toBeNull();
+    expect(deriveOrgScopeFromUnit(unitOf('BRANCH', '  '))).toBeNull();
+    expect(deriveOrgScopeFromUnit(unitOf('DEPT', ''))).toBeNull();
+    expect(deriveOrgScopeFromUnit(unitOf('TEAM', ''))).toBeNull();
+    expect(deriveOrgScopeFromUnit(unitOf('UNKNOWN', 'X'))).toBeNull();
+  });
+});
+
+describe('resolveOrgScopeWithUnit / hasExplicitOrgScope：显式配置优先', () => {
+  const dept = unitOf('DEPT', 'D01', ['T01']);
+
+  it('显式 ORG/SELF → 用显式值，忽略所属组织', () => {
+    expect(resolveOrgScopeWithUnit({ level: 'ORG', orgs: ['AH'] }, dept)).toEqual({ level: 'ORG', orgs: ['AH'] });
+    expect(resolveOrgScopeWithUnit({ level: 'SELF', selfCode: 'U1' }, dept)).toEqual({ level: 'SELF', selfCode: 'U1' });
+  });
+
+  it('显式 ALL → 判定为已配置，解析为 null（全辖），不回落到组织派生', () => {
+    expect(hasExplicitOrgScope({ level: 'ALL' })).toBe(true);
+    expect(hasExplicitOrgScope('{"level":"ALL"}')).toBe(true);
+    expect(resolveOrgScopeWithUnit({ level: 'ALL' }, dept)).toBeNull();
+  });
+
+  it('NULL / 非法 JSON / 非法档位 → 未配置，按所属组织派生', () => {
+    expect(hasExplicitOrgScope(null)).toBe(false);
+    expect(hasExplicitOrgScope('{bad json')).toBe(false);
+    expect(hasExplicitOrgScope({ level: 'NOPE' })).toBe(false);
+    expect(resolveOrgScopeWithUnit(null, dept)).toEqual({ level: 'TEAM', teams: ['D01', 'T01'] });
+    expect(resolveOrgScopeWithUnit({ level: 'NOPE' }, dept)).toEqual({ level: 'TEAM', teams: ['D01', 'T01'] });
+  });
+
+  it('未配置且未绑定节点 → null（不限制）', () => {
+    expect(resolveOrgScopeWithUnit(null, null)).toBeNull();
+  });
+});
+
+describe('buildUnitScopeIndex：扁平组织树 → 派生来源索引', () => {
+  // 总部 → 机构 → 部门（下辖 一团队 → 子团队、二团队）；另挂一个无父节点团队
+  const rows = [
+    { id: 1, parentId: null, level: 'HQ', dataCode: 'AH' },
+    { id: 2, parentId: 1, level: 'BRANCH', dataCode: 'AH-B01' },
+    { id: 3, parentId: 2, level: 'DEPT', dataCode: '一部门' },
+    { id: 4, parentId: 3, level: 'TEAM', dataCode: '一团队' },
+    { id: 5, parentId: 3, level: 'TEAM', dataCode: '二团队' },
+    { id: 6, parentId: 4, level: 'TEAM', dataCode: '子团队' },
+    { id: 7, parentId: null, level: 'TEAM', dataCode: '孤立团队' },
+  ];
+
+  it('部门节点收集全部后代数据标识（多级展开）', () => {
+    const index = buildUnitScopeIndex(rows);
+    expect(deriveOrgScopeFromUnit(index.get(3))).toEqual({ level: 'TEAM', teams: ['一部门', '一团队', '二团队', '子团队'] });
+  });
+
+  it('机构节点仅按自身数据标识（不向下级收敛）', () => {
+    const index = buildUnitScopeIndex(rows);
+    expect(deriveOrgScopeFromUnit(index.get(2))).toEqual({ level: 'ORG', orgs: ['AH-B01'] });
+  });
+
+  it('团队节点 → 仅本团队（不向下收敛）；叶子与孤立节点仅自身', () => {
+    const index = buildUnitScopeIndex(rows);
+    // 所属团队只授予本团队数据（下层节点由其自身归属的用户分别授权）
+    expect(deriveOrgScopeFromUnit(index.get(4))).toEqual({ level: 'TEAM', teams: ['一团队'] });
+    expect(deriveOrgScopeFromUnit(index.get(5))).toEqual({ level: 'TEAM', teams: ['二团队'] });
+    expect(deriveOrgScopeFromUnit(index.get(7))).toEqual({ level: 'TEAM', teams: ['孤立团队'] });
+  });
+
+  it('空树与非法行（缺 id）→ 空索引，不报错', () => {
+    expect(buildUnitScopeIndex([]).size).toBe(0);
+    const index = buildUnitScopeIndex([{ id: NaN, parentId: null, level: 'TEAM', dataCode: 'X' }]);
+    expect(index.size).toBe(0);
   });
 });

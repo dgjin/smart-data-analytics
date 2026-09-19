@@ -76,6 +76,17 @@ function cleanList(v: unknown): string[] {
 }
 
 /**
+ * 是否显式配置过数据范围（含显式 ALL=全辖）。
+ * 与 parseUserOrgScope 的差异：后者把 NULL 与显式 ALL 都归一为 null（不限制），
+ * 但 v0.9.69「按所属组织派生」需区分「从未配置」（派生缺省）与「显式授权全辖」（不派生）。
+ */
+export function hasExplicitOrgScope(raw: unknown): boolean {
+  const obj = asObject(raw);
+  if (!obj) return false;
+  return LEVELS.includes(String(obj.level || '').toUpperCase() as OrgScopeLevel);
+}
+
+/**
  * 解析用户数据范围：非法/缺失/NULL/level=ALL → null（表示不限制，等同现状）。
  * ORG/TEAM/SELF 但授权值为空时同样返回 null——「配了档位却没给值」按不限制处理，
  * 避免误配把用户锁死看不到任何数据（管理端保存时会拒绝空值，此处是防御性兜底）。
@@ -234,4 +245,91 @@ export function orgScopePromptHint(cols: OrgColumns | null | undefined, scope: U
   if (!visible) return '';
   return `【数据范围约束（系统级强制）】
 当前用户的数据权限范围是「${describeOrgScope(scope)}」，执行层已自动对相关表注入过滤条件（${visible}），你无需也不得在 SQL 中自行添加机构/团队过滤；严禁生成跨范围对比、汇总或推算他人数据的查询意图，所有结论必须严格限定在该范围内。`;
+}
+
+/** 组织节点层级（与 org_units.level 一致） */
+export type OrgUnitLevel = 'HQ' | 'BRANCH' | 'DEPT' | 'TEAM';
+
+/** 组织节点派生来源：节点层级 + 数据标识 + 后代数据标识 */
+export interface OrgUnitScopeSource {
+  level: OrgUnitLevel;
+  /** 节点「数据标识」（业务数据中的实际取值，如机构编号 AH、团队名「一部一团队」） */
+  dataCode: string;
+  /** 后代节点的数据标识（部门向〃下辖全部团队收敛用；机构/团队层级可为空） */
+  descendantCodes?: string[];
+}
+
+/** 组织树扁平行（构建节点→派生来源索引的输入） */
+export interface OrgUnitFlatRow {
+  id: number;
+  parentId: number | null;
+  level: string;
+  dataCode: string;
+}
+
+/**
+ * 按「用户所属组织节点」派生缺省数据范围（v0.9.69）：
+ *   总部 → null（全辖，不限制）；机构 → ORG（本机构编号，机构列匹配）；
+ *   部门 → TEAM（本部门 + 下辖全部团队数据标识，团队列匹配）；团队 → TEAM（仅本团队）。
+ * 数据标识为空时无法派生 → null（防御：无值可匹配时不做误隔离，保持存量行为）。
+ * 仅当用户未显式配置 org_scope_json 时作为缺省生效；显式配置（含显式 ALL）优先。
+ */
+export function deriveOrgScopeFromUnit(unit: OrgUnitScopeSource | null | undefined): UserOrgScope | null {
+  if (!unit) return null;
+  const level = String(unit.level || '').toUpperCase();
+  if (level === 'HQ') return null;
+  const self = String(unit.dataCode || '').trim();
+  if (level === 'BRANCH') return self ? { level: 'ORG', orgs: [self] } : null;
+  if (level === 'DEPT') {
+    const teams = cleanList([self, ...(unit.descendantCodes || [])]);
+    return teams.length > 0 ? { level: 'TEAM', teams } : null;
+  }
+  if (level === 'TEAM') return self ? { level: 'TEAM', teams: [self] } : null;
+  return null;
+}
+
+/**
+ * 有效数据范围解析：显式配置（含显式全辖）优先；未显式配置（NULL/非法）时按所属组织节点派生。
+ */
+export function resolveOrgScopeWithUnit(raw: unknown, unit: OrgUnitScopeSource | null | undefined): UserOrgScope | null {
+  // 显式配置（含显式 ALL=全辖）优先；未配置（NULL/非法）时按所属组织派生
+  return hasExplicitOrgScope(raw) ? parseUserOrgScope(raw) : deriveOrgScopeFromUnit(unit);
+}
+
+/**
+ * 扁平组织树 → 「节点 id → 派生来源（含全部后代数据标识）」索引（纯函数，供鉴权与管理端复用）。
+ * 后代按广度优先展开（先直接下级再逐层向下）；数据标识去重与上限（MAX_SCOPE_ITEMS）由 cleanList 在派生时保证。
+ */
+export function buildUnitScopeIndex(rows: OrgUnitFlatRow[]): Map<number, OrgUnitScopeSource> {
+  const byId = new Map<number, OrgUnitScopeSource>();
+  const childrenOf = new Map<number, number[]>();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const id = Number(r?.id);
+    if (!Number.isInteger(id)) continue;
+    byId.set(id, { level: String(r.level || '').toUpperCase() as OrgUnitLevel, dataCode: String(r.dataCode || '').trim() });
+    const pid = r.parentId === null || r.parentId === undefined ? null : Number(r.parentId);
+    if (pid !== null && Number.isInteger(pid)) {
+      const list = childrenOf.get(pid) || [];
+      list.push(id);
+      childrenOf.set(pid, list);
+    }
+  }
+  const index = new Map<number, OrgUnitScopeSource>();
+  for (const [id, base] of byId) {
+    const codes: string[] = [];
+    const visited = new Set<number>([id]);
+    // 广度优先遍历：先直接下级、再逐层向下，保证取值顺序稳定可预期
+    const queue = [...(childrenOf.get(id) || [])];
+    for (let i = 0; i < queue.length; i++) {
+      const childId = queue[i];
+      if (visited.has(childId)) continue;
+      visited.add(childId);
+      const child = byId.get(childId);
+      if (!child) continue;
+      if (child.dataCode) codes.push(child.dataCode);
+      queue.push(...(childrenOf.get(childId) || []));
+    }
+    index.set(id, codes.length > 0 ? { ...base, descendantCodes: codes } : base);
+  }
+  return index;
 }

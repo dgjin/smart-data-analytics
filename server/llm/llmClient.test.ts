@@ -94,6 +94,9 @@ describe('resolveEngineWithFailover: DeepSeek 引擎转移', () => {
   });
 
   it('主引擎未配置 Key 时转移到已配置备用引擎（缺省回本地 ollama）', () => {
+    // 显式置空：避免本机 .env.local 的 DEEPSEEK_API_KEY 使主引擎可用而导致断言随环境漂移
+    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.QWEN_API_KEY;
     expect(resolveEngineWithFailover('deepseek')).toEqual({ kind: 'ollama', failovered: true, circuitOpen: false });
     process.env.QWEN_API_KEY = 'sk-test';
     resetLlmResilienceForTest();

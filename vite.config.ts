@@ -39,6 +39,8 @@ export default defineConfig(() => {
     // 项目单测范围（项目测试均在 src/server/scripts/tests 非隐藏目录）
     test: {
       exclude: ['node_modules/**', 'dist/**', 'tests/e2e/**', '.*/**'],
+      // 单测统一走内存状态存储（不依赖本机 Redis 服务与连接时序），见 vitest.setup.ts
+      setupFiles: ['./vitest.setup.ts'],
     },
   };
 });

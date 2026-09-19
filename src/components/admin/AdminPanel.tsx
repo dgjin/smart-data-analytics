@@ -71,8 +71,14 @@ interface AdminUser {
   role: UserRole;
   status: 'ACTIVE' | 'DISABLED';
   mustChangePassword?: boolean;
-  /** 组织数据范围（三层权限模型）：null/缺省 = 全辖不限制（与 server/query/orgScope.ts 同形） */
+  /** 组织数据范围（三层权限模型）：显式配置；null/缺省 = 未单独配置（与 server/query/orgScope.ts 同形） */
   orgScope?: UserOrgScope | null;
+  /** v0.9.69 是否显式配置过（含显式全辖）；false/缺省 = 未配置 → 按所属组织自动派生 */
+  orgScopeConfigured?: boolean;
+  /** v0.9.69 实际生效范围：未单独配置时按「所属组织」自动派生（总部不限制 / 机构=本机构 / 部门=本部门+下辖团队 / 团队=本团队） */
+  orgScopeEffective?: UserOrgScope | null;
+  /** v0.9.69 true = 生效范围由所属组织自动派生（非显式配置） */
+  orgScopeDerived?: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -97,9 +103,16 @@ const SCOPE_LEVEL_LABELS: Record<OrgScopeLevel, string> = {
 /** 用户数据范围 → 简洁文案（列表展示用） */
 function orgScopeText(scope?: UserOrgScope | null): string {
   if (!scope) return '全辖（不限制）';
+  if (scope.level === 'ALL') return '全辖（不限制）';
   if (scope.level === 'ORG') return `机构：${(scope.orgs || []).join('、')}`;
   if (scope.level === 'TEAM') return `团队：${(scope.teams || []).join('、')}`;
   return `经办人：${scope.selfCode || ''}`;
+}
+
+/** v0.9.69 生效范围取值：服务端已合并「显式配置 / 按组织派生」，旧响应无该字段时回退显式配置 */
+function effectiveScopeOf(u: AdminUser): { scope: UserOrgScope | null; derived: boolean } {
+  const scope = u.orgScopeEffective !== undefined ? u.orgScopeEffective : u.orgScope ?? null;
+  return { scope, derived: Boolean(u.orgScopeDerived) };
 }
 
 /** v0.9.66 组织树模式推断：按已有数据范围配置判断能否用树表达（机构/团队取值全部命中节点 data_code）；SELF 与存量手填值无法映射时返回 null（转手动模式） */
@@ -121,12 +134,12 @@ function inferScopeTreeSelection(u: AdminUser, units: OrgUnit[]): number[] | nul
   return ids;
 }
 
-/** v0.9.66 树多选 → 数据范围载荷：总部=ALL(不限制)；全为机构=ORG；全为部门/团队=TEAM；机构与部门/团队混选拒绝 */
+/** v0.9.66 树多选 → 数据范围载荷：总部=显式全辖 {level:'ALL'}；全为机构=ORG；全为部门/团队=TEAM；机构与部门/团队混选拒绝；未选节点=清除配置（恢复按所属组织派生） */
 function deriveScopeFromTree(ids: number[], units: OrgUnit[]): { payload?: UserOrgScope | null; error?: string } {
   const nodes = ids.map((id) => units.find((n) => n.id === id)).filter((n): n is OrgUnit => Boolean(n));
   if (nodes.length === 0) return { payload: null };
   if (nodes.some((n) => n.level === 'HQ')) {
-    return nodes.length === 1 ? { payload: null } : { error: '总部代表全辖，不能与其他节点同时选择' };
+    return nodes.length === 1 ? { payload: { level: 'ALL' } } : { error: '总部代表全辖，不能与其他节点同时选择' };
   }
   const branches = nodes.filter((n) => n.level === 'BRANCH');
   const teamsLike = nodes.filter((n) => n.level === 'DEPT' || n.level === 'TEAM');
@@ -429,7 +442,9 @@ export const AdminPanel: React.FC = () => {
     setScopeOrgs((u.orgScope?.orgs || []).join(', '));
     setScopeTeams((u.orgScope?.teams || []).join(', '));
     setScopeSelfCode(u.orgScope?.selfCode || '');
-    const inferred = inferScopeTreeSelection(u, orgUnits);
+    // v0.9.69 未单独配置过的用户：树默认选中其「所属组织」节点，直观展示当前自动生效范围
+    const selfUnitId = u.orgScopeConfigured === false && u.orgUnitId && orgUnits.some((n) => n.id === u.orgUnitId) ? [u.orgUnitId] : null;
+    const inferred = selfUnitId ?? inferScopeTreeSelection(u, orgUnits);
     setScopeTreeIds(inferred ?? []);
     setScopeMode(inferred ? 'tree' : 'manual');
   };
@@ -448,19 +463,20 @@ export const AdminPanel: React.FC = () => {
     } else {
       const split = (s: string) => s.split(/[,\uFF0C\s]+/).map((v) => v.trim()).filter(Boolean);
       // 服务端会做完整校验（档位/非空/数量上限），此处仅防明显空值提交
+      // v0.9.69：全辖存为显式 {"level":"ALL"}（与「从未配置」区分，后者按所属组织派生）
       payload =
         scopeLevel === 'ALL'
-          ? null
+          ? { level: 'ALL' }
           : scopeLevel === 'ORG'
           ? { level: 'ORG', orgs: split(scopeOrgs) }
           : scopeLevel === 'TEAM'
           ? { level: 'TEAM', teams: split(scopeTeams) }
           : { level: 'SELF', selfCode: scopeSelfCode.trim() };
-      if (payload && scopeLevel !== 'SELF' && !(payload.level === 'ORG' ? payload.orgs?.length : payload.teams?.length)) {
-        showNotice('error', scopeLevel === 'ORG' ? '请填写机构编号' : '请填写团队名称');
+      if ((payload.level === 'ORG' || payload.level === 'TEAM') && !(payload.level === 'ORG' ? payload.orgs?.length : payload.teams?.length)) {
+        showNotice('error', payload.level === 'ORG' ? '请填写机构编号' : '请填写团队名称');
         return;
       }
-      if (payload && scopeLevel === 'SELF' && !payload.selfCode) {
+      if (payload.level === 'SELF' && !payload.selfCode) {
         showNotice('error', '请填写经办人编号');
         return;
       }
@@ -683,6 +699,28 @@ export const AdminPanel: React.FC = () => {
                   <h3 className="text-base font-bold text-slate-100">配置数据范围 — {scopeUser.username}</h3>
                 </div>
                 <div className="p-6 space-y-4 text-xs">
+                  {/* v0.9.69 生效范围来源提示：未单独配置时按「所属组织」自动派生（管理员保存后才转为显式配置） */}
+                  {scopeUser.orgScopeConfigured === false && (
+                    <div
+                      className={`rounded-lg p-3 border leading-relaxed ${
+                        scopeUser.orgScopeDerived
+                          ? 'bg-emerald-500/5 border-emerald-900/50 text-emerald-300/90'
+                          : 'bg-amber-500/5 border-amber-900/50 text-amber-300/90'
+                      }`}
+                    >
+                      {scopeUser.orgScopeDerived ? (
+                        <>
+                          当前未单独配置数据范围，问数时按所属组织「{scopeUser.department || '未关联'}」自动限制为
+                          <span className="font-semibold"> {orgScopeText(scopeUser.orgScopeEffective)}</span>
+                          。组织树或所属节点调整后自动跟随；在此保存则转为单独配置（不再自动跟随）。
+                        </>
+                      ) : scopeUser.orgUnitId ? (
+                        <>所属组织为「{scopeUser.department || '未命名节点'}」（总部 / 无数据标识节点），问数不受组织范围限制。</>
+                      ) : (
+                        <>当前未关联组织节点，问数不受组织范围限制。设置「所属组织」后会自动按组织隔离数据。</>
+                      )}
+                    </div>
+                  )}
                   {/* 配置方式切换（v0.9.66）：组织树选择（联动档位与取值）/ 手动填写（兼容存量） */}
                   <div className="flex gap-1 bg-slate-950 border border-slate-800 rounded-lg p-1">
                     <button
@@ -730,7 +768,7 @@ export const AdminPanel: React.FC = () => {
                         <div className="text-slate-500 mb-1">将保存的数据范围：</div>
                         {scopeTreeDerived?.error ? (
                           <p className="text-rose-400">{scopeTreeDerived.error}</p>
-                        ) : scopeTreeDerived?.payload ? (
+                        ) : scopeTreeDerived?.payload && scopeTreeDerived.payload.level !== 'ALL' ? (
                           <div className="space-y-0.5">
                             <div className="text-slate-300">档位：{SCOPE_LEVEL_LABELS[scopeTreeDerived.payload.level]}</div>
                             <code className="text-emerald-300 font-mono text-[11px] break-all">
@@ -739,8 +777,10 @@ export const AdminPanel: React.FC = () => {
                                 : `teams: ${JSON.stringify(scopeTreeDerived.payload.teams)}`}
                             </code>
                           </div>
-                        ) : (
+                        ) : scopeTreeDerived?.payload ? (
                           <p className="text-slate-300">全辖（不限制）：不注入行过滤</p>
+                        ) : (
+                          <p className="text-slate-300">未选择节点：清除单独配置，按「所属组织」自动生效（未关联组织则全辖不限制）</p>
                         )}
                       </div>
                     </>
@@ -941,6 +981,7 @@ export const AdminPanel: React.FC = () => {
                   ) : (
                     users.map((u) => {
                       const isSelf = u.id === currentUser?.id;
+                      const { scope: effScope, derived: scopeDerived } = effectiveScopeOf(u);
                       return (
                         <tr key={u.id} className="hover:bg-slate-800/30 transition-colors">
                           <td className="px-6 py-4">
@@ -980,12 +1021,20 @@ export const AdminPanel: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <button
                               onClick={() => openScopeEditor(u)}
-                              title="点击配置数据范围（全辖/本机构/本项目团队/仅本人）"
-                              className={`text-xs font-medium px-2 py-1 rounded-md border transition-colors hover:border-indigo-500/60 ${
-                                u.orgScope ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-500 border-slate-700/60'
+                              title={
+                                scopeDerived
+                                  ? `未单独配置数据范围，按所属组织「${u.department || '未关联'}」自动生效；点击可改为显式配置`
+                                  : '点击配置数据范围（全辖/本机构/本项目团队/仅本人）'
+                              }
+                              className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md border transition-colors hover:border-indigo-500/60 ${
+                                effScope || scopeDerived ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-500 border-slate-700/60'
                               }`}
                             >
-                              {orgScopeText(u.orgScope)}
+                              <span>
+                                {orgScopeText(effScope)}
+                                {scopeDerived && <span className="text-slate-500">（按所属组织）</span>}
+                              </span>
+                              {scopeDerived && <Link2 className="w-3 h-3 text-emerald-400 shrink-0" />}
                             </button>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">

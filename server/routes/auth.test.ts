@@ -234,3 +234,86 @@ describe('OIDC 入口：未启用时的契约', () => {
     expect(cb.status).toBe(404);
   });
 });
+
+// v0.9.69 未单独配置数据范围的用户，鉴权链路按「所属组织」自动派生数据范围（问数隔离的源头）
+describe('v0.9.69 按所属组织派生数据范围（authMiddleware）', () => {
+  /** 暴露鉴权中间件解析结果的守卫端点 */
+  const scopeApp = express();
+  scopeApp.use(express.json());
+  scopeApp.get('/api/business/scope', authMiddleware, (req, res) => res.json({ orgScope: req.user?.orgScope ?? null }));
+
+  /** 组织树：总部 → 机构 → 部门（下辖 一团队、二团队） */
+  const orgTree = () => [
+    { id: 1, parent_id: null, level: 'HQ', data_code: 'AH' },
+    { id: 2, parent_id: 1, level: 'BRANCH', data_code: 'AH-B01' },
+    { id: 3, parent_id: 2, level: 'DEPT', data_code: '一部门' },
+    { id: 4, parent_id: 3, level: 'TEAM', data_code: '一团队' },
+    { id: 5, parent_id: 3, level: 'TEAM', data_code: '二团队' },
+  ];
+
+  const getScope = (token: string) => request(scopeApp).get('/api/business/scope').set('Authorization', `Bearer ${token}`);
+
+  it('未单独配置 + 已绑定部门 → 派生 TEAM（本部门 + 下辖团队）', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        { match: 'FROM users WHERE id', rows: [{ ...activeUserRow('ANALYST', 22), org_unit_id: 3 }] },
+        { match: 'FROM org_units', rows: orgTree() },
+      ]),
+    );
+    const res = await getScope(tokenFor('ANALYST', 22));
+    expect(res.status).toBe(200);
+    expect(res.body.orgScope).toEqual({ level: 'TEAM', teams: ['一部门', '一团队', '二团队'] });
+  });
+
+  it('未单独配置 + 已绑定机构 → 派生 ORG；所属总部 → 不限制', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        { match: 'FROM users WHERE id', rows: [{ ...activeUserRow('ANALYST', 22), org_unit_id: 2 }] },
+        { match: 'FROM org_units', rows: orgTree() },
+      ]),
+    );
+    expect((await getScope(tokenFor('ANALYST', 22))).body.orgScope).toEqual({ level: 'ORG', orgs: ['AH-B01'] });
+
+    querySpy.mockImplementation(
+      dbStub([
+        { match: 'FROM users WHERE id', rows: [{ ...activeUserRow('ANALYST', 23), org_unit_id: 1 }] },
+        { match: 'FROM org_units', rows: orgTree() },
+      ]),
+    );
+    expect((await getScope(tokenFor('ANALYST', 23))).body.orgScope).toBeNull();
+  });
+
+  it('显式配置 → 按显式值生效，不再查组织树', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        {
+          match: 'FROM users WHERE id',
+          rows: [{ ...activeUserRow('ANALYST', 22), org_unit_id: 3, org_scope_json: JSON.stringify({ level: 'TEAM', teams: ['T101'] }) }],
+        },
+      ]),
+    );
+    const res = await getScope(tokenFor('ANALYST', 22));
+    expect(res.body.orgScope).toEqual({ level: 'TEAM', teams: ['T101'] });
+    expect(querySpy.mock.calls.some((c) => String(c[0]).includes('org_units'))).toBe(false);
+  });
+
+  it('显式全辖 {"level":"ALL"} → 不限制（与「从未配置」区分）', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        {
+          match: 'FROM users WHERE id',
+          rows: [{ ...activeUserRow('ADMIN', 1), org_unit_id: 3, org_scope_json: '{"level":"ALL"}' }],
+        },
+      ]),
+    );
+    expect((await getScope(tokenFor('ADMIN', 1))).body.orgScope).toBeNull();
+    expect(querySpy.mock.calls.some((c) => String(c[0]).includes('org_units'))).toBe(false);
+  });
+
+  it('未绑定组织节点 → 不派生（保持不限制，兼容存量用户）', async () => {
+    querySpy.mockImplementation(dbStub([{ match: 'FROM users WHERE id', rows: [activeUserRow('VIEWER', 9)] }]));
+    const res = await getScope(tokenFor('VIEWER', 9));
+    expect(res.status).toBe(200);
+    expect(res.body.orgScope).toBeNull();
+  });
+});

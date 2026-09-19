@@ -11,7 +11,8 @@ import { logger } from '../infra/logger';
 import { writeAudit } from '../infra/auditLog';
 import { ENV_CONFIG_HIDDEN, sanitizeEnvConfigUpdates, applyEnvConfigToProcess } from '../infra/envConfigCatalog';
 import { getErrorMessage, getErrorCode } from '../infra/errorUtils';
-import { parseUserOrgScope, MAX_SCOPE_ITEMS } from '../query/orgScope';
+import { parseUserOrgScope, hasExplicitOrgScope, MAX_SCOPE_ITEMS } from '../query/orgScope';
+import { resolveEffectiveOrgScopes } from '../query/orgUnitScope';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
@@ -22,7 +23,9 @@ const SCOPE_LEVELS = ['ALL', 'ORG', 'TEAM', 'SELF'] as const;
 
 /**
  * 校验并序列化用户数据范围（组织权限模型）：
- * ALL/空/null = 不限制（存 NULL）；ORG/TEAM/SELF 要求授权值非空，非法档位/空值显式拒绝，
+ * 未配置/空 = 存 NULL（v0.9.69 起：这类用户按「所属组织」自动派生数据范围）；
+ * 显式 ALL = 存 {"level":"ALL"}（管理员明确授权全辖，不再派生）；
+ * ORG/TEAM/SELF 要求授权值非空，非法档位/空值显式拒绝，
  * 避免「配了档位却没给值」被当作不限制而静默失效（解析层同样做兜底）。
  */
 function serializeOrgScopeInput(raw: unknown): { ok: true; json: string | null } | { ok: false; error: string } {
@@ -33,7 +36,8 @@ function serializeOrgScopeInput(raw: unknown): { ok: true; json: string | null }
   if (!SCOPE_LEVELS.includes(level as (typeof SCOPE_LEVELS)[number])) {
     return { ok: false, error: '数据范围档位无效，可选：ALL（全辖）/ ORG（本机构）/ TEAM（本项目团队）/ SELF（仅本人）' };
   }
-  if (level === 'ALL') return { ok: true, json: null };
+  // v0.9.69 显式全辖需与「从未配置」区分（后者按所属组织派生），故存档位 JSON 而非 NULL
+  if (level === 'ALL') return { ok: true, json: JSON.stringify({ level: 'ALL' }) };
   if (level === 'ORG' && Array.isArray(obj.orgs) && obj.orgs.length > MAX_SCOPE_ITEMS) {
     return { ok: false, error: `机构数量不能超过 ${MAX_SCOPE_ITEMS} 个` };
   }
@@ -74,10 +78,24 @@ router.get('/users', async (_req, res) => {
               created_at AS createdAt, last_login_at AS lastLoginAt
        FROM users ORDER BY id ASC`
     );
-    // 数据范围以解析后的对象返回（存储为 JSON 文本，前端直接用于编辑表单）
-    const users = rows.map((row) => {
+    // 数据范围以解析后的对象返回（存储为 JSON 文本，前端直接用于编辑表单）；
+    // orgScopeEffective = 实际生效范围（v0.9.69：未显式配置时按「所属组织」派生），orgScopeDerived 标记派生来源
+    const scopeResults = await resolveEffectiveOrgScopes(
+      rows.map((row) => ({
+        rawScope: (row as RowDataPacket & { orgScopeJson: string | null }).orgScopeJson,
+        orgUnitId: (row as RowDataPacket & { orgUnitId: number | null }).orgUnitId,
+      }))
+    );
+    const users = rows.map((row, i) => {
       const { orgScopeJson, ...rest } = row as RowDataPacket & { orgScopeJson: string | null };
-      return { ...rest, orgScope: parseUserOrgScope(orgScopeJson) };
+      return {
+        ...rest,
+        orgScope: parseUserOrgScope(orgScopeJson),
+        // 是否显式配置过（含显式全辖）：前端据此区分「按组织派生」与「显式授权全辖」
+        orgScopeConfigured: hasExplicitOrgScope(orgScopeJson),
+        orgScopeEffective: scopeResults[i].effective,
+        orgScopeDerived: scopeResults[i].derived,
+      };
     });
     return res.json({ success: true, users });
   } catch (err) {
@@ -196,7 +214,7 @@ router.put('/users/:id', async (req, res) => {
     params.push(role);
   }
   if (orgScope !== undefined) {
-    // 组织权限模型：用户数据范围（null/ALL 存 NULL = 不限制）；仅管理员可改
+    // 组织权限模型：未配置/空存 NULL（按所属组织派生）；显式全辖存 {"level":"ALL"}；仅管理员可改
     const serialized = serializeOrgScopeInput(orgScope);
     if (serialized.ok === false) {
       return res.status(400).json({ error: serialized.error });

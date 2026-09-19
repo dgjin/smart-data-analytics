@@ -9,7 +9,8 @@ import type mysql from 'mysql2/promise';
 import { getPool } from '../infra/db';
 import { setLlmUserContext } from '../llm/llmClient';
 import { logger } from '../infra/logger';
-import { parseUserOrgScope, type UserOrgScope } from '../query/orgScope';
+import { type UserOrgScope } from '../query/orgScope';
+import { resolveEffectiveOrgScope } from '../query/orgUnitScope';
 
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
 
@@ -44,6 +45,8 @@ interface UserRow extends mysql.RowDataPacket {
   username: string;
   display_name: string;
   department: string;
+  /** v0.9.69 组织树归属节点：未显式配置 org_scope_json 时按其层级/数据标识派生数据范围 */
+  org_unit_id: number | null;
   org_scope_json: string | null;
   role: UserRole;
   status: string;
@@ -91,7 +94,7 @@ export async function authMiddleware(
 
   try {
     const [rows] = await getPool().query<UserRow[]>(
-      'SELECT id, username, display_name, department, org_scope_json, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, username, display_name, department, org_unit_id, org_scope_json, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
       [payload.sub]
     );
     const user = rows[0];
@@ -103,7 +106,8 @@ export async function authMiddleware(
       username: user.username,
       displayName: user.display_name,
       department: user.department || '',
-      orgScope: parseUserOrgScope(user.org_scope_json),
+      // v0.9.69：显式配置优先；未配置时按「所属组织」自动派生（部门 = 本部门 + 下辖团队）
+      orgScope: await resolveEffectiveOrgScope(user.org_scope_json, user.org_unit_id),
       role: user.role,
       mustChangePassword: !!user.must_change_password,
     };
