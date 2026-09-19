@@ -78,6 +78,11 @@ export interface DataSource {
   accessDenied?: boolean;
   /** P2-11 访问控制清单（仅 ADMIN 下发）：空/null = 全员可见 */
   acl?: { departments: string[]; userIds: number[] } | null;
+  /**
+   * 组织权限模型：组织隔离列映射（仅 ADMIN 下发）；null/缺省 = 该数据源不做组织隔离。
+   * org=机构列（如 JGBH）、team=团队列（如 SSTD）、owner=责任人列（如 XMJBRBH）
+   */
+  orgColumns?: { org?: string; team?: string; owner?: string } | null;
   scope?: DataScope | null;
   /** 管理员登记的专业快速问题推荐（优先于通用 Schema 推导的推荐问题） */
   quickQuestions?: string[] | null;

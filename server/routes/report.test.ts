@@ -17,7 +17,7 @@ vi.mock('../infra/auditLog', () => ({ writeAudit: (...args: unknown[]) => writeA
 /** schemaContext：桩化数据源上下文（连通/停用/类型），保留 isLiveCapableType 真实判定 */
 const loadSchemaContextSpy = vi.fn();
 vi.mock('../query/schemaContext', () => ({
-  loadSchemaContext: (...args: unknown[]) => loadSchemaContextSpy(...args),
+  loadSchemaContextForUser: (...args: unknown[]) => loadSchemaContextSpy(...args),
   isLiveCapableType: (dsType: string | null | undefined, fileBacked?: boolean) =>
     dsType === 'mysql' || dsType === 'postgresql' || dsType === 'greenplum' || fileBacked === true,
 }));

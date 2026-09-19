@@ -9,6 +9,7 @@ import type mysql from 'mysql2/promise';
 import { getPool } from '../infra/db';
 import { setLlmUserContext } from '../llm/llmClient';
 import { logger } from '../infra/logger';
+import { parseUserOrgScope, type UserOrgScope } from '../query/orgScope';
 
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
 
@@ -19,6 +20,11 @@ export interface AuthUser {
   role: UserRole;
   /** P2-11 组织维度：所属部门（数据源授权按部门匹配；未设置为空串） */
   department?: string;
+  /**
+   * 组织数据范围（三层权限模型）：null/缺省 = 全辖不限制；
+   * ORG=仅本机构，TEAM=仅本项目团队，SELF=仅本人经办；解析见 query/orgScope.ts
+   */
+  orgScope?: UserOrgScope | null;
   /** 首登/被重置密码后置位：改密前禁止访问一切业务接口（/api/auth 放行） */
   mustChangePassword?: boolean;
 }
@@ -38,6 +44,7 @@ interface UserRow extends mysql.RowDataPacket {
   username: string;
   display_name: string;
   department: string;
+  org_scope_json: string | null;
   role: UserRole;
   status: string;
   must_change_password: number;
@@ -84,7 +91,7 @@ export async function authMiddleware(
 
   try {
     const [rows] = await getPool().query<UserRow[]>(
-      'SELECT id, username, display_name, department, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
+      'SELECT id, username, display_name, department, org_scope_json, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
       [payload.sub]
     );
     const user = rows[0];
@@ -96,6 +103,7 @@ export async function authMiddleware(
       username: user.username,
       displayName: user.display_name,
       department: user.department || '',
+      orgScope: parseUserOrgScope(user.org_scope_json),
       role: user.role,
       mustChangePassword: !!user.must_change_password,
     };

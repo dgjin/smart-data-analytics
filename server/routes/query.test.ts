@@ -35,7 +35,7 @@ vi.mock('../infra/userQueryLimit', () => ({
   acquireQuerySlot: vi.fn(),
   releaseQuerySlot: vi.fn(),
 }));
-vi.mock('../query/schemaContext', () => ({ loadSchemaContext: vi.fn(), isLiveCapableType: vi.fn() }));
+vi.mock('../query/schemaContext', () => ({ loadSchemaContextForUser: vi.fn(), isLiveCapableType: vi.fn() }));
 vi.mock('../query/liveQuery', () => ({
   runLiveQuery: vi.fn(),
   buildColumnNames: vi.fn(),
@@ -70,7 +70,7 @@ import type { UserRole } from '../auth/auth';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
 import { validateModelSelection } from '../llm/llmClient';
 import type { SchemaContext } from '../query/schemaContext';
-import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
+import { loadSchemaContextForUser, isLiveCapableType } from '../query/schemaContext';
 import { runLiveQuery, buildColumnNames, normalizeAmountUnit, enrichRefusalReason } from '../query/liveQuery';
 import { runSimulatedQuery } from '../query/simulatedQuery';
 import { runDrill } from '../query/drill';
@@ -102,7 +102,7 @@ const authRule = (role: UserRole = 'ADMIN', id = 1): DbStubRule => ({
 /** 组装 dbStub：始终先挂鉴权回查规则，再追加用例专属规则 */
 const withAuth = (role: UserRole = 'ADMIN', id = 1, extra: DbStubRule[] = []) => dbStub([authRule(role, id), ...extra]);
 
-/** 完整 SchemaContext 夹具（loadSchemaContext 打桩返回值） */
+/** 完整 SchemaContext 夹具（loadSchemaContextForUser 打桩返回值） */
 const ctx = (over: Partial<SchemaContext> = {}): SchemaContext => ({
   schema: [],
   guidance: '',
@@ -113,6 +113,7 @@ const ctx = (over: Partial<SchemaContext> = {}): SchemaContext => ({
   rowFilters: {},
   dataSourceName: '测试数据源',
   fileBacked: false,
+  orgColumns: null,
   ...over,
 });
 
@@ -158,7 +159,7 @@ beforeEach(() => {
   vi.mocked(acquireQuerySlot).mockResolvedValue(true);
   vi.mocked(releaseQuerySlot).mockResolvedValue(undefined);
   vi.mocked(checkDataSourceAccess).mockResolvedValue(true);
-  vi.mocked(loadSchemaContext).mockResolvedValue(ctx());
+  vi.mocked(loadSchemaContextForUser).mockResolvedValue(ctx());
   vi.mocked(isLiveCapableType).mockReturnValue(true);
   vi.mocked(validateModelSelection).mockReturnValue(null);
   vi.mocked(normalizeAmountUnit).mockReturnValue(undefined);
@@ -262,7 +263,7 @@ describe('POST /api/query/natural-language：智能问数主链路契约', () =>
 
   it('数据源已停用 → 403 AI_SWITCHED_OFF', async () => {
     querySpy.mockImplementation(withAuth());
-    vi.mocked(loadSchemaContext).mockResolvedValue(ctx({ status: 'disconnected' }));
+    vi.mocked(loadSchemaContextForUser).mockResolvedValue(ctx({ status: 'disconnected' }));
     const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ query: '统计客户数', dataSourceId: 'ds1' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('AI_SWITCHED_OFF');
@@ -366,7 +367,7 @@ describe('POST /api/query/natural-language：智能问数主链路契约', () =>
 
   it('上下文加载异常 → 500 兜底错误码', async () => {
     querySpy.mockImplementation(withAuth());
-    vi.mocked(loadSchemaContext).mockRejectedValue(new Error('state store down'));
+    vi.mocked(loadSchemaContextForUser).mockRejectedValue(new Error('state store down'));
     const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ query: '统计客户数', dataSourceId: 'ds1' });
     expect(res.status).toBe(500);
     expect(res.body.code).toBe('INTERNAL_ERROR');
@@ -550,7 +551,7 @@ describe('POST /api/query/plan：计划模式契约', () => {
 
   it('数据源已停用 → 403 AI_SWITCHED_OFF', async () => {
     querySpy.mockImplementation(withAuth());
-    vi.mocked(loadSchemaContext).mockResolvedValue(ctx({ status: 'disconnected' }));
+    vi.mocked(loadSchemaContextForUser).mockResolvedValue(ctx({ status: 'disconnected' }));
     const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ query: '统计客户数', dataSourceId: 'ds1' });
     expect(res.status).toBe(403);
     expect(res.body.code).toBe('AI_SWITCHED_OFF');

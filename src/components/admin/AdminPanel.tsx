@@ -60,8 +60,35 @@ interface AdminUser {
   role: UserRole;
   status: 'ACTIVE' | 'DISABLED';
   mustChangePassword?: boolean;
+  /** 组织数据范围（三层权限模型）：null/缺省 = 全辖不限制（与 server/query/orgScope.ts 同形） */
+  orgScope?: UserOrgScope | null;
   createdAt: string;
   lastLoginAt: string | null;
+}
+
+/** 组织数据范围档位：ALL 全辖 / ORG 本机构 / TEAM 本项目团队 / SELF 仅本人 */
+type OrgScopeLevel = 'ALL' | 'ORG' | 'TEAM' | 'SELF';
+
+interface UserOrgScope {
+  level: OrgScopeLevel;
+  orgs?: string[];
+  teams?: string[];
+  selfCode?: string;
+}
+
+const SCOPE_LEVEL_LABELS: Record<OrgScopeLevel, string> = {
+  ALL: '全辖',
+  ORG: '本机构',
+  TEAM: '本项目团队',
+  SELF: '仅本人经办',
+};
+
+/** 用户数据范围 → 简洁文案（列表展示用） */
+function orgScopeText(scope?: UserOrgScope | null): string {
+  if (!scope) return '全辖（不限制）';
+  if (scope.level === 'ORG') return `机构：${(scope.orgs || []).join('、')}`;
+  if (scope.level === 'TEAM') return `团队：${(scope.teams || []).join('、')}`;
+  return `经办人：${scope.selfCode || ''}`;
 }
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -188,6 +215,14 @@ export const AdminPanel: React.FC = () => {
   const [newRole, setNewRole] = useState<UserRole>('ANALYST');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // 组织数据范围编辑（弹窗）：目标用户 + 档位 + 各维度取值（逗号分隔输入）
+  const [scopeUser, setScopeUser] = useState<AdminUser | null>(null);
+  const [scopeLevel, setScopeLevel] = useState<OrgScopeLevel>('ALL');
+  const [scopeOrgs, setScopeOrgs] = useState('');
+  const [scopeTeams, setScopeTeams] = useState('');
+  const [scopeSelfCode, setScopeSelfCode] = useState('');
+  const [isScopeSaving, setIsScopeSaving] = useState(false);
+
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
   useEffect(() => {
@@ -306,6 +341,54 @@ export const AdminPanel: React.FC = () => {
       loadUsers();
     } catch (err) {
       showNotice('error', getErrorMessage(err));
+    }
+  };
+
+  /** 打开数据范围编辑弹窗：按当前配置回填（逗号分隔） */
+  const openScopeEditor = (u: AdminUser) => {
+    setScopeUser(u);
+    setScopeLevel(u.orgScope?.level || 'ALL');
+    setScopeOrgs((u.orgScope?.orgs || []).join(', '));
+    setScopeTeams((u.orgScope?.teams || []).join(', '));
+    setScopeSelfCode(u.orgScope?.selfCode || '');
+  };
+
+  const handleSaveScope = async () => {
+    if (!scopeUser) return;
+    const split = (s: string) => s.split(/[,\uFF0C\s]+/).map((v) => v.trim()).filter(Boolean);
+    // 服务端会做完整校验（档位/非空/数量上限），此处仅防明显空值提交
+    const payload: UserOrgScope | null =
+      scopeLevel === 'ALL'
+        ? null
+        : scopeLevel === 'ORG'
+        ? { level: 'ORG', orgs: split(scopeOrgs) }
+        : scopeLevel === 'TEAM'
+        ? { level: 'TEAM', teams: split(scopeTeams) }
+        : { level: 'SELF', selfCode: scopeSelfCode.trim() };
+    if (payload && scopeLevel !== 'SELF' && !(payload.level === 'ORG' ? payload.orgs?.length : payload.teams?.length)) {
+      showNotice('error', scopeLevel === 'ORG' ? '请填写机构编号' : '请填写团队名称');
+      return;
+    }
+    if (payload && scopeLevel === 'SELF' && !payload.selfCode) {
+      showNotice('error', '请填写经办人编号');
+      return;
+    }
+    setIsScopeSaving(true);
+    try {
+      const res = await apiFetch(`/api/admin/users/${scopeUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgScope: payload }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '操作失败');
+      showNotice('success', `已更新 ${scopeUser.username} 的数据范围为「${orgScopeText(payload)}」`);
+      setScopeUser(null);
+      loadUsers();
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    } finally {
+      setIsScopeSaving(false);
     }
   };
 
@@ -494,6 +577,93 @@ export const AdminPanel: React.FC = () => {
             </div>
           )}
       
+          {/* 数据范围编辑弹窗（组织权限模型）：档位 + 取值；全辖 = 不限制 */}
+          {scopeUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+              <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+                <div className="px-6 py-4 border-b border-slate-800 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                  <h3 className="text-base font-bold text-slate-100">配置数据范围 — {scopeUser.username}</h3>
+                </div>
+                <div className="p-6 space-y-4 text-xs">
+                  <div className="space-y-1.5">
+                    <label className="text-slate-400 font-medium">范围档位</label>
+                    <select
+                      value={scopeLevel}
+                      onChange={(e) => setScopeLevel(e.target.value as OrgScopeLevel)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                    >
+                      {(Object.keys(SCOPE_LEVEL_LABELS) as OrgScopeLevel[]).map((lv) => (
+                        <option key={lv} value={lv}>
+                          {SCOPE_LEVEL_LABELS[lv]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {scopeLevel === 'ORG' && (
+                    <div className="space-y-1.5">
+                      <label className="text-slate-400 font-medium">机构编号（多个用逗号分隔，如 A01, A02）</label>
+                      <input
+                        type="text"
+                        value={scopeOrgs}
+                        onChange={(e) => setScopeOrgs(e.target.value)}
+                        placeholder="A01, A02"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
+                      />
+                    </div>
+                  )}
+
+                  {scopeLevel === 'TEAM' && (
+                    <div className="space-y-1.5">
+                      <label className="text-slate-400 font-medium">团队名称（多个用逗号分隔，如 投资一部, 投资二部）</label>
+                      <input
+                        type="text"
+                        value={scopeTeams}
+                        onChange={(e) => setScopeTeams(e.target.value)}
+                        placeholder="投资一部, 投资二部"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                      />
+                    </div>
+                  )}
+
+                  {scopeLevel === 'SELF' && (
+                    <div className="space-y-1.5">
+                      <label className="text-slate-400 font-medium">经办人编号</label>
+                      <input
+                        type="text"
+                        value={scopeSelfCode}
+                        onChange={(e) => setScopeSelfCode(e.target.value)}
+                        placeholder="U1001"
+                        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 font-mono transition-colors"
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-[11px] leading-relaxed text-slate-500 bg-slate-950/60 border border-slate-800 rounded-lg p-3">
+                    问数与报表将在执行层按该范围自动注入行过滤（机构列 / 团队列 / 责任人列由「数据源与 Schema → 组织隔离」登记）。
+                    未登记组织列的数据源不受影响；全辖档位等同不限制。
+                  </p>
+                </div>
+                <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => setScopeUser(null)}
+                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleSaveScope}
+                    disabled={isScopeSaving}
+                    className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
+                  >
+                    {isScopeSaving ? '保存中…' : '保存'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 用户列表卡片 */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             {/* 卡片头部 */}
@@ -531,6 +701,7 @@ export const AdminPanel: React.FC = () => {
                   <tr>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">用户名 / 显示名</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">部门</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">数据范围</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">角色</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">状态</th>
                     <th className="px-6 py-3 text-left text-[10px] font-medium text-slate-500 uppercase tracking-wider">最近登录</th>
@@ -547,7 +718,7 @@ export const AdminPanel: React.FC = () => {
                     </tr>
                   ) : users.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center">
+                      <td colSpan={7} className="px-6 py-12 text-center">
                         <Users className="w-12 h-12 mx-auto mb-3 text-slate-600" />
                         <p className="text-sm text-slate-500">暂无用户数据</p>
                       </td>
@@ -581,6 +752,17 @@ export const AdminPanel: React.FC = () => {
                               className="hover:text-indigo-400 hover:underline transition-colors"
                             >
                               {u.department || <span className="text-slate-600 italic">未设置</span>}
+                            </button>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <button
+                              onClick={() => openScopeEditor(u)}
+                              title="点击配置数据范围（全辖/本机构/本项目团队/仅本人）"
+                              className={`text-xs font-medium px-2 py-1 rounded-md border transition-colors hover:border-indigo-500/60 ${
+                                u.orgScope ? 'text-indigo-300 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-500 border-slate-700/60'
+                              }`}
+                            >
+                              {orgScopeText(u.orgScope)}
                             </button>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">

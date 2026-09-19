@@ -8,7 +8,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import type mysql from 'mysql2/promise';
 import { registerTaskHandler } from './infra/taskQueue';
 import { writeAudit } from './infra/auditLog';
-import { loadSchemaContext, isLiveCapableType } from './query/schemaContext';
+import { loadSchemaContextForUser, isLiveCapableType } from './query/schemaContext';
+import type { UserOrgScope } from './query/orgScope';
 import { runLiveReport, consumeReportPlan } from './report/liveReport';
 import { runSimulatedReport } from './report/simulatedReport';
 import { getFallbackExecutiveReport } from './serverFallbacks';
@@ -23,6 +24,8 @@ export interface TaskUserSnapshot {
   username: string;
   role: string;
   department?: string;
+  /** 组织权限模型：提交时的数据范围快照（worker 侧按此生成行过滤谓词） */
+  orgScope?: UserOrgScope | null;
 }
 
 /** PDF 结果文件目录（项目根 data/task-results；Docker 卷随 data/ 持久化） */
@@ -46,7 +49,7 @@ async function runReportGenerate(payload: Record<string, unknown>, reportProgres
   const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const, dataSourceId };
   const auditQuestion = `async-report:${safeTemplate}`;
 
-  const ctx = await loadSchemaContext(dataSourceId, undefined);
+  const ctx = await loadSchemaContextForUser(dataSourceId, undefined, user);
   if (ctx.status === 'disconnected') {
     writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
     throw new Error('该数据源的智能问数功能已被管理员停用');
@@ -72,6 +75,7 @@ async function runReportGenerate(payload: Record<string, unknown>, reportProgres
       dsType: ctx.dsType || undefined,
       sensitiveRemoved: ctx.sensitiveRemoved,
       rowFilters: ctx.rowFilters,
+      orgScopeHint: ctx.orgScopeHint,
       amountUnit,
       scenario: 'export',
       ...(approvedPlans ? { approvedPlans } : {}),
@@ -106,7 +110,7 @@ async function runReportFromQuery(payload: Record<string, unknown>, reportProgre
   const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const, dataSourceId };
   const auditQuestion = `async-query-report:${safeQuestion.slice(0, 100)}`;
 
-  const ctx = await loadSchemaContext(dataSourceId, undefined);
+  const ctx = await loadSchemaContextForUser(dataSourceId, undefined, user);
   if (ctx.status === 'disconnected') {
     writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
     throw new Error('该数据源的智能问数功能已被管理员停用');
@@ -141,6 +145,7 @@ async function runReportFromQuery(payload: Record<string, unknown>, reportProgre
     dsType: ctx.dsType || undefined,
     sensitiveRemoved: ctx.sensitiveRemoved,
     rowFilters: ctx.rowFilters,
+    orgScopeHint: ctx.orgScopeHint,
     amountUnit,
     scenario: 'export',
   });

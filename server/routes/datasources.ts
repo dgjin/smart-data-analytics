@@ -9,6 +9,7 @@ import pg from 'pg';
 import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { sanitizeDataScope } from '../query/scope';
+import { parseOrgColumns } from '../query/orgScope';
 import { canAccessDataSource, checkDataSourceAccess, parseAcl, sanitizeAcl } from '../auth/accessControl';
 import { invalidateSchemaCache } from '../query/schemaContext';
 import { invalidateExecutorPool } from '../query/sqlExecutor';
@@ -38,6 +39,7 @@ interface DataSourceDbRow extends mysql.RowDataPacket {
   schema_json: string | null;
   scope_json: string | null;
   acl_json: string | null;
+  org_columns_json: string | null;
   quick_questions_json: string | null;
   allow_introspection: number;
   updated_at: string | Date | null;
@@ -83,6 +85,8 @@ function rowToDataSource(row: DataSourceDbRow) {
     scope: safeJson<unknown>(row.scope_json, null),
     // P2-11 访问控制清单（仅 ADMIN 下发；非管理员由列表接口剖离）
     acl: parseAcl(row.acl_json),
+    // 组织权限模型：组织列映射（org/team/owner 列名；NULL = 不做组织隔离）
+    orgColumns: parseOrgColumns(row.org_columns_json),
     // 管理员登记的专业快速问题推荐（优先于前端通用 Schema 推导）
     quickQuestions: safeJson<string[] | null>(row.quick_questions_json, null),
     allowIntrospection: Number(row.allow_introspection) === 1,
@@ -391,7 +395,7 @@ router.get('/', async (req, res) => {
             lastSyncedAt: ds.lastSyncedAt,
           };
         }
-        const { tables, acl: _acl, ...rest } = ds;
+        const { tables, acl: _acl, orgColumns: _orgColumns, ...rest } = ds;
         return { ...rest, tables: [], tableCount: tables.length };
       }),
     });
@@ -837,6 +841,60 @@ router.put('/:id/acl', requireRole('ADMIN'), async (req, res) => {
   } catch (err) {
     logger.error('[DataSources] update acl failed:', err);
     return res.status(500).json({ error: '访问控制保存失败' });
+  }
+});
+
+// PUT /api/datasources/:id/org-columns（ADMIN）
+// 组织权限模型：登记该数据源的组织列映射 { org, team, owner }（列名逐字取自该数据源表结构）；
+// body { orgColumns: null } = 该数据源不做组织隔离（存量默认）。列名必须真实存在于 Schema，
+// 否则拼写错误会让用户级隔离静默失效（宁可报错也不静默放行）。
+router.put('/:id/org-columns', requireRole('ADMIN'), async (req, res) => {
+  const id = String(req.params.id);
+  try {
+    const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    const ds = rows[0];
+    if (!ds) {
+      return res.status(404).json({ error: '数据源不存在' });
+    }
+
+    const raw = req.body?.orgColumns;
+    if (raw !== null && raw !== undefined && (typeof raw !== 'object' || Array.isArray(raw))) {
+      return res.status(400).json({ error: '组织列配置格式无效' });
+    }
+    const cols = raw === null || raw === undefined ? null : parseOrgColumns(raw);
+    if (raw && !cols) {
+      return res.status(400).json({ error: '列名无效或全为空，请至少配置一个组织列（机构/团队/责任人）' });
+    }
+
+    if (cols) {
+      const existing = new Set<string>();
+      for (const t of safeJson<SchemaTable[]>(ds.schema_json, [])) {
+        for (const c of t.columns || []) {
+          if (typeof c?.name === 'string') existing.add(c.name.toLowerCase());
+        }
+      }
+      const labels: Record<string, string> = { org: '机构列', team: '团队列', owner: '责任人列' };
+      const missing = Object.entries(cols)
+        .filter(([, v]) => v && !existing.has(String(v).toLowerCase()))
+        .map(([k, v]) => `${labels[k] || k} ${v}`);
+      if (missing.length > 0) {
+        return res.status(400).json({ error: `以下列不存在于该数据源表结构：${missing.join('、')}` });
+      }
+    }
+
+    await getPool().query('UPDATE data_sources SET org_columns_json = ? WHERE id = ?', [
+      cols ? JSON.stringify(cols) : null,
+      id,
+    ]);
+    // 隔离规则变更：上下文/连接池/问数结果缓存三连失效（否则旧缓存会跨范围回放）
+    void invalidateSchemaCache(id);
+    invalidateExecutorPool(id);
+    void invalidateQueryCache(id);
+    const [updated] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
+    return res.json({ success: true, dataSource: rowToDataSource(updated[0]) });
+  } catch (err) {
+    logger.error('[DataSources] update org columns failed:', err);
+    return res.status(500).json({ error: '组织列配置保存失败' });
   }
 });
 

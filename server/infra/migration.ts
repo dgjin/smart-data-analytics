@@ -141,6 +141,22 @@ export async function migrateSchema(pool: mysql.Pool): Promise<void> {
     if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // 组织权限模型：用户数据范围 { level: ALL|ORG|TEAM|SELF, orgs[], teams[], selfCode }
+  // NULL/ALL = 不限制（存量用户行为不变）；ORG=仅本机构（JGBH 类），TEAM=仅本项目团队（SSTD 类），SELF=仅本人经办
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN org_scope_json TEXT NULL AFTER department');
+  } catch (err) {
+    if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // 组织权限模型：数据源侧的组织列映射 { org, team, owner }（列名逐字取自该数据源 schema）
+  // NULL/全空 = 该数据源不做组织隔离（存量数据源默认不隔离）
+  try {
+    await pool.query('ALTER TABLE data_sources ADD COLUMN org_columns_json TEXT NULL AFTER acl_json');
+  } catch (err) {
+    if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
 }
 
 /** 存量库数据迁移：依赖既有数据与种子结果，须在种子之后执行 */

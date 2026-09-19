@@ -10,7 +10,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
 import { logger } from '../infra/logger';
-import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
+import { loadSchemaContextForUser, isLiveCapableType } from '../query/schemaContext';
 import { generateAgentPlan, consumeAgentPlan, storeAgentPlan, runAgentPlan } from '../agent/orchestrator';
 import { getErrorMessage } from '../infra/errorUtils';
 
@@ -36,7 +36,7 @@ router.post('/plan', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req, r
   }
 
   try {
-    const ctx = await loadSchemaContext(dataSourceId, undefined);
+    const ctx = await loadSchemaContextForUser(dataSourceId, undefined, user);
     if (!isLiveCapableType(ctx.dsType, ctx.fileBacked)) {
       return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '当前数据源不支持 Agent 编排（需数据库型或已落库文件数据源）' });
     }
@@ -77,7 +77,7 @@ router.post('/run', rateLimiter, requireRole('ADMIN', 'ANALYST'), async (req, re
     }
     const plan = consumed.plan;
 
-    const ctx = await loadSchemaContext(dataSourceId, undefined);
+    const ctx = await loadSchemaContextForUser(dataSourceId, undefined, user);
     if (!isLiveCapableType(ctx.dsType, ctx.fileBacked)) {
       return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '当前数据源不支持 Agent 编排（需数据库型或已落库文件数据源）' });
     }

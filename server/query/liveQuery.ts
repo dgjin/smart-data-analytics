@@ -95,6 +95,8 @@ export interface LiveQueryInput {
   sensitiveRemoved: string[];
   /** P1-3 行级权限（实际表名 → 谓词）：执行层 AST 强制注入，LLM 无法绕过 */
   rowFilters?: Record<string, string>;
+  /** 组织权限模型：用户数据范围约束文案（阶段一提示词语义对齐；执行层已强制隔离） */
+  orgScopeHint?: string;
   /** 数据源级数据自省开关（Vanna intermediate_sql 借鉴，默认关） */
   allowIntrospection?: boolean;
   /** SSE 阶段进度回调（P2-7）：understanding/executed/introspecting/analyzing */
@@ -325,7 +327,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     }).catch(() => null);
     if (chain) chainTables = chain.tables;
   }
-  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs, input.dataSourceName, ironRulesPrompt);
+  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs, input.dataSourceName, ironRulesPrompt, input.orgScopeHint);
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
   // 专家角色路由：库化配置按 sortOrder 升序关键词匹配（仅 ADMIN 维护，v0.9.40），库异常时回退内置常量

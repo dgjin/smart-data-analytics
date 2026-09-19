@@ -26,7 +26,7 @@ import { getPool } from '../infra/db';
 import { logger } from '../infra/logger';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { checkUserQueryLimit } from '../infra/userQueryLimit';
-import { loadSchemaContext } from '../query/schemaContext';
+import { loadSchemaContextForUser } from '../query/schemaContext';
 import { executeSafeSql } from '../query/sqlExecutor';
 import { maskRows } from '../query/dlp';
 import { writeAudit } from '../infra/auditLog';
@@ -102,7 +102,7 @@ router.post('/query', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
       return res.status(429).json({ error: qLimit.reason });
     }
 
-    const ctx = await loadSchemaContext(metric.dataSourceId, undefined);
+    const ctx = await loadSchemaContextForUser(metric.dataSourceId, undefined, req.user);
     if (ctx.status === 'disconnected') {
       return res.status(403).json({ error: '该数据源已被管理员停用' });
     }

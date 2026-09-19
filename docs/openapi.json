@@ -579,6 +579,37 @@
                   },
                   "displayName": {
                     "type": "string"
+                  },
+                  "orgScope": {
+                    "description": "数据范围（v0.9.65 三层组织权限）：null 或 level=ALL = 全辖不限制；ORG=本机构（orgs）；TEAM=本项目团队（teams，可叠加 orgs 双重收敛）；SELF=仅本人经办（selfCode）。授权值单维度 ≤200 项",
+                    "type": "object",
+                    "nullable": true,
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "ALL",
+                          "ORG",
+                          "TEAM",
+                          "SELF"
+                        ]
+                      },
+                      "orgs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "teams": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "selfCode": {
+                        "type": "string"
+                      }
+                    }
                   }
                 }
               }
@@ -630,6 +661,37 @@
                   },
                   "active": {
                     "type": "boolean"
+                  },
+                  "orgScope": {
+                    "description": "数据范围（v0.9.65）：null 或 level=ALL = 全辖不限制；ORG=本机构（orgs）；TEAM=本项目团队（teams）；SELF=仅本人经办（selfCode）",
+                    "type": "object",
+                    "nullable": true,
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "ALL",
+                          "ORG",
+                          "TEAM",
+                          "SELF"
+                        ]
+                      },
+                      "orgs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "teams": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "selfCode": {
+                        "type": "string"
+                      }
+                    }
                   }
                 }
               }
@@ -2550,6 +2612,69 @@
                     "type": "array",
                     "items": {
                       "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/datasources/{id}/org-columns": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "数据源 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "DataSources"
+        ],
+        "operationId": "updateDataSourceOrgColumns",
+        "summary": "数据源组织隔离列（仅 ADMIN；机构列/团队列/责任人列，空 = 不做组织隔离）",
+        "description": "登记该数据源的机构列（如 JGBH）/ 团队列（如 SSTD）/ 责任人列（如 XMJBRBH）。与非管理员用户的 org_scope_json 档位相乘生成行过滤谓词，与 scope.rowFilters 合并后由执行层 AST 强制注入（v0.9.65 三层组织权限模型）。列名必须真实存在于该数据源表结构；保存后 schema 缓存 / 连接池 / 结果缓存三连失效。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orgColumns": {
+                    "description": "null / 空对象 = 清除组织隔离配置",
+                    "type": "object",
+                    "nullable": true,
+                    "properties": {
+                      "org": {
+                        "type": "string"
+                      },
+                      "team": {
+                        "type": "string"
+                      },
+                      "owner": {
+                        "type": "string"
+                      }
                     }
                   }
                 }

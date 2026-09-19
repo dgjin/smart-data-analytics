@@ -18,6 +18,7 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
       role ENUM('ADMIN','ANALYST','VIEWER') NOT NULL DEFAULT 'VIEWER',
       status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
       must_change_password TINYINT(1) NOT NULL DEFAULT 0,
+      org_scope_json TEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       last_login_at TIMESTAMP NULL DEFAULT NULL
@@ -32,6 +33,7 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
       config_json TEXT,
       schema_json MEDIUMTEXT,
       scope_json TEXT,
+      org_columns_json TEXT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'connected',
       created_by VARCHAR(50) NOT NULL DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -11,12 +11,42 @@ import { logger } from '../infra/logger';
 import { writeAudit } from '../infra/auditLog';
 import { ENV_CONFIG_HIDDEN, sanitizeEnvConfigUpdates, applyEnvConfigToProcess } from '../infra/envConfigCatalog';
 import { getErrorMessage, getErrorCode } from '../infra/errorUtils';
+import { parseUserOrgScope, MAX_SCOPE_ITEMS } from '../query/orgScope';
 
 const router = Router();
 router.use(authMiddleware, requireRole('ADMIN'));
 
 const VALID_ROLES = ['ADMIN', 'ANALYST', 'VIEWER'] as const;
 const USERNAME_PATTERN = /^[a-zA-Z0-9_]{3,20}$/;
+const SCOPE_LEVELS = ['ALL', 'ORG', 'TEAM', 'SELF'] as const;
+
+/**
+ * 校验并序列化用户数据范围（组织权限模型）：
+ * ALL/空/null = 不限制（存 NULL）；ORG/TEAM/SELF 要求授权值非空，非法档位/空值显式拒绝，
+ * 避免「配了档位却没给值」被当作不限制而静默失效（解析层同样做兜底）。
+ */
+function serializeOrgScopeInput(raw: unknown): { ok: true; json: string | null } | { ok: false; error: string } {
+  if (raw === null || raw === undefined || raw === '') return { ok: true, json: null };
+  if (typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, error: '数据范围格式无效' };
+  const obj = raw as Record<string, unknown>;
+  const level = String(obj.level || '').toUpperCase();
+  if (!SCOPE_LEVELS.includes(level as (typeof SCOPE_LEVELS)[number])) {
+    return { ok: false, error: '数据范围档位无效，可选：ALL（全辖）/ ORG（本机构）/ TEAM（本项目团队）/ SELF（仅本人）' };
+  }
+  if (level === 'ALL') return { ok: true, json: null };
+  if (level === 'ORG' && Array.isArray(obj.orgs) && obj.orgs.length > MAX_SCOPE_ITEMS) {
+    return { ok: false, error: `机构数量不能超过 ${MAX_SCOPE_ITEMS} 个` };
+  }
+  if (level === 'TEAM' && Array.isArray(obj.teams) && obj.teams.length > MAX_SCOPE_ITEMS) {
+    return { ok: false, error: `团队数量不能超过 ${MAX_SCOPE_ITEMS} 个` };
+  }
+  const scope = parseUserOrgScope({ ...obj, level });
+  if (!scope) {
+    const hint = level === 'ORG' ? '机构档位需至少填写一个机构编号' : level === 'TEAM' ? '团队档位需至少填写一个团队名称' : '本人档位需填写经办人编号';
+    return { ok: false, error: hint };
+  }
+  return { ok: true, json: JSON.stringify(scope) };
+}
 
 async function countActiveAdmins(excludeId?: number): Promise<number> {
   const [rows] = await getPool().query<RowDataPacket[]>(
@@ -29,21 +59,27 @@ async function countActiveAdmins(excludeId?: number): Promise<number> {
 // GET /api/admin/users
 router.get('/users', async (_req, res) => {
   try {
-    const [rows] = await getPool().query(
+    const [rows] = await getPool().query<RowDataPacket[]>(
       `SELECT id, username, display_name AS displayName, department, role, status, must_change_password AS mustChangePassword,
+              org_scope_json AS orgScopeJson,
               created_at AS createdAt, last_login_at AS lastLoginAt
        FROM users ORDER BY id ASC`
     );
-    return res.json({ success: true, users: rows });
+    // 数据范围以解析后的对象返回（存储为 JSON 文本，前端直接用于编辑表单）
+    const users = rows.map((row) => {
+      const { orgScopeJson, ...rest } = row as RowDataPacket & { orgScopeJson: string | null };
+      return { ...rest, orgScope: parseUserOrgScope(orgScopeJson) };
+    });
+    return res.json({ success: true, users });
   } catch (err) {
     logger.error('[Admin] list users failed:', err);
     return res.status(500).json({ error: '用户列表获取失败' });
   }
 });
 
-// POST /api/admin/users { username, password, displayName, role, department? }
+// POST /api/admin/users { username, password, displayName, role, department?, orgScope? }
 router.post('/users', async (req, res) => {
-  const { username, password, displayName, role, department } = req.body || {};
+  const { username, password, displayName, role, department, orgScope } = req.body || {};
   if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) {
     return res.status(400).json({ error: '用户名需为 3-20 位字母、数字或下划线' });
   }
@@ -58,16 +94,21 @@ router.post('/users', async (req, res) => {
   if (!strength.ok) {
     return res.status(400).json({ error: strength.error });
   }
+  // 组织权限模型：可选的数据范围（未传/ALL = 不限制）
+  const scopeInput = serializeOrgScopeInput(orgScope);
+  if (scopeInput.ok === false) {
+    return res.status(400).json({ error: scopeInput.error });
+  }
 
   try {
     const [result] = await getPool().query<ResultSetHeader>(
-      'INSERT INTO users (username, password_hash, display_name, department, role, must_change_password) VALUES (?, ?, ?, ?, ?, 1)',
-      [username, hashPassword(password), String(displayName || username).slice(0, 50), String(department || '').trim().slice(0, 100), role]
+      'INSERT INTO users (username, password_hash, display_name, department, role, org_scope_json, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
+      [username, hashPassword(password), String(displayName || username).slice(0, 50), String(department || '').trim().slice(0, 100), role, scopeInput.json]
     );
     const insertId = result.insertId;
     return res.status(201).json({
       success: true,
-      user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE' },
+      user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE', orgScope: parseUserOrgScope(scopeInput.json) },
     });
   } catch (err) {
     if (getErrorCode(err) === 'ER_DUP_ENTRY') {
@@ -78,14 +119,14 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:id { displayName?, role?, status?, department? }
+// PUT /api/admin/users/:id { displayName?, role?, status?, department?, orgScope? }
 router.put('/users/:id', async (req, res) => {
   const targetId = Number(req.params.id);
   if (!Number.isInteger(targetId)) {
     return res.status(400).json({ error: '用户 ID 无效' });
   }
 
-  const { displayName, role, status, department } = req.body || {};
+  const { displayName, role, status, department, orgScope } = req.body || {};
   const updates: string[] = [];
   const params: unknown[] = [];
 
@@ -104,6 +145,15 @@ router.put('/users/:id', async (req, res) => {
     }
     updates.push('role = ?');
     params.push(role);
+  }
+  if (orgScope !== undefined) {
+    // 组织权限模型：用户数据范围（null/ALL 存 NULL = 不限制）；仅管理员可改
+    const serialized = serializeOrgScopeInput(orgScope);
+    if (serialized.ok === false) {
+      return res.status(400).json({ error: serialized.error });
+    }
+    updates.push('org_scope_json = ?');
+    params.push(serialized.json);
   }
   if (status !== undefined) {
     if (!['ACTIVE', 'DISABLED'].includes(status)) {

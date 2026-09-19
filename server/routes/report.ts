@@ -12,7 +12,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { containsInjection } from '../query/queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
 import { writeAudit } from '../infra/auditLog';
-import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
+import { loadSchemaContextForUser, isLiveCapableType } from '../query/schemaContext';
 import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from '../report/liveReport';
 import { normalizeAmountUnit } from '../query/liveQuery';
 import { runSimulatedReport } from '../report/simulatedReport';
@@ -78,7 +78,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
   }
 
   // L3 上下文层：报告同样以落库的 schema + scope + 敏感过滤为准
-  const ctx = await loadSchemaContext(dataSourceId, schema);
+  const ctx = await loadSchemaContextForUser(dataSourceId, schema, user);
 
   try {
     if (ctx.status === 'disconnected') {
@@ -112,6 +112,7 @@ router.post('/generate', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
         dsType: ctx.dsType || undefined,
         sensitiveRemoved: ctx.sensitiveRemoved,
         rowFilters: ctx.rowFilters,
+        orgScopeHint: ctx.orgScopeHint,
         amountUnit,
         scenario: 'chain',
         ...(approvedPlans ? { approvedPlans } : {}),
@@ -193,7 +194,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' });
   }
 
-  const ctx = await loadSchemaContext(dataSourceId, schema);
+  const ctx = await loadSchemaContextForUser(dataSourceId, schema, user);
   if (ctx.status === 'disconnected') {
     writeAudit({ ...auditBase, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
     return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
@@ -212,6 +213,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
       dataSourceId,
       dsType: ctx.dsType || undefined,
       sensitiveRemoved: ctx.sensitiveRemoved,
+      orgScopeHint: ctx.orgScopeHint,
       amountUnit,
     });
     if (out.ok !== true) {
@@ -284,7 +286,7 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
 
   try {
     // L3 上下文层：加载数据源 schema
-    const ctx = await loadSchemaContext(dataSourceId, req.body.schema);
+    const ctx = await loadSchemaContextForUser(dataSourceId, req.body.schema, user);
     if (ctx.status === 'disconnected') {
       writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
       return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
@@ -327,6 +329,7 @@ router.post('/generate-from-query', rateLimiter, authMiddleware, requireRole('AD
       dsType: ctx.dsType || undefined,
       sensitiveRemoved: ctx.sensitiveRemoved,
       rowFilters: ctx.rowFilters,
+      orgScopeHint: ctx.orgScopeHint,
       amountUnit,
       scenario: 'chain',
     });
@@ -411,7 +414,7 @@ router.post('/generate/async', rateLimiter, authMiddleware, requireRole('ADMIN',
       dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
       amountUnit: amountUnit ?? undefined,
       reportPlanId: typeof req.body.reportPlanId === 'string' ? req.body.reportPlanId : undefined,
-      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+      user: { id: user.id, username: user.username, role: user.role, department: user.department, orgScope: user.orgScope ?? null },
     }, { id: user.id, username: user.username });
   } catch (err) {
     logger.error('[Report] async submit failed:', getErrorMessage(err));
@@ -466,7 +469,7 @@ router.post('/generate-from-query/async', rateLimiter, authMiddleware, requireRo
       dataSourceId,
       templateId: typeof templateId === 'number' ? templateId : undefined,
       amountUnit: amountUnit ?? undefined,
-      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+      user: { id: user.id, username: user.username, role: user.role, department: user.department, orgScope: user.orgScope ?? null },
     }, { id: user.id, username: user.username });
   } catch (err) {
     logger.error('[Report] async submit failed:', getErrorMessage(err));
@@ -501,7 +504,7 @@ router.post('/export-pdf/async', express.json({ limit: '20mb' }), rateLimiter, a
       report: data,
       orientation,
       watermark,
-      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+      user: { id: user.id, username: user.username, role: user.role, department: user.department, orgScope: user.orgScope ?? null },
     }, { id: user.id, username: user.username });
   } catch (err) {
     logger.error('[Report] async pdf submit failed:', getErrorMessage(err));
