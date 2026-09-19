@@ -401,3 +401,74 @@ describe('PUT /api/admin/env-config：环境配置更新（仅断言契约，不
     expect(res.status).toBe(401);
   });
 });
+
+// v0.9.66 组织架构树：用户组织归属节点，department 文本由节点名派生（与数据源授权 ACL 同源）
+describe('组织架构树联动（orgUnitId）', () => {
+  const postUser = (body: Record<string, unknown>) =>
+    request(app).post('/api/admin/users').set('Authorization', `Bearer ${ADMIN_TOKEN}`).send(body);
+  const putUser = (id: string, body: Record<string, unknown>) =>
+    request(app).put(`/api/admin/users/${id}`).set('Authorization', `Bearer ${ADMIN_TOKEN}`).send(body);
+
+  /** org_units 节点取名（loadOrgUnitName 的 SELECT 对齐） */
+  const orgUnitRule: DbStubRule = { match: 'SELECT name FROM org_units WHERE id', rows: () => [{ name: '投资一部' }] };
+
+  it('列表下发 orgUnitId', async () => {
+    querySpy.mockImplementation(adminStub({ match: 'FROM users ORDER BY id ASC', rows: [listRow({ orgUnitId: 12 })] }));
+    const res = await request(app).get('/api/admin/users').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.users[0]).toMatchObject({ orgUnitId: 12 });
+  });
+
+  it('创建用户指定 orgUnitId → department 由节点名派生（覆盖手填值）', async () => {
+    querySpy.mockImplementation(
+      adminStub(orgUnitRule, { match: 'INSERT INTO users', rows: resultSet({ insertId: 51, affectedRows: 1 }) }),
+    );
+    const res = await postUser({
+      username: 'newuser',
+      password: 'New#Passw0rd',
+      role: 'ANALYST',
+      department: '手填部门',
+      orgUnitId: 12,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.user).toMatchObject({ displayName: 'newuser', department: '投资一部', orgUnitId: 12 });
+    const insert = querySpy.mock.calls.find((c) => String(c[0]).includes('INSERT INTO users'));
+    expect(insert?.[1]).toContain('投资一部');
+    expect(insert?.[1]).not.toContain('手填部门');
+  });
+
+  it('orgUnitId 非整数 → 400', async () => {
+    const res = await postUser({ username: 'newuser', password: 'New#Passw0rd', role: 'ANALYST', orgUnitId: 'abc' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('组织节点无效');
+  });
+
+  it('orgUnitId 节点不存在 → 400', async () => {
+    querySpy.mockImplementation(adminStub({ match: 'SELECT name FROM org_units WHERE id', rows: [] }));
+    const res = await postUser({ username: 'newuser', password: 'New#Passw0rd', role: 'ANALYST', orgUnitId: 999 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('组织节点不存在');
+  });
+
+  it('调整归属节点 → 同时写 department 与 org_unit_id', async () => {
+    querySpy.mockImplementation(
+      adminStub(orgUnitRule, { match: 'UPDATE users SET', rows: resultSet({ affectedRows: 1 }) }),
+    );
+    const res = await putUser('9', { orgUnitId: 12 });
+    expect(res.status).toBe(200);
+    const upd = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE users SET'));
+    const sql = String(upd?.[0]);
+    expect(sql).toContain('department = ?');
+    expect(sql).toContain('org_unit_id = ?');
+    expect(upd?.[1]).toEqual(['投资一部', 12, 9]);
+  });
+
+  it('orgUnitId=null → 解除关联（部门文本保留）', async () => {
+    querySpy.mockImplementation(adminStub({ match: 'UPDATE users SET', rows: resultSet({ affectedRows: 1 }) }));
+    const res = await putUser('9', { orgUnitId: null });
+    expect(res.status).toBe(200);
+    const upd = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE users SET'));
+    expect(String(upd?.[0])).not.toContain('department = ?');
+    expect(upd?.[1]).toEqual([null, 9]);
+  });
+});

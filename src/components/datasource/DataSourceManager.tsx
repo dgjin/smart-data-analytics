@@ -1012,8 +1012,9 @@ export const DataSourceManager: React.FC = () => {
         onClose={() => setOrgDs(null)}
       />
 
-      {/* P2-11 ACL 访问控制弹窗：P0-1 拆至 AclConfigModal */}
+      {/* P2-11 ACL 访问控制弹窗：P0-1 拆至 AclConfigModal；v0.9.66 key 使每次打开重置部门清单的树/手动模式推断 */}
       <AclConfigModal
+        key={aclDs?.id ?? 'closed'}
         ds={aclDs}
         depts={aclDepts}
         onDeptsChange={setAclDepts}

@@ -14,6 +14,25 @@ export interface AuthUser {
   mustChangePassword?: boolean;
 }
 
+// ---- v0.9.66 组织架构树（总部→机构→部门→团队，单表自关联）----
+export type OrgUnitLevel = 'HQ' | 'BRANCH' | 'DEPT' | 'TEAM';
+
+/** 组织节点（GET /api/admin/org-units 扁平下发，前端组树；仅 ADMIN 可拉取） */
+export interface OrgUnit {
+  id: number;
+  parentId: number | null;
+  level: OrgUnitLevel;
+  /** 节点名称（用户 department 文本由此派生，改名同步用户与数据源 ACL） */
+  name: string;
+  /** 数据标识：机构编号 / 部门与团队在数据中的取值（数据范围联动取值；可为空） */
+  dataCode: string;
+  sortOrder: number;
+  /** 绑定用户数（删除保护提示） */
+  userCount: number;
+  /** 下级节点数（删除保护提示） */
+  childCount: number;
+}
+
 export type AppTab = 'query' | 'reports' | 'query-reports' | 'datasources' | 'dashboard' | 'admin' | 'flexquery';
 
 export interface ColumnSchema {

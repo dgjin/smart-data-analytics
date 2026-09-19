@@ -18,10 +18,11 @@ for (const m of serverSrc.matchAll(/import\s+(\w+)\s+from\s+'(\.\/server\/routes
   importMap[m[1]] = `${m[2]}.ts`;
 }
 
-// 2. 前缀挂载（/api/datasource 为 legacy 别名，OpenAPI 只记 canonical /api/datasources）
+// 2. 前缀挂载（/api/datasource 为 legacy 别名，OpenAPI 只记 canonical /api/datasources；
+//    支持多段前缀（如 /api/admin/org-units 独立子路由挂载））
 const LEGACY_ALIASES = new Set(['/api/datasource']);
 const prefixRoutes = [];
-for (const m of serverSrc.matchAll(/app\.use\('(\/api\/[\w-]+)',\s*(\w+)\)/g)) {
+for (const m of serverSrc.matchAll(/app\.use\('(\/api\/(?:[\w-]+\/)*[\w-]+)',\s*(\w+)\)/g)) {
   const [, prefix, alias] = m;
   if (LEGACY_ALIASES.has(prefix) || !importMap[alias]) continue;
   prefixRoutes.push({ prefix, file: importMap[alias] });
@@ -40,7 +41,8 @@ for (const m of serverSrc.matchAll(/app\.(get|post|put|delete|patch)\('(\/api\/[
 }
 for (const { prefix, file } of prefixRoutes) {
   const src = readFileSync(join(root, file), 'utf8');
-  for (const m of src.matchAll(/router\.(get|post|put|delete|patch)\('([^']*)'/g)) {
+  // \s* 兼容换行书写的 router.get(\n  '/path', ...) 定义
+  for (const m of src.matchAll(/router\.(get|post|put|delete|patch)\(\s*'([^']*)'/g)) {
     const sub = m[2] === '/' ? '' : m[2];
     codeEndpoints.add(`${m[1].toUpperCase()} ${normalize(prefix + sub)}`);
   }

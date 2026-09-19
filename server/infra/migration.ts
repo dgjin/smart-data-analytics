@@ -157,6 +157,14 @@ export async function migrateSchema(pool: mysql.Pool): Promise<void> {
     if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // v0.9.66 组织架构树：用户归属节点（org_units.id）；NULL = 未关联（department 文本保留原样，
+  // 兼容既有 ACL 部门匹配与 DLP 水印，管理员可逐个挂接）
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN org_unit_id INT NULL AFTER department');
+  } catch (err) {
+    if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
 }
 
 /** 存量库数据迁移：依赖既有数据与种子结果，须在种子之后执行 */

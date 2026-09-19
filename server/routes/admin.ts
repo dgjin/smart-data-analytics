@@ -48,6 +48,15 @@ function serializeOrgScopeInput(raw: unknown): { ok: true; json: string | null }
   return { ok: true, json: JSON.stringify(scope) };
 }
 
+/**
+ * 组织架构树（v0.9.66）：按节点 ID 取节点名。
+ * 用户 department 文本由节点名派生——该文本是数据源可见性 ACL 的匹配键，两处必须同源。
+ */
+async function loadOrgUnitName(orgUnitId: number): Promise<string | null> {
+  const [rows] = await getPool().query<RowDataPacket[]>('SELECT name FROM org_units WHERE id = ? LIMIT 1', [orgUnitId]);
+  return rows[0] ? String(rows[0].name) : null;
+}
+
 async function countActiveAdmins(excludeId?: number): Promise<number> {
   const [rows] = await getPool().query<RowDataPacket[]>(
     `SELECT COUNT(*) AS cnt FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE'${excludeId ? ' AND id != ?' : ''}`,
@@ -60,7 +69,7 @@ async function countActiveAdmins(excludeId?: number): Promise<number> {
 router.get('/users', async (_req, res) => {
   try {
     const [rows] = await getPool().query<RowDataPacket[]>(
-      `SELECT id, username, display_name AS displayName, department, role, status, must_change_password AS mustChangePassword,
+      `SELECT id, username, display_name AS displayName, department, org_unit_id AS orgUnitId, role, status, must_change_password AS mustChangePassword,
               org_scope_json AS orgScopeJson,
               created_at AS createdAt, last_login_at AS lastLoginAt
        FROM users ORDER BY id ASC`
@@ -77,9 +86,9 @@ router.get('/users', async (_req, res) => {
   }
 });
 
-// POST /api/admin/users { username, password, displayName, role, department?, orgScope? }
+// POST /api/admin/users { username, password, displayName, role, department?, orgScope?, orgUnitId? }（orgUnitId 优先，部门文本由节点名派生）
 router.post('/users', async (req, res) => {
-  const { username, password, displayName, role, department, orgScope } = req.body || {};
+  const { username, password, displayName, role, department, orgScope, orgUnitId } = req.body || {};
   if (typeof username !== 'string' || !USERNAME_PATTERN.test(username)) {
     return res.status(400).json({ error: '用户名需为 3-20 位字母、数字或下划线' });
   }
@@ -100,15 +109,30 @@ router.post('/users', async (req, res) => {
     return res.status(400).json({ error: scopeInput.error });
   }
 
+  // v0.9.66 组织架构树：可选的组织归属节点；部门文本由节点名派生，避免与树两处不一致
+  let boundOrgUnitId: number | null = null;
+  let resolvedDepartment = String(department || '').trim().slice(0, 100);
+  if (orgUnitId !== undefined && orgUnitId !== null && orgUnitId !== '') {
+    if (!Number.isInteger(orgUnitId)) {
+      return res.status(400).json({ error: '组织节点无效' });
+    }
+    const unitName = await loadOrgUnitName(orgUnitId);
+    if (!unitName) {
+      return res.status(400).json({ error: '组织节点不存在' });
+    }
+    boundOrgUnitId = orgUnitId;
+    resolvedDepartment = unitName.slice(0, 100);
+  }
+
   try {
     const [result] = await getPool().query<ResultSetHeader>(
-      'INSERT INTO users (username, password_hash, display_name, department, role, org_scope_json, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)',
-      [username, hashPassword(password), String(displayName || username).slice(0, 50), String(department || '').trim().slice(0, 100), role, scopeInput.json]
+      'INSERT INTO users (username, password_hash, display_name, department, org_unit_id, role, org_scope_json, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+      [username, hashPassword(password), String(displayName || username).slice(0, 50), resolvedDepartment, boundOrgUnitId, role, scopeInput.json]
     );
     const insertId = result.insertId;
     return res.status(201).json({
       success: true,
-      user: { id: insertId, username, displayName: displayName || username, department: String(department || '').trim(), role, status: 'ACTIVE', orgScope: parseUserOrgScope(scopeInput.json) },
+      user: { id: insertId, username, displayName: displayName || username, department: resolvedDepartment, orgUnitId: boundOrgUnitId, role, status: 'ACTIVE', orgScope: parseUserOrgScope(scopeInput.json) },
     });
   } catch (err) {
     if (getErrorCode(err) === 'ER_DUP_ENTRY') {
@@ -119,25 +143,50 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// PUT /api/admin/users/:id { displayName?, role?, status?, department?, orgScope? }
+// PUT /api/admin/users/:id { displayName?, role?, status?, department?, orgScope?, orgUnitId? }（orgUnitId=null 解除关联）
 router.put('/users/:id', async (req, res) => {
   const targetId = Number(req.params.id);
   if (!Number.isInteger(targetId)) {
     return res.status(400).json({ error: '用户 ID 无效' });
   }
 
-  const { displayName, role, status, department, orgScope } = req.body || {};
+  const { displayName, role, status, department, orgScope, orgUnitId } = req.body || {};
   const updates: string[] = [];
   const params: unknown[] = [];
+
+  // v0.9.66 组织架构树：orgUnitId 优先于手填 department（部门文本由节点名派生）
+  let derivedDepartment: string | undefined;
+  let orgUnitUpdate: number | null | undefined;
+  if (orgUnitId !== undefined) {
+    if (orgUnitId === null || orgUnitId === '') {
+      orgUnitUpdate = null; // 解除关联；department 文本保留原样供展示与 ACL 匹配
+    } else if (Number.isInteger(orgUnitId)) {
+      const unitName = await loadOrgUnitName(orgUnitId);
+      if (!unitName) {
+        return res.status(400).json({ error: '组织节点不存在' });
+      }
+      orgUnitUpdate = orgUnitId;
+      derivedDepartment = unitName.slice(0, 100);
+    } else {
+      return res.status(400).json({ error: '组织节点无效' });
+    }
+  }
 
   if (displayName !== undefined) {
     updates.push('display_name = ?');
     params.push(String(displayName).slice(0, 50));
   }
-  if (department !== undefined) {
+  if (derivedDepartment !== undefined) {
+    updates.push('department = ?');
+    params.push(derivedDepartment);
+  } else if (department !== undefined) {
     // P2-11 组织维度：部门是数据源授权的匹配键，仅管理员可改（防止用户自助改部门越权）
     updates.push('department = ?');
     params.push(String(department).trim().slice(0, 100));
+  }
+  if (orgUnitUpdate !== undefined) {
+    updates.push('org_unit_id = ?');
+    params.push(orgUnitUpdate);
   }
   if (role !== undefined) {
     if (!VALID_ROLES.includes(role)) {

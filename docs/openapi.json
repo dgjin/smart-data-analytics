@@ -580,6 +580,15 @@
                   "displayName": {
                     "type": "string"
                   },
+                  "department": {
+                    "description": "所属部门文本（v0.9.66 起由组织节点名派生；数据源授权 ACL、DLP 水印、审批留痕按该文本消费）",
+                    "type": "string"
+                  },
+                  "orgUnitId": {
+                    "description": "组织架构树归属节点 ID（v0.9.66）；提供时 department 取节点名，null = 不关联",
+                    "type": "integer",
+                    "nullable": true
+                  },
                   "orgScope": {
                     "description": "数据范围（v0.9.65 三层组织权限）：null 或 level=ALL = 全辖不限制；ORG=本机构（orgs）；TEAM=本项目团队（teams，可叠加 orgs 双重收敛）；SELF=仅本人经办（selfCode）。授权值单维度 ≤200 项",
                     "type": "object",
@@ -659,8 +668,21 @@
                   "displayName": {
                     "type": "string"
                   },
-                  "active": {
-                    "type": "boolean"
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "DISABLED"
+                    ]
+                  },
+                  "department": {
+                    "description": "所属部门文本（v0.9.66 起由组织节点名派生；数据源授权 ACL、DLP 水印、审批留痕按该文本消费）",
+                    "type": "string"
+                  },
+                  "orgUnitId": {
+                    "description": "组织架构树归属节点 ID（v0.9.66）；提供时 department 取节点名；null = 解除关联（旧部门文本保留）",
+                    "type": "integer",
+                    "nullable": true
                   },
                   "orgScope": {
                     "description": "数据范围（v0.9.65）：null 或 level=ALL = 全辖不限制；ORG=本机构（orgs）；TEAM=本项目团队（teams）；SELF=仅本人经办（selfCode）",
@@ -763,6 +785,390 @@
         "responses": {
           "200": {
             "description": "重置成功"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/admin/ab-test/overview": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "getAbTestOverview",
+        "summary": "A/B 实验快速概览（最近 24 小时；仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "关键指标对比"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/ab-test/records": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "listAbTestRecords",
+        "summary": "A/B 实验历史记录（仅 ADMIN；limit 默认 100）",
+        "responses": {
+          "200": {
+            "description": "实验记录列表"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/ab-test/stats": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "getAbTestStats",
+        "summary": "A/B 实验统计数据（仅 ADMIN；days 默认 7）",
+        "responses": {
+          "200": {
+            "description": "分组统计"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/fallback-approval": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "listFallbackSamples",
+        "summary": "待审核 Fallback 困难样本列表（按优先级排序；仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "样本列表"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/fallback-approval/batch": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "batchReviewFallbackSamples",
+        "summary": "批量采纳/拒绝 Fallback 样本（仅 ADMIN；采纳时自动注入 Few-Shot 样例库）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids",
+                  "action"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "批量操作完成"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/fallback-approval/{id}/review": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          },
+          "description": "样本 ID"
+        }
+      ],
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "reviewFallbackSample",
+        "summary": "单条审核 Fallback 样本（标注期望 SQL；仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_sql": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "APPROVED",
+                      "REJECTED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "审核完成"
+          },
+          "400": {
+            "description": "该样本已被处理，无法修改"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/admin/org-units": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "listOrgUnits",
+        "summary": "组织架构节点列表（总部→机构→部门→团队 扁平下发，前端组树；仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "节点列表（含 userCount/childCount 供删除保护提示）"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "createOrgUnit",
+        "summary": "新增组织节点（v0.9.66；层级强校验：机构挂总部、部门挂机构、团队挂部门）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "parentId",
+                  "level",
+                  "name"
+                ],
+                "properties": {
+                  "parentId": {
+                    "type": "integer",
+                    "description": "上级节点 ID"
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "BRANCH",
+                      "DEPT",
+                      "TEAM"
+                    ],
+                    "description": "节点类型（总部为系统内置唯一根，不可新增）"
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "dataCode": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "数据标识：机构编号 / 部门与团队在数据中的取值（数据范围联动取值）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "创建成功"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "同级下已存在同名节点"
+          }
+        }
+      }
+    },
+    "/api/admin/org-units/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          },
+          "description": "组织节点 ID"
+        }
+      ],
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "updateOrgUnit",
+        "summary": "重命名 / 修改数据标识（v0.9.66；改名同步用户部门文本与数据源 ACL 清单）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "dataCode": {
+                    "type": "string",
+                    "maxLength": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功（返回同步的用户数与数据源数）"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "同级下已存在同名节点"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "deleteOrgUnit",
+        "summary": "删除组织节点（v0.9.66；总部/有下级/有归属用户均拒绝）",
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "400": {
+            "description": "总部为系统内置根节点，不可删除"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "存在下级节点或仍有用户归属该节点"
+          }
+        }
+      }
+    },
+    "/api/admin/org-units/{id}/move": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          },
+          "description": "组织节点 ID"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "moveOrgUnit",
+        "summary": "同级上移 / 下移（v0.9.66；与相邻同级节点交换排序）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "direction"
+                ],
+                "properties": {
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "up",
+                      "down"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "移动成功"
+          },
+          "400": {
+            "description": "总部不可移动 / 已是同级首末位"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"

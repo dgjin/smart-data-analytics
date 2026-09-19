@@ -29,6 +29,8 @@ import { requestLogger } from './server/infra/requestLogger';
 import { metricsHandler, httpRequestDuration } from './server/infra/monitoring';
 import authRoutes from './server/routes/auth';
 import adminRoutes from './server/routes/admin';
+// v0.9.66 组织架构树：总部→机构→部门→团队（仅 ADMIN）
+import orgUnitRoutes from './server/routes/orgUnits';
 import datasourceRoutes from './server/routes/datasources';
 // P3-1 知识库管理路由（新增）
 import knowledgeManageRoutes from './server/routes/knowledge';
@@ -267,6 +269,8 @@ async function startServer() {
   // 2. Auth / RBAC / Data source management routes
   app.use('/api/auth', authRoutes);
   app.use('/api/admin', adminRoutes);
+  // v0.9.66 组织架构树（总部→机构→部门→团队；仅 ADMIN）
+  app.use('/api/admin/org-units', orgUnitRoutes);
   // v0.9.44: Fallback 困难样本审核接口（仅 ADMIN）
   app.use('/api/admin/fallback-approval', fallbackApprovalRoutes);
   // v0.9.46: A/B Test Analytics（仅 ADMIN）

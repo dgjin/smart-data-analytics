@@ -122,6 +122,15 @@ export async function seedInitialData(pool: mysql.Pool): Promise<void> {
     }
   }
 
+  // v0.9.66 组织架构树：总部根节点（系统内置唯一，幂等补种；机构挂在总部下）
+  const [orgRows] = await pool.query<mysql.RowDataPacket[]>("SELECT COUNT(*) AS cnt FROM org_units WHERE level = 'HQ'");
+  if (Number(orgRows[0]?.cnt) === 0) {
+    await pool.query(
+      "INSERT INTO org_units (parent_id, level, name, data_code, sort_order, created_by) VALUES (NULL, 'HQ', '总部', '', 0, 'system-seed')"
+    );
+    logger.info('[DB] Seeded 组织架构根节点：总部');
+  }
+
   // 5. Seed demo data sources when table is empty
   const [dsRows] = await pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM data_sources');
   if (Number(dsRows[0]?.cnt) === 0) {
