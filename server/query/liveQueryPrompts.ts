@@ -23,6 +23,12 @@ export function extractBusinessNotes(schema: SchemaTable[]): string {
 // PG 系（PostgreSQL/Greenplum）与 MySQL 的方言差异要点，注入阶段一 prompt 防止生成 MySQL 专有语法
 const PG_DIALECT_RULES = `- 方言要点（必须遵守）：分页仅支持 LIMIT n OFFSET m（禁止 LIMIT m,n 逗号写法）；需要引号包裹的标识符用双引号（禁止反引号）
 - 日期提取用 EXTRACT(YEAR FROM col) 或 date_trunc('month', col)，禁用 YEAR()/MONTH()/DATE_FORMAT() 等 MySQL 专有函数
+- 日期列类型必须核对后再用：Schema 中 columns 数组第 2 项为该列类型（如 character varying/varchar/char/text 即字符型）。**字符型日期列必须先显式转 date，否则 PG/GP 报 42883「function date_part(unknown, character varying) does not exist」**：
+  · 取年/月/日：EXTRACT(YEAR FROM col::date)、EXTRACT(MONTH FROM col::date)
+  · 按月/季聚合：date_trunc('month', col::date)
+  · 时间区间过滤：col::date >= DATE '2026-01-01' AND col::date < DATE '2026-02-01'（禁止把字符列直接与日期比较或用于 ORDER BY 排序）
+  · 非 yyyy-mm-dd 格式的字符列：to_date(col, 'YYYY/MM/DD')；输出格式化用 to_char(col::date, 'YYYY-MM')
+  · 已是 date/timestamp 类型的列禁止重复转换（col::date::date 冗余）；不确定类型时先按字符型处理并显式转换
 - 空值处理用 COALESCE（禁用 IFNULL）；字符串拼接用 || 运算符；分组字符串聚合用 STRING_AGG(expr, ',')（禁用 GROUP_CONCAT）
 `;
 

@@ -15,7 +15,6 @@ import sqlParserPkg from 'node-sql-parser';
 import { getPool } from '../infra/db';
 import { observeSqlExec, observeExplainGuard } from '../infra/monitoring';
 import { decryptSecret } from '../infra/secretsCrypto';
-import { callLLMJson } from '../llm/llmClient';
 import { logger } from '../infra/logger';
 import { getFilePhysicalTable } from './fileDataSource';
 import { getErrorMessage } from '../infra/errorUtils';
@@ -32,12 +31,8 @@ export function dialectOfDsType(dsType: string): SqlDialect | null {
   return null;
 }
 
-// 复用 liveQuery 的方言规则逻辑（简单版，仅 MySQL）
-function dialectPromptOf(dsType?: string): { label: string; rules: string } {
-  if (dsType === 'greenplum') return { label: 'Greenplum（PostgreSQL 兼容方言）', rules: '- 方言要点：分页仅支持 LIMIT n OFFSET m；标识符用双引号；日期用 EXTRACT/date_trunc；空值用 COALESCE；字符串拼接用 ||；分组聚合用 STRING_AGG' };
-  if (dsType === 'postgresql') return { label: 'PostgreSQL', rules: '- 方言要点：分页仅支持 LIMIT n OFFSET m；标识符用双引号；日期用 EXTRACT/date_trunc；空值用 COALESCE；字符串拼接用 ||；分组聚合用 STRING_AGG' };
-  return { label: 'MySQL', rules: '' };
-}
+// 注：方言提示词规则统一在 liveQueryPrompts.ts 的 dialectPromptOf 维护（本文件曾有一份简略副本，
+// 已删除以免两处漂移导致修复漏改；本文件只负责执行侧方言映射 dialectOfDsType）
 
 /** 系统硬上限（兜底防 OOM）：任何查询返回行数都不会超过该值（v0.4.14：500→100000） */
 export const MAX_ROWS = 100000;
@@ -778,6 +773,29 @@ export async function executeSafeSql(
   }
 }
 
+/**
+ * PG/GP 日期类型不匹配报错识别：字符型日期列（character varying/varchar/char/text）直接参与
+ * EXTRACT/date_trunc/日期比较时，PG 抛 SQLSTATE 42883（函数或操作符不存在）或 22007（日期字面量非法）。
+ * 判定需同时具备「日期信号 + 类型信号 + 报错信号」，避免把无关的 does not exist 误判为日期问题。
+ */
+export function isPgDateTypeError(msg: string): boolean {
+  const s = String(msg || '');
+  const dateSignal = /date_part|date_trunc|to_char|to_date|to_timestamp|extract\s*\(|(?:^|[^a-z_])(?:date|timestamp)(?:[^a-z_]|$)/i.test(s);
+  const typeSignal = /character varying|character\(|(?:^|[^a-z_])text(?:[^a-z_]|$)|unknown|invalid input syntax for type/i.test(s);
+  const errSignal = /42883|22007|42804|does not exist|operator does not exist|invalid input syntax/i.test(s);
+  return dateSignal && typeSignal && errSignal;
+}
+
+/**
+ * 数据库报错 → 重试提示增强：驱动返回的原始 HINT（"需要显式类型转换"）过于笼统，
+ * 模型常改不到点上。此处补一行项目级定向指引（同时作为用户可见的失败原因，故保持简短）。
+ */
+function explainDbError(raw: unknown): string {
+  const msg = String(getErrorMessage(raw));
+  if (!isPgDateTypeError(msg)) return msg;
+  return `${msg}\n【修复】日期列是字符型，需先转 date：EXTRACT(MONTH FROM col::date) / date_trunc('month', col::date) / col::date >= DATE '2026-01-01'。`;
+}
+
 async function executeSafeSqlImpl(
   dataSourceId: string,
   rawSql: unknown,
@@ -853,6 +871,6 @@ async function executeSafeSqlImpl(
       },
     };
   } catch (err) {
-    return { ok: false, reason: `SQL 执行失败：${String(getErrorMessage(err)).slice(0, 200)}` };
+    return { ok: false, reason: `SQL 执行失败：${explainDbError(err).slice(0, 300)}` };
   }
 }

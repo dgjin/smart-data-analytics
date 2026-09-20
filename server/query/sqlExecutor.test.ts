@@ -3,7 +3,7 @@
  * 仅覆盖纯校验逻辑（validateSelectSql / extractTableRefs），不触碰真实数据库。
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, extractCteNames, stripCommentsAndStrings, injectRowFilters, injectMysqlMaxExecTime, repairTablePrefixes, dsPoolMax, explainGuardMaxRows, parseMysqlExplainRows, parsePgExplainRows, MAX_ROWS, resultRowsMax } from './sqlExecutor';
+import { checkAstSafety, dialectOfDsType, validateSelectSql, extractTableRefs, extractCteNames, stripCommentsAndStrings, injectRowFilters, injectMysqlMaxExecTime, repairTablePrefixes, dsPoolMax, explainGuardMaxRows, parseMysqlExplainRows, parsePgExplainRows, MAX_ROWS, resultRowsMax, isPgDateTypeError } from './sqlExecutor';
 import { appPoolMax } from '../infra/db';
 
 const ALLOWED = [
@@ -687,5 +687,50 @@ describe('resultRowsMax: 问数结果行数上限（v0.9.64）', () => {
   it('填 0 = 不限制：回落到硬上限 10 万行（OOM 兜底仍在）', () => {
     process.env[ENV] = '0';
     expect(resultRowsMax()).toBe(MAX_ROWS);
+  });
+});
+
+/**
+ * PG/GP 日期类型报错识别：用于把「字符型日期列未转型」这类报错定向转成可执行的修复提示。
+ * 用例文本取自真实 GP 报错（宽表 data_dt 为 varchar(10) 时的 EXTRACT）。
+ */
+describe('isPgDateTypeError：日期类型不匹配报错识别', () => {
+  it('真实报错：date_part(unknown, character varying) does not exist（截图原文）', () => {
+    const real = `ERROR:  function pg_catalog.date_part(unknown, character varying) does not exist
+LINE 1: SELECT EXTRACT(MONTH FROM data_dt) AS mon
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+SQL state: 42883`;
+    expect(isPgDateTypeError(real)).toBe(true);
+  });
+
+  it('date_trunc / to_char 传入字符列的同类报错同样识别', () => {
+    expect(isPgDateTypeError("function pg_catalog.date_trunc(unknown, character varying) does not exist")).toBe(true);
+    expect(isPgDateTypeError('function pg_catalog.to_char(character varying, unknown) does not exist')).toBe(true);
+  });
+
+  it('操作符不存在的类型不匹配（字符列直接比日期）识别', () => {
+    expect(isPgDateTypeError('operator does not exist: character varying >= date')).toBe(true);
+  });
+
+  it('日期字面量非法（22007）识别', () => {
+    expect(isPgDateTypeError('invalid input syntax for type date: "2025/08/15"')).toBe(true);
+  });
+
+  it('非日期类报错不误判：表/列不存在', () => {
+    expect(isPgDateTypeError('relation "fct_unknown" does not exist')).toBe(false);
+    expect(isPgDateTypeError('column "not_exist" does not exist')).toBe(false);
+    expect(isPgDateTypeError('syntax error at or near "SELEC"')).toBe(false);
+  });
+
+  it('仅命中部分信号时不误判（需日期+类型+报错三信号同时具备）', () => {
+    // 有日期函数但无类型不匹配信号
+    expect(isPgDateTypeError('date_trunc: argument must be a string literal')).toBe(false);
+    // 有类型不匹配但非日期相关
+    expect(isPgDateTypeError('function lower(character varying) does not exist')).toBe(false);
+  });
+
+  it('空值与随机文本安全返回 false', () => {
+    expect(isPgDateTypeError('')).toBe(false);
+    expect(isPgDateTypeError('connection timeout')).toBe(false);
   });
 });
