@@ -1,8 +1,8 @@
 # Qoder Token 用量统计（token-usage）
 
-> Qoder 桌面端 token 消费计量插件：同时覆盖 **Qoder 官方模型** 与 **自定义模型（BYOK / custom_model）**，支持按天 / 模型 / 项目聚合、官网价费用换算，一键生成 **可视化 HTML 仪表盘** 与 **IDE 内 Canvas 仪表盘**，并在任意工作区提供 `/token-usage` 斜杠命令。
+> Qoder 桌面端 token 消费计量插件：同时覆盖 **Qoder 官方模型** 与 **自定义模型（BYOK / custom_model）**，支持按天 / 模型 / 项目聚合、官网价费用换算（**可自动更新最新官网价**），一键生成 **可视化 HTML 仪表盘** 与 **IDE 内 Canvas 仪表盘**，并在任意工作区提供 `/token-usage` 与 `/update-pricing` 斜杠命令。
 
-- 版本 0.2.1 ｜ 许可 MIT ｜ 运行环境 Python 3.8+（仅标准库，无第三方依赖）
+- 版本 0.3.0 ｜ 许可 MIT ｜ 运行环境 Python 3.8+（仅标准库，无第三方依赖）
 - 支持 Qoder 桌面端：macOS / Windows / Linux
 
 ## 为什么需要它
@@ -18,6 +18,7 @@
 | 双通道计量 | 官方模型档位（qmodel/cmodel/gmodel/kmodel/lite/auto 等）+ 自定义模型（`custom_model`） |
 | 多维聚合 | 按天 / 按模型 / 按项目，输出消息数、输入/输出/缓存 tokens、参考费用 |
 | 费用换算 | `pricing.json` 内置 18 款常用模型官网价（2026-09-23 获取）；DeepSeek 系列按消息时间自动判峰谷（高峰=北京时间周一至周五 9:00-12:00、14:00-18:00） |
+| 价格自动更新 | `update_pricing.py`：从插件公开仓库（Gitee / GitHub 双源）同步最新官网参考价——结构校验 + 原子写入 + 自动备份 + 24h 节流 + 离线开关，支持 `--check` / `--dry-run` |
 | 可视化仪表盘 | 自包含 HTML：KPI 总览、每日用量堆叠柱、每日费用折线、模型分布、项目排行、明细表；近 7/30/90 天与全部历史四档切换，无外部依赖，双击即开 |
 | Canvas 仪表盘 | Qoder IDE 内直接打开：`build_canvas.py` 生成 `.canvas.tsx` 到当前工作区的画布目录，Canvas 面板 / 对话链接点击即看，范围切换偏好持久记忆 |
 | 斜杠命令 | `/token-usage`（任意工作区）：一键刷新 Canvas 仪表盘、返回 IDE 打开链接并汇报总览 |
@@ -62,6 +63,8 @@ python3 scripts/usage_report.py --days 0
 python3 scripts/build_dashboard.py --open
 # IDE 内 Canvas 仪表盘（生成/刷新到当前工作区画布目录，在 Qoder Canvas 面板点击打开）
 python3 scripts/build_canvas.py --workspace "$(pwd)"
+# 更新模型价格表（检查并更新；--check 只检查 / --dry-run 只看差异）
+python3 scripts/update_pricing.py
 ```
 
 Windows 上将 `python3` 换成 `python` 或 `py -3`。
@@ -74,9 +77,11 @@ Windows 上将 `python3` 换成 `python` 或 `py -3`。
 |---|---|---|
 | Skill | `skills/token-usage/SKILL.md` | 触发式技能：报表与仪表盘 |
 | 命令 | `commands/token-usage.md` | 斜杠命令 `/token-usage`：刷新 Canvas 仪表盘并报数（任意工作区） |
+| 命令 | `commands/update-pricing.md` | 斜杠命令 `/update-pricing`：检查并自动更新模型价格表 |
 | 脚本 | `skills/token-usage/scripts/usage_report.py` | 文本 / JSON 报表（markdown 表格） |
 | 脚本 | `skills/token-usage/scripts/build_dashboard.py` | 可视化仪表盘生成器（HTML） |
 | 脚本 | `skills/token-usage/scripts/build_canvas.py` | IDE Canvas 仪表盘生成器（.canvas.tsx） |
+| 脚本 | `skills/token-usage/scripts/update_pricing.py` | 价格表自动更新（双源拉取 / 校验 / 备份 / 节流） |
 | 模板 | `skills/token-usage/scripts/dashboard_template.html` | 自包含仪表盘模板（原生 JS + SVG） |
 | 模板 | `skills/token-usage/scripts/canvas_template.tsx` | Canvas 模板（qoder/canvas SDK 组件） |
 | 价格表 | `skills/token-usage/pricing.json` | 官网参考价（峰谷 / flat 两种结构） |
@@ -93,24 +98,26 @@ Windows 上将 `python3` 换成 `python` 或 `py -3`。
 - 关键表 `chat_message`：`token_info`（prompt/completion/cached，cached 是 prompt 子集）、`model_info.model_key`、`gmt_create`（毫秒时间戳）；`session_id` 关联 `chat_session.project_name` 得到项目维度。
 - 费用口径：`非缓存输入×input价 + 缓存命中×cached价 + 输出×output价`；未配置单价的模型只统计 token，费用列显示 `-`。
 - `custom_model` 为所有自定义模型（BYOK）的统一口径，本地库不区分具体型号；费用按其主力模型 DeepSeek-Flash 计价（切换参考模型见 `pricing.json` 的 `_otherCustomModels`）。
-- **隐私**：所有数据仅在本机以只读方式读取并渲染，不联网、不上传。
+- **隐私**：统计与仪表盘渲染全部在本机完成、不上传任何数据；唯一的联网动作为价格表更新（仅从本插件公开仓库下载 `pricing.json`，24 小时内至多一次），可用 `--offline` 或 `TOKEN_USAGE_NO_NET=1` 完全禁用。
 - 与官方 Credits 的区别：本插件统计 token 实物量，不等于官方 Credit 计费口径；官方额度请看 IDE 右下角「Credits 用量」或官网 Settings > Usage。
 
 ## 费用换算（pricing.json）
 
-`pricing.json` 已内置 18 款常用模型官网参考价（2026-09-23 获取），统计时直接输出预估费用：
+`pricing.json` 已内置 18 款常用模型官网参考价（2026-09-23 获取），统计时直接输出预估费用；价格表可自动更新：
 
 - 两种价格结构：flat（`input / output / cached`）或峰谷分时（`peak / offpeak`）；DeepSeek 系列按每条消息的时间自动判断高峰/空闲。
 - 自定义模型默认按 **DeepSeek-Flash** 计价；主力模型变化时，把 `_otherCustomModels` 里对应价格（已备好 18 款常用模型：DeepSeek / Kimi / 通义千问 / 智谱 GLM / 豆包 / MiniMax）复制到 `models.custom_model` 覆盖即可。
 - Qoder 官方档位无公开单价映射，费用列显示 `-`（以 Credits 口径为准）。
 - 价格来源（如官网调整以官网为准）：[DeepSeek](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) ｜ [Kimi](https://platform.moonshot.cn/docs/pricing/chat) ｜ [阿里云百炼](https://help.aliyun.com/zh/model-studio/model-pricing) ｜ [智谱](https://docs.bigmodel.cn/cn/guide/start/pricing) ｜ [豆包/火山方舟](https://www.volcengine.com/docs/82379/1544106) ｜ [MiniMax](https://platform.minimax.cn/docs/guides/pricing-paygo)
+- **自动更新**：`python3 scripts/update_pricing.py` 从插件公开仓库（Gitee / GitHub 双源）同步最新价格表（结构校验 + 原子写入 + 自动备份 + 24h 节流；`--check` 只检查 / `--dry-run` 只看差异 / `--offline` 禁用联网）。
+- **维护者**：价格调整时更新仓库 `skills/token-usage/pricing.json` 的对应价格与顶层 `_version`（YYYY.MM.DD）后推送，用户端即可自动同步（无需等待插件版本升级）。
 
 ## 常见问题
 
 - **提示「未找到 Qoder 本地数据库」？** 确认本机已启动过一次 Qoder 桌面端；或先用上面的定位命令确认数据库实际位置，再用 `--db` 指定或设置 `QODER_DB_PATH`。
 - **费用列显示 `-`？** 该模型未在 `pricing.json` 配置单价（如官方档位、`(未记录)` 分组），只统计 token 不折算费用。
 - **为什么和「Credits 用量」对不上？** 官方 Credits 是计费口径（含折扣、套餐），本插件是 token 实物量口径，两者不同属正常。
-- **数据会自动更新吗？** 不会。数据是生成时刻的只读快照，重新运行对应脚本即刷新（Canvas 版可对 Qoder 说「刷新 token 用量 Canvas 仪表盘」）。
+- **数据会自动更新吗？** 用量数据是生成时刻的只读快照，重新运行对应脚本即刷新（Canvas 版可对 Qoder 说「刷新 token 用量 Canvas 仪表盘」）；**价格表可自动更新**——运行 `update_pricing.py`（或 `/update-pricing` 命令）即可从公开仓库同步最新官网参考价。
 
 ## 兼容性
 
@@ -119,6 +126,7 @@ Windows 上将 `python3` 换成 `python` 或 `py -3`。
 
 ## 更新记录
 
+- 0.3.0（2026-09-23）：新增**模型价格自动更新**——`update_pricing.py` 从插件公开仓库（Gitee 优先 / GitHub 兜底）同步最新官网参考价：结构 + 数值校验、原子写入、自动备份（保留 3 份）、24h 节流、失败重试窗口、离线开关（`--offline` / `TOKEN_USAGE_NO_NET=1`）；新增 `/update-pricing` 斜杠命令；`/token-usage` 流程加入价格自检；`pricing.json` 新增 `_version` 版本字段。
 - 0.2.1（2026-09-23）：扩充计费模型范围——`_otherCustomModels` 备选参考价由 5 款增至 18 款，覆盖 DeepSeek / Kimi / 通义千问 / 智谱 GLM / 豆包 / MiniMax（新增 Kimi-K2.7-Code / HighSpeed / K2.6、Qwen-3.7-Plus / 3.8-Flash、GLM-5.3 / 5.2 / 5.3-Flash、Doubao-Seed-2.1-Pro / Turbo / Evolving、MiniMax-M3 / M2.7），价格均经官网复核（2026-09-23）。
 - 0.2.0（2026-09-23）：跨平台通用化——数据库路径自动探测（macOS/Windows/Linux）+ `QODER_DB_PATH` 覆盖；仪表盘默认输出与浏览器打开改用跨平台标准库；Canvas 项目目录 slug 归一化；斜杠命令跨安装根定位。
 - 0.1.0（2026-09-23）：首个版本——文本报表、可视化 HTML 仪表盘、IDE 内 Canvas 仪表盘与 `/token-usage` 斜杠命令。
@@ -135,4 +143,6 @@ Windows 上将 `python3` 换成 `python` 或 `py -3`。
 - **功能实测**（2026-09-23，macOS，真实本机数据库）：`usage_report.py` 近 7 天输出 6,429 条消息 / 723,360,649 tokens；`build_dashboard.py` 生成 61.9 KB 自包含 HTML（占位数据替换、payload 完整、页面结构校验通过）；`build_canvas.py` 生成 37.2 KB `.canvas.tsx`，经 `tsc --strict`（对照 Qoder 内置 `qoder/canvas` SDK 声明）零类型错误。
 - **容错实测**：`--db` 指向不存在路径时输出候选路径清单与解决提示后退出（exit 1）；`QODER_DB_PATH` 覆盖生效。
 - **0.2.1 定价扩充校验**（2026-09-23）：`_otherCustomModels` 18 款模型（DeepSeek / Kimi / 通义千问 / 智谱 GLM / 豆包 / MiniMax）价格均经官网原文复核；`pricing.json` 结构校验（JSON 有效性 + 各条目字段完整性）通过；插件离线校验器对插件目录复验通过；三大脚本从本机安装目录（0.2.1）复跑正常。
+- **0.3.0 价格自动更新实测**（2026-09-23，macOS，对插件仓库副本联网执行）：① 真更新链路——本地无版本旧表 → 远端 v2026.09.23（Gitee 源，302 跳转跟随成功），原子写入 + 自动备份（`pricing.json.bak-<时间戳>`）+ 状态记录，退出码 0；② 权限保持——原文件 644，更新后仍 644；③ 节流——24h 窗口内成功状态重复执行毫秒级跳过（不联网）；④ 已是最新——`--check --force` 判定 up-to-date（本地/远端均 v2026.09.23）；⑤ JSON 输出——`--json` 结构完整（status / local_version / remote_version / source / changes）；⑥ 离线开关——`--offline` 直接退出（exit 0）、`TOKEN_USAGE_NO_NET=1` 等效；⑦ 双源——Gitee（默认首源）与 GitHub raw（`--source` 直指）均拉取成功；⑧ 坏数据拒绝——币种错误 / 版本格式错 / 数值非法时 exit 1 且原文件 SHA-256 不变。
+- **0.3.0 插件结构校验**（2026-09-23）：`validate_qoder_plugin.py` 对 0.3.0 插件目录复验通过（OK: no issues found）。
 - **平台说明**：以上实测在 macOS 完成；Windows / Linux 的数据库探测、浏览器打开与路径处理为按平台约定实现，尚未在对应系统实测。

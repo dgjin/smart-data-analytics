@@ -1,8 +1,8 @@
 ---
 name: token-usage
-version: 0.2.1
-description: 统计 Qoder 桌面端的 token 消费计量——同时覆盖 Qoder 官方模型额度与自定义模型（BYOK / custom_model）。数据来自 Qoder 本地数据库（每条消息的 token 明细：输入/输出/缓存命中），支持按天、按模型、按项目聚合，可按 pricing.json 中的官网单价换算参考费用，可生成可视化 HTML 仪表盘与 Qoder IDE 内 Canvas 仪表盘，并提供 /token-usage 斜杠命令在任意工作区一键刷新。Use when the user asks about Qoder token 消费/用量统计（含自定义模型）, "我这周用了多少 token", token usage / token cost / credits 消耗报告, 统计 token 消费, 查看用量, custom model 用量, 可视化查看用量/账单, 或需要导出用量报表与仪表盘时。
-description_zh: 统计 Qoder 桌面端 token 消费（官方模型 + 自定义模型），支持费用换算、可视化 HTML 仪表盘与 IDE 内 Canvas 仪表盘，任意工作区可用 /token-usage 斜杠命令。
+version: 0.3.0
+description: 统计 Qoder 桌面端的 token 消费计量——同时覆盖 Qoder 官方模型额度与自定义模型（BYOK / custom_model）。数据来自 Qoder 本地数据库（每条消息的 token 明细：输入/输出/缓存命中），支持按天、按模型、按项目聚合，可按 pricing.json 中的官网单价换算参考费用并一键自动更新官网价（update_pricing.py），可生成可视化 HTML 仪表盘与 Qoder IDE 内 Canvas 仪表盘，并提供 /token-usage 斜杠命令在任意工作区一键刷新。Use when the user asks about Qoder token 消费/用量统计（含自定义模型）, "我这周用了多少 token", token usage / token cost / credits 消耗报告, 统计 token 消费, 查看用量, custom model 用量, 可视化查看用量/账单, 更新模型价格, 或需要导出用量报表与仪表盘时。
+description_zh: 统计 Qoder 桌面端 token 消费（官方模型 + 自定义模型），支持费用换算（可自动更新官网价）、可视化 HTML 仪表盘与 IDE 内 Canvas 仪表盘，任意工作区可用 /token-usage 与 /update-pricing 斜杠命令。
 user-invocable: true
 ---
 
@@ -23,8 +23,9 @@ user-invocable: true
 |---|---|
 | `/token-usage` | 刷新 Canvas 仪表盘（含四档数据），返回 IDE 内打开链接，并汇报近 7 天总览 |
 | `/token-usage 30` | 同上，并按近 30 天汇报（也支持 `90` / `all`） |
+| `/update-pricing` | 检查并自动更新模型价格表（可带 `--check` / `--dry-run`） |
 
-命令按「生成 canvas 到当前工作区 → 返回 Markdown 链接 → 报数」执行，定义见 `commands/token-usage.md`。
+命令按「价格表自检 → 生成 canvas 到当前工作区 → 返回 Markdown 链接 → 报数」执行，定义见 `commands/token-usage.md` 与 `commands/update-pricing.md`。
 
 ## 快速使用
 
@@ -88,7 +89,7 @@ python3 scripts/build_canvas.py --out /tmp/x.canvas.tsx          # 自定义输�
 
 ## 参考价格（已内置官网价）
 
-`pricing.json` 已内置 18 款常用模型的官网参考价（2026-09-23 获取），统计时直接输出预估费用：
+`pricing.json` 已内置 18 款常用模型的官网参考价（2026-09-23 获取），统计时直接输出预估费用；价格表支持自动更新（见下文「价格自动更新」）：
 
 - **自定义模型（custom_model）**：本地库不区分具体型号，默认按其主力模型 **DeepSeek-Flash** 计价；DeepSeek 系列为峰谷两档，脚本按每条消息的时间自动判断高峰/空闲（高峰=北京时间周一至周五 9:00-12:00、14:00-18:00）。
 - **切换参考模型**：主力模型变化时，把 `_otherCustomModels` 里对应价格复制到 `models.custom_model` 覆盖即可——已备好 18 款常用模型：DeepSeek（Flash / V4-Pro）、Kimi（K3 / K2.7-Code / HighSpeed / K2.6 / for-Coding）、通义千问（3.8-Max / 3.7-Plus / 3.8-Flash）、GLM（5.3 / 5.2 / 5.3-Flash）、豆包（Seed-2.1-Pro / Turbo / Evolving）、MiniMax（M3 / M2.7）。
@@ -96,13 +97,31 @@ python3 scripts/build_canvas.py --out /tmp/x.canvas.tsx          # 自定义输�
 - Qoder 官方档位（qmodel/cmodel/gmodel 等）无公开单价映射，费用列显示 `-`（官方额度以 Credits 口径为准）。
 - 价格来源（如官网调整以官网为准）：[DeepSeek](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) ｜ [Kimi](https://platform.moonshot.cn/docs/pricing/chat) ｜ [阿里云百炼](https://help.aliyun.com/zh/model-studio/model-pricing) ｜ [智谱](https://docs.bigmodel.cn/cn/guide/start/pricing) ｜ [豆包/火山方舟](https://www.volcengine.com/docs/82379/1544106) ｜ [MiniMax](https://platform.minimax.cn/docs/guides/pricing-paygo)
 
+## 价格自动更新（update_pricing.py）
+
+从插件的公开仓库（Gitee 优先、GitHub 兜底）同步最新官网参考价，一次命令完成检查与更新：
+
+```bash
+python3 scripts/update_pricing.py           # 检查并更新（24h 节流，推荐）
+python3 scripts/update_pricing.py --check   # 只检查是否有新版，不写入
+python3 scripts/update_pricing.py --dry-run # 显示差异摘要，但不写入
+python3 scripts/update_pricing.py --offline # 完全不联网
+```
+
+- **建议用法**：统计前先运行 `--check`（节流内为毫秒级本地跳过、静默失败、不影响统计），有新版再更新——费用列始终基于最新价；
+- **安全**：写入前做结构 + 数值校验（币种 / 单位 / 版本格式 / 价格范围），不合法即拒绝并保留原文件；
+- **可回滚**：写入为原子替换并自动备份（`pricing.json.bak-<时间戳>`，保留最近 3 份，回滚 = 复制覆盖）；
+- **节流**：24 小时内重复运行直接跳过（`--force` 强制）；网络失败 2 小时后才重试；
+- **隐私**：只下载公开价格表，不上传任何本地数据；`TOKEN_USAGE_NO_NET=1` / `--offline` 可完全禁用联网；
+- 自定义源：`--source URL`（可重复）或环境变量 `TOKEN_USAGE_PRICING_URL`（多个用英文逗号分隔）；价格表版本见顶层 `_version` 字段（YYYY.MM.DD）。
+
 ## 数据源与口径
 
 - 数据库：跨平台自动探测（**只读模式**打开，不影响正在运行的 Qoder）——macOS `~/Library/Application Support/Qoder/SharedClientCache/cache/db/local.db`；Windows `%APPDATA%\Qoder\SharedClientCache\cache\db\local.db`（另探测 `%LOCALAPPDATA%`）；Linux `~/.config/Qoder/SharedClientCache/cache/db/local.db`。可用环境变量 `QODER_DB_PATH` 或 `--db` 覆盖，report/dashboard/canvas 三个脚本均适用。
 - 关键表：`chat_message`（`token_info` 含 prompt/completion/cached tokens，`model_info.model_key` 标识模型，`gmt_create` 为毫秒时间戳）；`session_id` 关联 `chat_session.project_name` 得到项目维度。
 - `(未记录)` 分组：早期消息缺 model_info 时的归集；`custom_model` 分组：所有自定义模型（BYOK）的统一口径，本地库不含型号细分。
 - 费用口径：`非缓存输入×input价 + 缓存命中×cached价 + 输出×output价`（cached 是 prompt 的子集，不重复计费）。
-- **隐私**：所有数据仅在本机以只读方式读取并渲染，不联网、不上传。
+- **隐私**：统计与仪表盘渲染全部在本机完成、不上传任何数据；唯一的联网动作为价格表更新（仅从本插件公开仓库下载 `pricing.json`，24 小时内至多一次），可用 `--offline` 或 `TOKEN_USAGE_NO_NET=1` 完全禁用。
 - **与官方 Credits 的区别**：本技能统计的是 token 实物量（含官方模型调用明细与自定义模型），不等于官方 Credit 计费口径；官方额度消耗请查看 IDE 右下角「Credits 用量」或官网 Settings > Usage。
 
 ## 常见请求 → 命令
@@ -116,3 +135,4 @@ python3 scripts/build_canvas.py --out /tmp/x.canvas.tsx          # 自定义输�
 | 可视化查看 / 看图表 / 仪表盘（浏览器） | `python3 scripts/build_dashboard.py --open` |
 | 在 IDE 内打开仪表盘（Canvas 面板） | 首选斜杠命令 `/token-usage`；或 `python3 scripts/build_canvas.py --workspace <当前工作区>`，再把 canvas 路径以 Markdown 链接返回给用户点击打开 |
 | 换算成钱 | 先确认 `pricing.json` 单价已配置，再重跑 |
+| 更新模型价格 / 价格是不是最新的 | `python3 scripts/update_pricing.py`（检查并更新）；加 `--check` 只检查 |
