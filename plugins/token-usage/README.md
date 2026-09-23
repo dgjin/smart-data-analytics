@@ -132,6 +132,7 @@ Windows 上将 `python3` 换成 `python` 或 `py -3`。
 ## 验证记录
 
 - **离线校验**（2026-09-23）：`validate_qoder_plugin.py`（Qoder 插件结构校验器）对插件根目录检查通过——manifest 字段、组件路径、`SKILL.md` frontmatter 均合规。
-- **功能实测**（2026-09-23，macOS，真实本机数据库）：`usage_report.py` 近 7 天输出 6,307 条消息 / 710,869,367 tokens；`build_dashboard.py` 生成 61.9 KB 自包含 HTML（占位数据替换、payload 完整、页面结构校验通过）；`build_canvas.py` 生成 37.2 KB `.canvas.tsx`，经 `tsc --strict`（对照 Qoder 内置 `qoder/canvas` SDK 声明）零类型错误。
+- **功能实测**（2026-09-23，macOS，真实本机数据库）：`usage_report.py` 近 7 天输出 6,429 条消息 / 723,360,649 tokens；`build_dashboard.py` 生成 61.9 KB 自包含 HTML（占位数据替换、payload 完整、页面结构校验通过）；`build_canvas.py` 生成 37.2 KB `.canvas.tsx`，经 `tsc --strict`（对照 Qoder 内置 `qoder/canvas` SDK 声明）零类型错误。
 - **容错实测**：`--db` 指向不存在路径时输出候选路径清单与解决提示后退出（exit 1）；`QODER_DB_PATH` 覆盖生效。
+- **0.2.1 定价扩充校验**（2026-09-23）：`_otherCustomModels` 18 款模型（DeepSeek / Kimi / 通义千问 / 智谱 GLM / 豆包 / MiniMax）价格均经官网原文复核；`pricing.json` 结构校验（JSON 有效性 + 各条目字段完整性）通过；插件离线校验器对插件目录复验通过；三大脚本从本机安装目录（0.2.1）复跑正常。
 - **平台说明**：以上实测在 macOS 完成；Windows / Linux 的数据库探测、浏览器打开与路径处理为按平台约定实现，尚未在对应系统实测。
