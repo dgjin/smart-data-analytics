@@ -15,8 +15,13 @@ allowed-tools: [Read, Glob, Bash]
 1. 定位技能目录（取已安装的最新版本，记为 SKILL_DIR）：
 
    ```bash
-   ls -d ~/.qoder/plugins/cache/local/token-usage/*/skills/token-usage/ | sort -V | tail -1
+   ls -d ~/.qoder/plugins/cache/*/token-usage/*/skills/token-usage/ 2>/dev/null | sort -V | tail -1
    ```
+
+   - 该写法同时覆盖本地安装（`cache/local/...`）与市场安装（`cache/qoder-marketplace/...`）；
+   - Windows PowerShell 等价写法：
+     `Get-ChildItem "$env:USERPROFILE\.qoder\plugins\cache\*\token-usage\*\skills\token-usage" | Select-Object -Last 1`；
+   - 若没有输出，说明插件未安装或未启用：提示用户先在 Qoder 插件面板安装 `token-usage`，不要继续执行后续步骤。
 
 2. 生成 / 刷新 Canvas 仪表盘（一次生成即包含 近 7 天 / 近 30 天 / 近 90 天 / 全部历史 四档数据）：
 
@@ -45,5 +50,6 @@ allowed-tools: [Read, Glob, Bash]
 ## Notes
 
 - 数据为 Qoder 本地数据库的一次只读快照，不自动更新；本命令每次执行都会重新生成最新数据。
+- `python3` 不可用时改用 `python`（Windows 常见）或 `py -3`，需 Python 3.8+；数据库路径默认跨平台自动探测，也可用环境变量 `QODER_DB_PATH` 或 `--db` 指定。
 - 自定义模型（BYOK）费用按其主力模型 DeepSeek-Flash 官网价折算；Qoder 官方档位无公开单价，费用列显示 —。
 - 口径与计价细节见技能 `SKILL.md` 的「数据源与口径 / 参考价格」章节。

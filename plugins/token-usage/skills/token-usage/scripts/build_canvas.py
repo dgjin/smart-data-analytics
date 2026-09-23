@@ -51,7 +51,7 @@ FOOTNOTES = [
 
 def parse_args():
     p = argparse.ArgumentParser(description="生成 Qoder Token 用量 Canvas 仪表盘（.canvas.tsx）")
-    p.add_argument("--db", default=ur.DB_DEFAULT, help="Qoder 本地数据库路径（默认自动定位）")
+    p.add_argument("--db", default=ur.DB_DEFAULT, help="Qoder 本地数据库路径（默认自动跨平台定位；可用环境变量 QODER_DB_PATH 覆盖）")
     p.add_argument("--pricing", default=ur.PRICING_DEFAULT, help="单价表路径（默认技能目录下 pricing.json）")
     p.add_argument(
         "--workspace",
@@ -63,9 +63,9 @@ def parse_args():
 
 
 def project_slug(path):
-    """工作区绝对路径 -> Qoder 项目目录 slug（/ 替换为 -，前加 -）。"""
-    p = os.path.abspath(os.path.expanduser(path)).strip("/")
-    return "-" + p.replace("/", "-")
+    """工作区绝对路径 -> Qoder 项目目录 slug（分隔符统一为 /，去掉盘符冒号后替换为 -，前加 -）。"""
+    p = os.path.abspath(os.path.expanduser(path)).replace("\\", "/").replace(":", "")
+    return "-" + p.strip("/").replace("/", "-")
 
 
 def build_days(rows, pricing):
@@ -144,9 +144,7 @@ def build_range(rows, project_map, pricing, rid, label):
 def main():
     args = parse_args()
     workspace = os.path.abspath(os.path.expanduser(args.workspace or WORKSPACE_DEFAULT))
-    if not os.path.exists(args.db):
-        print(f"未找到 Qoder 数据库：{args.db}\n（请确认本机已安装并运行过 Qoder 桌面端）", file=sys.stderr)
-        sys.exit(1)
+    ur.require_db(args.db)
     if not os.path.exists(TEMPLATE):
         print(f"未找到模板文件：{TEMPLATE}", file=sys.stderr)
         sys.exit(1)
@@ -181,7 +179,15 @@ def main():
     else:
         canvas_dir = os.path.join(QODER_PROJECTS, project_slug(workspace), "canvases")
         if not os.path.isdir(os.path.dirname(canvas_dir)):
-            print(f"提示：未找到该工作区的 Qoder 项目目录，将创建 {canvas_dir}", file=sys.stderr)
+            print(f"提示：未找到该工作区对应的 Qoder 项目目录，将创建 {canvas_dir}", file=sys.stderr)
+            print("  可先用 Qoder 打开该工作区，或用 --out 指定输出文件路径。", file=sys.stderr)
+            try:
+                names = sorted(d for d in os.listdir(QODER_PROJECTS)
+                               if os.path.isdir(os.path.join(QODER_PROJECTS, d)))[:8]
+                if names:
+                    print("  现有项目目录示例：" + "、".join(names), file=sys.stderr)
+            except OSError:
+                pass
         out = os.path.join(canvas_dir, CANVAS_NAME)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:

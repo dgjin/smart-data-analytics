@@ -1,0 +1,10 @@
+# macOS / Editor
+.DS_Store
+__MACOSX/
+
+# Python
+__pycache__/
+*.pyc
+
+# Build output
+dist/

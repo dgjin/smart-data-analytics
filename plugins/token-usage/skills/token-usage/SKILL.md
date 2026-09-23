@@ -1,6 +1,6 @@
 ---
 name: token-usage
-version: 0.1.0
+version: 0.2.0
 description: 统计 Qoder 桌面端的 token 消费计量——同时覆盖 Qoder 官方模型额度与自定义模型（BYOK / custom_model）。数据来自 Qoder 本地数据库（每条消息的 token 明细：输入/输出/缓存命中），支持按天、按模型、按项目聚合，可按 pricing.json 中的官网单价换算参考费用，可生成可视化 HTML 仪表盘与 Qoder IDE 内 Canvas 仪表盘，并提供 /token-usage 斜杠命令在任意工作区一键刷新。Use when the user asks about Qoder token 消费/用量统计（含自定义模型）, "我这周用了多少 token", token usage / token cost / credits 消耗报告, 统计 token 消费, 查看用量, custom model 用量, 可视化查看用量/账单, 或需要导出用量报表与仪表盘时。
 description_zh: 统计 Qoder 桌面端 token 消费（官方模型 + 自定义模型），支持费用换算、可视化 HTML 仪表盘与 IDE 内 Canvas 仪表盘，任意工作区可用 /token-usage 斜杠命令。
 user-invocable: true
@@ -11,6 +11,9 @@ user-invocable: true
 读取 Qoder 桌面端本地数据库，聚合每条消息的 token 明细，输出按天 / 模型 / 项目的消费报表与可视化仪表盘。**同时覆盖 Qoder 官方模型（qmodel / cmodel / gmodel / kmodel / lite / auto 等档位）与自定义模型（`custom_model`，BYOK）**——自定义模型消耗不走 Qoder 官方 Credits，官方入口查不到，此技能是唯一可观测途径。
 
 插件为 User 级安装，**对所有工作区通用**：在任何项目里都可以用自然语言触发，或直接使用斜杠命令。
+
+- 安装位置（脚本由此定位）：`~/.qoder/plugins/cache/local/token-usage/<version>/`（本地安装）或 `~/.qoder/plugins/cache/qoder-marketplace/token-usage/<version>/`（市场安装）。
+- 运行环境：Python 3.8+（仅标准库，无需第三方依赖）；macOS / Windows / Linux 的 Qoder 桌面端均可。
 
 ## 斜杠命令（任意工作区可用）
 
@@ -25,7 +28,7 @@ user-invocable: true
 
 ## 快速使用
 
-在本技能目录下运行（或使用绝对路径）：
+在本技能目录下运行（或使用绝对路径）。Python 命令按平台取 `python3`（macOS/Linux）或 `python` / `py -3`（Windows）：
 
 ```bash
 python3 scripts/usage_report.py                      # 近 7 天，按天
@@ -43,7 +46,7 @@ python3 scripts/usage_report.py --days 7 --json      # 结构化输出（供程�
 | `--by day\|model\|project` | 聚合维度（默认 day） |
 | `--top N` | model/project 维度的最大行数（默认 50） |
 | `--json` | 输出 JSON 而非 markdown |
-| `--db PATH` | 覆盖数据库路径（默认 macOS 自动定位） |
+| `--db PATH` | 覆盖数据库路径（默认跨平台自动探测，亦可用环境变量 `QODER_DB_PATH`） |
 | `--pricing PATH` | 覆盖单价表路径（默认技能目录下 pricing.json） |
 
 输出列：消息数、输入 Tokens、输出 Tokens、缓存 Tokens、合计 Tokens、预估费用。
@@ -95,10 +98,11 @@ python3 scripts/build_canvas.py --out /tmp/x.canvas.tsx          # 自定义输�
 
 ## 数据源与口径
 
-- 数据库：`~/Library/Application Support/Qoder/SharedClientCache/cache/db/local.db`（macOS），以**只读模式**打开，不影响正在运行的 Qoder。
+- 数据库：跨平台自动探测（**只读模式**打开，不影响正在运行的 Qoder）——macOS `~/Library/Application Support/Qoder/SharedClientCache/cache/db/local.db`；Windows `%APPDATA%\Qoder\SharedClientCache\cache\db\local.db`（另探测 `%LOCALAPPDATA%`）；Linux `~/.config/Qoder/SharedClientCache/cache/db/local.db`。可用环境变量 `QODER_DB_PATH` 或 `--db` 覆盖，report/dashboard/canvas 三个脚本均适用。
 - 关键表：`chat_message`（`token_info` 含 prompt/completion/cached tokens，`model_info.model_key` 标识模型，`gmt_create` 为毫秒时间戳）；`session_id` 关联 `chat_session.project_name` 得到项目维度。
 - `(未记录)` 分组：早期消息缺 model_info 时的归集；`custom_model` 分组：所有自定义模型（BYOK）的统一口径，本地库不含型号细分。
 - 费用口径：`非缓存输入×input价 + 缓存命中×cached价 + 输出×output价`（cached 是 prompt 的子集，不重复计费）。
+- **隐私**：所有数据仅在本机以只读方式读取并渲染，不联网、不上传。
 - **与官方 Credits 的区别**：本技能统计的是 token 实物量（含官方模型调用明细与自定义模型），不等于官方 Credit 计费口径；官方额度消耗请查看 IDE 右下角「Credits 用量」或官网 Settings > Usage。
 
 ## 常见请求 → 命令

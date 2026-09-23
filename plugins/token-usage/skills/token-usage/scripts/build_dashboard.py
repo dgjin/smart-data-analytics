@@ -9,16 +9,17 @@ HTML 模板（dashboard_template.html），生成可直接双击打开的仪表�
 纯 Python 标准库 + 原生 JS/SVG 渲染，无任何外部依赖。
 
 用法：
-  python3 build_dashboard.py                    # 生成到 ~/Documents/qoder-token-dashboard.html
-  python3 build_dashboard.py --open             # 生成并用默认浏览器打开
+  python3 build_dashboard.py                    # 生成到 ~/Documents/qoder-token-dashboard.html（无 Documents 目录时落到用户主目录）
+  python3 build_dashboard.py --open             # 生成并用默认浏览器打开（跨平台）
   python3 build_dashboard.py --out /tmp/x.html  # 自定义输出路径
 """
 import argparse
 import json
 import os
-import subprocess
 import sys
+import webbrowser
 from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +28,16 @@ sys.path.insert(0, SCRIPT_DIR)
 import usage_report as ur  # noqa: E402
 
 TEMPLATE = os.path.join(SCRIPT_DIR, "dashboard_template.html")
-OUT_DEFAULT = os.path.expanduser("~/Documents/qoder-token-dashboard.html")
+
+
+def _default_out():
+    """默认输出：优先 ~/Documents（存在时），否则用户主目录 —— 跨平台。"""
+    home = os.path.expanduser("~")
+    docs = os.path.join(home, "Documents")
+    return os.path.join(docs if os.path.isdir(docs) else home, "qoder-token-dashboard.html")
+
+
+OUT_DEFAULT = _default_out()
 RANGES = [("7", "近 7 天", 7), ("30", "近 30 天", 30), ("90", "近 90 天", 90), ("all", "全部历史", 0)]
 
 FOOTNOTES = [
@@ -40,7 +50,7 @@ FOOTNOTES = [
 
 def parse_args():
     p = argparse.ArgumentParser(description="生成 Qoder Token 消费可视化仪表盘（自包含 HTML）")
-    p.add_argument("--db", default=ur.DB_DEFAULT, help="Qoder 本地数据库路径（默认自动定位）")
+    p.add_argument("--db", default=ur.DB_DEFAULT, help="Qoder 本地数据库路径（默认自动跨平台定位；可用环境变量 QODER_DB_PATH 覆盖）")
     p.add_argument("--pricing", default=ur.PRICING_DEFAULT, help="单价表路径（默认技能目录下 pricing.json）")
     p.add_argument("--out", default=OUT_DEFAULT, help="输出 HTML 路径")
     p.add_argument("--open", action="store_true", dest="open_after", help="生成后用默认浏览器打开")
@@ -79,9 +89,7 @@ def build_range_payload(rows, project_map, pricing, range_id, range_label):
 
 def main():
     args = parse_args()
-    if not os.path.exists(args.db):
-        print(f"未找到 Qoder 数据库：{args.db}\n（请确认本机已安装并运行过 Qoder 桌面端）", file=sys.stderr)
-        sys.exit(1)
+    ur.require_db(args.db)
     if not os.path.exists(TEMPLATE):
         print(f"未找到模板文件：{TEMPLATE}", file=sys.stderr)
         sys.exit(1)
@@ -120,7 +128,7 @@ def main():
     print(f"仪表盘已生成：{out}")
     print(f"  近 7 天：{cur['total']:,} tokens｜参考费用 ¥{cur['cost'] or 0:,.2f}｜{cur['msgs']:,} 条消息")
     if args.open_after:
-        subprocess.run(["open", out], check=False)
+        webbrowser.open(Path(out).resolve().as_uri())
 
 
 if __name__ == "__main__":

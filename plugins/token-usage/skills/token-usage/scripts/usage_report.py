@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
+r"""
 Qoder Token 消费统计 —— 同时覆盖 Qoder 官方模型与自定义模型（BYOK）。
 
 数据源：Qoder 桌面端本地数据库（只读打开，不影响正在运行的 Qoder）
-  ~/Library/Application Support/Qoder/SharedClientCache/cache/db/local.db
+  macOS:   ~/Library/Application Support/Qoder/SharedClientCache/cache/db/local.db
+  Windows: %APPDATA%\Qoder\SharedClientCache\cache\db\local.db（另探测 %LOCALAPPDATA%）
+  Linux:   ~/.config/Qoder/SharedClientCache/cache/db/local.db
+  自动探测上述候选；可用环境变量 QODER_DB_PATH 或 --db 覆盖。表结构：
     chat_message.token_info   {prompt_tokens, completion_tokens, cached_tokens, ...}
     chat_message.model_info   {model_key}    —— custom_model 即自定义模型
     chat_message.gmt_create   毫秒时间戳；session_id 关联 chat_session.project_name
@@ -25,9 +28,46 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 
-DB_DEFAULT = os.path.expanduser(
-    "~/Library/Application Support/Qoder/SharedClientCache/cache/db/local.db"
-)
+DB_RELATIVE = os.path.join("Qoder", "SharedClientCache", "cache", "db", "local.db")
+
+
+def db_candidates():
+    """各平台 Qoder 桌面端本地数据库候选路径（Electron 用户数据目录约定）。"""
+    home = os.path.expanduser("~")
+    appdata = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
+    localapp = os.environ.get("LOCALAPPDATA") or os.path.join(home, "AppData", "Local")
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    return list(dict.fromkeys([
+        os.path.join(home, "Library", "Application Support", DB_RELATIVE),  # macOS
+        os.path.join(appdata, DB_RELATIVE),  # Windows（Roaming）
+        os.path.join(localapp, DB_RELATIVE),  # Windows（Local，兜底）
+        os.path.join(xdg, DB_RELATIVE),  # Linux
+    ]))
+
+
+def find_db_path():
+    """返回第一个存在的候选路径；都不存在时返回 None。"""
+    for path in db_candidates():
+        if os.path.exists(path):
+            return path
+    return None
+
+
+DB_DEFAULT = os.environ.get("QODER_DB_PATH") or find_db_path() or db_candidates()[0]
+
+
+def require_db(path):
+    """校验数据库存在；缺失时给出候选清单与解决提示后退出。"""
+    if os.path.exists(path):
+        return
+    print(f"未找到 Qoder 本地数据库：{path}", file=sys.stderr)
+    print("已尝试的候选路径：", file=sys.stderr)
+    for cand in db_candidates():
+        print(f"  - {cand}", file=sys.stderr)
+    print("提示：先启动过一次 Qoder 桌面端；或用 --db 指定路径；或设置环境变量 QODER_DB_PATH。", file=sys.stderr)
+    sys.exit(1)
+
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PRICING_DEFAULT = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "pricing.json"))
 TZ = timezone(timedelta(hours=8))  # 北京时间
@@ -38,7 +78,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="Qoder token 消费统计（官方模型 + 自定义模型）")
     p.add_argument("--days", type=int, default=7, help="统计近 N 天；0 = 全部历史（默认 7）")
     p.add_argument("--by", choices=["day", "model", "project"], default="day", help="聚合维度（默认 day）")
-    p.add_argument("--db", default=DB_DEFAULT, help="Qoder 本地数据库路径（默认自动定位）")
+    p.add_argument("--db", default=DB_DEFAULT, help="Qoder 本地数据库路径（默认自动跨平台定位；可用环境变量 QODER_DB_PATH 覆盖）")
     p.add_argument("--pricing", default=PRICING_DEFAULT, help="单价表路径（默认技能目录下 pricing.json）")
     p.add_argument("--top", type=int, default=50, help="model/project 维度的最大行数（默认 50）")
     p.add_argument("--json", action="store_true", help="输出 JSON 而非 markdown")
@@ -103,7 +143,7 @@ def message_cost(price, pt, ct, cd, gmt_ms):
 
 
 def fetch_usage(db_path, since_ms):
-    """读取 token 记录并聚合。返回 (buckets, totals, project_map, missing_models, range_info)。"""
+    """读取全部 token 记录。返回 (project_map, rows)；rows=(gmt_create, token_info, model_info, session_id)。"""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
     try:
         # session_id -> 项目名映射（供 project 维度）
@@ -231,9 +271,7 @@ def render_markdown(args, rows, missing, pricing, range_label, currency):
 
 def main():
     args = parse_args()
-    if not os.path.exists(args.db):
-        print(f"未找到 Qoder 数据库：{args.db}\n（请确认本机已安装并运行过 Qoder 桌面端）", file=sys.stderr)
-        sys.exit(1)
+    require_db(args.db)
 
     pricing, currency = load_pricing(args.pricing)
     since_ms = None
