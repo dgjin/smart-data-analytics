@@ -263,7 +263,7 @@ def render_markdown(args, rows, missing, pricing, range_label, currency):
         ]
     lines += [
         "",
-        "> 费用为参考估算：单价取自各模型官网（2026-09-22），DeepSeek 系列已按消息时间自动区分高峰/空闲时段。",
+        "> 费用为参考估算：单价取自各模型官网（2026-09-23），DeepSeek 系列已按消息时间自动区分高峰/空闲时段。",
         "> 自定义模型在本地库统一记录为 custom_model，费用按 pricing.json 中其配置的参考模型计价（见 display_name）。",
     ]
     return "\n".join(lines)

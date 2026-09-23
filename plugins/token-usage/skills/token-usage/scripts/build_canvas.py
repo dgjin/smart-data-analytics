@@ -41,7 +41,7 @@ RANGES = [("7", "近 7 天", 7), ("30", "近 30 天", 30), ("90", "近 90 天", 
 TOP_PROJECTS = 15
 
 FOOTNOTES = [
-    "费用为参考估算：单价取自各模型官网（2026-09-22 获取）；DeepSeek 系列按消息时间自动区分高峰/空闲时段。",
+    "费用为参考估算：单价取自各模型官网（2026-09-23 获取）；DeepSeek 系列按消息时间自动区分高峰/空闲时段。",
     "自定义模型（custom_model）在本地库不区分具体型号，费用按其主力模型 DeepSeek-Flash 计价；切换参考模型见 pricing.json 的 _otherCustomModels。",
     "Qoder 官方档位无公开单价，其 Tokens 计入总量但参考费用显示为 —（官方额度以 Credits 口径为准）。",
     "数据为 Qoder 本地 chat_message 表的一次只读快照，不自动更新；点击「刷新数据」或在 Chat 中说「刷新 token 用量 Canvas 仪表盘」即可重新生成。",

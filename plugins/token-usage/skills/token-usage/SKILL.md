@@ -1,6 +1,6 @@
 ---
 name: token-usage
-version: 0.2.0
+version: 0.2.1
 description: 统计 Qoder 桌面端的 token 消费计量——同时覆盖 Qoder 官方模型额度与自定义模型（BYOK / custom_model）。数据来自 Qoder 本地数据库（每条消息的 token 明细：输入/输出/缓存命中），支持按天、按模型、按项目聚合，可按 pricing.json 中的官网单价换算参考费用，可生成可视化 HTML 仪表盘与 Qoder IDE 内 Canvas 仪表盘，并提供 /token-usage 斜杠命令在任意工作区一键刷新。Use when the user asks about Qoder token 消费/用量统计（含自定义模型）, "我这周用了多少 token", token usage / token cost / credits 消耗报告, 统计 token 消费, 查看用量, custom model 用量, 可视化查看用量/账单, 或需要导出用量报表与仪表盘时。
 description_zh: 统计 Qoder 桌面端 token 消费（官方模型 + 自定义模型），支持费用换算、可视化 HTML 仪表盘与 IDE 内 Canvas 仪表盘，任意工作区可用 /token-usage 斜杠命令。
 user-invocable: true
@@ -88,13 +88,13 @@ python3 scripts/build_canvas.py --out /tmp/x.canvas.tsx          # 自定义输�
 
 ## 参考价格（已内置官网价）
 
-`pricing.json` 已内置各模型的官网参考价（2026-09-22 获取），统计时直接输出预估费用：
+`pricing.json` 已内置 18 款常用模型的官网参考价（2026-09-23 获取），统计时直接输出预估费用：
 
 - **自定义模型（custom_model）**：本地库不区分具体型号，默认按其主力模型 **DeepSeek-Flash** 计价；DeepSeek 系列为峰谷两档，脚本按每条消息的时间自动判断高峰/空闲（高峰=北京时间周一至周五 9:00-12:00、14:00-18:00）。
-- **切换参考模型**：主力模型变化时，把 `_otherCustomModels` 里对应价格（已备好 DeepSeek-V4-Pro / Kimi-K3 / Kimi-for-coding / Qwen-3.8-Max）复制到 `models.custom_model` 覆盖即可。
+- **切换参考模型**：主力模型变化时，把 `_otherCustomModels` 里对应价格复制到 `models.custom_model` 覆盖即可——已备好 18 款常用模型：DeepSeek（Flash / V4-Pro）、Kimi（K3 / K2.7-Code / HighSpeed / K2.6 / for-Coding）、通义千问（3.8-Max / 3.7-Plus / 3.8-Flash）、GLM（5.3 / 5.2 / 5.3-Flash）、豆包（Seed-2.1-Pro / Turbo / Evolving）、MiniMax（M3 / M2.7）。
 - **两种价格结构**：flat（`input/output/cached`）或峰谷分时（`peak/offpeak`）。
 - Qoder 官方档位（qmodel/cmodel/gmodel 等）无公开单价映射，费用列显示 `-`（官方额度以 Credits 口径为准）。
-- 价格来源（如官网调整以官网为准）：[DeepSeek](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) ｜ [Kimi](https://platform.moonshot.cn/docs/pricing/chat) ｜ [阿里云百炼](https://help.aliyun.com/zh/model-studio/models)
+- 价格来源（如官网调整以官网为准）：[DeepSeek](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) ｜ [Kimi](https://platform.moonshot.cn/docs/pricing/chat) ｜ [阿里云百炼](https://help.aliyun.com/zh/model-studio/model-pricing) ｜ [智谱](https://docs.bigmodel.cn/cn/guide/start/pricing) ｜ [豆包/火山方舟](https://www.volcengine.com/docs/82379/1544106) ｜ [MiniMax](https://platform.minimax.cn/docs/guides/pricing-paygo)
 
 ## 数据源与口径
 

@@ -41,7 +41,7 @@ OUT_DEFAULT = _default_out()
 RANGES = [("7", "近 7 天", 7), ("30", "近 30 天", 30), ("90", "近 90 天", 90), ("all", "全部历史", 0)]
 
 FOOTNOTES = [
-    "费用为参考估算：单价取自各模型官网（2026-09-22 获取），DeepSeek 系列已按消息时间自动区分高峰/空闲时段。",
+    "费用为参考估算：单价取自各模型官网（2026-09-23 获取），DeepSeek 系列已按消息时间自动区分高峰/空闲时段。",
     "自定义模型（custom_model）在本地库不区分具体型号，费用按其主力模型 DeepSeek-Flash 计价；切换参考模型见 pricing.json 的 _otherCustomModels。",
     "Qoder 官方档位无公开单价（官方额度以 Credits 口径为准），其 Token 计入总量但费用不计入。",
     "数据源为 Qoder 本地 chat_message 表的一次只读快照，页面数据不自动更新；刷新数据请重新运行生成脚本。",
