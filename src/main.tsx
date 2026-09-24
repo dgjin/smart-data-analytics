@@ -6,6 +6,7 @@ import {applyUITheme, getUITheme} from './utils/uiTheme';
 import { configureApiAuth } from './api/client';
 import { useAuthStore } from './hooks/useAuthStore';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { registerServiceWorker } from './pwa/register';
 
 // 与 index.html 内联脚本一致地应用持久化主题（兜底，保证组件读取到正确状态）
 applyUITheme(getUITheme());
@@ -16,6 +17,9 @@ configureApiAuth({
   onUnauthorized: () => useAuthStore.getState().logout(),
   onMustChangePassword: () => useAuthStore.getState().markMustChangePassword(),
 });
+
+// PWA：注册 Service Worker（仅生产环境；参见 src/pwa/register.ts）
+registerServiceWorker();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

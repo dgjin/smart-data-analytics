@@ -1,5 +1,6 @@
 import React, { useEffect, lazy, Suspense } from 'react';
 import { Header } from './components/Header';
+import { OfflineBanner } from './components/OfflineBanner';
 import { Sidebar } from './components/Sidebar';
 import { QueryChat } from './components/query/QueryChat';
 import { ReportGenerator } from './components/reports/ReportGenerator';
@@ -52,13 +53,24 @@ export default function App() {
     }
   }, [user, activeTab, setActiveTab]);
 
+  // PWA：登录页也挂载离线横幅（离线时说明联网功能不可用）
   if (!token || !user) {
-    return <Login />;
+    return (
+      <>
+        <OfflineBanner />
+        <Login />
+      </>
+    );
   }
 
   // P0-1 首登/被重置密码：强制改密前不渲染任何业务界面
   if (user.mustChangePassword) {
-    return <ForceChangePassword />;
+    return (
+      <>
+        <OfflineBanner />
+        <ForceChangePassword />
+      </>
+    );
   }
 
   const renderTabContent = () => {
@@ -86,6 +98,9 @@ export default function App() {
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 font-sans antialiased">
       {/* Top Header */}
       <Header />
+
+      {/* PWA：离线横幅（断网时提示数据功能不可用，恢复后自动消失） */}
+      <OfflineBanner />
 
       {/* Main Body */}
       <div className="flex flex-1 overflow-hidden">

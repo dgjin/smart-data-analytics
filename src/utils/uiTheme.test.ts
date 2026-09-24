@@ -13,6 +13,13 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 
 let lightClassOn = false;
+// PWA：theme-color meta 桩（记录 applyUITheme 写入的 content）
+let themeColorValue: string | null = null;
+const metaStub = {
+  setAttribute: (name: string, value: string) => {
+    if (name === 'content') themeColorValue = value;
+  },
+};
 Object.defineProperty(globalThis, 'document', {
   value: {
     documentElement: {
@@ -23,6 +30,7 @@ Object.defineProperty(globalThis, 'document', {
         },
       },
     },
+    querySelector: (selector: string) => (selector === 'meta[name="theme-color"]' ? metaStub : null),
   },
   configurable: true,
 });
@@ -37,6 +45,7 @@ describe('uiTheme: 深浅色主题切换', () => {
   beforeEach(() => {
     delete store['app-ui-theme'];
     lightClassOn = false;
+    themeColorValue = null;
   });
 
   it('未保存或非法值默认深色', () => {
@@ -64,5 +73,12 @@ describe('uiTheme: 深浅色主题切换', () => {
     expect(getUITheme()).toBe('light');
     expect(toggleUITheme()).toBe('dark');
     expect(getUITheme()).toBe('dark');
+  });
+
+  it('applyUITheme 同步 theme-color meta（PWA 窗口标题栏配色）', () => {
+    applyUITheme('light');
+    expect(themeColorValue).toBe('#f8fafc');
+    applyUITheme('dark');
+    expect(themeColorValue).toBe('#0f172a');
   });
 });

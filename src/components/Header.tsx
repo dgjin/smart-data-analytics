@@ -22,6 +22,7 @@ import { apiFetch } from '../api/client';
 import { UserRole } from '../types/analytics';
 import { getUITheme, toggleUITheme, UI_THEME_EVENT, UIThemeMode } from '../utils/uiTheme';
 import { HelpModal } from './help/HelpModal';
+import { InstallAppButton } from './InstallAppButton';
 import { getErrorMessage } from '../utils/errorUtils';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -210,6 +211,9 @@ export const Header: React.FC = () => {
         >
           {themeMode === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
+
+        {/* PWA：安装为桌面应用（Chrome 触发 beforeinstallprompt 且未安装时显示） */}
+        <InstallAppButton />
 
         {/* 帮助：打开用户使用指南 */}
         <button

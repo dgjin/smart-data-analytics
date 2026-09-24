@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'plugins', 'assets'] },
+  // public/ 为静态资产（含 PWA Service Worker 手写脚本 sw.js，运行于 SW 环境）
+  { ignores: ['dist', 'node_modules', 'plugins', 'assets', 'public'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],

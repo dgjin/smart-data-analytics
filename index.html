@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>智能问数分析系统</title>
+    <!-- PWA：可安装性（manifest + 图标 + 主题色）；Chrome 桌面在安全上下文（HTTPS/localhost）下提供「安装应用」 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
+    <meta name="theme-color" content="#0f172a" />
   </head>
   <body>
     <div id="root"></div>
@@ -12,6 +17,8 @@
       try {
         if (localStorage.getItem('app-ui-theme') === 'light') {
           document.documentElement.classList.add('light');
+          // PWA：同步窗口标题栏主题色（与 uiTheme.applyUITheme 保持一致）
+          document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f8fafc');
         }
       } catch (e) {}
     </script>
