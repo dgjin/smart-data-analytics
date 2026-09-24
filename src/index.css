@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* 血缘画布（React Flow）官方样式：置于 tailwind 之后、规则之前（@import 位置约束），
+   库样式均为 .react-flow__* 类选择器，不影响项目工具类；浅色浮层由组件 colorMode + 下方 html.light 微调 */
+@import '@xyflow/react/dist/style.css';
 
 /* 浅色主题：重映射 Tailwind slate 色阶（深色为默认主题，零改动兼容）。
    工具类（bg-slate-900/text-slate-100 等）底层引用 --color-* 变量，
@@ -83,4 +86,16 @@ html.light .bg-indigo-600\/90 .border-slate-800\/60 {
 /* 气泡内「复制/再次编辑」等操作按钮（靛蓝底上的 indigo-100 系文字） */
 html.light .bg-indigo-600\/90 .text-indigo-100\/80 {
   color: #eef2ff;
+}
+
+/* 血缘画布（React Flow）：colorMode 已驱动 Controls/MiniMap 变量，
+   浅色下补 attribution 与画布细线（Background）的可读性微调 */
+html.light .react-flow__attribution {
+  background: rgba(241, 245, 249, 0.72);
+}
+html.light .react-flow__attribution a {
+  color: #64748b;
+}
+html.light .react-flow__background {
+  opacity: 0.8;
 }

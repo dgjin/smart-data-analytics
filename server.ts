@@ -43,6 +43,8 @@ import queryContextRoutes from './server/routes/queryContext';
 import accessRequestRoutes from './server/routes/accessRequests';
 import exportRoutes from './server/routes/export';
 import helpRoutes from './server/routes/help';
+// P0 血缘管理优化：全量血缘图聚合端点（见 server/routes/lineage.ts）
+import lineageRoutes from './server/routes/lineage';
 import fallbackApprovalRoutes from './server/routes/fallbackApproval';
 import abTestRoutes from './server/routes/abTest';
 // P1-4 路由拆分：问数主链路 / 对话历史 / 报告三条业务线从本文件迁出
@@ -306,6 +308,8 @@ async function startServer() {
   app.use('/api/flex-queries', flexQueryRoutes);
   // P0-4 在线准确率度量看板（见 server/routes/opsMetrics.ts）
   app.use('/api/ops', opsMetricsRoutes);
+  // P0 血缘管理优化：数据血缘图（见 server/routes/lineage.ts）
+  app.use('/api/lineage', lineageRoutes);
   // P3-3 知识库漂移检测（见 server/routes/opsDrift.ts）
   app.use('/api/ops', opsDriftRoutes);
   // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）

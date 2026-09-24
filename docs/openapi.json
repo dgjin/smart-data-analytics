@@ -92,6 +92,10 @@
     {
       "name": "Agent",
       "description": "P1-7 Agent 编排（Planner 规划 + Executor 逐步执行）"
+    },
+    {
+      "name": "Lineage",
+      "description": "血缘管理优化：数据血缘图谱（表级血缘聚合 / 影响分析 / 搜索过滤，仅 ADMIN）"
     }
   ],
   "x-legacy-aliases": [
@@ -248,6 +252,23 @@
         "responses": {
           "200": {
             "description": "北极星指标与日/周趋势"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/lineage/graph": {
+      "get": {
+        "tags": [
+          "Lineage"
+        ],
+        "operationId": "getLineageGraph",
+        "summary": "血缘管理优化：全量血缘图（数据源/表/指标/报表/图表五类节点；parsed SQL 解析与 declared 推演边；stale 失效标记；30s 服务端缓存，仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "血缘图：generatedAt / stats / nodes / edges"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
