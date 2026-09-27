@@ -59,6 +59,7 @@ export const STATE_WHITELIST: WhitelistEntry[] = [
   { file: 'server/infra/stateStore.ts', name: 'MemoryStateStore.counters', category: 'statestore-impl', reason: 'StateStore 内存实现的窗口计数器；同上由 Redis 替代' },
   // ---- cli-local：CLI 主入口（isDirectRun/isMain 守卫）内的一次性状态，模块被 import 时不产生 ----
   { file: 'server/eval/checkEvalSet.ts', name: 'byCategory', category: 'cli-local', reason: '评测集门禁 CLI 主入口内的分类计数汇总，进程打印后即退出；作为库被 import 时不执行' },
+  { file: 'server/eval/checkRetrievalSet.ts', name: 'byCategory', category: 'cli-local', reason: 'P3-3 检索集门禁 CLI 主入口内的分类计数汇总，同上；作为库被 import 时不执行' },
 ];
 
 export interface StateHit {

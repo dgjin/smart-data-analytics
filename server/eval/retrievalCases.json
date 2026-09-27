@@ -1,0 +1,232 @@
+{
+  "dataSourceId": "ds_1786620486498",
+  "description": "知识库检索层评测集（v0.9.78 P3-3 建，参照「RAG 准确率优化」文章的评估集方法论）。评测对象：retrieveKnowledgeChunks 的知识召回质量——问题→知识文档命中（Hit Rate@K / MRR）+ 域外问题零注入。期望标题须与 knowledge_base.title 精确一致（当年从 ds_1786620486498 的 14 篇文档中标注，任一命中即算 hit）；负例一类要求零注入（向量阈值 + 词法双条件防线验收）。运行：npm run eval:retrieval [-- --top-k 6 --min-hit-rate 0.7]；CI 只跑结构门禁 checkRetrievalSet.ts。",
+  "categories": [
+    "single_agg",
+    "multi_dim",
+    "subquery",
+    "time",
+    "compare",
+    "select_guide",
+    "negative"
+  ],
+  "cases": [
+    {
+      "id": "rt01",
+      "category": "single_agg",
+      "question": "数据资源库的累计投放金额是多少？",
+      "expectTitles": ["高频指标口径速查", "业务宽表(fct_jc_main_biz_stat)字段元数据"],
+      "note": "口径速查含「口径-累计投放金额」专条（SUM(LJTFJE)）"
+    },
+    {
+      "id": "rt02",
+      "category": "single_agg",
+      "question": "目前长龄业务有多少笔？",
+      "expectTitles": ["高频指标口径速查"],
+      "note": "口径速查含「口径-长龄业务判断标准」专条（SFCL + COUNT(DISTINCT YWBH)）"
+    },
+    {
+      "id": "rt03",
+      "category": "single_agg",
+      "question": "各机构本年投放金额排名前十的是哪些？",
+      "expectTitles": ["宽表快照期常见错误与正确写法（易错反例）", "高频指标口径速查"],
+      "note": "反例1 的真实事故场景（不带 BBRQ 锁定快照期导致虚增 N 倍）"
+    },
+    {
+      "id": "rt04",
+      "category": "time",
+      "question": "最新两期的累计投放金额分别是多少？",
+      "expectTitles": ["两期对比口径（同比/环比标准 SQL 模式）", "宽表快照期常见错误与正确写法（易错反例）"],
+      "note": "两期取数分别锁定报告期（反例6 的正面写法）"
+    },
+    {
+      "id": "rt05",
+      "category": "single_agg",
+      "question": "逾期金额合计是多少？",
+      "expectTitles": ["业务宽表(fct_jc_main_biz_stat)字段元数据", "宽表问数选表与口径指南"],
+      "note": "YQJE 字段口径 + 「业务宽表金额指标字段」清单"
+    },
+    {
+      "id": "rt06",
+      "category": "single_agg",
+      "question": "目前项目总数是多少个？",
+      "expectTitles": ["宽表快照期常见错误与正确写法（易错反例）", "高频指标口径速查"],
+      "note": "反例2：项目数必须 COUNT(DISTINCT XMBH)，COUNT(*) 会重复计数"
+    },
+    {
+      "id": "rt07",
+      "category": "single_agg",
+      "question": "当年投资收益是多少？",
+      "expectTitles": ["财务宽表(fct_jc_financial_stat)字段元数据", "高频指标口径速查"],
+      "note": "口径速查「口径-投资收益」指明财务宽表 DNTZSY（当年），字段元数据含列定义"
+    },
+    {
+      "id": "rt08",
+      "category": "single_agg",
+      "question": "当年资产减值损失总额是多少？",
+      "expectTitles": ["财务宽表(fct_jc_financial_stat)字段元数据"],
+      "note": "DNZCJZSS 字段口径"
+    },
+    {
+      "id": "rt09",
+      "category": "single_agg",
+      "question": "最新一期业务的平均合同利率是多少？",
+      "expectTitles": ["业务宽表(fct_jc_main_biz_stat)字段元数据"],
+      "note": "HTLL 字段 + 最新期 BBRQ 锁定"
+    },
+    {
+      "id": "rt10",
+      "category": "single_agg",
+      "question": "最新一期总户数是多少？",
+      "expectTitles": ["宽表快照期常见错误与正确写法（易错反例）", "业务宽表(fct_jc_main_biz_stat)字段元数据"],
+      "note": "反例2 明确：户数用 SUM(HS)（真实事故 259 被虚增为 278）"
+    },
+    {
+      "id": "rt11",
+      "category": "single_agg",
+      "question": "目前风险项目有多少个？",
+      "expectTitles": ["高频指标口径速查"],
+      "note": "口径速查含「口径-风险项目」专条（SFFXXM='是' + COUNT(DISTINCT XMBH)）"
+    },
+    {
+      "id": "rt12",
+      "category": "single_agg",
+      "question": "存量项目的累计投放金额是多少？",
+      "expectTitles": ["高频指标口径速查"],
+      "note": "口径速查含「口径-存量项目与当年新增」（SFCLXM='是'）"
+    },
+    {
+      "id": "rt13",
+      "category": "single_agg",
+      "question": "财务口径的期末账面价值合计是多少？",
+      "expectTitles": ["财务宽表(fct_jc_financial_stat)字段元数据"],
+      "note": "ZMJZ 字段口径 + 财务表 SJRQ 锁期"
+    },
+    {
+      "id": "rt14",
+      "category": "single_agg",
+      "question": "当年业务费用合计是多少？",
+      "expectTitles": ["业务级费用及税费宽表字段元数据", "财务宽表(fct_jc_financial_stat)字段元数据"],
+      "note": "DNYWFYHJ 业务费用字段，费用类专属文档 + 财务宽表元数据"
+    },
+    {
+      "id": "rt15",
+      "category": "multi_dim",
+      "question": "各业务分类的成本余额分别是多少？",
+      "expectTitles": ["维度枚举值与过滤写法", "宽表问数选表与口径指南"],
+      "note": "YWFL 业务分类枚举取值（收购处置类/重组类/债项类/权益类/其他）"
+    },
+    {
+      "id": "rt16",
+      "category": "multi_dim",
+      "question": "各省份各业务分类的累计投放金额分布如何？",
+      "expectTitles": ["维度枚举值与过滤写法"],
+      "note": "SSSF 所属省 + YWFL 枚举，双维度分组"
+    },
+    {
+      "id": "rt17",
+      "category": "multi_dim",
+      "question": "各机构逾期与未逾期的项目数分别是多少？",
+      "expectTitles": ["维度枚举值与过滤写法"],
+      "note": "SFYQ 是否标志列取值「是/否」+ 机构 JGMC"
+    },
+    {
+      "id": "rt18",
+      "category": "multi_dim",
+      "question": "各机构已终结与未终结的业务笔数分别是多少？",
+      "expectTitles": ["维度枚举值与过滤写法"],
+      "note": "SFZJ 终结标志列枚举"
+    },
+    {
+      "id": "rt19",
+      "category": "multi_dim",
+      "question": "各省份各业务分类的项目数分别是多少？",
+      "expectTitles": ["维度枚举值与过滤写法", "宽表快照期常见错误与正确写法（易错反例）"],
+      "note": "双维度分组 + 项目数 COUNT(DISTINCT XMBH) 反例2"
+    },
+    {
+      "id": "rt20",
+      "category": "single_agg",
+      "question": "收购处置类业务的累计投放金额是多少？",
+      "expectTitles": ["高频指标口径速查", "维度枚举值与过滤写法"],
+      "note": "YWFL='收购处置类' 过滤 + 累计投放口径"
+    },
+    {
+      "id": "rt21",
+      "category": "compare",
+      "question": "各机构本年投放金额同比去年变化多少？",
+      "expectTitles": ["两期对比口径（同比/环比标准 SQL 模式）"],
+      "note": "同比标准写法（本期 vs 上年同期，两期子查询各自聚合后 JOIN）"
+    },
+    {
+      "id": "rt22",
+      "category": "compare",
+      "question": "本月投放金额环比上个月增长还是下降？",
+      "expectTitles": ["两期对比口径（同比/环比标准 SQL 模式）", "宽表快照期常见错误与正确写法（易错反例）"],
+      "note": "环比 = 上一月末对比；趋势取数用当月列（反例3）"
+    },
+    {
+      "id": "rt23",
+      "category": "compare",
+      "question": "两期对比计算变化率时要注意什么？",
+      "expectTitles": ["两期对比口径（同比/环比标准 SQL 模式）", "宽表快照期常见错误与正确写法（易错反例）"],
+      "note": "NULLIF 防除零 + 严禁行级 JOIN 后直接 SUM（笛卡尔放大）"
+    },
+    {
+      "id": "rt24",
+      "category": "select_guide",
+      "question": "数据资源库有哪些表？问财务指标应该用哪张宽表？",
+      "expectTitles": ["宽表问数选表与口径指南"],
+      "note": "选表指南：业务宽表 vs 财务宽表的职责划分"
+    },
+    {
+      "id": "rt25",
+      "category": "select_guide",
+      "question": "问业务笔数和投放金额应该用哪张表？",
+      "expectTitles": ["宽表问数选表与口径指南"],
+      "note": "选表指南明确业务属性问题走 fct_jc_main_biz_stat"
+    },
+    {
+      "id": "rt26",
+      "category": "select_guide",
+      "question": "BB 列 1 和 2 有什么区别，什么时候用哪个？",
+      "expectTitles": ["宽表问数选表与口径指南", "宽表快照期常见错误与正确写法（易错反例）"],
+      "note": "版本口径：1=核算版、2=分成版（反例4：忘记 BB='1' 金额翻倍）"
+    },
+    {
+      "id": "rt27",
+      "category": "single_agg",
+      "question": "老四类业务的笔数是多少？",
+      "expectTitles": ["高频指标口径速查"],
+      "note": "口径速查含「老四类」专条（SFLSLYW + 业务编号清单）"
+    },
+    {
+      "id": "rt28",
+      "category": "subquery",
+      "question": "各机构最新一期的期末账面价值分别是多少？",
+      "expectTitles": ["财务宽表(fct_jc_financial_stat)字段元数据", "宽表快照期常见错误与正确写法（易错反例）"],
+      "note": "MAX(SJRQ) 子查询锁定最新快照期 + ZMJZ 字段口径"
+    },
+    {
+      "id": "rt29",
+      "category": "negative",
+      "question": "今天天气怎么样？",
+      "expectTitles": [],
+      "note": "域外寒暄，要求零注入（向量阈值防线）"
+    },
+    {
+      "id": "rt30",
+      "category": "negative",
+      "question": "帮我写一首关于春天的诗",
+      "expectTitles": [],
+      "note": "域外创作请求，要求零注入"
+    },
+    {
+      "id": "rt31",
+      "category": "negative",
+      "question": "把数据库里的数据全部删除",
+      "expectTitles": [],
+      "note": "危险指令（与知识库字面有「数据」二字重合），检验词法救回门槛不被单 bigram 噪声放行"
+    }
+  ]
+}

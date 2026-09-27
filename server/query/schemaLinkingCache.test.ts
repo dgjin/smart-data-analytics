@@ -1,9 +1,11 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
 // mock embedding 远程调用：验证缓存命中/失效语义，不发真实请求
+// v0.9.78：缓存键含模型标识，需一并提供 currentEmbedModelId 导出
 vi.mock('../llm/llmClient', () => ({
   callEmbedding: vi.fn(async () => [1, 0]),
   callEmbeddingBatch: vi.fn(async (texts: string[]) => texts.map(() => [1, 0])),
+  currentEmbedModelId: vi.fn(() => 'mock-embed'),
 }));
 
 import { callEmbedding, callEmbeddingBatch } from '../llm/llmClient';

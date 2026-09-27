@@ -25,11 +25,13 @@ export const GUIDED_DOC_KEYWORDS = ['口径', '指南', '速查', '规则', '枚
 export const GUIDED_BIGRAM_WEIGHT = 0.15;
 
 /**
- * v0.4.15 知识库相关性阈值（向量余弦相似度下限）：低于阈值视为无关不注入。
+ * 知识库相关性阈值（向量余弦相似度下限）：低于阈值视为无关不注入。
  * 背景：余弦相似度对非负 embedding 恒正，原 score>0 过滤形同虚设——天气/删数据类无关问题
  * 也强行注入 topK 凑数知识（trace 实证 1100+ 字），稀释本地模型注意力。
- * 默认 0.35（中文 embedding 相关通常 0.5+、无关多在 0.2-0.4），env KNOWLEDGE_MIN_SCORE 可调；
- * 仅向量模式生效，bigram 关键词降级模式量纲不同，维持 score>0。
+ * v0.9.78 默认 0.35→0.5：换 qwen3-embedding:8b 后实测（31 条检索评测集）0.35 会放行域外边界
+ * 噪声（「今天天气怎么样」top1 cos 0.3567 也注入 2 块）；0.5 时正例 Hit Rate 25/28→26/28、
+ * MRR 0.652→0.673、负例零注入 1/3→2/3；0.55 距正例掉落拐点（0.6 时 rt18 被误杀）仅 0.05 余量故取 0.5。
+ * env KNOWLEDGE_MIN_SCORE 可调；仅向量模式生效，bigram 关键词降级模式量纲不同，维持 score>0。
  */
 export function knowledgeMinScore(): number {
   const raw = process.env.KNOWLEDGE_MIN_SCORE;
@@ -37,7 +39,30 @@ export function knowledgeMinScore(): number {
     const n = Number(raw);
     if (Number.isFinite(n) && n >= 0 && n <= 1) return n;
   }
-  return 0.35;
+  return 0.5;
+}
+
+/** v0.9.78 检索融合策略：rrf=向量+词法 RRF 真融合（默认）；legacy=旧版「向量达阈否则词法降级」，供回退与评测对比 */
+export function knowledgeRankStrategy(): 'rrf' | 'legacy' {
+  const raw = String(process.env.KNOWLEDGE_RANK_STRATEGY || '').trim().toLowerCase();
+  return raw === 'legacy' ? 'legacy' : 'rrf';
+}
+
+/** RRF（Reciprocal Rank Fusion）融合常数：k=60 为行业经验值（平抑头部名次差）；
+ * 词法权重略低于向量（bigram 无 IDF 加权，信号强度弱于 BM25），防止词法噪声反超语义正答 */
+export const RRF_K = 60;
+export const RRF_VECTOR_WEIGHT = 1;
+export const RRF_LEXICAL_WEIGHT = 0.8;
+
+/** 词法通道额外准入（仅向量分未达阈值的块）：问题 bigram 覆盖率 + 绝对重合数双条件。
+ * 精确术语命中（指标名/枚举值等）可救回向量漏召块（如「订单号 A12345」类精确匹配）；
+ * 单字噪声（常用字偶然重合）不构成放行 */
+export const LEXICAL_RECALL_MIN_HITS = 2;
+export const LEXICAL_RECALL_MIN_NORM = 0.35;
+
+/** 问题 bigram 覆盖率（问题侧归一化；长问题天然偏低，仅用于准入与保留槽加权） */
+function bigramNorm(question: string, text: string): number {
+  return bigramOverlap(question, text) / Math.max(1, question.length - 1);
 }
 
 /** 按段落优先、定长兜底切块，相邻块保留 overlap 以防语义被截断 */
@@ -96,12 +121,14 @@ export interface KnowledgeChunk {
 }
 
 /**
- * 排序检索：question 与 chunk 均可用向量时走余弦相似度，否则降级 bigram 关键词。
- * 返回得分最高的 topK 个片段；向量模式过滤低于 knowledgeMinScore() 的无关片段，
- * bigram 降级模式维持过滤得分 ≤0（量纲不同，不套用向量阈值）；
- * 同一文档（title）最多入选 maxPerDoc 块，避免单一长字典文档占满注入槽位；
- * reserveGuided 为 true 时，为标题命中 GUIDED_DOC_KEYWORDS 的最高分块保留一个槽位，
- * 保证口径/指南类知识（如「高频指标口径速查」）在字段字典相似度更高时仍能注入。
+ * 排序检索（v0.9.78 起默认 RRF 混合融合，KNOWLEDGE_RANK_STRATEGY=legacy 可回退旧版）：
+ * - 向量通道：向量分 ≥ knowledgeMinScore() 的块按分排名；词法通道：bigram 重合 >0 的块按重合数排名；
+ *   RRF 融合两名次（k=60，向量权重 1 / 词法权重 0.8）——替代旧版「向量达阈 otherwise 词法降级」的二选一；
+ * - 向量分未达阈但词法强命中（覆盖率与绝对重合双达标）的块经词法通道救回，修复精确术语向量漏召；
+ * - 问题向量不可用时退化为纯词法（score>0，行为与旧版一致）；
+ * 结果仍按原规则收敛：同一文档最多入选 maxPerDoc 块防止长字典占满槽位；
+ * reserveGuided 为 true 时，为标题命中 GUIDED_DOC_KEYWORDS 的最高分块保留一个槽位
+ * （保留槽选块用「向量分 + 权重×词法覆盖率」混合打分，防止分块边界把正答块排在同文档其他块之后）。
  */
 export function rankChunks(
   question: string,
@@ -110,6 +137,83 @@ export function rankChunks(
   topK = TOP_K_CHUNKS,
   maxPerDoc = MAX_CHUNKS_PER_DOC,
   reserveGuided = true
+): KnowledgeChunk[] {
+  if (knowledgeRankStrategy() === 'legacy') {
+    return rankChunksLegacy(question, chunks, questionEmbedding, topK, maxPerDoc, reserveGuided);
+  }
+  const minScore = knowledgeMinScore();
+  const hasVec = Array.isArray(questionEmbedding) && questionEmbedding.length > 0;
+  const scored = chunks.map((c) => {
+    const text = `${c.title} ${c.text}`;
+    const useVector = hasVec && Array.isArray(c.embedding) && c.embedding.length === (questionEmbedding as number[]).length;
+    const vecScore = useVector ? cosineSimilarity(questionEmbedding as number[], c.embedding as number[]) : 0;
+    const lexScore = bigramOverlap(question, text);
+    return { c, useVector, vecScore, lexScore, lexNorm: bigramNorm(question, text) };
+  });
+  // 准入：向量达阈 或 词法强命中（双条件）——词法可救回向量漏召的精确匹配块；问题向量不可用时纯词法 score>0
+  const admitted = scored.filter((s) =>
+    hasVec
+      ? (s.useVector && s.vecScore >= minScore) ||
+        (s.lexScore >= LEXICAL_RECALL_MIN_HITS && s.lexNorm >= LEXICAL_RECALL_MIN_NORM)
+      : s.lexScore > 0
+  );
+  // 双通道名次（RRF 只看名次不看分值，天然免疫两通道分数量纲差异）
+  const vecRank = new Map<KnowledgeChunk, number>();
+  const lexRank = new Map<KnowledgeChunk, number>();
+  if (hasVec) {
+    [...admitted]
+      .filter((s) => s.useVector && s.vecScore >= minScore)
+      .sort((a, b) => b.vecScore - a.vecScore)
+      .forEach((s, i) => vecRank.set(s.c, i + 1));
+  }
+  [...admitted]
+    .filter((s) => s.lexScore > 0)
+    .sort((a, b) => b.lexScore - a.lexScore)
+    .forEach((s, i) => lexRank.set(s.c, i + 1));
+  const rrfOf = (c: KnowledgeChunk) => {
+    const rv = vecRank.get(c) || 0;
+    const rl = lexRank.get(c) || 0;
+    return (rv > 0 ? RRF_VECTOR_WEIGHT / (RRF_K + rv) : 0) + (rl > 0 ? RRF_LEXICAL_WEIGHT / (RRF_K + rl) : 0);
+  };
+  const fused = admitted
+    .map((s) => ({ ...s, score: rrfOf(s.c) }))
+    .sort((a, b) => b.score - a.score || b.vecScore - a.vecScore || b.lexScore - a.lexScore);
+  const out: KnowledgeChunk[] = [];
+  const picked = new Set<KnowledgeChunk>();
+  const perDoc = new Map<string, number>();
+  const push = (c: KnowledgeChunk) => {
+    out.push(c);
+    picked.add(c);
+    perDoc.set(c.title, (perDoc.get(c.title) || 0) + 1);
+  };
+  // 口径/指南类文档保留一个槽位：取「向量分 + 权重×词法覆盖率」混合最高的块先行入选，
+  // 防止同一文档内分块边界导致正答块被其他块压过（RRF 分值量纲小，不能直接叠加词法分）
+  if (reserveGuided && topK > 0) {
+    const guidedList = fused.filter((s) => GUIDED_DOC_KEYWORDS.some((k) => s.c.title.includes(k)));
+    if (guidedList.length > 0) {
+      const hybrid = (s: { vecScore: number; lexNorm: number }) => s.vecScore + GUIDED_BIGRAM_WEIGHT * s.lexNorm;
+      const best = guidedList.reduce((a, b) => (hybrid(b) > hybrid(a) ? b : a));
+      push(best.c);
+    }
+  }
+  for (const s of fused) {
+    if (out.length >= topK) break;
+    if (picked.has(s.c)) continue;
+    const n = perDoc.get(s.c.title) || 0;
+    if (n >= maxPerDoc) continue;
+    push(s.c);
+  }
+  return out;
+}
+
+/** 旧版排序（v0.9.78 前默认）：向量达阈排序，否则整体降级 bigram；保留供回退与评测对比 */
+function rankChunksLegacy(
+  question: string,
+  chunks: KnowledgeChunk[],
+  questionEmbedding: number[] | null,
+  topK: number,
+  maxPerDoc: number,
+  reserveGuided: boolean
 ): KnowledgeChunk[] {
   const minScore = knowledgeMinScore();
   const scored = chunks
@@ -134,8 +238,6 @@ export function rankChunks(
     picked.add(c);
     perDoc.set(c.title, (perDoc.get(c.title) || 0) + 1);
   };
-  // 口径/指南类文档保留一个槽位：取「向量分 + 词法分」混合最高的块先行入选，
-  // 防止同一文档内分块边界导致正答块被其他块压过
   if (reserveGuided && topK > 0) {
     const guidedList = scored.filter((s) => GUIDED_DOC_KEYWORDS.some((k) => s.c.title.includes(k)));
     if (guidedList.length > 0) {
@@ -203,12 +305,12 @@ interface KbChunkSelectRow extends mysql.RowDataPacket {
   embedding_json: string | null;
 }
 
-/** 检索与问题最相关的知识片段并格式化为 prompt 块（任何异常降级为空串，不阻断问数） */
-export async function retrieveKnowledgeSnippets(
+/** 检索结构化命中块（评测/调试/格式化共用；任何异常降级为空数组，不阻断问数） */
+export async function retrieveKnowledgeChunks(
   dataSourceId: string,
   question: string,
   topK = TOP_K_CHUNKS
-): Promise<string> {
+): Promise<KnowledgeChunk[]> {
   try {
     const [rows] = await getPool().query<KbChunkSelectRow[]>(
       'SELECT title, chunk_text, embedding_json FROM knowledge_base WHERE data_source_id = ?',
@@ -223,7 +325,7 @@ export async function retrieveKnowledgeSnippets(
       }
       return { title: String(r.title || ''), text: String(r.chunk_text || ''), embedding: Array.isArray(embedding) ? embedding : null };
     });
-    if (chunks.length === 0) return '';
+    if (chunks.length === 0) return [];
 
     let questionEmbedding: number[] | null = null;
     try {
@@ -231,8 +333,17 @@ export async function retrieveKnowledgeSnippets(
     } catch {
       questionEmbedding = null;
     }
-    return formatKnowledgeSnippets(rankChunks(question, chunks, questionEmbedding, topK));
+    return rankChunks(question, chunks, questionEmbedding, topK);
   } catch {
-    return '';
+    return [];
   }
+}
+
+/** 检索与问题最相关的知识片段并格式化为 prompt 块（任何异常降级为空串，不阻断问数） */
+export async function retrieveKnowledgeSnippets(
+  dataSourceId: string,
+  question: string,
+  topK = TOP_K_CHUNKS
+): Promise<string> {
+  return formatKnowledgeSnippets(await retrieveKnowledgeChunks(dataSourceId, question, topK));
 }

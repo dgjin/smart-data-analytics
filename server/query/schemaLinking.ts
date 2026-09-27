@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { bigramOverlap } from './queryFeedback';
-import { callEmbedding, callEmbeddingBatch } from '../llm/llmClient';
+import { callEmbedding, callEmbeddingBatch, currentEmbedModelId } from '../llm/llmClient';
 import type { SchemaColumn, SchemaTable } from './schemaTypes';
 
 /** prompt 中注入的最大表数（超过该数量的 schema 才触发圈定） */
@@ -109,7 +109,9 @@ function contentVersion(text: string): string {
 function tableEmbeddingKey(table: SchemaTable): { key: string; digest: string } | null {
   const digest = tableDigest(table);
   if (!digest.trim()) return null;
-  return { key: `${String(table?.name || '')}::${contentVersion(digest)}`, digest };
+  // v0.9.78：缓存键含 embedding 模型标识——切换 EMBED_MODEL 后旧模型向量立即失效重算，
+  // 避免维度不一致时静默退化为纯关键词打分（内容指纹仅覆盖 schema 变更场景）
+  return { key: `${currentEmbedModelId()}::${String(table?.name || '')}::${contentVersion(digest)}`, digest };
 }
 
 function tableCacheSet(key: string, vec: number[]): void {
@@ -284,7 +286,8 @@ const COLUMN_EMBEDDING_CACHE_MAX = 2000;
 function columnEmbeddingKey(tableName: string, col: SchemaColumn): { key: string; digest: string } | null {
   const digest = `${String(col?.name || '')} ${String(col?.description || '')}`.trim();
   if (!digest) return null;
-  return { key: `${tableName}::${contentVersion(digest)}`, digest };
+  // v0.9.78：与表级缓存键一致，含 embedding 模型标识防切换模型后串用旧向量
+  return { key: `${currentEmbedModelId()}::${tableName}::${contentVersion(digest)}`, digest };
 }
 
 function columnCacheSet(key: string, vec: number[]): void {

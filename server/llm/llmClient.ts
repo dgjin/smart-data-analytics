@@ -672,6 +672,6 @@ export {
   resetOllamaBackendsForTest,
 } from './ollamaBackends';
 export type { OllamaBackend } from './ollamaBackends';
-export { callEmbedding, callEmbeddingBatch, clearEmbeddingCacheForTest } from './llmEmbedding';
+export { callEmbedding, callEmbeddingBatch, clearEmbeddingCacheForTest, currentEmbedModelId, embedInstructionPrefix } from './llmEmbedding';
 export { callLLMTextStream, callLLMJsonStream } from './llmStream';
 export type { StreamingChunk } from './llmStream';

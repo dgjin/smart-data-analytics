@@ -18,7 +18,8 @@ interface OllamaEmbedResponse {
 }
 
 
-// embedding 模型（Ollama 需已 pull，如 nomic-embed-text；未装时调用方降级为关键词检索）
+// embedding 模型（Ollama 需已 pull，如 nomic-embed-text；未装时调用方降级为关键词检索）。
+// v0.9.78 中文语料推荐 qwen3-embedding / bge-m3（角色前缀自动适配）；切换后需 npm run reembed:embeddings 重嵌存量向量。
 const embedModel = () => process.env.EMBED_MODEL || 'nomic-embed-text';
 // 千问 embedding 模型（Coding Plan 端点可能不支持，失败时调用方自动降级关键词粗排）
 const qwenEmbedModel = () => process.env.QWEN_EMBED_MODEL || 'text-embedding-v4';
@@ -31,6 +32,26 @@ const embedKind = (): 'ollama' | 'qwen' | 'gemini' => {
   const k = engineKind();
   return k === 'deepseek' ? 'ollama' : k;
 };
+
+/** 当前引擎实际使用的 embedding 模型标识（缓存键/迁移判断共用；与埋点口径一致） */
+export function currentEmbedModelId(): string {
+  const k = embedKind();
+  return k === 'qwen' ? qwenEmbedModel() : k === 'ollama' ? embedModel() : 'gemini-embedding-001';
+}
+
+/**
+ * v0.9.78 检索指令前缀：按模型族适配（替代原 nomic 专用硬编码）。
+ * - nomic-embed-text：search_query:/search_document:（官方检索指令，缺省时短问题与长文档相似度被压平）
+ * - qwen3-embedding：query:/passage:（官方简式指令，中文检索明显受益）
+ * - bge 等对称模型：无指令前缀（查询/文档同分布训练）
+ */
+export function embedInstructionPrefix(model: string, role?: 'query' | 'document'): string {
+  if (!role) return '';
+  const m = String(model || '').toLowerCase();
+  if (m.startsWith('nomic')) return role === 'query' ? 'search_query: ' : 'search_document: ';
+  if (m.startsWith('qwen3-embedding')) return role === 'query' ? 'query: ' : 'passage: ';
+  return '';
+}
 
 // embedding 短 TTL 缓存：同一问题的 query 向量在圈表精排与知识库检索间复用，重试/重复提问不再重复调用
 const EMBED_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -70,20 +91,19 @@ export function clearEmbeddingCacheForTest(): void {
 export async function callEmbedding(text: string, role?: 'query' | 'document'): Promise<number[]> {
   let input = String(text || '').slice(0, 2000);
   if (!input.trim()) throw new Error('embedding 输入为空');
-  if (role && embedModel().startsWith('nomic')) {
-    input = `${role === 'query' ? 'search_query' : 'search_document'}: ${input}`;
-  }
 
   const kind = embedKind();
+  // v0.9.78：模型标识纳入缓存键——同引擎换模型（EMBED_MODEL 变更）后不串用旧向量
+  const embedModelName = currentEmbedModelId();
+  input = embedInstructionPrefix(embedModelName, role) + input;
 
-  // 同文本+角色+引擎的向量短 TTL 复用（命中时省去一次模型/网络调用）
-  const cacheKey = `${kind}|${role || ''}|${input}`;
+  // 同文本+角色+模型+引擎的向量短 TTL 复用（命中时省去一次模型/网络调用）
+  const cacheKey = `${kind}|${embedModelName}|${role || ''}|${input}`;
   const cached = embedCacheGet(cacheKey);
   if (cached) return cached;
 
   // P2-4 成本埋点：只记实际发生的网络调用（缓存命中不重复计），token 数引擎不返回记 0
   const embedT0 = Date.now();
-  const embedModelName = kind === 'qwen' ? qwenEmbedModel() : kind === 'ollama' ? embedModel() : 'gemini-embedding-001';
 
   if (kind === 'qwen') {
     const controller = new AbortController();
@@ -269,22 +289,20 @@ async function qwenEmbeddingBatch(inputs: string[]): Promise<{ vecs: (number[] |
  */
 export async function callEmbeddingBatch(texts: string[], role?: 'query' | 'document'): Promise<(number[] | null)[]> {
   const kind = embedKind();
+  const embedModelName = currentEmbedModelId();
   const results: (number[] | null)[] = new Array(texts.length).fill(null);
   const misses: { idx: number; input: string; cacheKey: string }[] = [];
   texts.forEach((t, idx) => {
     let input = String(t || '').slice(0, 2000);
     if (!input.trim()) return; // 空输入保持 null（与单条版抛错由调用方降级等效）
-    if (role && embedModel().startsWith('nomic')) {
-      input = `${role === 'query' ? 'search_query' : 'search_document'}: ${input}`;
-    }
-    const cacheKey = `${kind}|${role || ''}|${input}`;
+    input = embedInstructionPrefix(embedModelName, role) + input;
+    const cacheKey = `${kind}|${embedModelName}|${role || ''}|${input}`;
     const hit = embedCacheGet(cacheKey);
     if (hit) results[idx] = hit;
     else misses.push({ idx, input, cacheKey });
   });
 
   const batchSize = embedBatchSize();
-  const embedModelName = kind === 'qwen' ? qwenEmbedModel() : kind === 'ollama' ? embedModel() : 'gemini-embedding-001';
   for (let i = 0; i < misses.length; i += batchSize) {
     const slice = misses.slice(i, i + batchSize);
     const t0 = Date.now();

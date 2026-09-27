@@ -1,7 +1,8 @@
 # P0-2 CI 质量门禁：push/PR 到 main 触发。
 # - quality 作业：tsc（前端+server 双 tsconfig）+ eslint + vitest 全量单测
-# - eval-gate 作业：评测集结构门禁（规模/六类覆盖/字段合法性，mock-free 不连 DB/LLM）；
+# - eval-gate 作业：评测集结构门禁（规模/六类覆盖/字段合法性/检索集负例覆盖，mock-free 不连 DB/LLM）；
 #   真实 LLM 准确率评测放本地/nightly（npm run eval -- --min-accuracy 85），
+#   真实检索指标评测放本地（npm run eval:retrieval，需 embedding 服务），
 #   prompt 相关文件变更时输出全量评测提醒。
 # - e2e 作业（P1-4）：Playwright smoke 探针集（健康检查/JSON 契约/知识库链路），
 #   MySQL 以 service container 提供；不需 LLM。全量 E2E 仍在本地跑（npm run test:e2e）。
@@ -55,6 +56,8 @@ jobs:
         run: npx tsx server/eval/checkEvalSet.ts --min-count 100 --require single_agg,join,time,subquery,clarify,refuse,permission
       - name: 宽表评测集结构校验（≥50 条 + multi_dim 六类分层，P3-2）
         run: npx tsx server/eval/checkEvalSet.ts --file server/eval/evalCases.jichuang.json --min-count 50 --require single_agg,multi_dim,subquery,time,clarify,refuse
+      - name: 检索评测集结构校验（≥24 条 + 七类分层 + 负例零注入覆盖，P3-3）
+        run: npx tsx server/eval/checkRetrievalSet.ts --min-count 24 --min-negative 3
       - name: prompt 变更触发全量评测提醒
         env:
           EVENT_BEFORE: ${{ github.event.before }}

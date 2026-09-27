@@ -1,5 +1,18 @@
-import { describe, expect, it } from 'vitest';
-import { chunkText, cosineSimilarity, rankChunks, formatKnowledgeSnippets, KnowledgeChunk, TOP_K_CHUNKS, GUIDED_DOC_KEYWORDS, knowledgeMinScore } from './knowledgeBase';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  chunkText,
+  cosineSimilarity,
+  rankChunks,
+  formatKnowledgeSnippets,
+  KnowledgeChunk,
+  TOP_K_CHUNKS,
+  GUIDED_DOC_KEYWORDS,
+  knowledgeMinScore,
+  knowledgeRankStrategy,
+  RRF_K,
+  LEXICAL_RECALL_MIN_HITS,
+  LEXICAL_RECALL_MIN_NORM,
+} from './knowledgeBase';
 
 describe('formatKnowledgeSnippets: v0.4.15 强指令升级', () => {
   it('注入「必须遵循」强指令，明确约束口径/枚举，不放开表列白名单', () => {
@@ -13,10 +26,10 @@ describe('formatKnowledgeSnippets: v0.4.15 强指令升级', () => {
   });
 });
 
-describe('knowledgeMinScore: v0.4.15 相关性阈值配置', () => {
-  it('env 未配置默认返回 0.35', () => {
+describe('knowledgeMinScore: 相关性阈值配置', () => {
+  it('env 未配置默认返回 0.5（v0.9.78 由 0.35 上调，检索评测实测：0.35 放行域外边界噪声）', () => {
     delete process.env.KNOWLEDGE_MIN_SCORE;
-    expect(knowledgeMinScore()).toBe(0.35);
+    expect(knowledgeMinScore()).toBe(0.5);
   });
 
   it('env 合法数值优先返回', () => {
@@ -25,11 +38,11 @@ describe('knowledgeMinScore: v0.4.15 相关性阈值配置', () => {
     delete process.env.KNOWLEDGE_MIN_SCORE;
   });
 
-  it('非法值（负数/非数字）回退默认 0.35', () => {
+  it('非法值（负数/非数字）回退默认 0.5', () => {
     process.env.KNOWLEDGE_MIN_SCORE = '-1';
-    expect(knowledgeMinScore()).toBe(0.35);
+    expect(knowledgeMinScore()).toBe(0.5);
     process.env.KNOWLEDGE_MIN_SCORE = 'abc';
-    expect(knowledgeMinScore()).toBe(0.35);
+    expect(knowledgeMinScore()).toBe(0.5);
     delete process.env.KNOWLEDGE_MIN_SCORE;
   });
 });
@@ -47,7 +60,7 @@ describe('rankChunks: v0.4.15 topK 扩容与相关性阈值', () => {
     expect(out.length).toBe(6); // 全量返回，不再硬截断在 4
   });
 
-  it('v0.4.15：向量相似度低于阈值（默认 0.35）的片段被过滤（无关问题无注入）', () => {
+  it('v0.4.15：向量相似度低于阈值（默认 0.5）的片段被过滤（无关问题无注入）', () => {
     // 构造真实 embedding：相关块与 query 夹角小 → cos≈0.8；无关块夹角大 → cos≈0.15/0.2
     const q = [1, 0];
     const chunks = [
@@ -183,6 +196,64 @@ describe('rankChunks: 检索排序', () => {
     ];
     const out = rankChunks('长龄业务的判断标准是什么', chunks, [1, 0], 1);
     expect(out[0].text).toBe('长龄业务判断标准');
+  });
+});
+
+describe('rankChunks: v0.9.78 RRF 混合融合', () => {
+  const mk = (title: string, text: string, embedding: number[] | null): KnowledgeChunk => ({ title, text, embedding });
+
+  beforeEach(() => {
+    delete process.env.KNOWLEDGE_RANK_STRATEGY;
+  });
+
+  it('策略开关：默认 rrf；env=legacy 回退旧版；非法值回退 rrf', () => {
+    expect(knowledgeRankStrategy()).toBe('rrf');
+    process.env.KNOWLEDGE_RANK_STRATEGY = 'legacy';
+    expect(knowledgeRankStrategy()).toBe('legacy');
+    process.env.KNOWLEDGE_RANK_STRATEGY = 'bogus';
+    expect(knowledgeRankStrategy()).toBe('rrf');
+  });
+
+  it('词法强命中救回向量未达阈的精确匹配块（legacy 漏召对照）', () => {
+    // cos≈0.2 未达默认向量阈值，但问题 bigram 全覆盖（长龄/龄业/业务，覆盖率 1.0）
+    const chunks = [mk('高频指标口径速查', '长龄业务判断标准', [0.2, 0.98])];
+    const out = rankChunks('长龄业务', chunks, [1, 0]);
+    expect(out).toHaveLength(1); // RRF：词法通道救回
+    expect(out[0].title).toBe('高频指标口径速查');
+
+    process.env.KNOWLEDGE_RANK_STRATEGY = 'legacy';
+    const legacyOut = rankChunks('长龄业务', chunks, [1, 0]);
+    expect(legacyOut).toHaveLength(0); // legacy：向量未达阈整体过滤
+  });
+
+  it('词法救回有门槛：单 bigram 偶然重合（hits 不足）不放行', () => {
+    // 仅命中「长龄」1 个 bigram，低于 LEXICAL_RECALL_MIN_HITS
+    const chunks = [mk('无关字典', '长龄数据字典', [0.1, 0.9])];
+    expect(rankChunks('长龄业务', chunks, [1, 0])).toHaveLength(0);
+  });
+
+  it('RRF 下无关问题仍不注入（向量阈值 + 词法双条件防线回归）', () => {
+    const chunks = [mk('无关字典', 'xyz 字段说明', [0.1, 0.9]), mk('无关文档', 'abc 定义', [0.15, 0.85])];
+    expect(rankChunks('今天天气怎么样', chunks, [1, 0])).toHaveLength(0);
+  });
+
+  it('双通道融合：词法+向量双强块归因排在纯向量强块之前（legacy 相反）', () => {
+    const chunks = [
+      mk('语义强块', '与问题无字面重合', [1, 0]), // 向量第一但词法 0
+      mk('高频指标口径速查', '长龄业务的判断标准是什么', [0.6, 0.8]), // cos≈0.6 达标且词法全命中
+    ];
+    const out = rankChunks('长龄业务的判断标准是什么', chunks, [1, 0], 2, 2, false);
+    expect(out[0].title).toBe('高频指标口径速查'); // RRF 双通道归属更可靠
+
+    process.env.KNOWLEDGE_RANK_STRATEGY = 'legacy';
+    const legacyOut = rankChunks('长龄业务的判断标准是什么', chunks, [1, 0], 2, 2, false);
+    expect(legacyOut[0].title).toBe('语义强块'); // legacy 纯向量分排序的偏置
+  });
+
+  it('融合常量导出：k=60、词法救回双条件门槛', () => {
+    expect(RRF_K).toBe(60);
+    expect(LEXICAL_RECALL_MIN_HITS).toBe(2);
+    expect(LEXICAL_RECALL_MIN_NORM).toBeCloseTo(0.35);
   });
 });
 

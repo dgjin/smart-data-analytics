@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.9.77",
+  "version": "0.9.78",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -19,6 +19,8 @@
     "metrics:reconcile": "tsx scripts/reconcile-metrics.ts",
     "eval": "tsx server/eval/runEval.ts",
     "eval:seed": "tsx server/eval/seedEvalDatasource.ts",
+    "eval:retrieval": "tsx server/eval/retrievalRunner.ts",
+    "reembed:embeddings": "tsx scripts/reembed-embeddings.ts",
     "loadtest": "tsx server/eval/loadTest.ts",
     "init:data-resource": "tsx scripts/init-data-resource.ts",
     "migrate:data-resource-rules": "tsx scripts/migrate-data-resource-rules.ts",
