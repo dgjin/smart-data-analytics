@@ -116,19 +116,19 @@ test.describe('灵活查询（FlexQuery）', () => {
     await expect(page.locator('code').filter({ hasText: /JOIN/ }).first()).toBeVisible();
   });
 
-  test('行数上限：选表后回退防爆量 100，可选至 50000', async ({ page, request }) => {
+  test('行数上限：选表后回退默认 10000，可选至 100000', async ({ page, request }) => {
     const ds = await pickExecutableSource(request);
     test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
     await openFlexQuery(page, ds!.id);
     await pickTable(page, ds!.tables[0]);
 
-    // 行数选择器：含 50000 选项的 select 即行数选择器
-    const limitSelect = page.locator('select', { has: page.locator('option', { hasText: /^50000$/ }) });
-    // resetBuilder 在选表后将行数回退为 100（首次查询防爆量），可选至 50000
-    await expect(limitSelect).toHaveValue('100');
+    // 行数选择器：含 100000 选项的 select 即行数选择器
+    const limitSelect = page.locator('select', { has: page.locator('option', { hasText: /^100000$/ }) });
+    // resetBuilder 在选表后将行数回退为默认 10000（v0.9.64 起不再降为 100），可选至 100000（执行层硬上限）
+    await expect(limitSelect).toHaveValue('10000');
     const options = await limitSelect.locator('option').allTextContents();
-    expect(options).toEqual(['100', '500', '1000', '5000', '10000', '50000']);
-    await limitSelect.selectOption('50000');
-    await expect(limitSelect).toHaveValue('50000');
+    expect(options).toEqual(['100', '500', '1000', '5000', '10000', '50000', '100000']);
+    await limitSelect.selectOption('100000');
+    await expect(limitSelect).toHaveValue('100000');
   });
 });

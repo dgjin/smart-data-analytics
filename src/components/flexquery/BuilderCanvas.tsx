@@ -6,16 +6,28 @@ import {
   FLEX_AGGS,
   FLEX_FILTER_OPS,
   FLEX_HAVING_OPS,
+  FLEX_LIKE_MODES,
   FLEX_NO_VALUE_OPS,
+  FLEX_TIME_UNITS,
   measureAlias,
   FlexAgg,
+  FlexLikeMode,
   FlexMeasure,
   FlexFilter,
   FlexHaving,
   FlexOrderBy,
+  FlexTimeUnit,
 } from '../../utils/flexQueryBuilder';
 import { SqlPreviewPanel } from './SqlPreviewPanel';
-import { AGG_LABELS, DropZone, FieldWithTable, FlexBuilt } from './flexQueryShared';
+import {
+  AGG_LABELS,
+  ColumnValuesState,
+  DropZone,
+  FieldWithTable,
+  FlexBuilt,
+  LIKE_MODE_LABELS,
+  TIME_UNIT_LABELS,
+} from './flexQueryShared';
 
 export interface BuilderCanvasProps {
   fullZone: 'config' | 'result' | null;
@@ -30,9 +42,13 @@ export interface BuilderCanvasProps {
   setFilters: React.Dispatch<React.SetStateAction<FlexFilter[]>>;
   havings: FlexHaving[];
   setHavings: React.Dispatch<React.SetStateAction<FlexHaving[]>>;
-  orderBy: FlexOrderBy | null;
-  setOrderBy: React.Dispatch<React.SetStateAction<FlexOrderBy | null>>;
-  isOrderByValid: boolean;
+  /** v0.9.75：多列排序 / 维度时间粒度 / 列取值探测缓存 */
+  orderBys: FlexOrderBy[];
+  setOrderBys: React.Dispatch<React.SetStateAction<FlexOrderBy[]>>;
+  dimTimeUnits: Record<string, FlexTimeUnit>;
+  setDimUnit: (column: string, unit: FlexTimeUnit | null) => void;
+  columnValues: Record<string, ColumnValuesState>;
+  fetchColumnValues: (fullName: string) => Promise<void>;
   limit: number;
   setLimit: React.Dispatch<React.SetStateAction<number>>;
   advOpen: boolean;
@@ -60,9 +76,12 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   setFilters,
   havings,
   setHavings,
-  orderBy,
-  setOrderBy,
-  isOrderByValid,
+  orderBys,
+  setOrderBys,
+  dimTimeUnits,
+  setDimUnit,
+  columnValues,
+  fetchColumnValues,
   limit,
   setLimit,
   advOpen,
@@ -84,6 +103,10 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
     const column = e.dataTransfer.getData('text/plain');
     if (column) addField(column, zone);
   };
+
+  // v0.9.75：多列排序——可添加的下一排序目标（未被占用的指标别名或维度）
+  const usedSortKeys = new Set(orderBys.map((o) => o.by));
+  const nextSortTarget = [...measures.map(measureAlias), ...dimensions].find((k) => !usedSortKeys.has(k));
 
   const zoneClass = (zone: DropZone) =>
     `rounded-xl border-2 border-dashed p-2 min-h-[52px] transition-colors ${
@@ -139,20 +162,40 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
             <p className="text-[10px] text-slate-500 text-center py-1.5">拖入或点击左侧维度</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
-              {dimensions.map((d) => (
-                <span
-                  key={d}
-                  className="text-[11px] px-2 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 flex items-center space-x-1"
-                >
-                  <span>{columnNames[d] || d}</span>
-                  <button
-                    onClick={() => setDimensions((prev) => prev.filter((x) => x !== d))}
-                    className="hover:text-rose-400"
+              {dimensions.map((d) => {
+                const src = allFields.find((c) => c.fullName === d);
+                const unit = dimTimeUnits[d];
+                return (
+                  <span
+                    key={d}
+                    className="text-[11px] px-2 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-200 flex items-center space-x-1"
                   >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
+                    <span>{columnNames[d] || d}</span>
+                    {/* v0.9.75：日期维度时间粒度（按年/季/月/周/日分组） */}
+                    {src?.type === 'date' && (
+                      <select
+                        value={unit || ''}
+                        onChange={(e) => setDimUnit(d, (e.target.value || null) as FlexTimeUnit | null)}
+                        title="时间粒度分组（按年/季/月/周/日聚合）"
+                        className="bg-slate-800 border border-slate-700 rounded px-0.5 py-0 text-[10px] text-cyan-100 focus:outline-none"
+                      >
+                        <option value="">原值</option>
+                        {FLEX_TIME_UNITS.map((u) => (
+                          <option key={u} value={u}>
+                            {TIME_UNIT_LABELS[u]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      onClick={() => setDimensions((prev) => prev.filter((x) => x !== d))}
+                      className="hover:text-rose-400"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
             </div>
           )}
         </div>
@@ -263,16 +306,33 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                       </option>
                     ))}
                   </select>
-                  {!FLEX_NO_VALUE_OPS.includes(f.op) && (
-                    <input
-                      value={f.value}
+                  {f.op === 'LIKE' && (
+                    <select
+                      value={f.likeMode || 'contains'}
                       onChange={(e) =>
-                        setFilters((prev) => prev.map((x, i) => (i === idx ? { ...x, value: e.target.value } : x)))
+                        setFilters((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, likeMode: e.target.value as FlexLikeMode } : x)),
+                        )
                       }
-                      placeholder={
-                        f.op === 'IN' ? '多值逗号分隔' : f.op === 'BETWEEN' ? '区间：最小值, 最大值' : '筛选值'
+                      title="LIKE 匹配模式"
+                      className="bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-200 focus:outline-none"
+                    >
+                      {FLEX_LIKE_MODES.map((mode) => (
+                        <option key={mode} value={mode}>
+                          {LIKE_MODE_LABELS[mode]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {!FLEX_NO_VALUE_OPS.includes(f.op) && (
+                    <FilterValueControl
+                      filter={f}
+                      field={allFields.find((c) => c.fullName === f.column)}
+                      valuesState={columnValues[f.column]}
+                      onFetchValues={() => void fetchColumnValues(f.column)}
+                      onPatch={(patch) =>
+                        setFilters((prev) => prev.map((x, i) => (i === idx ? { ...x, ...patch } : x)))
                       }
-                      className="flex-1 min-w-[80px] bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   )}
                   <button
@@ -394,55 +454,87 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
         </>
       )}
 
-      {/* 排序 + 行数（v0.4.10：排序目标可选任一指标/维度） */}
-      <div className="flex items-center space-x-2 text-[11px] flex-wrap gap-y-1.5">
-        <span className="text-slate-400 flex items-center space-x-1">
-          <ArrowUpDown className="w-3 h-3" />
-          <span>排序</span>
-        </span>
-        <select
-          value={isOrderByValid && orderBy ? orderBy.by : ''}
-          onChange={(e) => {
-            const by = e.target.value;
-            setOrderBy(by ? { by, dir: orderBy?.dir || 'desc' } : null);
-          }}
-          className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none max-w-[180px]"
-        >
-          <option value="">不排序</option>
-          {measures.map((m) => (
-            <option key={`om-${measureAlias(m)}`} value={measureAlias(m)}>
-              指标 · {AGG_LABELS[m.agg]}({columnNames[m.column] || m.column})
-            </option>
-          ))}
-          {dimensions.map((d) => (
-            <option key={`od-${d}`} value={d}>
-              维度 · {columnNames[d] || d}
-            </option>
-          ))}
-        </select>
-        {orderBy && (
+      {/* 排序 + 行数（v0.4.10：排序目标可选任一指标/维度；v0.9.75：多列排序） */}
+      <div className="space-y-1.5 text-[11px]">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-400 flex items-center space-x-1">
+            <ArrowUpDown className="w-3 h-3" />
+            <span>排序（多列自上而下依次生效）</span>
+          </span>
+          <button
+            onClick={() => {
+              if (!nextSortTarget) return;
+              setOrderBys((prev) => [...prev, { by: nextSortTarget, dir: 'desc' }]);
+            }}
+            disabled={!nextSortTarget}
+            className={`text-[10px] ${nextSortTarget ? 'text-indigo-300 hover:text-indigo-200' : 'text-slate-600 cursor-not-allowed'}`}
+          >
+            + 添加排序
+          </button>
+        </div>
+        {orderBys.length === 0 ? (
+          <p className="text-[10px] text-slate-500">未设置排序（按数据库返回顺序）</p>
+        ) : (
+          <div className="space-y-1">
+            {orderBys.map((o, idx) => (
+              <div key={`${o.by}-${idx}`} className="flex items-center space-x-1.5">
+                <span className="text-[10px] text-slate-500 w-3">{idx + 1}.</span>
+                <select
+                  value={o.by}
+                  onChange={(e) =>
+                    setOrderBys((prev) => prev.map((x, i) => (i === idx ? { ...x, by: e.target.value } : x)))
+                  }
+                  className="flex-1 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none max-w-[200px]"
+                >
+                  {measures.map((m) => (
+                    <option key={`om-${measureAlias(m)}`} value={measureAlias(m)}>
+                      指标 · {AGG_LABELS[m.agg]}({columnNames[m.column] || m.column})
+                    </option>
+                  ))}
+                  {dimensions.map((d) => (
+                    <option key={`od-${d}`} value={d}>
+                      维度 · {columnNames[d] || d}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={o.dir}
+                  onChange={(e) =>
+                    setOrderBys((prev) =>
+                      prev.map((x, i) => (i === idx ? { ...x, dir: e.target.value as 'desc' | 'asc' } : x)),
+                    )
+                  }
+                  className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none"
+                >
+                  <option value="desc">降序</option>
+                  <option value="asc">升序</option>
+                </select>
+                <button
+                  onClick={() => setOrderBys((prev) => prev.filter((_, i) => i !== idx))}
+                  className="text-slate-400 hover:text-rose-400"
+                  title="移除该排序条件"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center space-x-2">
+          <span className="text-slate-400">行数</span>
           <select
-            value={orderBy.dir}
-            onChange={(e) => setOrderBy({ ...orderBy, dir: e.target.value as 'desc' | 'asc' })}
+            value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))}
             className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none"
           >
-            <option value="desc">降序</option>
-            <option value="asc">升序</option>
+            {/* v0.9.64：补 100000 选项（与执行层硬上限一致），取全部明细时无需再受 50000 限制 */}
+            {[100, 500, 1000, 5000, 10000, 50000, 100000].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
-        )}
-        <span className="text-slate-400">行数</span>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
-          className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none"
-        >
-          {/* v0.9.64：补 100000 选项（与执行层硬上限一致），取全部明细时无需再受 50000 限制 */}
-          {[100, 500, 1000, 5000, 10000, 50000, 100000].map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
+        </div>
       </div>
 
       {/* SQL 预览（v0.4.11 可折叠）：P0-1 拆至 SqlPreviewPanel */}
@@ -471,5 +563,160 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
         执行超时上限 10s；查询行数 {'>'} 10 万或执行时长 {'>'} 3s 将记入慢查询审计
       </p>
     </div>
+  );
+};
+
+/** v0.9.75：日期快捷预设（选后自动切换为 BETWEEN，区间为 [起始, 今天]） */
+const DatePresetSelect: React.FC<{ onPick: (value: string) => void }> = ({ onPick }) => (
+  <select
+    value=""
+    onChange={(e) => {
+      const key = e.target.value;
+      if (!key) return;
+      onPick(datePresetRange(key));
+      e.target.value = '';
+    }}
+    title="日期快捷区间（自动切换为 BETWEEN）"
+    className="bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-300 focus:outline-none"
+  >
+    <option value="">快捷…</option>
+    <option value="today">今天</option>
+    <option value="last7">近 7 天</option>
+    <option value="last30">近 30 天</option>
+    <option value="month">本月</option>
+    <option value="quarter">本季</option>
+    <option value="year">今年</option>
+  </select>
+);
+
+/** 本地日期格式化（避免 toISOString 的 UTC 时区偏移） */
+const fmtLocalDate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** 日期预设区间 → `起始, 今天`（近 7 天含今天共 7 天） */
+function datePresetRange(key: string): string {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (key === 'last7') start.setDate(start.getDate() - 6);
+  else if (key === 'last30') start.setDate(start.getDate() - 29);
+  else if (key === 'month') start.setDate(1);
+  else if (key === 'quarter') start.setMonth(Math.floor(now.getMonth() / 3) * 3, 1);
+  else if (key === 'year') start.setMonth(0, 1);
+  return `${fmtLocalDate(start)}, ${fmtLocalDate(now)}`;
+}
+
+/**
+ * v0.9.75 类型感知筛选值控件：日期列日期输入 + 快捷预设（BETWEEN 双输入）；
+ * 数值列 BETWEEN 双输入；字符串/枚举列文本输入 + 取值下拉（懒加载该列已有取值）。
+ */
+const FilterValueControl: React.FC<{
+  filter: FlexFilter;
+  field?: FieldWithTable;
+  valuesState?: ColumnValuesState;
+  onFetchValues: () => void;
+  onPatch: (patch: Partial<FlexFilter>) => void;
+}> = ({ filter: f, field, valuesState, onFetchValues, onPatch }) => {
+  const isDate = field?.type === 'date';
+  const isNumber = field?.type === 'number';
+  // 枚举候选：字符串/枚举/布尔列（数值与日期列不提供取值下拉）
+  const enumable = !!field && !isNumber && !isDate;
+  const inputCls =
+    'flex-1 min-w-[80px] bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-slate-200 focus:outline-none focus:border-amber-500';
+
+  if (isDate) {
+    const parts = f.value.split(/[,，]/);
+    const a = parts[0]?.trim() ?? '';
+    if (f.op === 'BETWEEN') {
+      const b = parts[1]?.trim() ?? '';
+      return (
+        <>
+          <input type="date" value={a} onChange={(e) => onPatch({ value: `${e.target.value}, ${b}` })} className={inputCls} />
+          <span className="text-slate-500">~</span>
+          <input type="date" value={b} onChange={(e) => onPatch({ value: `${a}, ${e.target.value}` })} className={inputCls} />
+          <DatePresetSelect onPick={(v) => onPatch({ op: 'BETWEEN', value: v })} />
+        </>
+      );
+    }
+    return (
+      <>
+        <input type="date" value={a} onChange={(e) => onPatch({ value: e.target.value })} className={inputCls} />
+        <DatePresetSelect onPick={(v) => onPatch({ op: 'BETWEEN', value: v })} />
+      </>
+    );
+  }
+
+  if (isNumber && f.op === 'BETWEEN') {
+    const parts = f.value.split(/[,，]/);
+    const a = parts[0]?.trim() ?? '';
+    const b = parts[1]?.trim() ?? '';
+    return (
+      <>
+        <input
+          value={a}
+          inputMode="decimal"
+          placeholder="最小值"
+          onChange={(e) => onPatch({ value: `${e.target.value}, ${b}` })}
+          className={inputCls}
+        />
+        <span className="text-slate-500">~</span>
+        <input
+          value={b}
+          inputMode="decimal"
+          placeholder="最大值"
+          onChange={(e) => onPatch({ value: `${a}, ${e.target.value}` })}
+          className={inputCls}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <input
+        value={f.value}
+        onChange={(e) => onPatch({ value: e.target.value })}
+        placeholder={f.op === 'IN' ? '多值逗号分隔' : '筛选值'}
+        className={inputCls}
+      />
+      {enumable && (
+        <select
+          value=""
+          onFocus={() => {
+            if (!valuesState) onFetchValues();
+          }}
+          onChange={(e) => {
+            const v = e.target.value;
+            e.target.value = '';
+            if (!v) return;
+            if (v === '__retry__' || v === '__load__') return onFetchValues();
+            // IN/BETWEEN 为多值语义：选择的取值追加到现有值（逗号分隔）
+            const multiple = f.op === 'IN' || f.op === 'BETWEEN';
+            onPatch({ value: multiple ? (f.value.trim() ? `${f.value.trim()}, ${v}` : v) : v });
+          }}
+          title="从该列已有取值中选择（点击加载）"
+          className="bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-300 focus:outline-none max-w-[110px]"
+        >
+          {!valuesState || valuesState.status === 'loading' ? (
+            <option value="__load__">{valuesState?.status === 'loading' ? '加载中…' : '取值▾'}</option>
+          ) : valuesState.status === 'error' ? (
+            <option value="__retry__">加载失败，点击重试</option>
+          ) : (
+            <>
+              <option value="">取值▾</option>
+              {valuesState.values.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+              {valuesState.truncated && (
+                <option value="__more__" disabled>
+                  …仅展示前 100 个
+                </option>
+              )}
+            </>
+          )}
+        </select>
+      )}
+    </>
   );
 };

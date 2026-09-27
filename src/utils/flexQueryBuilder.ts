@@ -7,12 +7,22 @@
  * 指标过滤（HAVING 聚合后过滤）、排序目标可选任一指标别名或维度列。
  * v0.5.4：金额单位换算——选定非「元」单位时，金额类列的 SUM/AVG/MIN/MAX 聚合按除数换算
  * （ROUND(AGG(col)/divisor, 2)），HAVING 中金额列表达式同口径；COUNT 类聚合与「元」原值不换算。
+ * v0.9.75（灵活查询 P0 增强）：时间维度粒度分组（按年/季/月/周/日）、多列排序（orderBys 数组）、
+ * LIKE 匹配模式（包含/开头是/结尾是/精确）、维度结果列名统一取末段（修复跨表维度图表/透视键不匹配）。
  */
 import { TableSchema } from '../types/analytics';
 
 export type FlexAgg = 'SUM' | 'COUNT' | 'COUNT_DISTINCT' | 'AVG' | 'MAX' | 'MIN';
 export type FlexFilterOp = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'BETWEEN' | 'IS NULL' | 'IS NOT NULL';
 export type FlexHavingOp = '=' | '!=' | '>' | '>=' | '<' | '<=';
+
+/** v0.9.75：时间维度粒度（作用于日期类维度，SQL 端按粒度格式化后分组） */
+export type FlexTimeUnit = 'year' | 'quarter' | 'month' | 'week' | 'day';
+export const FLEX_TIME_UNITS: FlexTimeUnit[] = ['year', 'quarter', 'month', 'week', 'day'];
+
+/** v0.9.75：LIKE 匹配模式（contains 为默认，延续旧版 %v% 行为） */
+export type FlexLikeMode = 'contains' | 'startsWith' | 'endsWith' | 'exact';
+export const FLEX_LIKE_MODES: FlexLikeMode[] = ['contains', 'startsWith', 'endsWith', 'exact'];
 
 export interface FlexMeasure {
   column: string;
@@ -23,6 +33,8 @@ export interface FlexFilter {
   column: string;
   op: FlexFilterOp;
   value: string;
+  /** v0.9.75：LIKE 的匹配模式（默认包含）；其余操作符忽略 */
+  likeMode?: FlexLikeMode;
 }
 
 /** 指标过滤（HAVING）：聚合结果上的条件过滤，如 SUM(投放金额) > 1000 */
@@ -59,8 +71,10 @@ export interface FlexQueryConfig {
   filters: FlexFilter[];
   /** 指标过滤（HAVING 子句） */
   havings: FlexHaving[];
-  /** 排序：by 为指标别名或维度列名 */
-  orderBy: FlexOrderBy | null;
+  /** 排序（v0.9.75 起支持多列）：by 为指标别名或维度列名；空数组不排序 */
+  orderBys: FlexOrderBy[];
+  /** v0.9.75：维度时间粒度（维度全名 → 粒度）；未配置的维度按原值分组 */
+  dimTimeUnits?: Record<string, FlexTimeUnit>;
   /** 返回行数上限（1-100000，v0.4.14 放宽防 OOM 兜底） */
   limit: number;
 }
@@ -111,10 +125,44 @@ export function measureExpression(
   return base;
 }
 
-/** 指标列别名：agg_列名（小写，去重计数缩写 countd），避免中文别名在不同方言下的兼容问题 */
+/** 指标列别名：agg_列名（小写，去重计数缩写 countd；非标识符字符归一为 _），避免中文别名在不同方言下的兼容问题 */
 export function measureAlias(m: { column: string; agg: FlexAgg }): string {
   const prefix = m.agg === 'COUNT_DISTINCT' ? 'countd' : m.agg.toLowerCase();
-  return `${prefix}_${m.column.toLowerCase()}`;
+  return `${prefix}_${m.column.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
+}
+
+/**
+ * v0.9.75：维度结果列名——table.column 取末段列名（与驱动返回列名一致）。
+ * 修复跨表维度（dim_region.region_name 返回列名为 region_name）在图表 xAxisKey/透视维度键上的不匹配。
+ */
+export function dimResultAlias(fullName: string): string {
+  const idx = fullName.lastIndexOf('.');
+  return idx >= 0 ? fullName.slice(idx + 1) : fullName;
+}
+
+/**
+ * v0.9.75：时间粒度分组表达式——把日期列格式化为字符串（两位周序/季度编码，字典序即时间序）。
+ * MySQL 用 DATE_FORMAT / CONCAT(YEAR,QUARTER)；PG 系（postgresql/greenplum）统一 TO_CHAR(col::date)。
+ */
+export function timeGrainExpression(unit: FlexTimeUnit, quotedCol: string, dialect: 'mysql' | 'pg'): string {
+  if (dialect === 'mysql') {
+    const mysqlFmts: Record<FlexTimeUnit, string> = {
+      year: `DATE_FORMAT(${quotedCol}, '%Y')`,
+      quarter: `CONCAT(YEAR(${quotedCol}), '-Q', QUARTER(${quotedCol}))`,
+      month: `DATE_FORMAT(${quotedCol}, '%Y-%m')`,
+      week: `DATE_FORMAT(${quotedCol}, '%x-W%v')`,
+      day: `DATE_FORMAT(${quotedCol}, '%Y-%m-%d')`,
+    };
+    return mysqlFmts[unit];
+  }
+  const pgFmts: Record<FlexTimeUnit, string> = {
+    year: `TO_CHAR(${quotedCol}::date, 'YYYY')`,
+    quarter: `CONCAT(TO_CHAR(${quotedCol}::date, 'YYYY'), '-Q', TO_CHAR(${quotedCol}::date, 'Q'))`,
+    month: `TO_CHAR(${quotedCol}::date, 'YYYY-MM')`,
+    week: `TO_CHAR(${quotedCol}::date, 'IYYY-"W"IW')`,
+    day: `TO_CHAR(${quotedCol}::date, 'YYYY-MM-DD')`,
+  };
+  return pgFmts[unit];
 }
 
 /** 单引号加倍转义（SQL 字符串字面量标准转义） */
@@ -137,8 +185,8 @@ export function betweenParts(raw: string): [string, string] | null {
   return parts.length === 2 ? [parts[0], parts[1]] : null;
 }
 
-/** 筛选值 → SQL 字面量；数值不加引号，其余按字符串转义包裹；IN 逐项转义；BETWEEN 返回 "a AND b" */
-export function filterValueToSql(op: FlexFilterOp, raw: string): string {
+/** 筛选值 → SQL 字面量；IN 逐项转义；BETWEEN 返回 "a AND b"；LIKE 按匹配模式拼通配符；其余数值不加引号、字符串转义包裹 */
+export function filterValueToSql(op: FlexFilterOp, raw: string, likeMode: FlexLikeMode = 'contains'): string {
   const v = raw.trim();
   if (op === 'IN') {
     const items = splitAndQuote(v);
@@ -148,8 +196,13 @@ export function filterValueToSql(op: FlexFilterOp, raw: string): string {
     const parts = betweenParts(v);
     return parts ? `${parts[0]} AND ${parts[1]}` : "'' AND ''";
   }
+  if (op === 'LIKE') {
+    const esc = escapeSqlString(v);
+    const pattern =
+      likeMode === 'startsWith' ? `${esc}%` : likeMode === 'endsWith' ? `%${esc}` : likeMode === 'exact' ? esc : `%${esc}%`;
+    return `'${pattern}'`;
+  }
   if (/^-?\d+(\.\d+)?$/.test(v)) return v;
-  if (op === 'LIKE') return `'%${escapeSqlString(v)}%'`;
   return `'${escapeSqlString(v)}'`;
 }
 
@@ -159,6 +212,7 @@ export type FlexBuildResult = { ok: true; sql: string } | { ok: false; error: st
  * 按配置构建单表/多表聚合 SQL。dialect 决定标识符引号（mysql 反引号 / pg 双引号）。
  * 所有表名与列名必须在 table 与 allTables 的 schema 列集合内（客户端白名单第一道防线）。
  * v0.4.14：支持多表 JOIN（config.joins），字段引用支持 table.column 跨表格式。
+ * v0.9.75：多列排序（orderBys）、维度时间粒度（dimTimeUnits）与 LIKE 匹配模式。
  */
 export function buildFlexQuerySql(
   config: FlexQueryConfig,
@@ -208,11 +262,30 @@ export function buildFlexQuerySql(
 
   const selectParts: string[] = [];
   const groupParts: string[] = [];
+  // v0.9.75：维度结果列名（末段列名）冲突守卫 + ORDER BY 引用表 + 时间粒度分组
+  const dimAliases = new Set<string>();
+  const dimOrderRef = new Map<string, string>();
+  const dimAliasOrderRef = new Map<string, string>();
   for (const d of config.dimensions) {
     const col = ident(d);
     if (!col) return { ok: false, error: `维度列「${d}」不存在于该表，请重新拖入` };
-    selectParts.push(col);
-    groupParts.push(col);
+    const alias = dimResultAlias(d);
+    if (dimAliases.has(alias)) return { ok: false, error: `维度「${d}」与其他维度结果列名「${alias}」冲突，请移除其中一个` };
+    dimAliases.add(alias);
+    const unit = config.dimTimeUnits?.[d];
+    if (unit !== undefined && !FLEX_TIME_UNITS.includes(unit)) return { ok: false, error: `不支持的时间粒度「${unit}」` };
+    if (unit) {
+      const expr = timeGrainExpression(unit, col, dialect);
+      selectParts.push(`${expr} AS ${q}${alias}${q}`);
+      groupParts.push(expr);
+      dimOrderRef.set(d, expr);
+      dimAliasOrderRef.set(alias, expr);
+    } else {
+      selectParts.push(col);
+      groupParts.push(col);
+      dimOrderRef.set(d, col);
+      dimAliasOrderRef.set(alias, col);
+    }
   }
 
   const aliasToQuoted = new Map<string, string>();
@@ -242,6 +315,9 @@ export function buildFlexQuerySql(
       const parts = betweenParts(f.value);
       if (!parts) return { ok: false, error: `筛选列「${f.column}」的区间需填两个端点（如 100, 500）` };
       whereParts.push(`${col} BETWEEN ${parts[0]} AND ${parts[1]}`);
+    } else if (f.op === 'LIKE') {
+      if (f.likeMode && !FLEX_LIKE_MODES.includes(f.likeMode)) return { ok: false, error: `不支持的匹配模式「${f.likeMode}」` };
+      whereParts.push(`${col} LIKE ${filterValueToSql('LIKE', f.value, f.likeMode)}`);
     } else {
       whereParts.push(`${col} ${f.op} ${filterValueToSql(f.op, f.value)}`);
     }
@@ -258,21 +334,14 @@ export function buildFlexQuerySql(
     havingParts.push(`${measureExpression(h, col, findColSchema(h.column), amountUnit)} ${h.op} ${filterValueToSql(h.op, h.value)}`);
   }
 
-  // ORDER BY：by 必须是已生成的指标别名或维度列
-  let orderSegment: string | null = null;
-  if (config.orderBy) {
-    const { by, dir } = config.orderBy;
-    const dirSql = dir === 'asc' ? 'ASC' : 'DESC';
-    const aliasRef = aliasToQuoted.get(by);
-    if (aliasRef) {
-      orderSegment = `ORDER BY ${aliasRef} ${dirSql}`;
-    } else if (config.dimensions.includes(by)) {
-      const col = ident(by);
-      if (!col) return { ok: false, error: `排序列「${by}」非法` };
-      orderSegment = `ORDER BY ${col} ${dirSql}`;
-    } else {
-      return { ok: false, error: `排序目标「${by}」不在当前维度/指标中` };
-    }
+  // ORDER BY（v0.9.75 多列）：每列 by 必须是已生成的指标别名或维度列（支持末段结果列名引用）
+  const orderSegments: string[] = [];
+  for (const o of config.orderBys || []) {
+    if (!o.by) continue;
+    const dirSql = o.dir === 'asc' ? 'ASC' : 'DESC';
+    const ref = aliasToQuoted.get(o.by) ?? dimOrderRef.get(o.by) ?? dimAliasOrderRef.get(o.by);
+    if (!ref) return { ok: false, error: `排序目标「${o.by}」不在当前维度/指标中` };
+    orderSegments.push(`${ref} ${dirSql}`);
   }
 
   const limit = Math.min(Math.max(Math.floor(config.limit) || 10000, 1), 100000);
@@ -304,7 +373,7 @@ export function buildFlexQuerySql(
   if (whereParts.length) segments.push(`WHERE ${whereParts.join(' AND ')}`);
   if (groupParts.length) segments.push(`GROUP BY ${groupParts.join(', ')}`);
   if (havingParts.length) segments.push(`HAVING ${havingParts.join(' AND ')}`);
-  if (orderSegment) segments.push(orderSegment);
+  if (orderSegments.length) segments.push(`ORDER BY ${orderSegments.join(', ')}`);
   segments.push(`LIMIT ${limit}`);
 
   return { ok: true, sql: segments.join(' ') };

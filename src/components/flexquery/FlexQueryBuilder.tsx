@@ -39,8 +39,12 @@ export const FlexQueryBuilder: React.FC = () => {
     setFilters,
     havings,
     setHavings,
-    orderBy,
-    setOrderBy,
+    orderBys,
+    setOrderBys,
+    dimTimeUnits,
+    setDimUnit,
+    showTotals,
+    setShowTotals,
     fieldSearch,
     setFieldSearch,
     fieldTab,
@@ -68,7 +72,6 @@ export const FlexQueryBuilder: React.FC = () => {
     queryName,
     setQueryName,
     // 派生
-    isOrderByValid,
     allFields,
     dimensionCols,
     measureCols,
@@ -86,11 +89,14 @@ export const FlexQueryBuilder: React.FC = () => {
     pivotAvailable,
     displayRows,
     displayColumns,
+    totalsRow,
     chartConfig,
     // 行为
     addField,
     resetBuilder,
     runQuery,
+    columnValues,
+    fetchColumnValues,
     handleExportCsv,
     handlePin,
     handleSave,
@@ -101,6 +107,9 @@ export const FlexQueryBuilder: React.FC = () => {
     persistHistory,
     loadSaved,
     loadHistory,
+    favoriteIds,
+    toggleFavorite,
+    saveFromHistory,
   } = useFlexQueryState();
 
   return (
@@ -188,9 +197,12 @@ export const FlexQueryBuilder: React.FC = () => {
             setFilters={setFilters}
             havings={havings}
             setHavings={setHavings}
-            orderBy={orderBy}
-            setOrderBy={setOrderBy}
-            isOrderByValid={isOrderByValid}
+            orderBys={orderBys}
+            setOrderBys={setOrderBys}
+            dimTimeUnits={dimTimeUnits}
+            setDimUnit={setDimUnit}
+            columnValues={columnValues}
+            fetchColumnValues={fetchColumnValues}
             limit={limit}
             setLimit={setLimit}
             advOpen={advOpen}
@@ -218,6 +230,9 @@ export const FlexQueryBuilder: React.FC = () => {
             setChartType={setChartType}
             showPct={showPct}
             setShowPct={setShowPct}
+            showTotals={showTotals}
+            setShowTotals={setShowTotals}
+            totalsRow={totalsRow}
             pivotMode={pivotMode}
             setPivotMode={setPivotMode}
             pivotAvailable={pivotAvailable}
@@ -237,6 +252,9 @@ export const FlexQueryBuilder: React.FC = () => {
             deleteSavedQuery={deleteSavedQuery}
             persistHistory={persistHistory}
             goDashboard={goDashboard}
+            favoriteIds={favoriteIds}
+            onToggleFavorite={toggleFavorite}
+            onSaveFromHistory={saveFromHistory}
           />
         </div>
       )}

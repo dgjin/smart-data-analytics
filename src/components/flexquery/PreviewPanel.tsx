@@ -1,7 +1,7 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的结果预览区（下区：图表/明细 + 快速计算 + 固化保存 + 固定报表库）
 // 纯展示组件：全部状态与行为由 useFlexQueryState 注入，JSX 与拆分前保持一致
 import React from 'react';
-import { Pin, Save, Percent, LayoutGrid, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { Pin, Save, Percent, Sigma, LayoutGrid, Download, Maximize2, Minimize2 } from 'lucide-react';
 import { DynamicChart } from '../charts/DynamicChart';
 import { DataTable } from '../charts/DataTable';
 import { ChartConfig, ChartType } from '../../types/analytics';
@@ -20,6 +20,10 @@ export interface PreviewPanelProps {
   setChartType: React.Dispatch<React.SetStateAction<ChartType>>;
   showPct: boolean;
   setShowPct: React.Dispatch<React.SetStateAction<boolean>>;
+  /** v0.9.75：合计行开关与合计行数据（结果截断时禁用） */
+  showTotals: boolean;
+  setShowTotals: React.Dispatch<React.SetStateAction<boolean>>;
+  totalsRow: Record<string, unknown> | null;
   pivotMode: boolean;
   setPivotMode: React.Dispatch<React.SetStateAction<boolean>>;
   pivotAvailable: boolean;
@@ -39,6 +43,10 @@ export interface PreviewPanelProps {
   deleteSavedQuery: (id: string) => Promise<void>;
   persistHistory: (list: FlexHistoryItem[]) => void;
   goDashboard: () => void;
+  /** v0.9.75：收藏（本地偏好）/ 历史一键存为报表 */
+  favoriteIds: string[];
+  onToggleFavorite: (id: string) => void;
+  onSaveFromHistory: (h: FlexHistoryItem) => void;
 }
 
 export const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -53,6 +61,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   setChartType,
   showPct,
   setShowPct,
+  showTotals,
+  setShowTotals,
+  totalsRow,
   pivotMode,
   setPivotMode,
   pivotAvailable,
@@ -72,6 +83,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   deleteSavedQuery,
   persistHistory,
   goDashboard,
+  favoriteIds,
+  onToggleFavorite,
+  onSaveFromHistory,
 }) => {
   return (
     <div
@@ -87,7 +101,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           <div className="flex items-center space-x-2">
             {result && (
               <span className="text-[10px] text-slate-400">
-                {result.rows.length} 行{execTimeMs !== null ? ` · ${execTimeMs}ms` : ''}
+                {result.rows.length} 行{result.truncated ? '（已达行数上限，结果被截断）' : ''}
+                {execTimeMs !== null ? ` · ${execTimeMs}ms` : ''}
               </span>
             )}
             <button
@@ -140,6 +155,25 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                 />
                 <Percent className="w-3 h-3 text-indigo-400" />
                 <span>占比快速计算</span>
+              </label>
+              {/* v0.9.75：合计行（客户端累计；结果被截断时禁用防止展示不完整合计） */}
+              <label
+                className={`flex items-center space-x-1 ${result.truncated ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 cursor-pointer'}`}
+                title={
+                  result.truncated
+                    ? '结果已达行数上限被截断，合计不完整已禁用'
+                    : '追加合计行：求和/计数列累加，最值列取全局最值（平均/去重计数显示 -）'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={showTotals && !result.truncated}
+                  disabled={!!result.truncated}
+                  onChange={(e) => setShowTotals(e.target.checked)}
+                  className="accent-emerald-500"
+                />
+                <Sigma className="w-3 h-3 text-emerald-400" />
+                <span>合计行</span>
               </label>
               <button
                 onClick={() => setPivotMode((v) => !v)}
@@ -205,7 +239,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
               </div>
             ) : (
               <DataTable
-                data={displayRows}
+                data={totalsRow ? [...displayRows, totalsRow] : displayRows}
                 columns={displayColumns}
                 columnNames={columnNames}
                 pageSize={fullZone === 'result' ? 14 : 8}
@@ -252,6 +286,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         onGoDashboard={goDashboard}
         onClearHistory={() => persistHistory([])}
         onRestoreHistory={loadHistory}
+        favoriteIds={favoriteIds}
+        onToggleFavorite={onToggleFavorite}
+        onSaveFromHistory={onSaveFromHistory}
       />
     </div>
   );

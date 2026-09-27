@@ -2924,6 +2924,55 @@
         }
       }
     },
+    "/api/datasources/{id}/flex-column-values": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "数据源 ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "table",
+          "in": "query",
+          "required": true,
+          "description": "表名（须在该数据源 schema 白名单中）",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "column",
+          "in": "query",
+          "required": true,
+          "description": "列名（须在该表列白名单中；敏感列经 schema 剔除后不可探测）",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "DataSources"
+        ],
+        "operationId": "getFlexColumnValues",
+        "summary": "维度取值探测（v0.9.75 灵活查询筛选枚举；ADMIN/ANALYST，恒走安全执行层）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/datasources/{id}/acl": {
       "parameters": [
         {

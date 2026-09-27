@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveColumnRole, mapMysqlType, mapPgType } from './datasources';
+import { deriveColumnRole, mapMysqlType, mapPgType, normalizeColumnValues } from './datasources';
 
 describe('mapMysqlType', () => {
   it('整型与浮点映射为 number', () => {
@@ -96,5 +96,37 @@ describe('deriveColumnRole: PG 系长文本', () => {
     for (const raw of ['jsonb', 'bytea', 'xml']) {
       expect(deriveColumnRole('detail', 'string', false, raw, null)).toEqual({ isMetric: false, isDimension: false });
     }
+  });
+});
+
+describe('normalizeColumnValues（v0.9.75 取值探测归一化）', () => {
+  it('字符串化 + trim + 去空 + 去重', () => {
+    const out = normalizeColumnValues([{ v: ' 华东 ' }, { v: '华东' }, { v: '' }, { v: '   ' }, { v: null }, { v: '华南' }]);
+    expect(out.values).toEqual(['华东', '华南']);
+    expect(out.truncated).toBe(false);
+  });
+
+  it('数值感知排序（10 排在 9 之后）', () => {
+    const out = normalizeColumnValues([{ v: 10 }, { v: 9 }, { v: 2 }]);
+    expect(out.values).toEqual(['2', '9', '10']);
+  });
+
+  it('超出上限截断并标注 truncated', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ v: `v${i}` }));
+    const out = normalizeColumnValues(rows, 3);
+    expect(out.values).toEqual(['v0', 'v1', 'v2']);
+    expect(out.truncated).toBe(true);
+  });
+
+  it('达到上限且无更多取值时不误报 truncated', () => {
+    const rows = Array.from({ length: 3 }, (_, i) => ({ v: `v${i}` }));
+    const out = normalizeColumnValues(rows, 3);
+    expect(out.values).toHaveLength(3);
+    expect(out.truncated).toBe(false);
+  });
+
+  it('非法输入容错（非数组/非对象行）', () => {
+    expect(normalizeColumnValues(null)).toEqual({ values: [], truncated: false });
+    expect(normalizeColumnValues([null, 1, 'x', { v: 'ok' }]).values).toEqual(['ok']);
   });
 });

@@ -10,8 +10,8 @@ import { authMiddleware, requireRole } from '../auth/auth';
 import { getPool } from '../infra/db';
 import { sanitizeDataScope } from '../query/scope';
 import { canAccessDataSource, checkDataSourceAccess, parseAcl, sanitizeAcl } from '../auth/accessControl';
-import { invalidateSchemaCache } from '../query/schemaContext';
-import { invalidateExecutorPool } from '../query/sqlExecutor';
+import { invalidateSchemaCache, isLiveCapableType, loadSchemaContext } from '../query/schemaContext';
+import { dialectOfDsType, executeSafeSql, invalidateExecutorPool } from '../query/sqlExecutor';
 import { invalidateQueryCache } from '../query/queryCache';
 import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../infra/secretsCrypto';
@@ -27,6 +27,7 @@ import {
 import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
+import { IDENT_RE } from '../driftDetector';
 import { executeAutoConfig } from '../datasource/autoConfig';
 import type { AnomalyCapabilities } from '../datasource/autoConfig';
 
@@ -490,6 +491,70 @@ router.get('/:id/flex-schema', requireRole('ADMIN', 'ANALYST'), async (req, res)
   } catch (err) {
     logger.error('[DataSources] flex-schema failed:', err);
     return res.status(500).json({ error: 'Schema 获取失败' });
+  }
+});
+
+/** v0.9.75：取值探测上限（返回给前端的枚举候选数）；SQL 多取 1 条用于判定是否截断 */
+export const COLUMN_VALUES_LIMIT = 100;
+
+/**
+ * v0.9.75：归一化 DISTINCT 取值探测结果（纯函数，供单测）：
+ * 字符串化 + trim + 去空 + 去重 + 数值感知排序 + 截断标记。
+ */
+export function normalizeColumnValues(rows: unknown, limit = COLUMN_VALUES_LIMIT): { values: string[]; truncated: boolean } {
+  const list = Array.isArray(rows) ? rows : [];
+  const set = new Set<string>();
+  for (const r of list) {
+    if (!r || typeof r !== 'object') continue;
+    const raw = (r as Record<string, unknown>).v;
+    if (raw === null || raw === undefined) continue;
+    const s = String(raw).trim();
+    if (s) set.add(s);
+  }
+  const all = [...set].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }));
+  return { values: all.slice(0, limit), truncated: all.length > limit };
+}
+
+// GET /api/datasources/:id/flex-column-values?table=&column=（ADMIN/ANALYST）
+// v0.9.75 灵活查询：低基数维度取值探测（筛选控件枚举下拉的数据源）。
+// 恒走只读安全执行层（表/列白名单 + 敏感列剔除 + 行级过滤），LIMIT 101 探测后归一化截 100；
+// 表/列必须存在于该数据源 schema（loadSchemaContext 已剔除敏感列，天然不可探测敏感列）。
+router.get('/:id/flex-column-values', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const dataSourceId = String(req.params.id || '');
+  const tableName = String(req.query.table || '');
+  const columnName = String(req.query.column || '');
+  try {
+    if (!(await checkDataSourceAccess(req.user!, dataSourceId))) {
+      return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
+    }
+    if (!IDENT_RE.test(tableName) || !IDENT_RE.test(columnName)) {
+      return res.status(400).json({ error: '表名或列名格式非法' });
+    }
+    const ctx = await loadSchemaContext(dataSourceId, undefined);
+    if (ctx.status === 'disconnected') {
+      return res.status(403).json({ error: '该数据源已被管理员停用' });
+    }
+    if (!isLiveCapableType(ctx.dsType, ctx.fileBacked)) {
+      return res.status(400).json({ error: '该数据源类型不支持取值探测' });
+    }
+    const table = ctx.schema.find((t) => t.name === tableName);
+    if (!table) return res.status(404).json({ error: '表不存在' });
+    if (!(table.columns || []).some((c) => c.name === columnName)) {
+      return res.status(400).json({ error: '列不存在或不可探测' });
+    }
+    // 文件型落应用库（MySQL），与 sqlExecutor 方言解析保持一致
+    const dialect = dialectOfDsType(ctx.dsType || '') || 'mysql';
+    const q = dialect === 'mysql' ? '`' : '"';
+    const probeSql = `SELECT DISTINCT ${q}${columnName}${q} AS v FROM ${q}${tableName}${q} WHERE ${q}${columnName}${q} IS NOT NULL LIMIT ${COLUMN_VALUES_LIMIT + 1}`;
+    const outcome = await executeSafeSql(dataSourceId, probeSql, ctx.schema, ctx.sensitiveRemoved, COLUMN_VALUES_LIMIT + 1, ctx.rowFilters);
+    if (outcome.ok !== true) {
+      return res.status(422).json({ error: outcome.reason });
+    }
+    const { values, truncated } = normalizeColumnValues(outcome.result.rows);
+    return res.json({ success: true, table: tableName, column: columnName, values, truncated });
+  } catch (err) {
+    logger.error('[DataSources] flex-column-values failed:', err);
+    return res.status(500).json({ error: '取值探测失败' });
   }
 });
 

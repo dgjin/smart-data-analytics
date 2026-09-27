@@ -8,6 +8,7 @@ import { downloadServerCsv } from '../../../utils/exportCsv';
 import { TableSchema, ChartConfig, ChartType } from '../../../types/analytics';
 import {
   buildFlexQuerySql,
+  dimResultAlias,
   isAmountColumn,
   measureAlias,
   FlexMeasure,
@@ -16,11 +17,13 @@ import {
   FlexOrderBy,
   FlexJoin,
   FlexQueryConfig,
+  FlexTimeUnit,
 } from '../../../utils/flexQueryBuilder';
 import { useEffectiveAmountUnit, AMOUNT_UNIT_DIVISORS } from '../../../hooks/useAmountUnitStore';
 import { FlexHistoryItem, SavedFlexQuery } from '../FlexQueryLibrary';
 import {
   AGG_LABELS,
+  ColumnValuesState,
   DB_TYPES,
   DropZone,
   FieldTab,
@@ -28,6 +31,7 @@ import {
   FlexBuilt,
   FlexPivot,
   FlexResult,
+  TIME_UNIT_LABELS,
 } from '../flexQueryShared';
 import { getErrorMessage } from '../../../utils/errorUtils';
 import { logger } from '../../../utils/logger';
@@ -35,9 +39,15 @@ import { logger } from '../../../utils/logger';
 /** v0.9.24 迁移遗留键：服务端持久化后仅存留一次性迁移源，迁移成功即清除 */
 const SAVED_KEY = 'app-flex-queries';
 const HISTORY_KEY = 'app-flex-history';
+/** v0.9.75：固定报表收藏（本地偏好，跨会话保留） */
+const FAVORITES_KEY = 'app-flex-favorites';
 
-/** 载入配置入参：兼容 v0.4.9 前旧字段 orderByFirstMeasure（'none' 表示不排序） */
-type LoadableFlexConfig = Partial<FlexQueryConfig> & { orderByFirstMeasure?: string };
+/** 载入配置入参：兼容 v0.4.9 前 orderByFirstMeasure 与 v0.4.10~v0.9.74 单列 orderBy（'none' 表示不排序） */
+type LoadableFlexConfig = Partial<FlexQueryConfig> & {
+  orderByFirstMeasure?: string;
+  /** v0.9.75 迁移源：旧版单列排序字段 */
+  orderBy?: FlexOrderBy | null;
+};
 
 /**
  * 灵活查询构建器状态 Hook（P0 上帝组件拆分：自 FlexQueryBuilder 提取，行为保持一致）。
@@ -64,11 +74,14 @@ export function useFlexQueryState() {
   const [loadingTables, setLoadingTables] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [selectedTable, setSelectedTable] = useState('');
+  // v0.9.75：列取值探测缓存（声明须在下方 Schema 加载 effect 之前，避免闭包前向引用）
+  const [columnValues, setColumnValues] = useState<Record<string, ColumnValuesState>>({});
 
   useEffect(() => {
     setTables([]);
     setSelectedTable('');
     setSchemaError(null);
+    setColumnValues({});
     if (!activeDataSourceId || !dbSupported) return;
     let cancelled = false;
     setLoadingTables(true);
@@ -96,7 +109,19 @@ export function useFlexQueryState() {
   const [filters, setFilters] = useState<FlexFilter[]>([]);
   // v0.4.10：指标过滤（HAVING）与自由排序目标（任一指标/维度）
   const [havings, setHavings] = useState<FlexHaving[]>([]);
-  const [orderBy, setOrderBy] = useState<FlexOrderBy | null>(null);
+  // v0.9.75：多列排序 / 维度时间粒度 / 合计行开关 / 固定报表收藏 / 列取值探测缓存
+  const [orderBys, setOrderBys] = useState<FlexOrderBy[]>([]);
+  const [dimTimeUnits, setDimTimeUnits] = useState<Record<string, FlexTimeUnit>>({});
+  const [showTotals, setShowTotals] = useState(false);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(FAVORITES_KEY);
+      const arr = raw ? (JSON.parse(raw) as unknown) : [];
+      return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
   const [fieldSearch, setFieldSearch] = useState('');
   // v0.4.11 布局优化：字段分组过滤/折叠、SQL 预览折叠
   const [fieldTab, setFieldTab] = useState<FieldTab>('all');
@@ -127,17 +152,54 @@ export function useFlexQueryState() {
 
   const tableSchema = tables.find((t) => t.name === selectedTable);
 
-  // v0.4.10 修复：聚合方式变更后同步校正排序目标（旧别名失效会阻塞执行），
-  // 且排序下拉展示值需与实际 orderBy 一致（否则选「不排序」不生效）
+  // v0.9.75（承接 v0.4.10 自愈逻辑，扩展为多列 + 粒度清理）：聚合/维度变更后剔除失效排序列
+  // （旧别名失效会阻塞执行）；全部失效时回退首指标别名（无指标回退首维度）；同时清理已移除维度的粒度配置
   const validAliases = new Set(measures.map(measureAlias));
-  const isOrderByValid = !!orderBy && (validAliases.has(orderBy.by) || dimensions.includes(orderBy.by));
   useEffect(() => {
-    if (orderBy && !isOrderByValid) {
-      const fallback = validAliases.size ? [...validAliases][0] : dimensions[0];
-      setOrderBy(fallback ? { by: fallback, dir: orderBy.dir } : null);
-    }
+    setOrderBys((prev) => {
+      const kept = prev.filter((o) => validAliases.has(o.by) || dimensions.includes(o.by));
+      if (kept.length === prev.length) return prev;
+      if (kept.length === 0 && prev.length > 0) {
+        const fallback = validAliases.size ? [...validAliases][0] : dimensions[0];
+        return fallback ? [{ by: fallback, dir: prev[0].dir }] : [];
+      }
+      return kept;
+    });
+    setDimTimeUnits((prev) => {
+      const keys = Object.keys(prev);
+      if (!keys.length) return prev;
+      const kept: Record<string, FlexTimeUnit> = {};
+      let changed = false;
+      for (const k of keys) {
+        if (dimensions.includes(k)) kept[k] = prev[k];
+        else changed = true;
+      }
+      return changed ? kept : prev;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [measures, dimensions]);
+  /** v0.9.75：设置/清除维度时间粒度（unit 为 null 时清除） */
+  const setDimUnit = (column: string, unit: FlexTimeUnit | null) => {
+    setDimTimeUnits((prev) => {
+      if (unit) return { ...prev, [column]: unit };
+      if (!(column in prev)) return prev;
+      const next: Record<string, FlexTimeUnit> = {};
+      for (const [k, v] of Object.entries(prev)) if (k !== column) next[k] = v;
+      return next;
+    });
+  };
+  /** v0.9.75：固定报表收藏切换（本地偏好，写入 localStorage） */
+  const toggleFavorite = (id: string) => {
+    setFavoriteIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [id, ...prev];
+      try {
+        localStorage.setItem(FAVORITES_KEY, JSON.stringify(next));
+      } catch {
+        // 本地存储不可用时仅会话内生效
+      }
+      return next;
+    });
+  };
   // 字段搜索：按列名/描述过滤（参照 Agile Query 搜索式字段定位）
   const searchKw = fieldSearch.trim().toLowerCase();
   // v0.4.15：跨表字段支持——合并主表 + 关联表字段，字段对象带 table 标识来源
@@ -176,8 +238,8 @@ export function useFlexQueryState() {
   }, [dimensions, measures, filters, havings]);
 
   const config: FlexQueryConfig = useMemo(
-    () => ({ table: selectedTable, joins, dimensions, measures, filters, havings, orderBy, limit }),
-    [selectedTable, joins, dimensions, measures, filters, havings, orderBy, limit],
+    () => ({ table: selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit }),
+    [selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit],
   );
 
   // v0.5.4 金额单位：模块覆盖优先，未覆盖跟随全局；换算在 SQL 构建期完成（金额列聚合除以除数）
@@ -339,9 +401,13 @@ export function useFlexQueryState() {
       if (dimensions.includes(column)) return showToast('该维度已在分组区中');
       setDimensions((prev) => [...prev, column]);
     } else if (target === 'measure') {
+      // v0.9.75：同列同聚合重复添加拦截（同列不同聚合仍可添加）
+      if (measures.some((m) => m.column === column && m.agg === 'SUM')) {
+        return showToast('该字段已在指标区中（可调整聚合方式）');
+      }
       setMeasures((prev) => [...prev, { column, agg: 'SUM' }]);
-      // 首个指标且未设排序：默认按该指标降序（沿用 v0.4.9 行为）
-      if (!orderBy) setOrderBy({ by: measureAlias({ column, agg: 'SUM' }), dir: 'desc' });
+      // 无排序条件时默认按该指标降序（沿用 v0.4.9 行为，v0.9.75 起仅在排序为空时设定）
+      if (orderBys.length === 0) setOrderBys([{ by: measureAlias({ column, agg: 'SUM' }), dir: 'desc' }]);
     } else if (target === 'having') {
       setHavings((prev) => [...prev, { column, agg: 'SUM', op: '>', value: '' }]);
     } else {
@@ -354,13 +420,46 @@ export function useFlexQueryState() {
     setMeasures([]);
     setFilters([]);
     setHavings([]);
-    setOrderBy(null);
+    setOrderBys([]);
+    setDimTimeUnits({});
+    setShowTotals(false);
+    // 列取值缓存随表切换清空（同名列表在不同表取值可能不同）
+    setColumnValues({});
     // v0.9.64：重置回默认行数（与初始值一致），此前重置为 100 会让「取回全部明细」类取数被静默压到 100 行
     setLimit(10000);
     setResult(null);
     setExecError(null);
     setPivotMode(false);
     setShowPct(false);
+  };
+
+  // ---------- v0.9.75：低基数列取值探测（服务端 DISTINCT + 白名单/敏感列约束，懒加载缓存） ----------
+  /** 加载指定列候选取值（筛选值下拉用）；已缓存不重复请求，失败可再次点击重试 */
+  const fetchColumnValues = async (fullName: string) => {
+    if (!activeDataSourceId) return;
+    const cached = columnValues[fullName];
+    if (cached && cached.status !== 'error') return;
+    const src = allFields.find((c) => c.fullName === fullName);
+    if (!src) return;
+    setColumnValues((prev) => ({ ...prev, [fullName]: { status: 'loading' } }));
+    try {
+      const res = await apiFetch(
+        `/api/datasources/${encodeURIComponent(activeDataSourceId)}/flex-column-values?table=${encodeURIComponent(src.table)}&column=${encodeURIComponent(src.name)}`,
+      );
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && Array.isArray(data.values)) {
+        setColumnValues((prev) => ({
+          ...prev,
+          [fullName]: { status: 'ready', values: data.values as string[], truncated: data.truncated === true },
+        }));
+      } else {
+        setColumnValues((prev) => ({ ...prev, [fullName]: { status: 'error' } }));
+        showToast(data?.error || '字段取值加载失败');
+      }
+    } catch {
+      setColumnValues((prev) => ({ ...prev, [fullName]: { status: 'error' } }));
+      showToast('网络异常，字段取值加载失败');
+    }
   };
 
   // ---------- 执行 ----------
@@ -381,7 +480,7 @@ export function useFlexQueryState() {
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success && Array.isArray(data.rows)) {
         const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
-        setResult({ columns: cols, rows: data.rows });
+        setResult({ columns: cols, rows: data.rows, truncated: data.truncated === true });
         setExecTimeMs(typeof data.executionTimeMs === 'number' ? data.executionTimeMs : null);
         // 记入最近查询历史（按配置去重，上限 8 条）
         const cfgKey = JSON.stringify(config);
@@ -420,17 +519,25 @@ export function useFlexQueryState() {
       map[alias] = `${AGG_LABELS[m.agg]}(${src?.description || m.column})${unitSuffix}`;
       map[`pct_${alias}`] = `占比·${src?.description || m.column}`;
     });
+    // v0.9.75：维度结果列名（末段列名）登记，含时间粒度标注；跨表维度配置键与结果键双向登记
+    dimensions.forEach((d) => {
+      const src = allFields.find((c) => c.fullName === d) || tableSchema?.columns.find((c) => c.name === d);
+      const unit = dimTimeUnits[d];
+      const label = `${src?.description || d}${unit ? `（${TIME_UNIT_LABELS[unit]}）` : ''}`;
+      map[d] = label;
+      map[dimResultAlias(d)] = label;
+    });
     return map;
-  }, [tableSchema, allFields, measures, amountUnit, flexAmountUnit]);
+  }, [tableSchema, allFields, measures, dimensions, dimTimeUnits, amountUnit, flexAmountUnit]);
 
   const chartConfig: ChartConfig | null = useMemo(() => {
     if (!result || dimensions.length === 0 || measures.length === 0 || chartType === 'table') return null;
     return {
       type: chartType,
       title: queryName.trim() || `${tableSchema?.displayName || selectedTable} · 灵活查询`,
-      xAxisKey: dimensions[0],
+      xAxisKey: dimResultAlias(dimensions[0]),
       yAxisKeys: measures.map(measureAlias),
-      xAxisName: columnNames[dimensions[0]],
+      xAxisName: columnNames[dimResultAlias(dimensions[0])],
     };
   }, [result, dimensions, measures, chartType, queryName, tableSchema, selectedTable, columnNames]);
 
@@ -454,10 +561,48 @@ export function useFlexQueryState() {
     [result, showPct, firstAlias, pctAlias],
   );
 
+  /**
+   * v0.9.75 合计行：客户端累计（只读展示，不额外查库）。SUM/COUNT 求和、MIN/MAX 取极值（分组最值的全局最值）；
+   * AVG/COUNT_DISTINCT 无合计语义显示 -；结果被服务端截断时返回 null（合计不完整会误导，UI 同步禁用开关）。
+   */
+  const totalsRow = useMemo(() => {
+    if (!result || !showTotals || result.truncated) return null;
+    const row: Record<string, unknown> = {};
+    dimensions.forEach((d, i) => {
+      row[dimResultAlias(d)] = i === 0 ? '合计' : null;
+    });
+    for (const m of measures) {
+      const alias = measureAlias(m);
+      if (m.agg === 'AVG' || m.agg === 'COUNT_DISTINCT') {
+        row[alias] = null;
+        continue;
+      }
+      let sum = 0;
+      let min = Infinity;
+      let max = -Infinity;
+      let any = false;
+      for (const r of result.rows) {
+        const v = Number(r[alias]);
+        if (!Number.isFinite(v)) continue;
+        any = true;
+        sum += v;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (!any) {
+        row[alias] = null;
+        continue;
+      }
+      const val = m.agg === 'MIN' ? min : m.agg === 'MAX' ? max : sum;
+      row[alias] = m.agg === 'COUNT' ? Math.round(val) : Math.round(val * 100) / 100;
+    }
+    return row;
+  }, [result, showTotals, dimensions, measures]);
+
   /** 透视图：两维度行列交叉 + 单指标值（客户端透视，不额外查库） */
   const pivot: FlexPivot | null = useMemo(() => {
     if (!result || dimensions.length < 2 || measures.length !== 1) return null;
-    const [rowDim, colDim] = dimensions;
+    const [rowDim, colDim] = dimensions.map(dimResultAlias);
     const alias = measureAlias(measures[0]);
     const colSet = new Set<string>();
     const map = new Map<string, Record<string, unknown>>();
@@ -480,7 +625,7 @@ export function useFlexQueryState() {
       title: queryName.trim() || selectedTable || 'flex-query',
       columns: displayColumns,
       columnLabels: columnNames,
-      rows: displayRows,
+      rows: totalsRow ? [...displayRows, totalsRow] : displayRows,
       dataSourceId: activeDataSourceId || undefined,
     });
     showToast(out.message);
@@ -515,12 +660,15 @@ export function useFlexQueryState() {
     void saveNewQuery(item);
   };
 
-  /** 兼容 v0.4.9 旧配置（orderByFirstMeasure → orderBy）并补齐新字段 */
+  /** 兼容旧配置并补齐新字段：排序迁移链 orderBys（新）→ orderBy（v0.4.10 单列）→ orderByFirstMeasure（v0.4.9 前） */
   const loadConfig = (name: string, dsId: string, rawCfg: LoadableFlexConfig, ct: ChartType, toastMsg: string) => {
     const rawMeasures: FlexMeasure[] = Array.isArray(rawCfg?.measures) ? rawCfg.measures : [];
-    let ob: FlexOrderBy | null = rawCfg?.orderBy ?? null;
-    if (!ob && rawCfg?.orderByFirstMeasure && rawCfg.orderByFirstMeasure !== 'none' && rawMeasures.length) {
-      ob = { by: measureAlias(rawMeasures[0]), dir: rawCfg.orderByFirstMeasure as FlexOrderBy['dir'] };
+    let obs: FlexOrderBy[] = Array.isArray(rawCfg?.orderBys) ? rawCfg.orderBys.filter((o) => !!o && !!o.by) : [];
+    if (!obs.length && rawCfg?.orderBy?.by) {
+      obs = [{ by: rawCfg.orderBy.by, dir: rawCfg.orderBy.dir === 'asc' ? 'asc' : 'desc' }];
+    }
+    if (!obs.length && rawCfg?.orderByFirstMeasure && rawCfg.orderByFirstMeasure !== 'none' && rawMeasures.length) {
+      obs = [{ by: measureAlias(rawMeasures[0]), dir: rawCfg.orderByFirstMeasure === 'asc' ? 'asc' : 'desc' }];
     }
     if (dsId !== activeDataSourceId) setActiveDataSource(dsId);
     setSelectedTable(String(rawCfg?.table || ''));
@@ -528,7 +676,10 @@ export function useFlexQueryState() {
     setMeasures(rawMeasures);
     setFilters(Array.isArray(rawCfg?.filters) ? rawCfg.filters : []);
     setHavings(Array.isArray(rawCfg?.havings) ? rawCfg.havings : []);
-    setOrderBy(ob);
+    setOrderBys(obs);
+    setDimTimeUnits(rawCfg?.dimTimeUnits && typeof rawCfg.dimTimeUnits === 'object' ? rawCfg.dimTimeUnits : {});
+    setShowTotals(false);
+    setColumnValues({});
     setLimit(typeof rawCfg?.limit === 'number' ? rawCfg.limit : 10000);
     setChartType(ct);
     setQueryName(name);
@@ -543,6 +694,19 @@ export function useFlexQueryState() {
   /** 从最近查询历史还原（原为渲染期内联回调，等价迁移） */
   const loadHistory = (h: FlexHistoryItem) => {
     loadConfig(h.name, h.dataSourceId, h.config, h.chartType, `已从历史还原「${h.name}」，点击执行查询重新运行`);
+  };
+
+  /** v0.9.75：历史一键存为固定报表（按历史原配置保存，不改变当前画布） */
+  const saveFromHistory = (h: FlexHistoryItem) => {
+    const item: SavedFlexQuery = {
+      id: `flex-${Date.now()}`,
+      name: h.name,
+      dataSourceId: h.dataSourceId,
+      config: h.config,
+      chartType: h.chartType,
+      createdAt: new Date().toISOString().slice(0, 10),
+    };
+    void saveNewQuery(item);
   };
 
   return {
@@ -570,8 +734,12 @@ export function useFlexQueryState() {
     setFilters,
     havings,
     setHavings,
-    orderBy,
-    setOrderBy,
+    orderBys,
+    setOrderBys,
+    dimTimeUnits,
+    setDimUnit,
+    showTotals,
+    setShowTotals,
     fieldSearch,
     setFieldSearch,
     fieldTab,
@@ -599,7 +767,6 @@ export function useFlexQueryState() {
     queryName,
     setQueryName,
     // 派生
-    isOrderByValid,
     allFields,
     dimensionCols,
     measureCols,
@@ -617,11 +784,14 @@ export function useFlexQueryState() {
     pivotAvailable,
     displayRows,
     displayColumns,
+    totalsRow,
     chartConfig,
     // 行为
     addField,
     resetBuilder,
     runQuery,
+    fetchColumnValues,
+    columnValues,
     handleExportCsv,
     handlePin,
     handleSave,
@@ -632,5 +802,8 @@ export function useFlexQueryState() {
     persistHistory,
     loadSaved,
     loadHistory,
+    favoriteIds,
+    toggleFavorite,
+    saveFromHistory,
   };
 }

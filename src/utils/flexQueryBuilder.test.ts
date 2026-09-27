@@ -5,6 +5,7 @@ import {
   measureAlias,
   betweenParts,
   aggExpression,
+  dimResultAlias,
   FlexQueryConfig,
 } from './flexQueryBuilder';
 import { TableSchema } from '../types/analytics';
@@ -28,7 +29,7 @@ const base = (over: Partial<FlexQueryConfig> = {}): FlexQueryConfig => ({
   measures: [{ column: 'BNTFJE', agg: 'SUM' }],
   filters: [],
   havings: [],
-  orderBy: { by: 'sum_bntfje', dir: 'desc' },
+  orderBys: [{ by: 'sum_bntfje', dir: 'desc' }],
   limit: 100,
   ...over,
 });
@@ -45,13 +46,13 @@ describe('buildFlexQuerySql: 灵活查询 SQL 构建（v0.4.9 基线）', () => 
   });
 
   it('PG 方言使用双引号标识符', () => {
-    const out = buildFlexQuerySql(base({ orderBy: null }), TABLE, 'pg');
+    const out = buildFlexQuerySql(base({ orderBys: [] }), TABLE, 'pg');
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.sql).toContain('FROM "fct_jc_main_biz_stat"');
   });
 
   it('全表聚合（无维度）不生成 GROUP BY', () => {
-    const out = buildFlexQuerySql(base({ dimensions: [], orderBy: null }), TABLE, 'mysql');
+    const out = buildFlexQuerySql(base({ dimensions: [], orderBys: [] }), TABLE, 'mysql');
     expect(out.ok).toBe(true);
     if (out.ok) {
       expect(out.sql).not.toContain('GROUP BY');
@@ -132,7 +133,7 @@ describe('buildFlexQuerySql: 灵活查询 SQL 构建（v0.4.9 基线）', () => 
 describe('buildFlexQuerySql: v0.4.10 Agile Query 式增强', () => {
   it('COUNT_DISTINCT 去重计数：表达式与别名', () => {
     const out = buildFlexQuerySql(
-      base({ measures: [{ column: 'JGMC', agg: 'COUNT_DISTINCT' }], orderBy: null }),
+      base({ measures: [{ column: 'JGMC', agg: 'COUNT_DISTINCT' }], orderBys: [] }),
       TABLE,
       'mysql',
     );
@@ -217,7 +218,7 @@ describe('buildFlexQuerySql: v0.4.10 Agile Query 式增强', () => {
   });
 
   it('排序目标可选任一指标别名或维度列；非法目标拒绝', () => {
-    const byDim = buildFlexQuerySql(base({ orderBy: { by: 'JGMC', dir: 'asc' } }), TABLE, 'mysql');
+    const byDim = buildFlexQuerySql(base({ orderBys: [{ by: 'JGMC', dir: 'asc' }] }), TABLE, 'mysql');
     expect(byDim.ok).toBe(true);
     if (byDim.ok) expect(byDim.sql).toContain('ORDER BY `JGMC` ASC');
 
@@ -227,7 +228,7 @@ describe('buildFlexQuerySql: v0.4.10 Agile Query 式增强', () => {
           { column: 'BNTFJE', agg: 'SUM' },
           { column: 'BNTFJE', agg: 'COUNT' },
         ],
-        orderBy: { by: 'count_bntfje', dir: 'desc' },
+        orderBys: [{ by: 'count_bntfje', dir: 'desc' }],
       }),
       TABLE,
       'mysql',
@@ -235,11 +236,11 @@ describe('buildFlexQuerySql: v0.4.10 Agile Query 式增强', () => {
     expect(bySecond.ok).toBe(true);
     if (bySecond.ok) expect(bySecond.sql).toContain('ORDER BY `count_bntfje` DESC');
 
-    expect(buildFlexQuerySql(base({ orderBy: { by: 'evil_alias', dir: 'desc' } }), TABLE, 'mysql').ok).toBe(false);
+    expect(buildFlexQuerySql(base({ orderBys: [{ by: 'evil_alias', dir: 'desc' }] }), TABLE, 'mysql').ok).toBe(false);
   });
 
-  it('orderBy 为 null 时不生成 ORDER BY', () => {
-    const out = buildFlexQuerySql(base({ orderBy: null }), TABLE, 'mysql');
+  it('排序为空（orderBys 空数组）时不生成 ORDER BY', () => {
+    const out = buildFlexQuerySql(base({ orderBys: [] }), TABLE, 'mysql');
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.sql).not.toContain('ORDER BY');
   });
@@ -251,7 +252,7 @@ describe('buildFlexQuerySql: v0.4.10 Agile Query 式增强', () => {
         measures: [{ column: 'BNTFJE', agg: 'COUNT_DISTINCT' }],
         filters: [{ column: 'BNTFJE', op: 'BETWEEN', value: '1, 999' }],
         havings: [{ agg: 'COUNT_DISTINCT', column: 'BNTFJE', op: '>=', value: '2' }],
-        orderBy: { by: 'countd_bntfje', dir: 'asc' },
+        orderBys: [{ by: 'countd_bntfje', dir: 'asc' }],
         limit: 50,
       }),
       TABLE,
@@ -391,7 +392,7 @@ describe('buildFlexQuerySql: v0.5.4 金额单位换算', () => {
           { column: 'BNTFJE', agg: 'COUNT' },
           { column: 'BNTFJE', agg: 'COUNT_DISTINCT' },
         ],
-        orderBy: null,
+        orderBys: [],
       }),
       AMOUNT_TABLE,
       'mysql',
@@ -410,7 +411,7 @@ describe('buildFlexQuerySql: v0.5.4 金额单位换算', () => {
 
   it('非金额数值列不换算（关键词未命中）', () => {
     const out = buildFlexQuerySql(
-      base({ measures: [{ column: 'BS', agg: 'SUM' }], orderBy: null }),
+      base({ measures: [{ column: 'BS', agg: 'SUM' }], orderBys: [] }),
       AMOUNT_TABLE,
       'mysql',
       undefined,
@@ -450,8 +451,158 @@ describe('buildFlexQuerySql: v0.5.4 金额单位换算', () => {
   });
 
   it('PG 方言下金额换算保持双引号标识符', () => {
-    const out = buildFlexQuerySql(base({ orderBy: null }), AMOUNT_TABLE, 'pg', undefined, WAN);
+    const out = buildFlexQuerySql(base({ orderBys: [] }), AMOUNT_TABLE, 'pg', undefined, WAN);
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.sql).toContain('ROUND(SUM("BNTFJE")/10000, 2) AS "sum_bntfje"');
+  });
+});
+
+// v0.9.75：灵活查询 P0 增强（时间粒度 / 多列排序 / LIKE 模式 / 维度结果列名）
+describe('buildFlexQuerySql: v0.9.75 P0 增强', () => {
+  const DIM: TableSchema = {
+    id: 't2',
+    name: 'dim_region',
+    displayName: '区域维表',
+    description: '',
+    rowCount: 50,
+    columns: [
+      { name: 'region_code', type: 'string' },
+      { name: 'region_name', type: 'string' },
+    ],
+  };
+
+  it('时间粒度：MySQL 按月 DATE_FORMAT 分组并以末段列名做别名', () => {
+    const out = buildFlexQuerySql(base({ dimensions: ['SJRQ'], dimTimeUnits: { SJRQ: 'month' }, orderBys: [] }), TABLE, 'mysql');
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain("DATE_FORMAT(`SJRQ`, '%Y-%m') AS `SJRQ`");
+      expect(out.sql).toContain("GROUP BY DATE_FORMAT(`SJRQ`, '%Y-%m')");
+    }
+  });
+
+  it('时间粒度：MySQL 按周两位周序、按季度编码，排序按粒度表达式', () => {
+    const week = buildFlexQuerySql(
+      base({ dimensions: ['SJRQ'], dimTimeUnits: { SJRQ: 'week' }, orderBys: [{ by: 'SJRQ', dir: 'asc' }] }),
+      TABLE,
+      'mysql'
+    );
+    expect(week.ok).toBe(true);
+    if (week.ok) {
+      expect(week.sql).toContain("'%x-W%v') AS `SJRQ`");
+      expect(week.sql).toContain("ORDER BY DATE_FORMAT(`SJRQ`, '%x-W%v') ASC");
+    }
+    const quarter = buildFlexQuerySql(
+      base({ dimensions: ['SJRQ'], dimTimeUnits: { SJRQ: 'quarter' }, orderBys: [] }),
+      TABLE,
+      'mysql'
+    );
+    expect(quarter.ok).toBe(true);
+    if (quarter.ok) expect(quarter.sql).toContain("CONCAT(YEAR(`SJRQ`), '-Q', QUARTER(`SJRQ`)) AS `SJRQ`");
+  });
+
+  it('时间粒度：PG 按年/季度 TO_CHAR 表达式', () => {
+    const year = buildFlexQuerySql(base({ dimensions: ['SJRQ'], dimTimeUnits: { SJRQ: 'year' }, orderBys: [] }), TABLE, 'pg');
+    expect(year.ok).toBe(true);
+    if (year.ok) {
+      expect(year.sql).toContain('TO_CHAR("SJRQ"::date');
+      expect(year.sql).toContain('AS "SJRQ"');
+    }
+    const quarter = buildFlexQuerySql(
+      base({ dimensions: ['SJRQ'], dimTimeUnits: { SJRQ: 'quarter' }, orderBys: [] }),
+      TABLE,
+      'pg'
+    );
+    expect(quarter.ok).toBe(true);
+    if (quarter.ok) {
+      expect(quarter.sql).toContain('CONCAT(TO_CHAR("SJRQ"::date');
+      expect(quarter.sql).toContain("'-Q'");
+    }
+  });
+
+  it('非法时间粒度 → 拒绝', () => {
+    expect(buildFlexQuerySql(base({ dimensions: ['SJRQ'], dimTimeUnits: { SJRQ: 'decade' as any } }), TABLE, 'mysql').ok).toBe(
+      false
+    );
+  });
+
+  it('多列排序：维度 + 指标组合生成复合 ORDER BY', () => {
+    const out = buildFlexQuerySql(
+      base({ orderBys: [{ by: 'JGMC', dir: 'asc' }, { by: 'sum_bntfje', dir: 'desc' }] }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toContain('ORDER BY `JGMC` ASC, `sum_bntfje` DESC');
+  });
+
+  it('LIKE 匹配模式：包含/开头是/结尾是/精确，数值型同按模式包裹', () => {
+    expect(filterValueToSql('LIKE', '北京', 'contains')).toBe("'%北京%'");
+    expect(filterValueToSql('LIKE', '北京', 'startsWith')).toBe("'北京%'");
+    expect(filterValueToSql('LIKE', '北京', 'endsWith')).toBe("'%北京'");
+    expect(filterValueToSql('LIKE', '北京', 'exact')).toBe("'北京'");
+    expect(filterValueToSql('LIKE', '123')).toBe("'%123%'");
+  });
+
+  it('LIKE 模式透传进 WHERE；非法模式拒绝', () => {
+    const out = buildFlexQuerySql(
+      base({ filters: [{ column: 'JGMC', op: 'LIKE', value: '北京', likeMode: 'startsWith' }] }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toContain("`JGMC` LIKE '北京%'");
+    const bad = buildFlexQuerySql(
+      base({ filters: [{ column: 'JGMC', op: 'LIKE', value: 'x', likeMode: 'evil' as any }] }),
+      TABLE,
+      'mysql'
+    );
+    expect(bad.ok).toBe(false);
+  });
+
+  it('维度结果列名冲突 → 拒绝（主表同名末段列与跨表维度）', () => {
+    const withSameName: TableSchema = { ...TABLE, columns: [...TABLE.columns, { name: 'region_name', type: 'string' }] };
+    const out = buildFlexQuerySql(
+      base({
+        joins: [{ table: 'dim_region', type: 'LEFT', on: { left: 'JGMC', right: 'region_code' } }],
+        dimensions: ['region_name', 'dim_region.region_name'],
+      }),
+      withSameName,
+      'mysql',
+      [withSameName, DIM]
+    );
+    expect(out.ok).toBe(false);
+  });
+
+  it('跨表指标别名点号归一（修复旧版别名非法）', () => {
+    const out = buildFlexQuerySql(
+      base({
+        joins: [{ table: 'dim_region', type: 'LEFT', on: { left: 'JGMC', right: 'region_code' } }],
+        measures: [{ column: 'dim_region.region_name', agg: 'COUNT_DISTINCT' }],
+        orderBys: [],
+      }),
+      TABLE,
+      'mysql',
+      [TABLE, DIM]
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toContain('COUNT(DISTINCT `dim_region`.`region_name`) AS `countd_dim_region_region_name`');
+    expect(measureAlias({ column: 'dim_region.region_name', agg: 'SUM' })).toBe('sum_dim_region_region_name');
+    expect(dimResultAlias('dim_region.region_name')).toBe('region_name');
+    expect(dimResultAlias('JGMC')).toBe('JGMC');
+  });
+
+  it('跨表维度支持以末段结果列名排序', () => {
+    const out = buildFlexQuerySql(
+      base({
+        joins: [{ table: 'dim_region', type: 'LEFT', on: { left: 'JGMC', right: 'region_code' } }],
+        dimensions: ['JGMC', 'dim_region.region_name'],
+        orderBys: [{ by: 'region_name', dir: 'asc' }],
+      }),
+      TABLE,
+      'mysql',
+      [TABLE, DIM]
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toContain('ORDER BY `dim_region`.`region_name` ASC');
   });
 });
