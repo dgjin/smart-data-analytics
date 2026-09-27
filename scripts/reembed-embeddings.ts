@@ -12,6 +12,7 @@
  *   npx tsx scripts/reembed-embeddings.ts --restore backups/embeddings-xxx.json  # 从备份恢复
  *
  * 注意：重嵌前选好 EMBED_MODEL（命令行 env 优先于 .env.local），完成后重启服务；
+ *       备份文件按「存量维度」标注（重嵌流程中 env 已是目标模型，记录模型名会张冠李戴）；
  *       与业务链路共用 callEmbeddingBatch，引擎解析/指令前缀/批大小与线上完全一致。
  */
 
@@ -74,9 +75,14 @@ function dimsOf(jsons: (string | null)[]): string {
 async function makeBackup(pool: ReturnType<typeof createPool>): Promise<string> {
   const [kbRows] = await pool.query<any[]>('SELECT id, title, chunk_text, embedding_json FROM knowledge_base ORDER BY id');
   const [sqlxRows] = await pool.query<any[]>('SELECT id, question, embedding FROM sql_examples ORDER BY id');
+  // 备份的是「切换前」的存量向量：此时 env 中的 EMBED_MODEL 已是本次重嵌的目标模型，
+  // 旧模型名无从考证——改记录存量维度，恢复时按维度核对模型，避免按错误模型名操作
   const dump = {
     createdAt: new Date().toISOString(),
-    embedModel: currentEmbedModelId(),
+    storedDims: {
+      knowledgeBase: dimsOf(kbRows.map((r) => r.embedding_json)),
+      sqlExamples: dimsOf(sqlxRows.map((r) => r.embedding)),
+    },
     knowledgeBase: kbRows.map((r) => ({ id: Number(r.id), embedding_json: r.embedding_json ?? null })),
     sqlExamples: sqlxRows.map((r) => ({ id: Number(r.id), embedding: r.embedding ?? null })),
   };
@@ -84,7 +90,7 @@ async function makeBackup(pool: ReturnType<typeof createPool>): Promise<string> 
   const file = path.join(BACKUP_DIR, `embeddings-${Date.now()}.json`);
   fs.writeFileSync(file, JSON.stringify(dump, null, 2));
   console.log(`💾 备份完成：${path.relative(process.cwd(), file)}`);
-  console.log(`   备份时模型：${dump.embedModel}`);
+  console.log(`   存量向量：knowledge_base ${dump.storedDims.knowledgeBase}；sql_examples ${dump.storedDims.sqlExamples}`);
   console.log(`   knowledge_base ${kbRows.length} 条 / sql_examples ${sqlxRows.length} 条`);
   return file;
 }
@@ -155,11 +161,15 @@ async function restoreAll(pool: ReturnType<typeof createPool>, file: string): Pr
   const abs = path.isAbsolute(file) ? file : path.join(process.cwd(), file);
   if (!fs.existsSync(abs)) throw new Error(`备份文件不存在：${abs}`);
   const dump = JSON.parse(fs.readFileSync(abs, 'utf8')) as {
-    embedModel?: string;
+    /** 新版（v0.9.78 修正后）备份记录存量维度；旧格式误记目标模型名，已不再采信展示 */
+    storedDims?: { knowledgeBase?: string; sqlExamples?: string };
     knowledgeBase?: { id: number; embedding_json: string | null }[];
     sqlExamples?: { id: number; embedding: string | null }[];
   };
-  console.log(`♻️ 从备份恢复：${path.relative(process.cwd(), abs)}（备份模型：${dump.embedModel || '未知'}）`);
+  const dimsNote = dump.storedDims
+    ? `（存量向量：knowledge_base ${dump.storedDims.knowledgeBase || '未知'}；sql_examples ${dump.storedDims.sqlExamples || '未知'}）`
+    : '（旧格式备份，无维度标注）';
+  console.log(`♻️ 从备份恢复：${path.relative(process.cwd(), abs)}${dimsNote}`);
   let kb = 0;
   for (const r of dump.knowledgeBase || []) {
     await pool.query('UPDATE knowledge_base SET embedding_json = ? WHERE id = ?', [r.embedding_json, r.id]);
@@ -171,7 +181,7 @@ async function restoreAll(pool: ReturnType<typeof createPool>, file: string): Pr
     sqlx++;
   }
   console.log(`   ✅ 已恢复 knowledge_base ${kb} 条 / sql_examples ${sqlx} 条`);
-  console.log('⚠️ 请同步把 .env.local 的 EMBED_MODEL 改回备份时模型并重启服务，否则检索会因维度不一致退化');
+  console.log('⚠️ 请把 .env.local 的 EMBED_MODEL 设为与恢复后向量维度一致的模型后重启服务，否则检索会因维度不一致退化');
 }
 
 async function main() {
@@ -208,7 +218,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error('❌ 重嵌失败:', err.message);
-  process.exit(1);
-});
+// initSchema 初始化的全局连接池会保持事件循环——成功路径必须显式退出，否则命令执行完不返回（v0.9.78 A/B 实测暴露）
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error('❌ 重嵌失败:', err.message);
+    process.exit(1);
+  });
