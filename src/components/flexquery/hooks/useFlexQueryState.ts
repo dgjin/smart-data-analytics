@@ -8,11 +8,13 @@ import { downloadServerCsv } from '../../../utils/exportCsv';
 import { TableSchema, ChartConfig, ChartType } from '../../../types/analytics';
 import {
   buildFlexQuerySql,
+  calcAlias,
   derivedAlias,
   dimResultAlias,
   isAmountColumn,
   measureAlias,
   metricAlias,
+  FlexCalcField,
   FlexDerived,
   FlexDerivedKind,
   FlexMeasure,
@@ -24,6 +26,7 @@ import {
   FlexQueryConfig,
   FlexTimeUnit,
 } from '../../../utils/flexQueryBuilder';
+import { matchFieldSearch } from '../../../utils/pinyin';
 import { pollTask } from '../../../utils/asyncTask';
 import { useEffectiveAmountUnit, AMOUNT_UNIT_DIVISORS } from '../../../hooks/useAmountUnitStore';
 import { FlexHistoryItem, SavedFlexQuery } from '../FlexQueryLibrary';
@@ -38,6 +41,11 @@ import {
   FlexBuilt,
   FlexPivot,
   FlexResult,
+  FlexSubRunItem,
+  FlexSubscriptionItem,
+  FlexSubscriptionPayload,
+  FlexTablePreview,
+  FlexVersionItem,
   MetricOption,
   TIME_UNIT_LABELS,
 } from '../flexQueryShared';
@@ -168,6 +176,18 @@ export function useFlexQueryState() {
   // v0.9.76 P1：OR 条件组 / 时间衍生列 / 后台执行 / 结果缓存与下钻（语义指标状态见上方 Schema 加载区）
   const [orGroups, setOrGroups] = useState<FlexFilter[][]>([]);
   const [deriveds, setDeriveds] = useState<FlexDerived[]>([]);
+  // v0.9.77 P2：计算字段 / 数据预览 / EXPLAIN 预估 / 版本与订阅面板状态
+  const [calcFields, setCalcFields] = useState<FlexCalcField[]>([]);
+  const [tablePreview, setTablePreview] = useState<FlexTablePreview | null>(null);
+  const [estimatedRows, setEstimatedRows] = useState<number | null>(null);
+  const [versionPanel, setVersionPanel] = useState<{ queryId: string; name: string } | null>(null);
+  const [versions, setVersions] = useState<FlexVersionItem[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [subPanel, setSubPanel] = useState<{ queryId: string; name: string } | null>(null);
+  const [subscriptions, setSubscriptions] = useState<FlexSubscriptionItem[]>([]);
+  const [loadingSubs, setLoadingSubs] = useState(false);
+  const [subRuns, setSubRuns] = useState<Record<string, FlexSubRunItem[]>>({});
+  const [exportingExcel, setExportingExcel] = useState(false);
   const [backgroundMode, setBackgroundMode] = useState(false);
   const [asyncProgress, setAsyncProgress] = useState<string | null>(null);
   const [resultCached, setResultCached] = useState(false);
@@ -197,6 +217,9 @@ export function useFlexQueryState() {
   const [limit, setLimit] = useState(10000);
   const [joins, setJoins] = useState<FlexJoin[]>([]); // v0.4.14：多表 JOIN
   const [chartType, setChartType] = useState<ChartType>('bar');
+  // v0.9.77 P2-14c：堆叠（柱/面积）与双轴（柱/折线/面积，需 ≥2 指标）视图开关
+  const [chartStacked, setChartStacked] = useState(false);
+  const [chartDualAxis, setChartDualAxis] = useState(false);
   const [queryName, setQueryName] = useState('');
 
   const tableSchema = tables.find((t) => t.name === selectedTable);
@@ -256,8 +279,6 @@ export function useFlexQueryState() {
       return next;
     });
   };
-  // 字段搜索：按列名/描述过滤（参照 Agile Query 搜索式字段定位）
-  const searchKw = fieldSearch.trim().toLowerCase();
   // v0.4.15：跨表字段支持——合并主表 + 关联表字段，字段对象带 table 标识来源
   const allFields = useMemo(() => {
     const fields: FieldWithTable[] = [];
@@ -278,11 +299,12 @@ export function useFlexQueryState() {
     }
     return fields;
   }, [tableSchema, joins, tables]);
+  // v0.9.77 P2-16：字段搜索支持拼音首字母（如「xse」命中「销售额」），空关键字不过滤
   const dimensionCols = allFields.filter(
-    (c) => c.type !== 'number' && (!searchKw || `${c.fullName} ${c.description || ''}`.toLowerCase().includes(searchKw)),
+    (c) => c.type !== 'number' && matchFieldSearch(fieldSearch, c.fullName, c.description),
   );
   const measureCols = allFields.filter(
-    (c) => c.type === 'number' && (!searchKw || `${c.fullName} ${c.description || ''}`.toLowerCase().includes(searchKw)),
+    (c) => c.type === 'number' && matchFieldSearch(fieldSearch, c.fullName, c.description),
   );
   // v0.4.11：已加入查询配置的字段在字段列表中标记，避免重复查找
   const usedColumns = useMemo(() => {
@@ -308,8 +330,10 @@ export function useFlexQueryState() {
       orGroups,
       metrics: metricMeasures,
       deriveds,
+      // v0.9.77：计算字段
+      calcFields,
     }),
-    [selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit, orGroups, metricMeasures, deriveds],
+    [selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit, orGroups, metricMeasures, deriveds, calcFields],
   );
 
   // v0.5.4 金额单位：模块覆盖优先，未覆盖跟随全局；换算在 SQL 构建期完成（金额列聚合除以除数）
@@ -545,12 +569,18 @@ export function useFlexQueryState() {
     setExecError(null);
     setPivotMode(false);
     setShowPct(false);
+    setChartStacked(false);
+    setChartDualAxis(false);
     // v0.9.76：语义指标 / OR 条件组 / 时间衍生列 / 缓存标记 / 下钻目标一并清空
     setMetricMeasures([]);
     setOrGroups([]);
     setDeriveds([]);
     setResultCached(false);
     setDrillTarget(null);
+    // v0.9.77 P2：计算字段 / 数据预览 / EXPLAIN 预估一并清空
+    setCalcFields([]);
+    setTablePreview(null);
+    setEstimatedRows(null);
   };
 
   // ---------- v0.9.75：低基数列取值探测（服务端 DISTINCT + 白名单/敏感列约束，懒加载缓存） ----------
@@ -597,6 +627,8 @@ export function useFlexQueryState() {
       dataSourceId: dsId,
       config: JSON.parse(cfgKey) as FlexQueryConfig,
       chartType,
+      // v0.9.77 P2-14c：视图选项随历史保存（还原时一并生效）
+      chartOptions: { stacked: chartStacked, dualAxis: chartDualAxis },
       ranAt: `${new Date().toISOString().slice(5, 10)} ${new Date().toTimeString().slice(0, 5)}`,
     };
     persistHistory([item, ...history.filter((h) => JSON.stringify(h.config) !== cfgKey)].slice(0, 8));
@@ -625,6 +657,7 @@ export function useFlexQueryState() {
     setExecError(null);
     setResultCached(false);
     setAsyncProgress(null);
+    setEstimatedRows(null);
     try {
       if (backgroundMode) {
         // P1-10：提交后台任务 → 轮询 → 以任务结果渲染（结果已按提交人快照 DLP 脱敏）
@@ -664,6 +697,8 @@ export function useFlexQueryState() {
         setExecTimeMs(typeof data.executionTimeMs === 'number' ? data.executionTimeMs : null);
         // P1-9：服务端结果缓存命中标记（结果区展示「缓存命中」与强制刷新入口）
         setResultCached(data.cached === true);
+        // v0.9.77 P2-14：EXPLAIN 预估扫描行数（大扫描提示；服务端未提供时缺省）
+        setEstimatedRows(typeof data.estimatedRows === 'number' ? data.estimatedRows : null);
         pushHistory(dsId);
       } else {
         setExecError(data?.error || `执行失败（HTTP ${res.status}）`);
@@ -711,6 +746,10 @@ export function useFlexQueryState() {
       const suffix = dv.kind === 'ma' ? `MA(${Math.min(Math.max(Math.floor(dv.periods || 3), 2), 12)})` : DERIVED_LABELS[dv.kind];
       map[derivedAlias(dv.by, dv.kind, dv.periods)] = `${base}·${suffix}`;
     });
+    // v0.9.77 P2-13：计算字段列名（展示名）
+    calcFields.forEach((cf) => {
+      map[calcAlias(cf)] = cf.name;
+    });
     // v0.9.75：维度结果列名（末段列名）登记，含时间粒度标注；跨表维度配置键与结果键双向登记
     dimensions.forEach((d) => {
       const src = allFields.find((c) => c.fullName === d) || tableSchema?.columns.find((c) => c.name === d);
@@ -720,25 +759,33 @@ export function useFlexQueryState() {
       map[dimResultAlias(d)] = label;
     });
     return map;
-  }, [tableSchema, allFields, measures, metricMeasures, deriveds, dimensions, dimTimeUnits, amountUnit, flexAmountUnit]);
+  }, [tableSchema, allFields, measures, metricMeasures, deriveds, dimensions, dimTimeUnits, amountUnit, flexAmountUnit, calcFields]);
 
   const chartConfig: ChartConfig | null = useMemo(() => {
-    if (!result || dimensions.length === 0 || (measures.length === 0 && metricMeasures.length === 0) || chartType === 'table') return null;
+    if (!result || chartType === 'table') return null;
+    // v0.9.77 P2-14c：KPI 卡片不要求维度（单行聚合即可）；其余图表需至少 1 个维度
+    if (chartType !== 'kpi' && dimensions.length === 0) return null;
     // v0.9.76：y 轴含普通指标 + 语义指标 + 累计/移动平均衍生列（同比/环比为比率列，仅在表格查看）
     const yAxisKeys = [
       ...measures.map(measureAlias),
       ...metricMeasures.map((m) => metricAlias(m.id)),
       ...deriveds.filter((d) => d.kind === 'cum' || d.kind === 'ma').map((d) => derivedAlias(d.by, d.kind, d.periods)),
+      // v0.9.77 P2-13：计算字段并入 y 轴（数值型，与指标同权）
+      ...calcFields.map(calcAlias),
     ];
     if (yAxisKeys.length === 0) return null;
+    const xKey = dimensions.length ? dimResultAlias(dimensions[0]) : '';
     return {
       type: chartType,
       title: queryName.trim() || `${tableSchema?.displayName || selectedTable} · 灵活查询`,
-      xAxisKey: dimResultAlias(dimensions[0]),
+      xAxisKey: xKey,
       yAxisKeys,
-      xAxisName: columnNames[dimResultAlias(dimensions[0])],
+      xAxisName: xKey ? columnNames[xKey] : undefined,
+      // v0.9.77 P2-14c：堆叠 / 双轴（未开启时不写入，旧报表行为不变）
+      ...(chartStacked ? { stacked: true } : {}),
+      ...(chartDualAxis ? { dualAxis: true } : {}),
     };
-  }, [result, dimensions, measures, metricMeasures, deriveds, chartType, queryName, tableSchema, selectedTable, columnNames]);
+  }, [result, dimensions, measures, metricMeasures, deriveds, calcFields, chartType, queryName, tableSchema, selectedTable, columnNames, chartStacked, chartDualAxis]);
 
   // ---------- v0.4.10 快速计算：占比 / 透视图 / CSV 导出（参照 Agile Query） ----------
   const firstAlias = measures.length ? measureAlias(measures[0]) : '';
@@ -802,8 +849,12 @@ export function useFlexQueryState() {
     deriveds.forEach((dv) => {
       row[derivedAlias(dv.by, dv.kind, dv.periods)] = null;
     });
+    // v0.9.77 P2-13：计算字段无客户端合计语义（表达式口径），置空展示 -
+    calcFields.forEach((cf) => {
+      row[calcAlias(cf)] = null;
+    });
     return row;
-  }, [result, showTotals, dimensions, measures, metricMeasures, deriveds]);
+  }, [result, showTotals, dimensions, measures, metricMeasures, deriveds, calcFields]);
 
   /** 透视图：两维度行列交叉 + 单指标值（客户端透视，不额外查库） */
   const pivot: FlexPivot | null = useMemo(() => {
@@ -861,13 +912,22 @@ export function useFlexQueryState() {
       dataSourceId: activeDataSourceId,
       config,
       chartType,
+      // v0.9.77 P2-14c：视图选项随报表持久化（堆叠/双轴）
+      chartOptions: { stacked: chartStacked, dualAxis: chartDualAxis },
       createdAt: new Date().toISOString().slice(0, 10),
     };
     void saveNewQuery(item);
   };
 
   /** 兼容旧配置并补齐新字段：排序迁移链 orderBys（新）→ orderBy（v0.4.10 单列）→ orderByFirstMeasure（v0.4.9 前） */
-  const loadConfig = (name: string, dsId: string, rawCfg: LoadableFlexConfig, ct: ChartType, toastMsg: string) => {
+  const loadConfig = (
+    name: string,
+    dsId: string,
+    rawCfg: LoadableFlexConfig,
+    ct: ChartType,
+    toastMsg: string,
+    chartOptions?: { stacked?: boolean; dualAxis?: boolean },
+  ) => {
     const rawMeasures: FlexMeasure[] = Array.isArray(rawCfg?.measures) ? rawCfg.measures : [];
     let obs: FlexOrderBy[] = Array.isArray(rawCfg?.orderBys) ? rawCfg.orderBys.filter((o) => !!o && !!o.by) : [];
     if (!obs.length && rawCfg?.orderBy?.by) {
@@ -890,6 +950,14 @@ export function useFlexQueryState() {
     );
     setOrGroups(Array.isArray(rawCfg?.orGroups) ? rawCfg.orGroups.filter((g) => Array.isArray(g)) : []);
     setDeriveds(Array.isArray(rawCfg?.deriveds) ? rawCfg.deriveds.filter((d) => !!d && !!d.by && !!d.kind) : []);
+    // v0.9.77 P2：计算字段（旧配置无此段按空处理；id/name/expr 三段校验）
+    setCalcFields(
+      Array.isArray(rawCfg?.calcFields)
+        ? rawCfg.calcFields.filter((f) => !!f && typeof f.id === 'string' && typeof f.name === 'string' && typeof f.expr === 'string')
+        : [],
+    );
+    setTablePreview(null);
+    setEstimatedRows(null);
     setResultCached(false);
     setDrillTarget(null);
     setOrderBys(obs);
@@ -898,18 +966,23 @@ export function useFlexQueryState() {
     setColumnValues({});
     setLimit(typeof rawCfg?.limit === 'number' ? rawCfg.limit : 10000);
     setChartType(ct);
+    // v0.9.77 P2-14c：视图选项（旧配置无此段时重置为关闭）
+    setChartStacked(chartOptions?.stacked === true);
+    setChartDualAxis(chartOptions?.dualAxis === true);
     setQueryName(name);
     setPivotMode(false);
     showToast(toastMsg);
   };
 
   const loadSaved = (item: SavedFlexQuery) => {
-    loadConfig(item.name, item.dataSourceId, item.config, item.chartType, `已载入「${item.name}」，点击执行查询刷新数据`);
+    // v0.9.77 P2-15：载入即打点（使用统计；失败容忍，不阻塞载入）
+    void apiFetch(`/api/flex-queries/${encodeURIComponent(item.id)}/touch`, { method: 'POST' }).catch(() => {});
+    loadConfig(item.name, item.dataSourceId, item.config, item.chartType, `已载入「${item.name}」，点击执行查询刷新数据`, item.chartOptions);
   };
 
   /** 从最近查询历史还原（原为渲染期内联回调，等价迁移） */
   const loadHistory = (h: FlexHistoryItem) => {
-    loadConfig(h.name, h.dataSourceId, h.config, h.chartType, `已从历史还原「${h.name}」，点击执行查询重新运行`);
+    loadConfig(h.name, h.dataSourceId, h.config, h.chartType, `已从历史还原「${h.name}」，点击执行查询重新运行`, h.chartOptions);
   };
 
   /** v0.9.75：历史一键存为固定报表（按历史原配置保存，不改变当前画布） */
@@ -920,6 +993,8 @@ export function useFlexQueryState() {
       dataSourceId: h.dataSourceId,
       config: h.config,
       chartType: h.chartType,
+      // v0.9.77 P2-14c：视图选项随历史转为报表
+      chartOptions: h.chartOptions,
       createdAt: new Date().toISOString().slice(0, 10),
     };
     void saveNewQuery(item);
@@ -946,6 +1021,246 @@ export function useFlexQueryState() {
   };
 
   const closeDrill = () => setDrillTarget(null);
+
+  // ---------- v0.9.77 P2-13：计算字段（表达式作用于聚合结果列，白名单函数；服务端编译期二次校验） ----------
+  /** 添加计算字段草稿行（名称/表达式行内编辑；非空/去重/上限由执行期构建器统一校验并提示） */
+  const addCalcField = () => {
+    if (calcFields.length >= 4) return showToast('计算字段最多 4 个');
+    setCalcFields((prev) => [
+      ...prev,
+      { id: `calc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', expr: '' },
+    ]);
+  };
+
+  /** 更新计算字段（按 id 定位；空值/合法性由执行期统一校验提示） */
+  const updateCalcField = (id: string, patch: Partial<Pick<FlexCalcField, 'name' | 'expr'>>) => {
+    setCalcFields((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+  };
+
+  const removeCalcField = (id: string) => setCalcFields((prev) => prev.filter((f) => f.id !== id));
+
+  // ---------- v0.9.77 P2-16：数据表预览（样例 10 行；服务端已剔除敏感列，走只读安全通道） ----------
+  const previewTable = async (table?: string) => {
+    const t = String(table || selectedTable || '');
+    if (!activeDataSourceId || !t) return;
+    setTablePreview({ loading: true, error: null, table: t, columns: [], rows: [] });
+    try {
+      const res = await apiFetch(
+        `/api/datasources/${encodeURIComponent(activeDataSourceId)}/flex-preview?table=${encodeURIComponent(t)}&limit=10`,
+      );
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success) {
+        setTablePreview({
+          loading: false,
+          error: null,
+          table: t,
+          columns: Array.isArray(data.columns) ? (data.columns as string[]) : [],
+          rows: Array.isArray(data.rows) ? (data.rows as Record<string, unknown>[]) : [],
+        });
+      } else {
+        setTablePreview({ loading: false, error: data?.error || `预览加载失败（HTTP ${res.status}）`, table: t, columns: [], rows: [] });
+      }
+    } catch {
+      setTablePreview({ loading: false, error: '网络异常，预览加载失败', table: t, columns: [], rows: [] });
+    }
+  };
+  const closePreview = () => setTablePreview(null);
+
+  // 表格切换时清空预览（预览内容与选中表强绑定）
+  useEffect(() => {
+    setTablePreview(null);
+  }, [selectedTable]);
+
+  // ---------- v0.9.77 P2-15：固定报表版本历史（快照不可变，回滚以 version+1 记 RESTORE） ----------
+  /** 重新拉取服务端固定报表列表（版本回滚后同步本地列表） */
+  const refreshSavedQueries = async () => {
+    try {
+      const res = await apiFetch('/api/flex-queries');
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && Array.isArray(data.queries)) {
+        setSavedQueries(
+          (data.queries as { query?: SavedFlexQuery }[])
+            .map((r) => r.query)
+            .filter((q): q is SavedFlexQuery => !!q && typeof q.id === 'string'),
+        );
+      }
+    } catch {
+      // 刷新失败保留本地列表
+    }
+  };
+
+  /** 打开版本面板并拉取版本列表（新→旧，含快照供详情查看） */
+  const openVersions = async (queryId: string, name: string) => {
+    setVersionPanel({ queryId, name });
+    setVersions([]);
+    setLoadingVersions(true);
+    try {
+      const res = await apiFetch(`/api/flex-queries/${encodeURIComponent(queryId)}/versions`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && Array.isArray(data.versions)) setVersions(data.versions as FlexVersionItem[]);
+      else showToast(data?.error || '版本历史加载失败');
+    } catch {
+      showToast('网络异常，版本历史加载失败');
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
+  const closeVersions = () => {
+    setVersionPanel(null);
+    setVersions([]);
+  };
+
+  /** 回滚到指定版本：成功后刷新版本列表与固定报表列表 */
+  const restoreVersion = async (queryId: string, version: number) => {
+    try {
+      const res = await apiFetch(
+        `/api/flex-queries/${encodeURIComponent(queryId)}/versions/${version}/restore`,
+        { method: 'POST' },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || '回滚失败');
+      showToast(`已回滚到 v${version}（生成 v${data.version}）`);
+      await refreshSavedQueries();
+      setVersions([]);
+      await openVersions(queryId, versionPanel?.name || '');
+    } catch (err) {
+      showToast((err as Error)?.message || '回滚失败');
+    }
+  };
+
+  // ---------- v0.9.77 P2-15：报表订阅（周期重跑 + 阈值告警；服务端 60s 调度） ----------
+  /** 打开订阅面板并拉取该报表订阅列表（团队共享展示） */
+  const openSubscriptions = async (queryId: string, name: string) => {
+    setSubPanel({ queryId, name });
+    setSubscriptions([]);
+    setSubRuns({});
+    setLoadingSubs(true);
+    try {
+      const res = await apiFetch(`/api/flex-queries/${encodeURIComponent(queryId)}/subscriptions`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && Array.isArray(data.subscriptions)) setSubscriptions(data.subscriptions as FlexSubscriptionItem[]);
+      else showToast(data?.error || '订阅列表加载失败');
+    } catch {
+      showToast('网络异常，订阅列表加载失败');
+    } finally {
+      setLoadingSubs(false);
+    }
+  };
+  const closeSubscriptions = () => {
+    setSubPanel(null);
+    setSubscriptions([]);
+    setSubRuns({});
+  };
+
+  /** 创建订阅（周期 5~10080 分钟；告警指标为空 = 仅重跑不告警）；返回是否成功供表单清空判断 */
+  const createSubscription = async (queryId: string, payload: FlexSubscriptionPayload) => {
+    try {
+      const res = await apiFetch(`/api/flex-queries/${encodeURIComponent(queryId)}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || '订阅创建失败');
+      showToast('订阅已创建（首次执行延后一个周期）');
+      await openSubscriptions(queryId, subPanel?.name || '');
+      return true;
+    } catch (err) {
+      showToast((err as Error)?.message || '订阅创建失败');
+      return false;
+    }
+  };
+
+  /** 更新订阅（status 可选：ACTIVE/PAUSED 暂停恢复；更新即重新排期） */
+  const updateSubscription = async (
+    queryId: string,
+    subscriptionId: string,
+    payload: FlexSubscriptionPayload,
+    status?: string,
+  ) => {
+    try {
+      const res = await apiFetch(`/api/flex-queries/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, ...(status ? { status } : {}) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || '订阅更新失败');
+      showToast('订阅已更新');
+      await openSubscriptions(queryId, subPanel?.name || '');
+      return true;
+    } catch (err) {
+      showToast((err as Error)?.message || '订阅更新失败');
+      return false;
+    }
+  };
+
+  /** 删除订阅（本人或 ADMIN）；成功后刷新列表 */
+  const deleteSubscription = async (subscriptionId: string) => {
+    const queryId = subPanel?.queryId;
+    try {
+      const res = await apiFetch(`/api/flex-queries/subscriptions/${encodeURIComponent(subscriptionId)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || '订阅删除失败');
+      showToast('订阅已删除');
+      if (queryId) await openSubscriptions(queryId, subPanel?.name || '');
+    } catch (err) {
+      showToast((err as Error)?.message || '订阅删除失败');
+    }
+  };
+
+  /** 加载订阅运行历史（展开行时懒加载，非关键数据静默） */
+  const loadSubRuns = async (subscriptionId: string) => {
+    try {
+      const res = await apiFetch(`/api/flex-queries/subscriptions/${encodeURIComponent(subscriptionId)}/runs`);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.success && Array.isArray(data.runs)) {
+        setSubRuns((prev) => ({ ...prev, [subscriptionId]: data.runs as FlexSubRunItem[] }));
+      }
+    } catch {
+      // 运行历史加载失败静默
+    }
+  };
+
+  /** 立即执行一次（不改变既有排期；结果含告警判定状态，刷新运行历史） */
+  const runSubscriptionNow = async (subscriptionId: string) => {
+    try {
+      const res = await apiFetch(`/api/flex-queries/subscriptions/${encodeURIComponent(subscriptionId)}/run`, { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || '执行失败');
+      showToast(`订阅执行完成：${data.result?.status || 'SUCCESS'}`);
+      await loadSubRuns(subscriptionId);
+    } catch (err) {
+      showToast((err as Error)?.message || '订阅执行失败');
+    }
+  };
+
+  // ---------- v0.9.77 P2-15：Excel 导出（服务端重放报表并组装 XLSX，含溯源水印） ----------
+  const handleExportExcel = async (queryId: string, name?: string) => {
+    if (exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      const res = await apiFetch(`/api/flex-queries/${encodeURIComponent(queryId)}/export-excel`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `导出失败（HTTP ${res.status}）`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name || queryName.trim() || '灵活查询'}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('Excel 已开始下载');
+    } catch (err) {
+      showToast((err as Error)?.message || 'Excel 导出失败');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   return {
     // store 透出（顶部数据源切换 + 看板跳转）
@@ -1002,6 +1317,11 @@ export function useFlexQueryState() {
     setJoins,
     chartType,
     setChartType,
+    // v0.9.77 P2-14c：堆叠 / 双轴视图开关
+    chartStacked,
+    setChartStacked,
+    chartDualAxis,
+    setChartDualAxis,
     queryName,
     setQueryName,
     // v0.9.76 新增配置段（语义指标 / OR 组 / 时间衍生列 / 后台执行）
@@ -1067,5 +1387,35 @@ export function useFlexQueryState() {
     favoriteIds,
     toggleFavorite,
     saveFromHistory,
+    // v0.9.77 P2：计算字段 / 数据预览 / EXPLAIN 预估 / 版本历史 / 订阅 / Excel 导出
+    calcFields,
+    setCalcFields,
+    addCalcField,
+    updateCalcField,
+    removeCalcField,
+    tablePreview,
+    previewTable,
+    closePreview,
+    estimatedRows,
+    versionPanel,
+    versions,
+    loadingVersions,
+    openVersions,
+    closeVersions,
+    restoreVersion,
+    refreshSavedQueries,
+    subPanel,
+    subscriptions,
+    loadingSubs,
+    subRuns,
+    openSubscriptions,
+    closeSubscriptions,
+    createSubscription,
+    updateSubscription,
+    deleteSubscription,
+    runSubscriptionNow,
+    loadSubRuns,
+    handleExportExcel,
+    exportingExcel,
   };
 }

@@ -224,7 +224,10 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
     );
   }
 
-  const { type, xAxisKey, yAxisKeys, stacked } = config;
+  const { type, xAxisKey, yAxisKeys, stacked, dualAxis } = config;
+  // v0.9.77 P2-14c：双 Y 轴（第 1 个指标左轴、第 2 个指标右轴，其余继续左轴；仅直角坐标图生效）
+  const dual = dualAxis === true && yAxisKeys.length >= 2;
+  const axisIdOf = (i: number) => (dual && i === 1 ? 'right' : 'left');
 
   // 按当前主题与「自动对比度」开关计算实际生效色板（含给用户的说明文案）
   const activeTheme: ChartTheme = CHART_THEMES[activeThemeId] || CHART_THEMES.cyber;
@@ -419,7 +422,10 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
           <LineChart data={chartData} onClick={handleChartClick}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
             <XAxis dataKey={xAxisKey} stroke={textColor} fontSize={12} tickLine={false} />
-            <YAxis stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            <YAxis yAxisId="left" stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            {dual && (
+              <YAxis yAxisId="right" orientation="right" stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            )}
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
             {yAxisKeys.map((key, i) => {
@@ -428,6 +434,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
               return (
                 <React.Fragment key={key}>
                   <Line
+                    yAxisId={axisIdOf(i)}
                     type="monotone"
                     dataKey={key}
                     name={keyName}
@@ -442,6 +449,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                   </Line>
                   {activeComparisonMode !== 'none' && (
                     <Line
+                      yAxisId={axisIdOf(i)}
                       type="monotone"
                       dataKey={`${key}_prior`}
                       name={`${keyName} (${activeComparisonMode === 'yoy' ? '去年同期' : '上期基准'})`}
@@ -491,7 +499,10 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
             <XAxis dataKey={xAxisKey} stroke={textColor} fontSize={12} tickLine={false} />
-            <YAxis stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            <YAxis yAxisId="left" stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            {dual && (
+              <YAxis yAxisId="right" orientation="right" stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            )}
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
             {yAxisKeys.map((key, i) => {
@@ -500,6 +511,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
               return (
                 <React.Fragment key={key}>
                   <Area
+                    yAxisId={axisIdOf(i)}
                     type="monotone"
                     dataKey={key}
                     name={keyName}
@@ -515,6 +527,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                   </Area>
                   {activeComparisonMode !== 'none' && (
                     <Area
+                      yAxisId={axisIdOf(i)}
                       type="monotone"
                       dataKey={`${key}_prior`}
                       name={`${keyName} (${activeComparisonMode === 'yoy' ? '去年同期' : '上期基准'})`}
@@ -687,13 +700,51 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
         );
       }
 
+      case 'kpi': {
+        // v0.9.77 P2-14c：KPI 卡片视图（每个指标一张卡；取首行值，多行时提示）
+        const first = data[0] || {};
+        return (
+          <div
+            className="w-full h-full overflow-auto p-1 grid gap-2 content-start"
+            style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}
+          >
+            {yAxisKeys.map((key, i) => {
+              const raw = first[key];
+              const num = Number(raw);
+              const display =
+                raw === null || raw === undefined || raw === '' ? '-' : Number.isFinite(num) ? formatValue(num) : String(raw);
+              return (
+                <div
+                  key={key}
+                  className="bg-slate-900/70 border border-slate-800 rounded-xl px-3.5 py-3 flex flex-col justify-center min-h-[84px]"
+                >
+                  <span className="text-[11px] text-slate-400 truncate">{config.yAxisNames?.[key] || key}</span>
+                  <span
+                    className="text-2xl font-bold font-mono mt-1 truncate"
+                    style={{ color: effectiveColors[i % effectiveColors.length] }}
+                  >
+                    {display}
+                  </span>
+                  {data.length > 1 && (
+                    <span className="text-[10px] text-slate-500 mt-0.5">共 {data.length} 行，展示首行</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
       case 'bar':
       default:
         return (
           <BarChart data={chartData} onClick={handleChartClick}>
             <CartesianGrid strokeDasharray="3 3" stroke={gridColor} opacity={0.5} />
             <XAxis dataKey={xAxisKey} stroke={textColor} fontSize={12} tickLine={false} />
-            <YAxis stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            <YAxis yAxisId="left" stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            {dual && (
+              <YAxis yAxisId="right" orientation="right" stroke={textColor} fontSize={12} tickFormatter={formatValue} tickLine={false} />
+            )}
             <Tooltip content={<CustomTooltip />} />
             <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
             {yAxisKeys.map((key, i) => {
@@ -702,6 +753,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
               return (
                 <React.Fragment key={key}>
                   <Bar
+                    yAxisId={axisIdOf(i)}
                     dataKey={key}
                     name={keyName}
                     fill={color}
@@ -714,6 +766,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
                   </Bar>
                   {activeComparisonMode !== 'none' && (
                     <Bar
+                      yAxisId={axisIdOf(i)}
                       dataKey={`${key}_prior`}
                       name={`${keyName} (${activeComparisonMode === 'yoy' ? '去年同期' : '上期基准'})`}
                       fill={color}

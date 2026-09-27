@@ -558,6 +558,58 @@ router.get('/:id/flex-column-values', requireRole('ADMIN', 'ANALYST'), async (re
   }
 });
 
+/** v0.9.77 P2-16：表数据预览默认行数与上限（选表后样例 N 行，防大表全量倾斜） */
+export const FLEX_PREVIEW_LIMIT = 20;
+export const FLEX_PREVIEW_LIMIT_MAX = 50;
+
+// GET /api/datasources/:id/flex-preview?table=&limit=（ADMIN/ANALYST）
+// v0.9.77 P2-16：选表后样例数据预览。列清单取自 loadSchemaContext（已剔除敏感列），
+// 显式列出列名而非 SELECT *（绕过敏感列、保持白名单语义）；恒走只读安全执行层。
+router.get('/:id/flex-preview', requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const dataSourceId = String(req.params.id || '');
+  const tableName = String(req.query.table || '');
+  const limitRaw = Number(req.query.limit);
+  const limit = Number.isFinite(limitRaw) && limitRaw >= 1
+    ? Math.min(Math.floor(limitRaw), FLEX_PREVIEW_LIMIT_MAX)
+    : FLEX_PREVIEW_LIMIT;
+  try {
+    if (!(await checkDataSourceAccess(req.user!, dataSourceId))) {
+      return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
+    }
+    if (!IDENT_RE.test(tableName)) {
+      return res.status(400).json({ error: '表名格式非法' });
+    }
+    const ctx = await loadSchemaContext(dataSourceId, undefined);
+    if (ctx.status === 'disconnected') {
+      return res.status(403).json({ error: '该数据源已被管理员停用' });
+    }
+    if (!isLiveCapableType(ctx.dsType, ctx.fileBacked)) {
+      return res.status(400).json({ error: '该数据源类型不支持数据预览' });
+    }
+    const table = ctx.schema.find((t) => t.name === tableName);
+    if (!table) return res.status(404).json({ error: '表不存在' });
+    const cols = (table.columns || []).map((c) => c.name).filter((n) => IDENT_RE.test(n));
+    if (!cols.length) return res.status(400).json({ error: '该表无可用字段' });
+    const dialect = dialectOfDsType(ctx.dsType || '') || 'mysql';
+    const q = dialect === 'mysql' ? '`' : '"';
+    const previewSql = `SELECT ${cols.map((c) => `${q}${c}${q}`).join(', ')} FROM ${q}${tableName}${q} LIMIT ${limit}`;
+    const outcome = await executeSafeSql(dataSourceId, previewSql, ctx.schema, ctx.sensitiveRemoved, limit, ctx.rowFilters);
+    if (outcome.ok !== true) {
+      return res.status(422).json({ error: outcome.reason });
+    }
+    return res.json({
+      success: true,
+      table: tableName,
+      columns: cols,
+      rows: outcome.result.rows,
+      truncated: outcome.result.rows.length >= limit,
+    });
+  } catch (err) {
+    logger.error('[DataSources] flex-preview failed:', err);
+    return res.status(500).json({ error: '数据预览失败' });
+  }
+});
+
 // POST /api/datasources（仅 ADMIN）
 // 数据库类型（mysql/postgresql/greenplum）忽略前端提交的 tables，真实连接数据库提取完整 Schema
 router.post('/', requireRole('ADMIN'), async (req, res) => {

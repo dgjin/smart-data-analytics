@@ -69,6 +69,11 @@ export const FlexQueryBuilder: React.FC = () => {
     setJoins,
     chartType,
     setChartType,
+    // v0.9.77 P2-14c：视图开关
+    chartStacked,
+    setChartStacked,
+    chartDualAxis,
+    setChartDualAxis,
     queryName,
     setQueryName,
     // v0.9.76 新增配置段（语义指标 / OR 组 / 时间衍生列 / 后台执行）
@@ -86,6 +91,34 @@ export const FlexQueryBuilder: React.FC = () => {
     loadingMetrics,
     backgroundMode,
     setBackgroundMode,
+    // v0.9.77 P2：计算字段 / 预览 / 版本 / 订阅 / Excel
+    calcFields,
+    addCalcField,
+    updateCalcField,
+    removeCalcField,
+    tablePreview,
+    previewTable,
+    closePreview,
+    // v0.9.77 P2-14a/P2-15：EXPLAIN 预估 / 版本历史 / 订阅 / Excel 导出
+    estimatedRows,
+    versionPanel,
+    versions,
+    loadingVersions,
+    openVersions,
+    closeVersions,
+    restoreVersion,
+    subPanel,
+    subscriptions,
+    loadingSubs,
+    subRuns,
+    openSubscriptions,
+    closeSubscriptions,
+    createSubscription,
+    updateSubscription,
+    deleteSubscription,
+    runSubscriptionNow,
+    loadSubRuns,
+    handleExportExcel,
     // 派生
     allFields,
     dimensionCols,
@@ -209,6 +242,9 @@ export const FlexQueryBuilder: React.FC = () => {
             loadingMetrics={loadingMetrics}
             metricMeasures={metricMeasures}
             addMetricMeasure={addMetricMeasure}
+            tablePreview={tablePreview}
+            previewTable={previewTable}
+            closePreview={closePreview}
           />
 
           {/* 中：拖放区 + SQL + 执行（v0.4.12：支持全屏） */}
@@ -256,6 +292,10 @@ export const FlexQueryBuilder: React.FC = () => {
             setBackgroundMode={setBackgroundMode}
             asyncProgress={asyncProgress}
             cancelQuery={cancelQuery}
+            calcFields={calcFields}
+            addCalcField={addCalcField}
+            updateCalcField={updateCalcField}
+            removeCalcField={removeCalcField}
           />
 
           {/* 下：结果 + 固定报表（v0.4.12：支持全屏） */}
@@ -269,6 +309,10 @@ export const FlexQueryBuilder: React.FC = () => {
             setQueryName={setQueryName}
             chartType={chartType}
             setChartType={setChartType}
+            chartStacked={chartStacked}
+            setChartStacked={setChartStacked}
+            chartDualAxis={chartDualAxis}
+            setChartDualAxis={setChartDualAxis}
             showPct={showPct}
             setShowPct={setShowPct}
             showTotals={showTotals}
@@ -303,6 +347,25 @@ export const FlexQueryBuilder: React.FC = () => {
             handleDrill={handleDrill}
             closeDrill={closeDrill}
             activeDataSourceId={activeDataSourceId}
+            estimatedRows={estimatedRows}
+            versionPanel={versionPanel}
+            versions={versions}
+            loadingVersions={loadingVersions}
+            onOpenVersions={openVersions}
+            onCloseVersions={closeVersions}
+            onRestoreVersion={restoreVersion}
+            subPanel={subPanel}
+            subscriptions={subscriptions}
+            loadingSubs={loadingSubs}
+            subRuns={subRuns}
+            onOpenSubscriptions={openSubscriptions}
+            onCloseSubscriptions={closeSubscriptions}
+            onCreateSubscription={createSubscription}
+            onUpdateSubscription={updateSubscription}
+            onDeleteSubscription={deleteSubscription}
+            onRunSubscriptionNow={runSubscriptionNow}
+            onLoadSubRuns={loadSubRuns}
+            onExportExcel={handleExportExcel}
           />
         </div>
       )}

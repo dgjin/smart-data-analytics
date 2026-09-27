@@ -171,6 +171,19 @@ export async function migrateSchema(pool: mysql.Pool): Promise<void> {
     logger.warn('[DB] iron_rules status migration skipped:', getErrorMessage(err));
   }
 
+  // v0.9.77 P2-15 固定报表版本号与使用统计（存量库补列；版本历史/订阅表由 schema.ts 建表）
+  for (const ddl of [
+    "ALTER TABLE flex_queries ADD COLUMN version INT NOT NULL DEFAULT 1 AFTER query_data",
+    "ALTER TABLE flex_queries ADD COLUMN use_count INT NOT NULL DEFAULT 0 AFTER version",
+    'ALTER TABLE flex_queries ADD COLUMN last_used_at TIMESTAMP NULL AFTER use_count',
+  ]) {
+    try {
+      await pool.query(ddl);
+    } catch (err) {
+      if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+    }
+  }
+
 }
 
 /** 存量库数据迁移：依赖既有数据与种子结果，须在种子之后执行 */

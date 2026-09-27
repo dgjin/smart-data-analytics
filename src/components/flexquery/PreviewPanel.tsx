@@ -1,13 +1,13 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的结果预览区（下区：图表/明细 + 快速计算 + 固化保存 + 固定报表库）
 // 纯展示组件：全部状态与行为由 useFlexQueryState 注入，JSX 与拆分前保持一致
 import React from 'react';
-import { Pin, Save, Percent, Sigma, LayoutGrid, Download, Maximize2, Minimize2, Zap, RefreshCw } from 'lucide-react';
+import { Pin, Save, Percent, Sigma, LayoutGrid, Download, Maximize2, Minimize2, Zap, RefreshCw, Layers, TrendingUp, AlertTriangle } from 'lucide-react';
 import { DynamicChart } from '../charts/DynamicChart';
 import { DataTable } from '../charts/DataTable';
 import { DrillModal } from '../reports/DrillModal';
 import { ChartConfig, ChartType } from '../../types/analytics';
 import { FlexHistoryItem, FlexQueryLibrary, SavedFlexQuery } from './FlexQueryLibrary';
-import { CHART_TYPE_OPTIONS, FlexBuilt, FlexPivot, FlexResult } from './flexQueryShared';
+import { CHART_TYPE_OPTIONS, FlexBuilt, FlexPivot, FlexResult, FlexSubRunItem, FlexSubscriptionItem, FlexSubscriptionPayload, FlexVersionItem } from './flexQueryShared';
 
 export interface PreviewPanelProps {
   fullZone: 'config' | 'result' | null;
@@ -19,6 +19,11 @@ export interface PreviewPanelProps {
   setQueryName: React.Dispatch<React.SetStateAction<string>>;
   chartType: ChartType;
   setChartType: React.Dispatch<React.SetStateAction<ChartType>>;
+  /** v0.9.77 P2-14c：堆叠（柱/面积）与双轴（柱/折线/面积，需 ≥2 指标）视图开关 */
+  chartStacked: boolean;
+  setChartStacked: React.Dispatch<React.SetStateAction<boolean>>;
+  chartDualAxis: boolean;
+  setChartDualAxis: React.Dispatch<React.SetStateAction<boolean>>;
   showPct: boolean;
   setShowPct: React.Dispatch<React.SetStateAction<boolean>>;
   /** v0.9.75：合计行开关与合计行数据（结果截断时禁用） */
@@ -56,6 +61,27 @@ export interface PreviewPanelProps {
   handleDrill: (dimensionKey: string, dimensionValue: string | number) => void;
   closeDrill: () => void;
   activeDataSourceId: string;
+  /** v0.9.77 P2-14a：EXPLAIN 预估扫描行数（防线关闭/评估失败时为 null） */
+  estimatedRows: number | null;
+  /** v0.9.77 P2-15：版本历史 / 订阅 / Excel 导出（透传固定报表库） */
+  versionPanel: { queryId: string; name: string } | null;
+  versions: FlexVersionItem[];
+  loadingVersions: boolean;
+  onOpenVersions: (queryId: string, name: string) => void;
+  onCloseVersions: () => void;
+  onRestoreVersion: (queryId: string, version: number) => void;
+  subPanel: { queryId: string; name: string } | null;
+  subscriptions: FlexSubscriptionItem[];
+  loadingSubs: boolean;
+  subRuns: Record<string, FlexSubRunItem[]>;
+  onOpenSubscriptions: (queryId: string, name: string) => void;
+  onCloseSubscriptions: () => void;
+  onCreateSubscription: (queryId: string, payload: FlexSubscriptionPayload) => Promise<boolean>;
+  onUpdateSubscription: (queryId: string, subscriptionId: string, payload: FlexSubscriptionPayload, status?: string) => Promise<boolean>;
+  onDeleteSubscription: (subscriptionId: string) => void;
+  onRunSubscriptionNow: (subscriptionId: string) => void;
+  onLoadSubRuns: (subscriptionId: string) => void;
+  onExportExcel: (queryId: string, name: string) => void;
 }
 
 export const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -68,6 +94,10 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   setQueryName,
   chartType,
   setChartType,
+  chartStacked,
+  setChartStacked,
+  chartDualAxis,
+  setChartDualAxis,
   showPct,
   setShowPct,
   showTotals,
@@ -102,6 +132,25 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   handleDrill,
   closeDrill,
   activeDataSourceId,
+  estimatedRows,
+  versionPanel,
+  versions,
+  loadingVersions,
+  onOpenVersions,
+  onCloseVersions,
+  onRestoreVersion,
+  subPanel,
+  subscriptions,
+  loadingSubs,
+  subRuns,
+  onOpenSubscriptions,
+  onCloseSubscriptions,
+  onCreateSubscription,
+  onUpdateSubscription,
+  onDeleteSubscription,
+  onRunSubscriptionNow,
+  onLoadSubRuns,
+  onExportExcel,
 }) => {
   return (
     <div
@@ -119,6 +168,22 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
               <span className="text-[10px] text-slate-400">
                 {result.rows.length} 行{result.truncated ? '（已达行数上限，结果被截断）' : ''}
                 {execTimeMs !== null ? ` · ${execTimeMs}ms` : ''}
+              </span>
+            )}
+            {/* v0.9.77 P2-14a：EXPLAIN 预估扫描行数（超 10 万行时高亮提示收窄筛选） */}
+            {result && estimatedRows !== null && (
+              <span
+                className={`flex items-center space-x-1 text-[10px] border rounded-lg px-1.5 py-0.5 ${
+                  estimatedRows > 100000
+                    ? 'text-amber-300 bg-amber-950/50 border-amber-500/40'
+                    : 'text-slate-400 bg-slate-900/60 border-slate-700'
+                }`}
+                title="执行前 EXPLAIN 预估的扫描行数（MySQL 优化器估算，仅供参考）"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                <span>
+                  预估扫描 {estimatedRows.toLocaleString('zh-CN')} 行{estimatedRows > 100000 ? '，建议收窄筛选条件' : ''}
+                </span>
               </span>
             )}
             {/* v0.9.76 P1-9：服务端结果缓存命中标记 + 跳过缓存强制刷新 */}
@@ -206,6 +271,38 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                 <Sigma className="w-3 h-3 text-emerald-400" />
                 <span>合计行</span>
               </label>
+              {/* v0.9.77 P2-14c：堆叠视图（柱/面积） */}
+              {(chartType === 'bar' || chartType === 'area') && (
+                <label
+                  className="flex items-center space-x-1 text-slate-300 cursor-pointer"
+                  title="多个指标同轴堆叠展示（柱状/面积图）"
+                >
+                  <input
+                    type="checkbox"
+                    checked={chartStacked}
+                    onChange={(e) => setChartStacked(e.target.checked)}
+                    className="accent-indigo-500"
+                  />
+                  <Layers className="w-3 h-3 text-indigo-400" />
+                  <span>堆叠</span>
+                </label>
+              )}
+              {/* v0.9.77 P2-14c：双轴视图（柱/折线/面积，需 ≥2 指标） */}
+              {(chartType === 'bar' || chartType === 'line' || chartType === 'area') && (
+                <label
+                  className="flex items-center space-x-1 text-slate-300 cursor-pointer"
+                  title="第 1 个指标用左轴，第 2 个指标用右轴（需至少 2 个指标）"
+                >
+                  <input
+                    type="checkbox"
+                    checked={chartDualAxis}
+                    onChange={(e) => setChartDualAxis(e.target.checked)}
+                    className="accent-indigo-500"
+                  />
+                  <TrendingUp className="w-3 h-3 text-amber-400" />
+                  <span>双轴</span>
+                </label>
+              )}
               <button
                 onClick={() => setPivotMode((v) => !v)}
                 disabled={!pivotAvailable}
@@ -339,6 +436,24 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         favoriteIds={favoriteIds}
         onToggleFavorite={onToggleFavorite}
         onSaveFromHistory={onSaveFromHistory}
+        versionPanel={versionPanel}
+        versions={versions}
+        loadingVersions={loadingVersions}
+        onOpenVersions={onOpenVersions}
+        onCloseVersions={onCloseVersions}
+        onRestoreVersion={onRestoreVersion}
+        subPanel={subPanel}
+        subscriptions={subscriptions}
+        loadingSubs={loadingSubs}
+        subRuns={subRuns}
+        onOpenSubscriptions={onOpenSubscriptions}
+        onCloseSubscriptions={onCloseSubscriptions}
+        onCreateSubscription={onCreateSubscription}
+        onUpdateSubscription={onUpdateSubscription}
+        onDeleteSubscription={onDeleteSubscription}
+        onRunSubscriptionNow={onRunSubscriptionNow}
+        onLoadSubRuns={onLoadSubRuns}
+        onExportExcel={onExportExcel}
       />
     </div>
   );

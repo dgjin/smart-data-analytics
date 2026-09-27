@@ -338,6 +338,7 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
   `);
 
   // v0.9.24 灵活查询固定报表服务端持久化（团队共享查询模板）
+  // v0.9.77 P2-15：version=当前版本号（每次更新/回滚 +1）；use_count/last_used_at=使用统计
   await pool.query(`
     CREATE TABLE IF NOT EXISTS flex_queries (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -346,9 +347,64 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
       username VARCHAR(50) NOT NULL,
       data_source_id VARCHAR(64) NOT NULL DEFAULT '',
       query_data MEDIUMTEXT NOT NULL COMMENT '完整 SavedFlexQuery JSON（含 FlexQueryConfig 与图表类型）',
+      version INT NOT NULL DEFAULT 1 COMMENT '当前版本号（与 flex_query_versions.version 对应）',
+      use_count INT NOT NULL DEFAULT 0 COMMENT '使用次数（载入/执行打点累计）',
+      last_used_at TIMESTAMP NULL COMMENT '最近使用时间',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_fq_ds (data_source_id),
       INDEX idx_fq_user (user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.77 P2-15 固定报表版本历史（对齐 metric_versions 模式）：创建/更新/回滚均写快照，历史不可变
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS flex_query_versions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      query_id VARCHAR(64) NOT NULL,
+      version INT NOT NULL,
+      snapshot_json MEDIUMTEXT NOT NULL COMMENT '完整 SavedFlexQuery JSON 快照',
+      action VARCHAR(16) NOT NULL DEFAULT 'UPDATE' COMMENT 'CREATE/UPDATE/RESTORE',
+      actor VARCHAR(50) NOT NULL DEFAULT '' COMMENT '操作人用户名',
+      remark VARCHAR(200) NOT NULL DEFAULT '' COMMENT '备注（回滚时记录来源版本）',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_fqv_query (query_id, version)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.77 P2-15 固定报表订阅（周期重跑 + 阈值告警）：到期原子领取（next_run_at）复用巡检调度模式
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS flex_query_subscriptions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      subscription_id VARCHAR(64) NOT NULL UNIQUE COMMENT '订阅唯一标识（sub-{timestamp}-{rand}）',
+      query_id VARCHAR(64) NOT NULL COMMENT '关联固定报表',
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL,
+      frequency_minutes INT NOT NULL DEFAULT 1440 COMMENT '执行周期（分钟）',
+      alert_metric VARCHAR(64) NOT NULL DEFAULT '' COMMENT '告警指标结果列名（空=仅重跑不告警）',
+      alert_op VARCHAR(4) NOT NULL DEFAULT '>' COMMENT '告警比较符 > >= < <= =',
+      alert_threshold DECIMAL(20,4) NOT NULL DEFAULT 0 COMMENT '告警阈值',
+      status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/PAUSED',
+      last_run_at TIMESTAMP NULL,
+      next_run_at TIMESTAMP NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_fqs_query (query_id),
+      INDEX idx_fqs_user (user_id),
+      INDEX idx_fqs_due (status, next_run_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.77 P2-15 订阅运行历史（每次执行一条：状态/行数/告警值/错误信息）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS flex_query_subscription_runs (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      subscription_id VARCHAR(64) NOT NULL,
+      status VARCHAR(16) NOT NULL COMMENT 'SUCCESS/ALERT/FAILED',
+      row_count INT NOT NULL DEFAULT 0,
+      alert_value VARCHAR(64) NOT NULL DEFAULT '' COMMENT '命中告警时的指标值',
+      message VARCHAR(500) NOT NULL DEFAULT '' COMMENT '错误信息或告警文案',
+      duration_ms INT NOT NULL DEFAULT 0,
+      run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_fqsr_sub (subscription_id, run_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 

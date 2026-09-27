@@ -1,7 +1,7 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的查询配置画布（中区：拖放区 + 排序行数 + SQL 预览 + 执行）
 // 纯展示组件：拖拽悬停态（dragOverZone）为纯视觉关注点，收敛至本组件本地状态；其余由 useFlexQueryState 注入
 import React, { useState } from 'react';
-import { X, Play, Loader2, Filter, ArrowUpDown, RotateCcw, Maximize2, Minimize2, ChevronUp, ChevronDown, Gauge, TrendingUp } from 'lucide-react';
+import { X, Play, Loader2, Filter, ArrowUpDown, RotateCcw, Maximize2, Minimize2, ChevronUp, ChevronDown, Gauge, TrendingUp, Sigma } from 'lucide-react';
 import {
   FLEX_AGGS,
   FLEX_DERIVED_KINDS,
@@ -14,6 +14,7 @@ import {
   measureAlias,
   metricAlias,
   FlexAgg,
+  FlexCalcField,
   FlexDerived,
   FlexDerivedKind,
   FlexLikeMode,
@@ -82,6 +83,11 @@ export interface BuilderCanvasProps {
   setBackgroundMode: React.Dispatch<React.SetStateAction<boolean>>;
   asyncProgress: string | null;
   cancelQuery: () => void;
+  /** v0.9.77 P2-13：计算字段（指标结果列上的白名单表达式） */
+  calcFields: FlexCalcField[];
+  addCalcField: () => void;
+  updateCalcField: (id: string, patch: Partial<Pick<FlexCalcField, 'name' | 'expr'>>) => void;
+  removeCalcField: (id: string) => void;
 }
 
 export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
@@ -128,6 +134,10 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   setBackgroundMode,
   asyncProgress,
   cancelQuery,
+  calcFields,
+  addCalcField,
+  updateCalcField,
+  removeCalcField,
 }) => {
   const [dragOverZone, setDragOverZone] = useState<DropZone | null>(null);
 
@@ -784,6 +794,58 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* v0.9.77 P2-13：计算字段（表达式作用于指标结果列，白名单函数） */}
+      <div className="space-y-1.5 text-[11px]">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-400 flex items-center space-x-1">
+            <Sigma className="w-3 h-3" />
+            <span>计算字段（指标结果列上的表达式）</span>
+          </span>
+          <button
+            onClick={addCalcField}
+            disabled={calcFields.length >= 4 || derivedTargets.length === 0}
+            className={`text-[10px] ${
+              calcFields.length >= 4 || derivedTargets.length === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-indigo-300 hover:text-indigo-200'
+            }`}
+          >
+            + 添加计算字段{calcFields.length > 0 ? `（${calcFields.length}/4）` : ''}
+          </button>
+        </div>
+        {calcFields.length === 0 ? (
+          <p className="text-[10px] text-slate-500">
+            {derivedTargets.length === 0 ? '需先添加指标（普通/语义指标）' : '未设置计算字段（可选）'}
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {calcFields.map((cf) => (
+              <div key={cf.id} className="flex items-center space-x-1.5">
+                <input
+                  value={cf.name}
+                  onChange={(e) => updateCalcField(cf.id, { name: e.target.value })}
+                  placeholder="展示名（如 单均价）"
+                  className="w-28 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+                <input
+                  value={cf.expr}
+                  onChange={(e) => updateCalcField(cf.id, { expr: e.target.value })}
+                  placeholder="表达式，如 ROUND(sum_amount / NULLIF(sum_qty, 0), 2)"
+                  title="可用函数：ROUND/ABS/LEAST/GREATEST/NULLIF/COALESCE/IF；可引用指标结果列别名"
+                  className="flex-1 min-w-[180px] bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  onClick={() => removeCalcField(cf.id)}
+                  className="text-slate-400 hover:text-rose-400"
+                  title="移除该计算字段"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            <p className="text-[10px] text-slate-500">可引用别名：{derivedTargets.map((t) => t.value).join(' / ')}</p>
           </div>
         )}
       </div>

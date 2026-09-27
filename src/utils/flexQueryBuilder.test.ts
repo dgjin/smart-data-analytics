@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildFlexQuerySql,
+  compileCalcExpr,
+  calcAlias,
   filterValueToSql,
   measureAlias,
   betweenParts,
@@ -784,5 +786,138 @@ describe('buildFlexQuerySql: v0.9.76 P1 增强（OR 组 / 语义指标 / 时间�
         'mysql'
       ).ok
     ).toBe(false);
+  });
+});
+
+describe('compileCalcExpr：计算字段表达式编译（v0.9.77 P2-13）', () => {
+  const resolve = (alias: string) =>
+    ['sum_bntfje', 'sum_x', 'metric_9'].includes(alias) ? `t.\`${alias}\`` : null;
+
+  it('四则运算按优先级括号化（含负号与括号）', () => {
+    const out = compileCalcExpr('sum_bntfje / 100 * (1 - 0.13)', resolve);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toBe('((t.`sum_bntfje` / 100) * (1 - 0.13))');
+    const neg = compileCalcExpr('-sum_bntfje + 5', resolve);
+    expect(neg.ok).toBe(true);
+    if (neg.ok) expect(neg.sql).toBe('((-t.`sum_bntfje`) + 5)');
+  });
+
+  it('ROUND/NULLIF 白名单函数与参数数量校验', () => {
+    const out = compileCalcExpr('ROUND(sum_bntfje / NULLIF(sum_x, 0), 2)', resolve);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toBe('ROUND((t.`sum_bntfje` / NULLIF(t.`sum_x`, 0)), 2)');
+    expect(compileCalcExpr('ROUND()', resolve).ok).toBe(false);
+    expect(compileCalcExpr('ABS(sum_bntfje, 2)', resolve).ok).toBe(false);
+    expect(compileCalcExpr('ROUND(sum_bntfje', resolve).ok).toBe(false);
+  });
+
+  it('IF 转译 CASE WHEN；GREATEST/LEAST 多参与 COALESCE', () => {
+    const out = compileCalcExpr('IF(sum_bntfje > 0, sum_bntfje, 0)', resolve);
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.sql).toBe('(CASE WHEN (t.`sum_bntfje` > 0) THEN t.`sum_bntfje` ELSE 0 END)');
+    const g = compileCalcExpr('GREATEST(sum_bntfje, sum_x, 10)', resolve);
+    expect(g.ok).toBe(true);
+    if (g.ok) expect(g.sql).toBe('GREATEST(t.`sum_bntfje`, t.`sum_x`, 10)');
+    const c = compileCalcExpr('COALESCE(sum_x, 0) ', resolve);
+    expect(c.ok).toBe(true);
+    if (c.ok) expect(c.sql).toBe('COALESCE(t.`sum_x`, 0)');
+  });
+
+  it('拒绝：表列引用 / 未知别名 / 未知函数 / 分号 / 尾部多余内容 / 空表达式', () => {
+    expect(compileCalcExpr('JGMC * 2', resolve).ok).toBe(false);
+    expect(compileCalcExpr('some_table.JGMC * 2', resolve).ok).toBe(false);
+    expect(compileCalcExpr('sum_bntfje; DROP TABLE x', resolve).ok).toBe(false);
+    expect(compileCalcExpr('EVIL(sum_bntfje)', resolve).ok).toBe(false);
+    expect(compileCalcExpr('sum_bntfje 2', resolve).ok).toBe(false);
+    expect(compileCalcExpr('', resolve).ok).toBe(false);
+    expect(compileCalcExpr('sum_x <> 0', resolve).ok).toBe(true);
+  });
+});
+
+describe('buildFlexQuerySql：计算字段集成（v0.9.77 P2-13）', () => {
+  const calc = { id: 'calc-1730000000001', name: '留存率', expr: 'ROUND(sum_bntfje / NULLIF(sum_x, 0), 4)' };
+
+  it('计算字段生成外层包装列（无衍生列时 ORDER BY 回退首维度）', () => {
+    const out = buildFlexQuerySql(
+      base({
+        measures: [
+          { column: 'BNTFJE', agg: 'SUM' },
+          { column: 'BNTFJE', agg: 'MAX' },
+        ],
+        orderBys: [],
+        calcFields: [{ ...calc, expr: 'ROUND(sum_bntfje / NULLIF(max_bntfje, 0), 4)' }],
+      }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('ROUND((t.`sum_bntfje` / NULLIF(t.`max_bntfje`, 0)), 4) AS `calc_1730000000001`');
+      expect(out.sql).toContain('FROM (SELECT `JGMC`, SUM(`BNTFJE`) AS `sum_bntfje`, MAX(`BNTFJE`) AS `max_bntfje` FROM `fct_jc_main_biz_stat` GROUP BY `JGMC`) AS t');
+      expect(out.sql.endsWith('ORDER BY t.`JGMC` ASC LIMIT 100')).toBe(true);
+    }
+  });
+
+  it('排序可引用计算字段别名；PG 方言双引号', () => {
+    const out = buildFlexQuerySql(
+      base({
+        orderBys: [{ by: 'calc_1730000000001', dir: 'desc' }],
+        calcFields: [{ ...calc, expr: 'sum_bntfje * 1' }],
+      }),
+      TABLE,
+      'pg'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('(t."sum_bntfje" * 1) AS "calc_1730000000001"');
+      expect(out.sql).toContain('ORDER BY t."calc_1730000000001" DESC');
+    }
+  });
+
+  it('计算字段与时间衍生列共存 / 引用语义指标别名', () => {
+    const out = buildFlexQuerySql(
+      base({
+        dimensions: ['SJRQ'],
+        dimTimeUnits: { SJRQ: 'month' },
+        orderBys: [],
+        calcFields: [{ ...calc, expr: 'ROUND(sum_bntfje / NULLIF(sum_bntfje, 0), 2)' }],
+        deriveds: [{ by: 'sum_bntfje', kind: 'cum' }],
+      }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('AS `calc_1730000000001`, SUM(t.`sum_bntfje`) OVER');
+      expect(out.sql).toContain('AS `sum_bntfje_cum`');
+    }
+    const m1 = { id: 9, name: '营收', expr: 'SUM(`BNTFJE`)', tableName: 'fct_jc_main_biz_stat', filters: '' };
+    const withMetric = buildFlexQuerySql(
+      base({
+        measures: [],
+        metrics: [m1],
+        orderBys: [],
+        calcFields: [{ id: 'calc-1730000000009', name: '双倍', expr: 'metric_9 * 2' }],
+      }),
+      TABLE,
+      'mysql'
+    );
+    expect(withMetric.ok).toBe(true);
+    if (withMetric.ok) expect(withMetric.sql).toContain('(t.`metric_9` * 2) AS `calc_1730000000009`');
+  });
+
+  it('拒绝：名称重复 / 超 4 个 / 表列表达式 / 未知别名', () => {
+    expect(buildFlexQuerySql(base({ calcFields: [calc, { ...calc, id: 'calc-2' }] }), TABLE, 'mysql').ok).toBe(false);
+    expect(
+      buildFlexQuerySql(
+        base({ calcFields: [1, 2, 3, 4, 5].map((n) => ({ id: `calc-${n}`, name: `f${n}`, expr: 'sum_bntfje' })) }),
+        TABLE,
+        'mysql'
+      ).ok
+    ).toBe(false);
+    expect(buildFlexQuerySql(base({ calcFields: [{ id: 'calc-3', name: 'x', expr: 'JGMC + 1' }] }), TABLE, 'mysql').ok).toBe(false);
+    expect(buildFlexQuerySql(base({ calcFields: [{ id: 'calc-4', name: 'y', expr: 'nope + 1' }] }), TABLE, 'mysql').ok).toBe(false);
+    expect(calcAlias({ id: 'calc-1730000000001', name: '留存率' })).toBe('calc_1730000000001');
+    expect(calcAlias({ name: 'Margin' })).toBe('calc_margin');
   });
 });

@@ -11,6 +11,8 @@
  * LIKE 匹配模式（包含/开头是/结尾是/精确）、维度结果列名统一取末段（修复跨表维度图表/透视键不匹配）。
  * v0.9.76（灵活查询 P1 增强）：OR 分组（组内 OR/组间 AND）、语义指标接入（治理口径 expr + 固定过滤，
  * 同归属表/同过滤约束）、时间衍生列（同比/环比/累计/移动平均，LAG/SUM/AVG OVER 窗口函数双方言）。
+ * v0.9.77（灵活查询 P2 增强）：计算字段（表达式作用于聚合结果列，白名单 tokenizer 校验：四则运算/
+ * 比较 + ROUND/ABS/LEAST/GREATEST/NULLIF/COALESCE + IF 转译 CASE WHEN，双方言兼容）。
  */
 import { TableSchema } from '../types/analytics';
 
@@ -73,6 +75,19 @@ export interface FlexDerived {
   periods?: number;
 }
 
+/**
+ * v0.9.77 P2-13：计算字段（v0.9.77 起表达式作用于聚合结果列，如 ROUND(sum_amount / NULLIF(sum_qty, 0), 2)）。
+ * 表达式仅允许引用已有指标别名（measures/metrics），不支持原始表列与字段间互引（防分组语义破坏与循环引用）。
+ */
+export interface FlexCalcField {
+  /** 唯一 id（前端生成 calc-<时间戳>；结果列别名 calc_<数字> 由此派生，跨保存/载入稳定） */
+  id: string;
+  /** 展示名（结果列标题；保存前校验非空且不重复） */
+  name: string;
+  /** 表达式（白名单 token 校验后编译为 SQL，见 compileCalcExpr） */
+  expr: string;
+}
+
 /** 多表关联（JOIN）配置 */
 export interface FlexJoin {
   /** 关联表名 */
@@ -103,6 +118,8 @@ export interface FlexQueryConfig {
   metrics?: FlexMetricMeasure[];
   /** v0.9.76：时间衍生列（需首个配置了时间粒度的维度作为窗口排序键） */
   deriveds?: FlexDerived[];
+  /** v0.9.77：计算字段（表达式作用于聚合结果列，最多 4 个） */
+  calcFields?: FlexCalcField[];
   /** 返回行数上限（1-100000，v0.4.14 放宽防 OOM 兜底） */
   limit: number;
 }
@@ -168,6 +185,239 @@ export function metricAlias(id: number): string {
 export function derivedAlias(by: string, kind: FlexDerivedKind, periods?: number): string {
   if (kind === 'ma') return `${by}_ma${Math.min(Math.max(Math.floor(periods || 3), 2), 12)}`;
   return `${by}_${kind}`;
+}
+
+/** v0.9.77：计算字段结果列别名 calc_<id 数字>（由 id 派生，保存/载入后保持稳定；缺 id 时回退名称归一） */
+export function calcAlias(f: { id?: string; name?: string }): string {
+  const m = String(f?.id || '').match(/(\d+)/);
+  if (m) return `calc_${m[1]}`;
+  const base = String(f?.name || '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+  return `calc_${base || 'field'}`;
+}
+
+/** v0.9.77：计算字段白名单函数（参数数量上下限；IF 在编译期转译为双方言兼容的 CASE WHEN） */
+const CALC_FUNCS: Record<string, { min: number; max: number }> = {
+  ROUND: { min: 1, max: 2 },
+  ABS: { min: 1, max: 1 },
+  LEAST: { min: 2, max: 8 },
+  GREATEST: { min: 2, max: 8 },
+  NULLIF: { min: 2, max: 2 },
+  COALESCE: { min: 2, max: 8 },
+  IF: { min: 3, max: 3 },
+};
+
+/** v0.9.77：计算字段表达式 token（num 数字 / str 字符串 / ident 标识符（函数名或别名） / op 运算符） */
+interface CalcToken {
+  kind: 'num' | 'str' | 'ident' | 'op';
+  text: string;
+}
+
+/** v0.9.77：表达式分词（未知字符/未闭合字符串返回错误文案） */
+function tokenizeCalcExpr(expr: string): { ok: true; tokens: CalcToken[] } | { ok: false; error: string } {
+  const tokens: CalcToken[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (/\d/.test(ch) || (ch === '.' && /\d/.test(expr[i + 1] || ''))) {
+      const m = /^\d+(\.\d+)?/.exec(expr.slice(i));
+      if (!m) return { ok: false, error: '数字格式非法' };
+      tokens.push({ kind: 'num', text: m[0] });
+      i += m[0].length;
+      continue;
+    }
+    if (ch === "'") {
+      const end = expr.indexOf("'", i + 1);
+      if (end < 0) return { ok: false, error: '字符串字面量未闭合' };
+      tokens.push({ kind: 'str', text: expr.slice(i + 1, end) });
+      i = end + 1;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let j = i;
+      while (j < expr.length && /[A-Za-z0-9_]/.test(expr[j])) j++;
+      let name = expr.slice(i, j);
+      // 允许 table.column 形式进入 token（后续统一拒绝，错误提示更精确）
+      if (expr[j] === '.' && /[A-Za-z_]/.test(expr[j + 1] || '')) {
+        let k = j + 1;
+        while (k < expr.length && /[A-Za-z0-9_]/.test(expr[k])) k++;
+        name = `${name}.${expr.slice(j + 1, k)}`;
+        j = k;
+      }
+      tokens.push({ kind: 'ident', text: name });
+      i = j;
+      continue;
+    }
+    const two = expr.slice(i, i + 2);
+    if (two === '>=' || two === '<=' || two === '!=' || two === '<>') {
+      tokens.push({ kind: 'op', text: two === '<>' ? '!=' : two });
+      i += 2;
+      continue;
+    }
+    if ('+-*/%(),=><'.includes(ch)) {
+      tokens.push({ kind: 'op', text: ch });
+      i += 1;
+      continue;
+    }
+    return { ok: false, error: `不支持的字符「${ch}」` };
+  }
+  return { ok: true, tokens };
+}
+
+/**
+ * v0.9.77 P2-13：计算字段表达式编译（白名单 tokenizer + 递归下降 → SQL）。
+ * resolveAlias 把指标别名解析为外层引用（带引号 + t. 前缀），未命中即拒绝；
+ * IF(c,a,b) 转译 CASE WHEN（MySQL/PG 双方言）；四则运算按优先级加括号，杜绝注入与歧义。
+ */
+export function compileCalcExpr(
+  expr: string,
+  resolveAlias: (alias: string) => string | null,
+): { ok: true; sql: string } | { ok: false; error: string } {
+  const trimmed = String(expr || '').trim();
+  if (!trimmed) return { ok: false, error: '表达式不能为空' };
+  if (trimmed.includes(';')) return { ok: false, error: '表达式不能包含分号' };
+  const tk = tokenizeCalcExpr(trimmed);
+  if (tk.ok !== true) return tk;
+  const tokens = tk.tokens;
+  if (!tokens.length) return { ok: false, error: '表达式不能为空' };
+
+  let pos = 0;
+  let err = '';
+  const peek = (): CalcToken | undefined => (pos < tokens.length ? tokens[pos] : undefined);
+  const fail = (msg: string): null => {
+    if (!err) err = msg;
+    return null;
+  };
+
+  const parseCmp = (): string | null => {
+    const left = parseAdd();
+    if (left === null) return null;
+    const t = peek();
+    if (t && t.kind === 'op' && ['=', '!=', '>', '>=', '<', '<='].includes(t.text)) {
+      pos++;
+      const right = parseAdd();
+      if (right === null) return fail('比较运算符右侧缺少表达式');
+      return `(${left} ${t.text} ${right})`;
+    }
+    return left;
+  };
+
+  const parseAdd = (): string | null => {
+    let left = parseMul();
+    if (left === null) return null;
+    for (;;) {
+      const t = peek();
+      if (t && t.kind === 'op' && (t.text === '+' || t.text === '-')) {
+        pos++;
+        const right = parseMul();
+        if (right === null) return fail(`运算符「${t.text}」右侧缺少表达式`);
+        left = `(${left} ${t.text} ${right})`;
+      } else {
+        return left;
+      }
+    }
+  };
+
+  const parseMul = (): string | null => {
+    let left = parseUnary();
+    if (left === null) return null;
+    for (;;) {
+      const t = peek();
+      if (t && t.kind === 'op' && (t.text === '*' || t.text === '/' || t.text === '%')) {
+        pos++;
+        const right = parseUnary();
+        if (right === null) return fail(`运算符「${t.text}」右侧缺少表达式`);
+        left = `(${left} ${t.text} ${right})`;
+      } else {
+        return left;
+      }
+    }
+  };
+
+  const parseUnary = (): string | null => {
+    const t = peek();
+    if (t && t.kind === 'op' && (t.text === '-' || t.text === '+')) {
+      pos++;
+      const inner = parseUnary();
+      if (inner === null) return fail('一元运算符后缺少表达式');
+      return t.text === '-' ? `(-${inner})` : inner;
+    }
+    return parsePrimary();
+  };
+
+  const parsePrimary = (): string | null => {
+    const t = peek();
+    if (!t) return fail('表达式不完整');
+    if (t.kind === 'num') {
+      pos++;
+      return t.text;
+    }
+    if (t.kind === 'str') {
+      pos++;
+      return `'${t.text.replace(/'/g, "''")}'`;
+    }
+    if (t.kind === 'ident') {
+      const upper = t.text.toUpperCase();
+      const next = pos + 1 < tokens.length ? tokens[pos + 1] : undefined;
+      const spec = CALC_FUNCS[upper];
+      if (spec && next && next.kind === 'op' && next.text === '(') {
+        pos += 2;
+        const first = peek();
+        if (first && first.kind === 'op' && first.text === ')') {
+          pos++;
+          return fail(`函数 ${upper} 至少需要 ${spec.min} 个参数`);
+        }
+        const args: string[] = [];
+        for (;;) {
+          const a = parseCmp();
+          if (a === null) return fail(`函数 ${upper} 的参数非法`);
+          args.push(a);
+          const sep = peek();
+          if (sep && sep.kind === 'op' && sep.text === ',') {
+            pos++;
+            continue;
+          }
+          if (sep && sep.kind === 'op' && sep.text === ')') {
+            pos++;
+            break;
+          }
+          return fail(`函数 ${upper} 的参数分隔符缺失`);
+        }
+        if (args.length < spec.min || args.length > spec.max) {
+          const need = spec.min === spec.max ? String(spec.min) : `${spec.min}~${spec.max}`;
+          return fail(`函数 ${upper} 需要 ${need} 个参数（当前 ${args.length} 个）`);
+        }
+        if (upper === 'IF') return `(CASE WHEN ${args[0]} THEN ${args[1]} ELSE ${args[2]} END)`;
+        return `${upper}(${args.join(', ')})`;
+      }
+      pos++;
+      if (t.text.includes('.')) {
+        return fail(`计算字段仅支持引用指标别名，不支持表列「${t.text}」（请先在指标区添加该列）`);
+      }
+      const ref = resolveAlias(t.text);
+      if (!ref) return fail(`字段引用「${t.text}」不在当前指标/语义指标中，请重新确认`);
+      return ref;
+    }
+    if (t.kind === 'op' && t.text === '(') {
+      pos++;
+      const inner = parseCmp();
+      if (inner === null) return null;
+      const close = peek();
+      if (!close || close.kind !== 'op' || close.text !== ')') return fail('括号未闭合');
+      pos++;
+      // 内层表达式已在各优先级层括化，此处不重复包裹
+      return inner;
+    }
+    return fail(`意外的符号「${t.text}」`);
+  };
+
+  const sql = parseCmp();
+  if (sql === null) return { ok: false, error: err || '表达式非法' };
+  if (pos < tokens.length) return { ok: false, error: `表达式尾部存在多余内容「${tokens[pos].text}」` };
+  return { ok: true, sql };
 }
 
 /** 同比回看期数（按时间粒度换算一年周期）：年 1 / 季 4 / 月 12 / 周 52 / 日 365 */
@@ -321,10 +571,11 @@ export function buildFlexQuerySql(
     return table.columns.find((c) => c.name === name);
   };
 
-  // v0.9.76：语义指标度量 / OR 分组 / 时间衍生列（可选）
+  // v0.9.76：语义指标度量 / OR 分组 / 时间衍生列（可选）；v0.9.77：计算字段
   const metricMeasures = Array.isArray(config.metrics) ? config.metrics : [];
   const orGroups = Array.isArray(config.orGroups) ? config.orGroups : [];
   const deriveds = Array.isArray(config.deriveds) ? config.deriveds : [];
+  const calcFields = Array.isArray(config.calcFields) ? config.calcFields : [];
   if (metricMeasures.length > 8) return { ok: false, error: '语义指标最多同时使用 8 个' };
 
   if (config.dimensions.length === 0 && config.measures.length === 0 && metricMeasures.length === 0) {
@@ -434,10 +685,26 @@ export function buildFlexQuerySql(
     havingParts.push(`${measureExpression(h, col, findColSchema(h.column), amountUnit)} ${h.op} ${filterValueToSql(h.op, h.value)}`);
   }
 
+  // v0.9.77 计算字段：名称必填且去重、别名唯一、数量 ≤4（表达式编译在外层包装段执行；orderBys 可引用 calc 别名）
+  if (calcFields.length > 4) return { ok: false, error: '计算字段最多 4 个' };
+  const calcNameSeen = new Set<string>();
+  const calcAliasSeen = new Set<string>();
+  for (const cf of calcFields) {
+    const name = String(cf?.name || '').trim();
+    if (!name) return { ok: false, error: '计算字段名称不能为空' };
+    if (calcNameSeen.has(name)) return { ok: false, error: `计算字段名称「${name}」重复` };
+    calcNameSeen.add(name);
+    const alias = calcAlias(cf);
+    if (!IDENT_RE.test(alias) || calcAliasSeen.has(alias)) return { ok: false, error: `计算字段「${name}」标识非法或重复` };
+    calcAliasSeen.add(alias);
+  }
+
   // ORDER BY（v0.9.75 多列）：每列 by 必须是已生成的指标别名或维度列（支持末段结果列名引用）
   const orderSegments: string[] = [];
   for (const o of config.orderBys || []) {
     if (!o.by) continue;
+    // v0.9.77：计算字段别名为外层包装列，由外层排序处理（此处跳过不校验）
+    if (calcAliasSeen.has(o.by)) continue;
     const dirSql = o.dir === 'asc' ? 'ASC' : 'DESC';
     const ref = aliasToQuoted.get(o.by) ?? dimOrderRef.get(o.by) ?? dimAliasOrderRef.get(o.by);
     if (!ref) return { ok: false, error: `排序目标「${o.by}」不在当前维度/指标中` };
@@ -498,18 +765,24 @@ export function buildFlexQuerySql(
   if (groupParts.length) segments.push(`GROUP BY ${groupParts.join(', ')}`);
   if (havingParts.length) segments.push(`HAVING ${havingParts.join(' AND ')}`);
 
-  // 无衍生列：内层直接排序 + 截断（与 v0.9.75 行为一致）
-  if (deriveds.length === 0) {
+  // 无衍生列且无计算字段：内层直接排序 + 截断（与 v0.9.75 行为一致）
+  if (deriveds.length === 0 && calcFields.length === 0) {
     if (orderSegments.length) segments.push(`ORDER BY ${orderSegments.join(', ')}`);
     segments.push(`LIMIT ${limit}`);
     return { ok: true, sql: segments.join(' ') };
   }
 
-  // v0.9.76 有衍生列：内层聚合（不截断）→ 外层 t.* + 窗口列（LAG/SUM/AVG OVER，MySQL 8 与 PG 双方言）
+  // v0.9.76/v0.9.77：有衍生列或计算字段时外层包装（内层聚合不截断 → 外层 t.* + 计算列/窗口列）
   const tq = (alias: string) => `t.${q}${alias}${q}`;
-  const overOrder = `ORDER BY ${tq(timeAlias)}`;
-  const yoyLagUnit: FlexTimeUnit = timeUnit || 'month';
   const outerCols: string[] = [];
+  // v0.9.77 计算字段：表达式仅引用已有指标别名（编译为 t. 前缀引用；白名单函数保证注入安全）
+  for (const cf of calcFields) {
+    const compiled = compileCalcExpr(cf.expr, (a) => (aliasToQuoted.has(a) ? tq(a) : null));
+    if (compiled.ok !== true) return { ok: false, error: `计算字段「${cf.name}」：${compiled.error}` };
+    outerCols.push(`${compiled.sql} AS ${q}${calcAlias(cf)}${q}`);
+  }
+  const overOrder = timeAlias ? `ORDER BY ${tq(timeAlias)}` : '';
+  const yoyLagUnit: FlexTimeUnit = timeUnit || 'month';
   for (const dv of deriveds) {
     const col = tq(dv.by);
     const alias = derivedAlias(dv.by, dv.kind, dv.periods);
@@ -527,6 +800,7 @@ export function buildFlexQuerySql(
   // 外层排序：用户排序列映射为内层结果列名（t 前缀）；未设置时按时间升序（便于逐期阅读同比/累计）
   const outerRefMap = new Map<string, string>();
   for (const alias of aliasToQuoted.keys()) outerRefMap.set(alias, alias);
+  for (const cf of calcFields) outerRefMap.set(calcAlias(cf), calcAlias(cf));
   for (const d of config.dimensions) {
     outerRefMap.set(d, dimResultAlias(d));
     outerRefMap.set(dimResultAlias(d), dimResultAlias(d));
@@ -538,10 +812,15 @@ export function buildFlexQuerySql(
     if (!target) continue;
     outerOrder.push(`${tq(target)} ${o.dir === 'asc' ? 'ASC' : 'DESC'}`);
   }
-  if (outerOrder.length === 0) outerOrder.push(`${tq(timeAlias)} ASC`);
+  if (outerOrder.length === 0) {
+    // 有衍生列按时间升序（便于逐期阅读同比/累计）；仅计算字段时按首维度；全表聚合则保持天然顺序
+    if (timeAlias) outerOrder.push(`${tq(timeAlias)} ASC`);
+    else if (config.dimensions.length) outerOrder.push(`${tq(dimResultAlias(config.dimensions[0]))} ASC`);
+  }
 
+  const outerTail = outerOrder.length ? ` ORDER BY ${outerOrder.join(', ')}` : '';
   return {
     ok: true,
-    sql: `SELECT t.*, ${outerCols.join(', ')} FROM (${segments.join(' ')}) AS t ORDER BY ${outerOrder.join(', ')} LIMIT ${limit}`,
+    sql: `SELECT t.*, ${outerCols.join(', ')} FROM (${segments.join(' ')}) AS t${outerTail} LIMIT ${limit}`,
   };
 }

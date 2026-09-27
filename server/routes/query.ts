@@ -339,6 +339,8 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
     finalSql: outcome.result.finalSql,
     dataProvenance: 'live',
     cached: false,
+    // v0.9.77 P2-14：EXPLAIN 防线预估扫描行数（前端结果区提示大扫描风险；防线关闭/评估失败时缺省）
+    ...(typeof outcome.result.estimatedRows === 'number' ? { estimatedRows: outcome.result.estimatedRows } : {}),
     ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
   });
 });

@@ -3016,6 +3016,55 @@
         }
       }
     },
+    "/api/datasources/{id}/flex-preview": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "数据源 ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "table",
+          "in": "query",
+          "required": true,
+          "description": "表名（须在该数据源 schema 白名单中）",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "required": false,
+          "description": "返回行数（默认 20，上限 50）",
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "DataSources"
+        ],
+        "operationId": "getFlexPreview",
+        "summary": "表数据预览（v0.9.77 灵活查询选表后样例行；ADMIN/ANALYST，恒走安全执行层）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
     "/api/datasources/{id}/acl": {
       "parameters": [
         {
@@ -5749,7 +5798,7 @@
           "FlexQuery"
         ],
         "operationId": "deleteFlexQuery",
-        "summary": "删除固定报表（ADMIN/ANALYST 且仅本人或 ADMIN）",
+        "summary": "删除固定报表（ADMIN/ANALYST 且仅本人或 ADMIN；级联清理版本历史与订阅）",
         "responses": {
           "200": {
             "description": "成功"
@@ -5759,6 +5808,395 @@
           },
           "NotFound": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "updateFlexQuery",
+        "summary": "更新固定报表（v0.9.77；ADMIN/ANALYST 且仅本人或 ADMIN，version+1 并写版本快照）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功（含新版本号）"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/{queryId}/touch": {
+      "parameters": [
+        {
+          "name": "queryId",
+          "in": "path",
+          "required": true,
+          "description": "固定报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "touchFlexQuery",
+        "summary": "使用打点（载入/执行固定报表时调用，失败容忍；v0.9.77 使用统计）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/{queryId}/versions": {
+      "parameters": [
+        {
+          "name": "queryId",
+          "in": "path",
+          "required": true,
+          "description": "固定报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "listFlexQueryVersions",
+        "summary": "版本历史（v0.9.77；新→旧，含快照内容与操作者/备注）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/{queryId}/versions/{version}/restore": {
+      "parameters": [
+        {
+          "name": "queryId",
+          "in": "path",
+          "required": true,
+          "description": "固定报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "version",
+          "in": "path",
+          "required": true,
+          "description": "待回滚的目标版本号",
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "restoreFlexQueryVersion",
+        "summary": "回滚到指定版本（v0.9.77；ADMIN/ANALYST 且仅本人或 ADMIN，生成新版本并记 RESTORE 历史）",
+        "responses": {
+          "200": {
+            "description": "成功（含新版本号与回滚来源）"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/{queryId}/subscriptions": {
+      "parameters": [
+        {
+          "name": "queryId",
+          "in": "path",
+          "required": true,
+          "description": "固定报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "createFlexSubscription",
+        "summary": "创建订阅（v0.9.77；ADMIN/ANALYST，首次执行延后一个周期）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "frequencyMinutes"
+                ],
+                "properties": {
+                  "frequencyMinutes": {
+                    "type": "integer",
+                    "description": "执行周期（分钟，5 ~ 10080）"
+                  },
+                  "alertMetric": {
+                    "type": "string",
+                    "description": "告警指标结果列名（留空 = 仅重跑不告警）"
+                  },
+                  "alertOp": {
+                    "type": "string",
+                    "description": "比较符（> >= < <= =，缺省 >）"
+                  },
+                  "alertThreshold": {
+                    "type": "number",
+                    "description": "告警阈值（告警指标留空时可省略）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功（含订阅 ID）"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "listFlexSubscriptions",
+        "summary": "该报表订阅列表（v0.9.77；全员可见，团队共享展示）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/{queryId}/export-excel": {
+      "parameters": [
+        {
+          "name": "queryId",
+          "in": "path",
+          "required": true,
+          "description": "固定报表 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "exportFlexQueryExcel",
+        "summary": "导出固定报表 Excel（v0.9.77；ADMIN/ANALYST，服务端重放执行，含溯源水印）",
+        "responses": {
+          "200": {
+            "description": "xlsx 文件流（Content-Disposition 附件）"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/subscriptions/{subscriptionId}": {
+      "parameters": [
+        {
+          "name": "subscriptionId",
+          "in": "path",
+          "required": true,
+          "description": "订阅 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "updateFlexSubscription",
+        "summary": "更新订阅（v0.9.77；ADMIN/ANALYST 且仅本人或 ADMIN，更新即重新排期；status 可切换 ACTIVE/PAUSED）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "frequencyMinutes"
+                ],
+                "properties": {
+                  "frequencyMinutes": {
+                    "type": "integer",
+                    "description": "执行周期（分钟，5 ~ 10080）"
+                  },
+                  "alertMetric": {
+                    "type": "string"
+                  },
+                  "alertOp": {
+                    "type": "string"
+                  },
+                  "alertThreshold": {
+                    "type": "number"
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "ACTIVE / PAUSED（缺省保持现状）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "deleteFlexSubscription",
+        "summary": "删除订阅（v0.9.77；ADMIN/ANALYST 且仅本人或 ADMIN，级联清理运行历史）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/subscriptions/{subscriptionId}/run": {
+      "parameters": [
+        {
+          "name": "subscriptionId",
+          "in": "path",
+          "required": true,
+          "description": "订阅 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "runFlexSubscription",
+        "summary": "立即执行一次（v0.9.77；ADMIN/ANALYST 且仅本人或 ADMIN，不改变既有排期）",
+        "responses": {
+          "200": {
+            "description": "成功（含本次执行结果）"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/flex-queries/subscriptions/{subscriptionId}/runs": {
+      "parameters": [
+        {
+          "name": "subscriptionId",
+          "in": "path",
+          "required": true,
+          "description": "订阅 ID",
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "required": false,
+          "description": "返回条数（默认 20，上限 100）",
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ],
+      "get": {
+        "tags": [
+          "FlexQuery"
+        ],
+        "operationId": "listFlexSubscriptionRuns",
+        "summary": "订阅运行历史（v0.9.77；新→旧，含状态/行数/告警值与耗时）",
+        "responses": {
+          "200": {
+            "description": "成功"
           }
         }
       }

@@ -224,4 +224,101 @@ test.describe('灵活查询（FlexQuery）', () => {
     await bar.click();
     await expect(page.getByText(/^下钻明细：/)).toBeVisible({ timeout: 15_000 });
   });
+
+  test('[v0.9.77 P2-16] 字段搜索：关键字过滤与清空恢复', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+
+    const fieldRows = page.locator('[title*="点击加为维度"],[title*="点击加为指标"]');
+    const total = await fieldRows.count();
+    expect(total).toBeGreaterThan(0);
+
+    // 无匹配关键字 → 字段行全部过滤 + 空态引导（拼音首字母匹配语义由 pinyin 单测覆盖）
+    const search = page.getByPlaceholder('搜索字段（名称/描述）…');
+    await search.fill('zzzz-not-exist');
+    await expect(fieldRows).toHaveCount(0);
+    await expect(page.getByText('无匹配字段').first()).toBeVisible();
+
+    // 清空关键字 → 字段行恢复
+    await search.fill('');
+    await expect(fieldRows).toHaveCount(total);
+  });
+
+  test('[v0.9.77 P2-14] 执行后：预估扫描行数提示与固定报表 Excel 导出', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+    await page.locator('[title*="点击加为维度"]').first().click();
+    await page.locator('[title*="点击加为指标"]').first().click();
+
+    const exec = page.waitForResponse(
+      (r) => r.url().includes('/api/query/execute-sql') && r.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
+    await page.getByRole('button', { name: /执行查询（真实数据库）/ }).click();
+    const execResp = await exec;
+    expect(execResp.status()).toBe(200);
+
+    // P2-14a：EXPLAIN 预估扫描行数 pill（服务端评估成功时渲染；防线关闭/评估失败时不渲染，跳过断言）
+    const execBody = await execResp.json();
+    if (typeof execBody.estimatedRows === 'number') {
+      await expect(page.getByText(/预估扫描 /)).toBeVisible({ timeout: 15_000 });
+    }
+
+    // P2-14b：保存为固定报表 → 库列表出现导出入口 → 触发 xlsx 下载（服务端重放执行）
+    const name = `E2E-导出验证-${Date.now()}`;
+    await page.getByPlaceholder('报表名称（固化/保存用）').fill(name);
+    await page.getByRole('button', { name: '保存为固定报表' }).click();
+    const exportBtn = page.locator('[title*="导出 Excel"]').first();
+    await expect(exportBtn).toBeVisible({ timeout: 15_000 });
+    try {
+      const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
+      await exportBtn.click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
+    } finally {
+      // 清理：删除本用例创建的固定报表，避免污染环境（失败路径也执行）
+      const login = await request.post('/api/auth/login', { data: ADMIN });
+      const { token } = await login.json();
+      const list = await request.get('/api/flex-queries', { headers: { Authorization: `Bearer ${token}` } });
+      const { queries } = await list.json();
+      const created = (queries as Array<{ queryId?: string; query?: { name?: string } }>).find((q) => q.query?.name === name);
+      if (created?.queryId) {
+        await request.delete(`/api/flex-queries/${encodeURIComponent(created.queryId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    }
+  });
+
+  test('[v0.9.77 P2-14c] 图表类型：KPI 卡片切换与堆叠开关', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+    await page.locator('[title*="点击加为维度"]').first().click();
+    await page.locator('[title*="点击加为指标"]').first().click();
+
+    const exec = page.waitForResponse(
+      (r) => r.url().includes('/api/query/execute-sql') && r.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
+    await page.getByRole('button', { name: /执行查询（真实数据库）/ }).click();
+    expect((await exec).status()).toBe(200);
+    await expect(page.locator('.recharts-surface').first()).toBeVisible({ timeout: 15_000 });
+
+    // 切换 KPI 卡片：recharts 画布消失（纯卡片网格视图，不要求维度）
+    const chartSelect = page.locator('select', { has: page.locator('option', { hasText: 'KPI 卡片' }) });
+    await chartSelect.selectOption('kpi');
+    await expect(page.locator('.recharts-surface')).toHaveCount(0);
+
+    // 切回柱状图恢复渲染；勾选「堆叠」开关图表不崩溃（≥2 指标才有堆叠视觉差异）
+    await chartSelect.selectOption('bar');
+    await expect(page.locator('.recharts-surface').first()).toBeVisible({ timeout: 10_000 });
+    await page.locator('label', { hasText: '堆叠' }).locator('input[type="checkbox"]').check();
+    await expect(page.locator('.recharts-surface').first()).toBeVisible();
+  });
 });

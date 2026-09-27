@@ -526,6 +526,8 @@ export interface ExecResult {
   finalSql: string;
   /** P1-3：true 表示 AST 解析失败放行（正则白名单兜底），供路由层审计 */
   astFallback?: boolean;
+  /** v0.9.77 P2-14：EXPLAIN 防线预估扫描行数（供前端结果区提示费用/风险；防线关闭或评估失败时缺省） */
+  estimatedRows?: number;
 }
 
 export type ExecOutcome =
@@ -647,7 +649,7 @@ async function explainGuard(
   entry: DsPoolEntry,
   finalSql: string,
   scenario: QueryScenario
-): Promise<{ blocked: true; reason: string } | { blocked: false }> {
+): Promise<{ blocked: true; reason: string } | { blocked: false; estimated?: number }> {
   const maxRows = explainGuardMaxRows(scenario);
   if (maxRows <= 0) return { blocked: false };
   try {
@@ -669,7 +671,8 @@ async function explainGuard(
       };
     }
     observeExplainGuard('passed', entry.dialect);
-    return { blocked: false };
+    // v0.9.77 P2-14：预估行数随执行结果透出（前端提示查询代价，不额外增加一次 EXPLAIN）
+    return { blocked: false, estimated };
   } catch (err) {
     // fail-open：EXPLAIN 失败（权限/方言特性等）不阻断正常执行
     observeExplainGuard('error', entry.dialect);
@@ -846,8 +849,10 @@ async function executeSafeSqlImpl(
     const entry = getDsPool(dataSourceId, dialect, ds.config, scenario);
     const timeoutMs = scenarioTimeoutMs(scenario);
     // EXPLAIN 防线：真执行前预估扫描量，超阈值拦截（大扫描防拖垮业务库；EXPLAIN 失败 fail-open）
+    // v0.9.77 P2-14：预估值随结果透出（estimatedRows）
     const guard = await explainGuard(entry, finalSql, scenario);
-    if (guard.blocked) return { ok: false, reason: guard.reason, guardBlocked: true };
+    // 基线 tsconfig 未启 strictNullChecks，布尔判别式无法窄化联合类型，须显式比较
+    if (guard.blocked === true) return { ok: false, reason: guard.reason, guardBlocked: true };
     let list: Record<string, unknown>[];
     if (entry.dialect === 'pg') {
       // pg 驱动：超时由建池时的场景化 statement_timeout 承担，结果在 result.rows
@@ -868,6 +873,7 @@ async function executeSafeSqlImpl(
         truncated: list.length > maxRows,
         finalSql,
         astFallback: check.astFallback === true,
+        ...(typeof guard.estimated === 'number' && guard.estimated > 0 ? { estimatedRows: guard.estimated } : {}),
       },
     };
   } catch (err) {

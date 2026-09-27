@@ -169,6 +169,8 @@ export interface ChartConfig {
   /** 维度（X 轴）中文名，用于 tooltip/图例展示 */
   xAxisName?: string;
   stacked?: boolean;
+  /** v0.9.77 P2-14c：双 Y 轴（第 1 个指标左轴、第 2 个指标右轴；仅柱/折线/面积生效） */
+  dualAxis?: boolean;
   colors?: string[];
   description?: string;
 }

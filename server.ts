@@ -77,6 +77,8 @@ import analyticsRoutes from './server/routes/analytics';
 // P1-7 Agent 编排（Planner + Executor，见 server/routes/agent.ts）
 import agentRoutes from './server/routes/agent';
 import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol';
+// v0.9.77 P2-15 固定报表订阅调度器（周期重跑 + 阈值告警，见 server/flexSubscriptions.ts）
+import { startFlexSubscriptionScheduler } from './server/flexSubscriptions';
 import { getErrorMessage } from './server/infra/errorUtils';
 import { logger } from './server/infra/logger';
 
@@ -159,6 +161,8 @@ async function startServer() {
   startDriftSweeper();
   // P0-1 异常巡检订阅：低频调度器（到期计划扫描最新 live 决策报表的异常）
   startPatrolScheduler();
+  // v0.9.77 P2-15 固定报表订阅：低频调度器（到期订阅重跑固定报表并按阈值告警）
+  startFlexSubscriptionScheduler();
 
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });

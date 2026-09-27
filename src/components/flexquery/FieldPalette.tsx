@@ -1,11 +1,11 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的字段面板（上区：表选择 + 字段列表 + 关联表配置）
 // 纯展示组件：全部状态与行为由 useFlexQueryState 注入，JSX 与拆分前保持一致
 import React from 'react';
-import { Table2, Loader2, Search, Tag, Hash, Check, Filter, Plus, ChevronUp, ChevronDown, Gauge } from 'lucide-react';
+import { Table2, Loader2, Search, Tag, Hash, Check, Filter, Plus, ChevronUp, ChevronDown, Gauge, Eye, X } from 'lucide-react';
 import { TableSchema } from '../../types/analytics';
 import { FlexJoin, FlexMetricMeasure } from '../../utils/flexQueryBuilder';
 import { JoinConfigPanel } from './JoinConfigPanel';
-import { DropZone, FieldTab, FieldWithTable, MetricOption } from './flexQueryShared';
+import { DropZone, FieldTab, FieldWithTable, FlexTablePreview, MetricOption } from './flexQueryShared';
 
 export interface FieldPaletteProps {
   tables: TableSchema[];
@@ -34,6 +34,10 @@ export interface FieldPaletteProps {
   loadingMetrics: boolean;
   metricMeasures: FlexMetricMeasure[];
   addMetricMeasure: (id: number) => void;
+  /** v0.9.77 P2-16：数据预览（样例 10 行，敏感列已剔除） */
+  tablePreview: FlexTablePreview | null;
+  previewTable: (table?: string) => Promise<void>;
+  closePreview: () => void;
 }
 
 export const FieldPalette: React.FC<FieldPaletteProps> = ({
@@ -62,6 +66,9 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
   loadingMetrics,
   metricMeasures,
   addMetricMeasure,
+  tablePreview,
+  previewTable,
+  closePreview,
 }) => {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-lg">
@@ -70,7 +77,19 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
           <Table2 className="w-3.5 h-3.5 text-indigo-400" />
           <span>数据表与字段</span>
         </span>
-        {loadingTables && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+        <div className="flex items-center space-x-2 shrink-0">
+          {selectedTable && (
+            <button
+              onClick={() => void previewTable()}
+              className="flex items-center space-x-1 text-[10px] text-indigo-300 hover:text-indigo-200"
+              title="查看该表前 10 行样例数据（敏感列已自动剔除）"
+            >
+              <Eye className="w-3 h-3" />
+              <span>预览数据</span>
+            </button>
+          )}
+          {loadingTables && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+        </div>
       </div>
       {schemaError && <p className="text-[11px] text-rose-400">{schemaError}</p>}
       {/* v0.4.13：选表与搜索并排，充分利用全宽 */}
@@ -113,6 +132,53 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
         tables={tables}
         selectedTable={selectedTable}
       />
+
+      {/* v0.9.77 P2-16：样例数据预览（内联面板；loading/错误/空数据三态） */}
+      {tablePreview && (
+        <div className="border border-slate-800 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between px-2 py-1 bg-slate-950/80 text-[10px] text-slate-400">
+            <span>
+              数据预览 · {tablePreview.table}
+              {!tablePreview.loading && !tablePreview.error ? `（样例 ${tablePreview.rows.length} 行）` : ''}
+            </span>
+            <button onClick={closePreview} title="关闭预览" className="text-slate-400 hover:text-slate-200">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          {tablePreview.loading ? (
+            <p className="text-[10px] text-slate-500 p-3 text-center">加载中…</p>
+          ) : tablePreview.error ? (
+            <p className="text-[10px] text-rose-400 p-3 text-center">{tablePreview.error}</p>
+          ) : tablePreview.rows.length === 0 ? (
+            <p className="text-[10px] text-slate-500 p-3 text-center">表中暂无数据</p>
+          ) : (
+            <div className="overflow-x-auto max-h-[30vh] overflow-y-auto">
+              <table className="w-full text-[10px]">
+                <thead className="sticky top-0 bg-slate-950">
+                  <tr className="text-slate-400">
+                    {tablePreview.columns.map((col) => (
+                      <th key={col} className="text-left px-2 py-1 font-semibold whitespace-nowrap">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tablePreview.rows.map((r, ri) => (
+                    <tr key={ri} className="border-t border-slate-800/60">
+                      {tablePreview.columns.map((col) => (
+                        <td key={col} className="px-2 py-1 text-slate-300 whitespace-nowrap max-w-[220px] truncate">
+                          {r[col] === null || r[col] === undefined || r[col] === '' ? '-' : String(r[col])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {tableSchema && (
         <>

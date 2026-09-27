@@ -35,7 +35,10 @@ export const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [
   { value: 'bar', label: '柱状图' },
   { value: 'line', label: '折线图' },
   { value: 'area', label: '面积图' },
+  { value: 'scatter', label: '散点图' },
   { value: 'pie', label: '饼图' },
+  // v0.9.77 P2-14c：KPI 卡片（每个指标一张卡，不要求维度）
+  { value: 'kpi', label: 'KPI 卡片' },
   { value: 'table', label: '表格' },
 ];
 
@@ -98,3 +101,60 @@ export type ColumnValuesState =
   | { status: 'loading' }
   | { status: 'error' }
   | { status: 'ready'; values: string[]; truncated: boolean };
+
+/** v0.9.77 P2-15：固定报表版本历史条目（GET /api/flex-queries/:id/versions） */
+export interface FlexVersionItem {
+  version: number;
+  /** CREATE / UPDATE / RESTORE */
+  action: string;
+  actor: string;
+  remark: string;
+  snapshot: unknown;
+  createdAt: string;
+}
+
+/** v0.9.77 P2-15：固定报表订阅条目（GET /api/flex-queries/:id/subscriptions） */
+export interface FlexSubscriptionItem {
+  subscriptionId: string;
+  queryId: string;
+  userId: number;
+  username: string;
+  frequencyMinutes: number;
+  /** 告警指标结果列名（空 = 仅重跑不告警） */
+  alertMetric: string;
+  alertOp: string;
+  alertThreshold: number;
+  /** ACTIVE / PAUSED */
+  status: string;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  createdAt: string;
+}
+
+/** v0.9.77 P2-15：订阅创建/更新入参 */
+export interface FlexSubscriptionPayload {
+  frequencyMinutes: number;
+  alertMetric: string;
+  alertOp: string;
+  alertThreshold: number;
+}
+
+/** v0.9.77 P2-15：订阅运行历史条目（GET /api/flex-queries/subscriptions/:id/runs） */
+export interface FlexSubRunItem {
+  /** SUCCESS / ALERT / FAILED */
+  status: string;
+  rowCount: number;
+  alertValue: string;
+  message: string;
+  durationMs: number;
+  runAt: string;
+}
+
+/** v0.9.77 P2-16：表数据预览状态（选表后样例 N 行，GET /flex-preview） */
+export interface FlexTablePreview {
+  loading: boolean;
+  error: string | null;
+  table: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
