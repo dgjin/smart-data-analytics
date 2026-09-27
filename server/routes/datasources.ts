@@ -27,6 +27,8 @@ import {
 import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
+import { executeAutoConfig } from '../datasource/autoConfig';
+import type { AnomalyCapabilities } from '../datasource/autoConfig';
 
 /** P0-2：data_sources 表行（SELECT * 动态列，仅声明取用字段） */
 interface DataSourceDbRow extends mysql.RowDataPacket {
@@ -362,6 +364,57 @@ function safeJson<T>(text: unknown, fallback: T): T {
   }
 }
 
+/**
+ * v0.9.73 数据源接入自动化配置：Schema 分析 → 能力配置落库 → 知识库骨架生成 → 铁律模板预填（PENDING）。
+ * 能力配置同步写 data_sources.anomaly_capabilities_json；知识库与铁律异步写入
+ * （确定性 entry_id 保证幂等，失败仅告警不阻断主流程）。
+ * @returns 自动化配置报告（供响应下发前端展示引导）
+ */
+async function persistAutoConfig(
+  id: string,
+  dsName: string,
+  tables: SchemaTable[],
+  actor: string
+): Promise<ReturnType<typeof executeAutoConfig>> {
+  const report = executeAutoConfig(id, dsName, tables);
+  try {
+    await getPool().query('UPDATE data_sources SET anomaly_capabilities_json = ? WHERE id = ?', [
+      JSON.stringify(report.capabilities),
+      id,
+    ]);
+  } catch (err) {
+    logger.warn('[DataSources] auto-config capabilities write failed:', err);
+  }
+
+  void (async () => {
+    try {
+      const pool = getPool();
+      for (let i = 0; i < report.knowledgeEntries.length; i++) {
+        const entry = report.knowledgeEntries[i];
+        await pool.query(
+          `INSERT INTO knowledge_base_entries (entry_id, data_source_id, title, content, tags, category, version, is_preset, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, '1.0', 0, ?)
+           ON DUPLICATE KEY UPDATE content = VALUES(content), title = VALUES(title), tags = VALUES(tags)`,
+          [`kb_auto_${id}_${i + 1}`, id, entry.title, entry.content, JSON.stringify(entry.tags), entry.category, actor]
+        );
+      }
+      for (const tpl of report.ironRuleTemplates) {
+        await pool.query(
+          `INSERT INTO iron_rules (data_source_id, title, content, status, created_by)
+           VALUES (?, ?, ?, 'PENDING', ?)
+           ON DUPLICATE KEY UPDATE content = VALUES(content)`,
+          [id, tpl.title, tpl.content, actor]
+        );
+      }
+      logger.info(`[DataSources] auto-config completed for ${id}: ${report.knowledgeEntries.length} KB entries, ${report.ironRuleTemplates.length} iron rule templates`);
+    } catch (err) {
+      logger.warn('[DataSources] auto-config async write failed:', err);
+    }
+  })();
+
+  return report;
+}
+
 // GET /api/datasources（所有登录用户）
 // 表结构详情（tables）仅 ADMIN 可见；其他角色剥离 tables 并附 tableCount 供徽标展示。
 // 问数链路不依赖该字段（服务端 loadSchemaContext 直接读落库 schema），功能不受影响。
@@ -474,8 +527,23 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         req.user!.username,
       ]
     );
+
+    // v0.9.73 数据源接入自动化配置：Schema 分析 → 能力配置落库 → 知识库骨架 → 铁律模板预填
+    const autoConfigReport = await persistAutoConfig(id, name.trim(), schemaTables, req.user!.username);
+
     const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
-    return res.status(201).json({ success: true, id, dataSource: rowToDataSource(rows[0]) });
+    return res.status(201).json({
+      success: true,
+      id,
+      dataSource: rowToDataSource(rows[0]),
+      autoConfig: {
+        analysisSummary: autoConfigReport.analysisSummary,
+        capabilities: autoConfigReport.capabilities,
+        ironRuleTemplates: autoConfigReport.ironRuleTemplates,
+        knowledgeEntries: autoConfigReport.knowledgeEntries,
+        suggestions: autoConfigReport.suggestions,
+      },
+    });
   } catch (err) {
     logger.error('[DataSources] create failed:', err);
     return res.status(500).json({ error: '数据源创建失败' });
@@ -548,12 +616,13 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
     },
   ];
   const dsType = fileType === 'xlsx' ? 'excel' : fileType;
+  const dsName = (typeof name === 'string' && name.trim() ? name.trim() : `导入文件: ${baseName}`).slice(0, 128);
   try {
     await getPool().query(
       'INSERT INTO data_sources (id, name, type, config_json, schema_json, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
         id,
-        (typeof name === 'string' && name.trim() ? name.trim() : `导入文件: ${baseName}`).slice(0, 128),
+        dsName,
         dsType,
         JSON.stringify({ fileName: safeFileName, fileSize: `${(buf.length / 1024).toFixed(1)} KB`, fileType, physicalTable }),
         JSON.stringify(schemaTables),
@@ -567,6 +636,8 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
     logger.error('[DataSources] import-file register failed:', err);
     return res.status(500).json({ error: '数据源登记失败' });
   }
+  // v0.9.73 自动化配置同样覆盖文件导入数据源（能力配置落库 + 知识库骨架 + 铁律模板预填）
+  const autoConfigReport = await persistAutoConfig(id, dsName, schemaTables, req.user!.username);
   try {
     const [rows] = await getPool().query<DataSourceDbRow[]>('SELECT * FROM data_sources WHERE id = ?', [id]);
     return res.status(201).json({
@@ -578,6 +649,13 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
         columns: columns.length,
         droppedSensitive,
         truncated: parsed.truncated,
+      },
+      autoConfig: {
+        analysisSummary: autoConfigReport.analysisSummary,
+        capabilities: autoConfigReport.capabilities,
+        ironRuleTemplates: autoConfigReport.ironRuleTemplates,
+        knowledgeEntries: autoConfigReport.knowledgeEntries,
+        suggestions: autoConfigReport.suggestions,
       },
     });
   } catch (err) {

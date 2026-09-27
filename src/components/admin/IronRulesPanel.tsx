@@ -19,9 +19,10 @@ import { getErrorMessage } from '../../utils/errorUtils';
  * 铁律规则库面板（v0.9.35）：按数据源维护问数强制规则（口径红线/禁区/固定约束）。
  * 全部 ACTIVE 铁律恒注入问数与报表的阶段一 prompt（最高优先级，所有问数必须逐条遵守）；
  * 仅 ADMIN 可见可维护（本面板挂载于系统管理内），创建即生效、无审批流；支持 JSON 备份导入导出。
+ * v0.9.73：新增 PENDING 状态——数据源自动化配置预填的铁律模板，待管理员确认后转 ACTIVE 生效。
  */
 
-type RuleStatus = 'ACTIVE' | 'DISABLED';
+type RuleStatus = 'ACTIVE' | 'DISABLED' | 'PENDING';
 
 /** 导入接口响应（/api/iron-rules/import） */
 interface RuleImportResult {
@@ -47,6 +48,7 @@ interface IronRuleItem {
 const STATUS_META: Record<RuleStatus, { label: string; cls: string }> = {
   ACTIVE: { label: '生效中', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
   DISABLED: { label: '已停用', cls: 'bg-slate-500/15 text-slate-400 border-slate-500/30' },
+  PENDING: { label: '待确认', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
 };
 
 export const IronRulesPanel: React.FC = () => {
@@ -259,6 +261,7 @@ export const IronRulesPanel: React.FC = () => {
   };
 
   const activeCount = rules.filter((r) => r.status === 'ACTIVE').length;
+  const pendingCount = rules.filter((r) => r.status === 'PENDING').length;
 
   return (
     <div className="space-y-4">
@@ -279,6 +282,11 @@ export const IronRulesPanel: React.FC = () => {
           {activeCount > 0 && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
               {activeCount} 条生效中
+            </span>
+          )}
+          {pendingCount > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
+              {pendingCount} 条待确认
             </span>
           )}
         </div>
@@ -417,7 +425,7 @@ export const IronRulesPanel: React.FC = () => {
                           <Pencil className="w-3 h-3" /><span>编辑</span>
                         </button>
                         <button onClick={() => handleToggleStatus(r)} className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${r.status === 'ACTIVE' ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40'}`}>
-                          {r.status === 'ACTIVE' ? '停用' : '启用'}
+                          {r.status === 'ACTIVE' ? '停用' : r.status === 'PENDING' ? '确认启用' : '启用'}
                         </button>
                         <button onClick={() => handleDelete(r)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors">
                           <Trash2 className="w-3 h-3" /><span>删除</span>

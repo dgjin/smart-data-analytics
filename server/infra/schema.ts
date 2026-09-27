@@ -50,6 +50,9 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
       config_json TEXT,
       schema_json MEDIUMTEXT,
       scope_json TEXT,
+      acl_json TEXT NULL,
+      anomaly_capabilities_json TEXT NULL,
+      anomaly_thresholds_json TEXT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'connected',
       created_by VARCHAR(50) NOT NULL DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -394,14 +397,15 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
   `);
 
   // 铁律规则库（v0.9.35）：管理员按数据源登记的问数强制规则（口径红线/禁区/固定约束），
-  // 全部 ACTIVE 规则恒注入问数/报表阶段一 prompt（最高优先级逐条遵守）；仅 ADMIN 维护，创建即生效
+  // 全部 ACTIVE 规则恒注入问数/报表阶段一 prompt（最高优先级逐条遵守）；仅 ADMIN 维护，创建即生效。
+  // v0.9.73：status 扩展 PENDING（数据源自动化配置预填的铁律模板，待管理员确认后转 ACTIVE）
   await pool.query(`
     CREATE TABLE IF NOT EXISTS iron_rules (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       data_source_id VARCHAR(64) NOT NULL,
       title VARCHAR(100) NOT NULL,
       content VARCHAR(2000) NOT NULL,
-      status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+      status ENUM('ACTIVE','DISABLED','PENDING') NOT NULL DEFAULT 'ACTIVE',
       created_by VARCHAR(50) NOT NULL DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.9.72",
+  "version": "0.9.73",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -21,6 +21,7 @@
     "eval:seed": "tsx server/eval/seedEvalDatasource.ts",
     "loadtest": "tsx server/eval/loadTest.ts",
     "init:data-resource": "tsx scripts/init-data-resource.ts",
+    "migrate:data-resource-rules": "tsx scripts/migrate-data-resource-rules.ts",
     "prepare": "husky"
   },
   "dependencies": {

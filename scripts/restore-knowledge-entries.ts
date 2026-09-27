@@ -2,8 +2,8 @@
 /**
  * 数据资源库业务知识库恢复脚本
  *
- * 用途：将 seedDataResources.ts 中的 DATA_RESOURCE_KNOWLEDGE_BASE（kb_001~kb_005）
- *       写入 knowledge_base_entries 表，恢复知识库管理页面与问数链路的知识注入。
+ * 用途：将 seedDataResources.ts 中的 DATA_RESOURCE_KNOWLEDGE_BASE（kb_001~kb_006，含 v0.9.73 新增的
+ *       异常检测口径与阈值说明）写入 knowledge_base_entries 表，恢复知识库管理页面与问数链路的知识注入。
  *
  * 执行方式：npx tsx scripts/restore-knowledge-entries.ts
  *

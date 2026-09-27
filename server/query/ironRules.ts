@@ -4,13 +4,14 @@
  * - 指标库是「命中才注入」的检索式口径补充；铁律是该数据源全部 ACTIVE 规则「全量恒注入」阶段一 prompt，
  *   每次问数/报表生成 SQL 都必须逐条遵守，优先级高于样例与知识片段；
  * - 仅 ADMIN 可维护（创建即生效，无提议-审批流），保证规则权威性；
+ * - v0.9.73 自动化配置预填铁律模板（status=PENDING 待确认，不注入 prompt，管理员确认后转 ACTIVE）；
  * - 规则文本仅注入 prompt（不直接拼接 SQL），生成结果仍过安全执行层校验。
  */
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { getPool } from '../infra/db';
 import { getErrorMessage } from '../infra/errorUtils';
 
-export type IronRuleStatus = 'ACTIVE' | 'DISABLED';
+export type IronRuleStatus = 'ACTIVE' | 'DISABLED' | 'PENDING';
 
 export interface IronRule {
   id?: number;
@@ -19,6 +20,7 @@ export interface IronRule {
   title: string;
   /** 规则正文（自然语言描述，直接注入 prompt 约束 SQL 生成） */
   content: string;
+  /** 铁律状态：ACTIVE=生效恒注入；DISABLED=停用；PENDING=自动化配置预填待管理员确认（不注入） */
   status: IronRuleStatus;
   createdBy?: string;
 }
@@ -39,7 +41,12 @@ export function sanitizeIronRuleInput(input: unknown): { ok: true; rule: Omit<Ir
 
   return {
     ok: true,
-    rule: { dataSourceId, title, content, status: obj.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE' },
+    rule: {
+      dataSourceId,
+      title,
+      content,
+      status: obj.status === 'DISABLED' ? 'DISABLED' : obj.status === 'PENDING' ? 'PENDING' : 'ACTIVE',
+    },
   };
 }
 
@@ -58,7 +65,7 @@ function rowToRule(r: RowDataPacket): IronRule {
     dataSourceId: String(r.data_source_id),
     title: String(r.title),
     content: String(r.content),
-    status: r.status === 'DISABLED' ? 'DISABLED' : 'ACTIVE',
+    status: r.status === 'DISABLED' ? 'DISABLED' : r.status === 'PENDING' ? 'PENDING' : 'ACTIVE',
     createdBy: String(r.created_by || ''),
   };
 }

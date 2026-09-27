@@ -8,6 +8,7 @@ import express, { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { ERROR_CODES } from '../infra/errorCodes';
 import { authMiddleware, requireRole } from '../auth/auth';
+import { checkDataSourceAccess } from '../auth/accessControl';
 import { rateLimiter } from '../infra/rateLimiter';
 import { containsInjection } from '../query/queryGuard';
 import { checkUserQueryLimit, acquireQuerySlot, releaseQuerySlot } from '../infra/userQueryLimit';
@@ -16,6 +17,8 @@ import { loadSchemaContext, isLiveCapableType } from '../query/schemaContext';
 import { runLiveReport, generateReportPlans, storeReportPlan, consumeReportPlan } from '../report/liveReport';
 import { normalizeAmountUnit } from '../query/liveQuery';
 import { runSimulatedReport } from '../report/simulatedReport';
+import { scanReportAnomalies } from '../report/anomalyScan';
+import type { SavedReport } from '../../src/types/analytics';
 import { getFallbackExecutiveReport } from '../serverFallbacks';
 import { normalizeExportData, buildReportPptx, buildExportFilename } from '../report/reportExport';
 import { buildReportExcel } from '../report/reportExportExcel';
@@ -646,6 +649,78 @@ router.post('/export-word', express.json({ limit: '20mb' }), rateLimiter, authMi
     logger.error('Report Word Export Error:', err);
     writeAudit({ ...auditBase, question: `export-word:${data.title}`, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
     return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: 'Word 生成失败，请稍后重试' });
+  }
+});
+
+// v0.9.73 服务端异常扫描（五步引擎：口径校验→时序重算→维度适配→领域阈值→LLM 归因）
+// 报表 ID 或内联报表体均可：报表列表/详情调 reportId，即时报告与巡检链路直接传 report
+router.post('/scan-anomalies', express.json({ limit: '10mb' }), rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const auditBase = { userId: user.id, username: user.username, endpoint: 'report' as const };
+
+  // L2 权限层：Service 侧复核
+  if (user.role !== 'ADMIN' && user.role !== 'ANALYST') {
+    writeAudit({ ...auditBase, status: 'DENIED_AUTH', detail: `角色 ${user.role} 无异常扫描权限`, durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.FORBIDDEN, error: '当前角色没有异常扫描权限' });
+  }
+
+  const reportId = typeof req.body?.reportId === 'string' ? req.body.reportId.trim() : '';
+  const inlineReport = req.body?.report && typeof req.body.report === 'object' ? (req.body.report as SavedReport) : undefined;
+  if (!reportId && !inlineReport) {
+    writeAudit({ ...auditBase, status: 'DENIED_INPUT', detail: '缺少 reportId 或 report', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '请提供 reportId 或 report 报表数据' });
+  }
+  const dataSourceId = typeof req.body?.dataSourceId === 'string' ? req.body.dataSourceId.trim() : String(inlineReport?.dataSourceId || '');
+  const skipLlm = req.body?.skipLlm === true; // 巡检/批量场景：跳过 LLM 归因，降低时延
+
+  // P2-11 数据源访问控制：无权限不暴露数据源内容
+  if (dataSourceId && !(await checkDataSourceAccess(user, dataSourceId))) {
+    writeAudit({ ...auditBase, dataSourceId, status: 'DENIED_AUTH', detail: '无该数据源访问权限', durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: 'DS_ACCESS_DENIED', error: '没有该数据源的访问权限，可向管理员申请开通' });
+  }
+
+  // L5 频率层：与智能问数 / 报告生成共享用户配额与并发互斥（重放会执行只读 SQL）
+  const limit = await checkUserQueryLimit(user.id);
+  if (!limit.ok) {
+    writeAudit({ ...auditBase, dataSourceId, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
+  }
+  const slotToken = randomUUID();
+  if (!(await acquireQuerySlot(user.id, slotToken))) {
+    writeAudit({ ...auditBase, dataSourceId, status: 'DENIED_RATE', detail: '存在进行中的查询', durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.QUERY_IN_FLIGHT, error: '上一个查询仍在进行中，请等待完成后再试' });
+  }
+
+  try {
+    const outcome = await scanReportAnomalies({ reportId, report: inlineReport, dataSourceId, skipLlm });
+    if (outcome.ok !== true) {
+      writeAudit({ ...auditBase, dataSourceId, question: `scan-anomalies:${reportId || inlineReport?.title || ''}`, status: 'DENIED_INPUT', detail: outcome.error, durationMs: Date.now() - startedAt });
+      return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: outcome.error });
+    }
+    // L6 审计层：成功落账（口径存疑条数单独记录，便于质检追溯）
+    writeAudit({
+      ...auditBase,
+      dataSourceId,
+      question: `scan-anomalies:${reportId || inlineReport?.title || ''}`,
+      status: 'SUCCESS',
+      detail: `异常 ${outcome.anomalies.length} 条（口径存疑 ${outcome.caliberIssueCount}，LLM 归因 ${outcome.llmEnriched ? '是' : '否'}）`,
+      durationMs: Date.now() - startedAt,
+    });
+    return res.json({
+      success: true,
+      engine: outcome.engine,
+      anomalies: outcome.anomalies,
+      caliberIssueCount: outcome.caliberIssueCount,
+      llmEnriched: outcome.llmEnriched,
+      scanTime: outcome.scanTime,
+    });
+  } catch (err) {
+    logger.error('Report Scan Anomalies Error:', err);
+    writeAudit({ ...auditBase, dataSourceId, question: 'scan-anomalies', status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '异常扫描失败，请稍后重试' });
+  } finally {
+    await releaseQuerySlot(user.id, slotToken);
   }
 });
 

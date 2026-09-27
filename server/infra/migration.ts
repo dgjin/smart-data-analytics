@@ -148,6 +148,29 @@ export async function migrateSchema(pool: mysql.Pool): Promise<void> {
     if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
   }
 
+  // v0.9.73 数据源接入自动化配置：异常扫描能力配置（Schema 分析结果持久化）
+  try {
+    await pool.query('ALTER TABLE data_sources ADD COLUMN anomaly_capabilities_json TEXT NULL AFTER acl_json');
+  } catch (err) {
+    if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // v0.9.73 数据源接入自动化配置：异常阈值覆盖配置（管理员可覆盖内置默认值）
+  try {
+    await pool.query('ALTER TABLE data_sources ADD COLUMN anomaly_thresholds_json TEXT NULL AFTER anomaly_capabilities_json');
+  } catch (err) {
+    if (getErrorCode(err) !== 'ER_DUP_FIELDNAME') throw err;
+  }
+
+  // v0.9.73 数据源接入自动化配置：铁律状态扩展 PENDING（自动化预填待确认，不注入 prompt；MODIFY 天然幂等）
+  try {
+    await pool.query(
+      "ALTER TABLE iron_rules MODIFY COLUMN status ENUM('ACTIVE','DISABLED','PENDING') NOT NULL DEFAULT 'ACTIVE'"
+    );
+  } catch (err) {
+    logger.warn('[DB] iron_rules status migration skipped:', getErrorMessage(err));
+  }
+
 }
 
 /** 存量库数据迁移：依赖既有数据与种子结果，须在种子之后执行 */

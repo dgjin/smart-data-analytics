@@ -325,6 +325,8 @@ export interface AnomalyItem {
   reasoning: string;
   location: 'kpi' | 'chart' | 'insight';
   chartTitle?: string;
+  /** v0.9.73 服务端异常扫描：caliber=口径存疑（四红线违规项，不参与数值判定）/ value=数值异常（缺省） */
+  category?: 'caliber' | 'value';
 }
 
 export interface ChartCommentReply {

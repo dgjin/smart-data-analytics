@@ -34,7 +34,7 @@ beforeEach(() => {
 });
 
 describe('sanitizeIronRuleInput: 入参校验', () => {
-  it('合法输入通过；status 缺省/非法归一 ACTIVE，DISABLED 透传', () => {
+  it('合法输入通过；status 缺省/非法归一 ACTIVE，DISABLED/PENDING 透传', () => {
     const r = sanitizeIronRuleInput(validInput);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.rule.status).toBe('ACTIVE');
@@ -43,7 +43,10 @@ describe('sanitizeIronRuleInput: 入参校验', () => {
     if (d.ok) expect(d.rule.status).toBe('DISABLED');
     const x = sanitizeIronRuleInput({ ...validInput, status: 'PENDING' });
     expect(x.ok).toBe(true);
-    if (x.ok) expect(x.rule.status).toBe('ACTIVE'); // 铁律无治理状态机，外部直填被忽略
+    if (x.ok) expect(x.rule.status).toBe('PENDING'); // v0.9.73 自动化预填待确认状态合法
+    const bad = sanitizeIronRuleInput({ ...validInput, status: 'UNKNOWN' });
+    expect(bad.ok).toBe(true);
+    if (bad.ok) expect(bad.rule.status).toBe('ACTIVE'); // 非法值忽略归默认
   });
 
   it('必填缺失与超长拒绝；首尾空白被 trim', () => {

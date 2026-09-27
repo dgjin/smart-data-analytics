@@ -24,7 +24,7 @@ import { getErrorMessage } from '../../utils/errorUtils';
 
 /**
  * P0-1 异常巡检面板：数据源级巡检计划管理 + 异常预警结果展示（无页头/容器的内容组件）。
- * 巡检复用报表异常检测引擎（Z-Score/阈值），到期自动扫描该数据源最新真实数据（live）决策报表；
+ * 巡检复用服务端五步扫描引擎（v0.9.73 起：口径校验/时序重算/维度适配/领域阈值），到期自动扫描该数据源最新真实数据（live）决策报表；
  * 团队共享巡检结果，创建/启停/立即执行限 ADMIN/ANALYST（服务端同样强校验）。
  * 挂载于系统管理「异常巡检」分类（v0.9.52 起为巡检唯一入口）。
  */
@@ -504,9 +504,14 @@ export const PatrolPanel: React.FC = () => {
                       <ul className="space-y-1.5">
                         {run.anomalies.map((a: AnomalyItem) => {
                           const sev = SEVERITY_META[a.severity] || SEVERITY_META.low;
+                          const isCaliber = a.category === 'caliber';
                           return (
                             <li key={a.id} className="flex items-start space-x-2 bg-slate-950/60 border border-slate-800/80 rounded-lg p-2">
-                              <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold ${sev.cls}`}>{sev.label}</span>
+                              {isCaliber ? (
+                                <span className="shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold bg-amber-500/20 text-amber-300 border-amber-500/40">口径存疑</span>
+                              ) : (
+                                <span className={`shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-bold ${sev.cls}`}>{sev.label}</span>
+                              )}
                               <div className="min-w-0 space-y-0.5">
                                 <div className="text-slate-200 font-medium">
                                   {a.metricLabel}

@@ -4113,6 +4113,58 @@
         }
       }
     },
+    "/api/report/scan-anomalies": {
+      "post": {
+        "tags": [
+          "Reports"
+        ],
+        "operationId": "scanReportAnomalies",
+        "summary": "报表异常扫描（服务端五步引擎：口径校验→时序重算→维度适配→领域阈值→LLM 归因）",
+        "description": "reportId 或 report 二选一；重放会以只读 SQL 复核报表口径与序列。skipLlm=true 时跳过 LLM 归因（巡检/批量场景）。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reportId": {
+                    "type": "string",
+                    "description": "已落库报表 ID（与 report 二选一）"
+                  },
+                  "report": {
+                    "type": "object",
+                    "description": "内联报表体（即时报告/巡检链路直接传入，与 reportId 二选一）"
+                  },
+                  "dataSourceId": {
+                    "type": "string",
+                    "description": "数据源 ID（缺省取 report.dataSourceId）"
+                  },
+                  "skipLlm": {
+                    "type": "boolean",
+                    "description": "跳过 LLM 归因（巡检等批量场景降低时延）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "扫描成功：{ success, engine, anomalies, caliberIssueCount, llmEnriched, scanTime }"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/api/report/generate-from-query": {
       "post": {
         "tags": [

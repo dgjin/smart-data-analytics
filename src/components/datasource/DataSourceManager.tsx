@@ -17,6 +17,9 @@ import {
   SlidersHorizontal,
   ListChecks,
   ShieldCheck,
+  X,
+  BookOpen,
+  Gavel,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { apiFetch } from '../../api/client';
@@ -30,6 +33,20 @@ import { getErrorMessage } from '../../utils/errorUtils';
 
 // 支持真实连接的数据库类型（服务端提取完整 Schema，其余类型用占位表）
 const DB_TYPES: DataSourceType[] = ['mysql', 'postgresql', 'greenplum'];
+
+/** v0.9.73 自动化配置报告（POST /api/datasources 响应 autoConfig 字段结构） */
+interface AutoConfigReportView {
+  analysisSummary: string[];
+  capabilities: {
+    timeSeriesRecalc: { enabled: boolean; dateColumn: string; maxPeriods: number };
+    categoricalDetection: { enabled: boolean; rankChangeThreshold: number; shareShiftThreshold: number };
+    caliberCheck: { enabled: boolean; rules: { snapshotLock: boolean; versionFilter: boolean; distinctCount: boolean } };
+    domainThresholds: { enabled: boolean; thresholds: unknown[] };
+  };
+  ironRuleTemplates: { title: string; content: string; reason: string }[];
+  knowledgeEntries: { title: string; content: string; category: string; tags: string[] }[];
+  suggestions: string[];
+}
 
 /**
  * 图标操作按钮 + 悬停功能提示气泡：替代原生 title（原生提示延迟约 1 秒且样式类系统默认，
@@ -94,6 +111,8 @@ export const DataSourceManager: React.FC = () => {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // v0.9.73 自动化配置报告弹层（新增数据源成功后展示自动接入结果；问数范围弹窗打开时延后展示）
+  const [autoConfigReport, setAutoConfigReport] = useState<AutoConfigReportView | null>(null);
 
   useEffect(() => {
     if (!importNotice) return;
@@ -228,6 +247,8 @@ export const DataSourceManager: React.FC = () => {
       setIsAddingNew(false);
       setDsName('');
       setTestResult(null);
+      // 展示自动化配置报告（若问数范围弹窗同时打开，弹层延后到范围配置完成后再显示）
+      if (data.autoConfig) setAutoConfigReport(data.autoConfig as AutoConfigReportView);
       if (DB_TYPES.includes(dsType)) {
         // 统计自动推导结果并自动打开问数范围编辑器，引导管理员完成"选范围 → 调指标维度"闭环
         const allCols = savedDS.tables.flatMap((t) => t.columns);
@@ -470,6 +491,8 @@ export const DataSourceManager: React.FC = () => {
       if (!res.ok || !data.success) throw new Error(data.error || '导入失败');
 
       addDataSource(data.dataSource as DataSource);
+      // 展示自动化配置报告（文件导入数据源同样自动完成能力接入与资产初始化）
+      if (data.autoConfig) setAutoConfigReport(data.autoConfig as AutoConfigReportView);
       // 如实告知解析结果：敏感列剔除与超限截断不静默
       const stats = data.stats || {};
       const extras: string[] = [];
@@ -962,6 +985,165 @@ export const DataSourceManager: React.FC = () => {
         onSave={handleSaveScope}
         onClose={() => setScopeDs(null)}
       />
+
+      {/* v0.9.73 数据源自动化配置报告：展示自动接入的异常扫描能力、知识库骨架与待确认铁律模板
+          （问数范围弹窗打开时延后展示，避免双弹层叠加） */}
+      {autoConfigReport && !scopeDs && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setAutoConfigReport(null)}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-slate-900 border border-indigo-500/40 rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">数据源自动化配置报告</h3>
+                  <p className="text-[11px] text-slate-400">系统已根据 Schema 自动完成能力接入与资产初始化，以下为配置明细</p>
+                </div>
+              </div>
+              <button onClick={() => setAutoConfigReport(null)} className="text-slate-400 hover:text-slate-200" aria-label="关闭">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Schema 分析摘要 */}
+            {autoConfigReport.analysisSummary.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                  <ScanSearch className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Schema 分析摘要</span>
+                </div>
+                <ul className="space-y-1">
+                  {autoConfigReport.analysisSummary.map((line, i) => (
+                    <li key={i} className="text-[11px] text-slate-400 leading-relaxed">· {line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* 异常扫描能力配置 */}
+            <div className="space-y-1.5">
+              <div className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+                <span>异常扫描能力配置</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[
+                  {
+                    label: '时序重算（环比/同比）',
+                    enabled: autoConfigReport.capabilities.timeSeriesRecalc.enabled,
+                    detail: autoConfigReport.capabilities.timeSeriesRecalc.enabled
+                      ? `锁定日期列 ${autoConfigReport.capabilities.timeSeriesRecalc.dateColumn}，重算最近 ${autoConfigReport.capabilities.timeSeriesRecalc.maxPeriods} 期序列`
+                      : '未检测到时序表，跳过',
+                  },
+                  {
+                    label: '分类维度检测',
+                    enabled: autoConfigReport.capabilities.categoricalDetection.enabled,
+                    detail: `排名突变 ≥${autoConfigReport.capabilities.categoricalDetection.rankChangeThreshold} 位 或 占比偏移 ≥${autoConfigReport.capabilities.categoricalDetection.shareShiftThreshold} 个百分点`,
+                  },
+                  {
+                    label: '口径校验（红线扫描）',
+                    enabled: autoConfigReport.capabilities.caliberCheck.enabled,
+                    detail: autoConfigReport.capabilities.caliberCheck.enabled
+                      ? [
+                          autoConfigReport.capabilities.caliberCheck.rules.snapshotLock ? '快照锁定' : '',
+                          autoConfigReport.capabilities.caliberCheck.rules.versionFilter ? '版本过滤' : '',
+                          autoConfigReport.capabilities.caliberCheck.rules.distinctCount ? '去重计数' : '',
+                        ]
+                          .filter(Boolean)
+                          .join('、')
+                      : '未检测到快照/版本/业务编号字段',
+                  },
+                  {
+                    label: '领域业务阈值',
+                    enabled: autoConfigReport.capabilities.domainThresholds.enabled,
+                    detail: '需人工登记（规则治理 → 语义指标 / 铁律规则），登记后自动参与异常定级',
+                  },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start space-x-2 p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                    <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${item.enabled ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold text-slate-200">{item.label}</div>
+                      <div className="text-[10px] text-slate-400 leading-relaxed">{item.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 铁律模板（待确认） */}
+            {autoConfigReport.ironRuleTemplates.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                  <Gavel className="w-3.5 h-3.5 text-amber-400" />
+                  <span>铁律模板（{autoConfigReport.ironRuleTemplates.length} 条，待确认）</span>
+                </div>
+                <div className="space-y-1.5">
+                  {autoConfigReport.ironRuleTemplates.map((t, i) => (
+                    <div key={i} className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-800/40 space-y-1">
+                      <div className="text-[11px] font-semibold text-amber-200">{t.title}</div>
+                      <div className="text-[10px] text-slate-400 leading-relaxed">{t.content}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  已以「待确认」状态存入 系统管理 → 规则治理 → 铁律规则；在面板中点击「确认启用」后立即对问数与报表生效。
+                </p>
+              </div>
+            )}
+
+            {/* 知识库骨架 */}
+            {autoConfigReport.knowledgeEntries.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>知识库骨架（{autoConfigReport.knowledgeEntries.length} 条，已自动生成）</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {autoConfigReport.knowledgeEntries.map((e, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-[10px]">
+                      {e.title}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500">已写入业务知识库（分类「自动生成」），问数时自动检索注入；可随时编辑或删除。</p>
+              </div>
+            )}
+
+            {/* 后续建议 */}
+            {autoConfigReport.suggestions.length > 0 && (
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>后续建议</span>
+                </div>
+                <ul className="space-y-1">
+                  {autoConfigReport.suggestions.map((s, i) => (
+                    <li key={i} className="text-[11px] text-slate-400 leading-relaxed">· {s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex justify-end pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setAutoConfigReport(null)}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

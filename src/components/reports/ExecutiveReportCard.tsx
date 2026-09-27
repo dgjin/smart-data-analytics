@@ -3,7 +3,8 @@
  *
  * 核心职责：
  * - 渲染报告全文（标题/高管摘要/KPI 网格/战略洞察/图表组），支持全局图表主题与同/环比对比模式；
- * - 数据异常扫描（scanReportForAnomalies 本地规则引擎）与异常标注、批注协同（评论/回复/解决）；
+ * - 数据异常扫描（v0.9.73：重扫按钮调服务端五步引擎 POST /api/report/scan-anomalies，失败/无 SQL 溯源时降级本地
+ *   scanReportForAnomalies）与异常标注、批注协同（评论/回复/解决）；异常面板按「口径存疑/数值异常」分区展示；
  * - 导出与分享：PDF（服务端 ReportLab 排版，异步任务轮询下载）、PPT（服务端 pptxgenjs 组装）、打印（切换打印主题）；
  * - 图表下钻（仅 live 报表且有原始 SQL 的图开放入口）。
  *
@@ -68,6 +69,10 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   const [activeReport, setActiveReport] = useState<SavedReport>(report);
   const [isScanning, setIsScanning] = useState(false);
   const [showAnomalyPanel, setShowAnomalyPanel] = useState(true);
+  // v0.9.73 服务端五步扫描：来源标记（null=初始本地扫描未重扫）/ 降级提示 / 扫描元信息
+  const [scanSource, setScanSource] = useState<'local' | 'server' | null>(null);
+  const [scanNotice, setScanNotice] = useState<string | null>(null);
+  const [scanMeta, setScanMeta] = useState<{ scanTime: string; caliberIssueCount: number; llmEnriched: boolean } | null>(null);
   const [globalThemeId, setGlobalThemeId] = useState<string>('cyber');
   const [globalAutoContrast, setGlobalAutoContrast] = useState<boolean>(true);
   const [globalComparisonMode, setGlobalComparisonMode] = useState<ComparisonMode>('none');
@@ -136,14 +141,61 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
     }));
   };
 
-  // 重新扫描异常：600ms 延迟为扫描动画留出感知时间（本地规则引擎实际执行为微秒级）
-  const handleReScanAnomalies = () => {
+  // 重新扫描异常（v0.9.73）：优先服务端五步引擎（口径校验+时序重算+维度适配+领域阈值+LLM 归因）；
+  // 无 SQL 溯源（演示/旧版报表）或服务端失败 → 回退本地快速扫描并提示降级原因
+  const handleReScanAnomalies = async () => {
     setIsScanning(true);
-    setTimeout(() => {
+    setScanNotice(null);
+    const hasSqlTrace = report.id !== 'report-demo-1' && Array.isArray(report.executedSqls) && report.executedSqls.length > 0;
+    if (!hasSqlTrace) {
       const scanned = scanReportForAnomalies(report);
       setActiveReport(scanned);
+      setScanSource('local');
+      setScanMeta(null);
+      setScanNotice('该报表无 SQL 溯源（演示/旧版），已使用本地快速扫描');
       setIsScanning(false);
-    }, 600);
+      setTimeout(() => setScanNotice(null), 6000);
+      return;
+    }
+    try {
+      const res = await apiFetch('/api/report/scan-anomalies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportId: report.id, dataSourceId: report.dataSourceId }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { success?: boolean; anomalies?: AnomalyItem[]; error?: string; scanTime?: string; caliberIssueCount?: number; llmEnriched?: boolean }
+        | null;
+      if (!res.ok || data?.success !== true || !Array.isArray(data.anomalies)) {
+        throw new Error(String(data?.error || `HTTP ${res.status}`));
+      }
+      const serverAnoms = data.anomalies;
+      // 服务端结果同步回填图表内标注（按 chartTitle 归位，保持面板与图内标注同源）
+      setActiveReport((prev) => ({
+        ...prev,
+        anomalies: serverAnoms,
+        charts: (prev.charts || []).map((c) => ({
+          ...c,
+          anomalies: serverAnoms.filter((a) => a.location === 'chart' && a.chartTitle === c.title),
+        })),
+      }));
+      setScanSource('server');
+      setScanMeta({
+        scanTime: String(data.scanTime || ''),
+        caliberIssueCount: Number(data.caliberIssueCount || 0),
+        llmEnriched: data.llmEnriched === true,
+      });
+    } catch (err) {
+      logger.warn('服务端异常扫描失败，回退本地快速扫描:', err);
+      const scanned = scanReportForAnomalies(report);
+      setActiveReport(scanned);
+      setScanSource('local');
+      setScanMeta(null);
+      setScanNotice('服务端扫描失败，已使用本地快速扫描');
+      setTimeout(() => setScanNotice(null), 6000);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const [drillOpen, setDrillOpen] = useState(false);
@@ -439,6 +491,59 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
 
   const allAnomalies: AnomalyItem[] = activeReport.anomalies || [];
   const highSeverityCount = allAnomalies.filter((a) => a.severity === 'high').length;
+  // v0.9.73 面板分区：口径存疑（四红线违规项，不参与数值判定）与数值异常分离展示
+  const caliberAnomalies = allAnomalies.filter((a) => a.category === 'caliber');
+  const valueAnomalies = allAnomalies.filter((a) => a.category !== 'caliber');
+
+  // 异常卡片渲染（分区共用）：severity 色板（caliber=amber 提示 / high=rose / medium=amber / low=slate）
+  const renderAnomalyCard = (anom: AnomalyItem) => {
+    const isCaliber = anom.category === 'caliber';
+    const palette = isCaliber
+      ? 'bg-amber-950/20 border-amber-500/40 text-amber-200'
+      : anom.severity === 'high'
+        ? 'bg-rose-950/20 border-rose-500/40 text-rose-200'
+        : anom.severity === 'medium'
+          ? 'bg-amber-950/20 border-amber-500/30 text-amber-200'
+          : 'bg-slate-900/60 border-slate-700/60 text-slate-200';
+    const iconColor = isCaliber || anom.severity === 'medium' ? 'text-amber-400' : anom.severity === 'high' ? 'text-rose-400' : 'text-slate-400';
+    return (
+      <div key={anom.id} className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${palette}`}>
+        <div className="flex items-center justify-between">
+          <span className="font-bold flex items-center space-x-1 truncate">
+            {isCaliber ? <AlertTriangle className={`w-3.5 h-3.5 ${iconColor}`} /> : <Zap className={`w-3.5 h-3.5 ${iconColor}`} />}
+            <span className="truncate">{anom.metricLabel}</span>
+            {anom.dimensionValue && (
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-300">
+                {anom.dimensionValue}
+              </span>
+            )}
+          </span>
+          {isCaliber ? (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">口径存疑</span>
+          ) : (
+            <span
+              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                anom.deviationPercent > 0
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                  : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+              }`}
+            >
+              {anom.deviationPercent > 0 ? '+' : ''}
+              {anom.deviationPercent}% 偏离
+            </span>
+          )}
+        </div>
+
+        <p className="text-[11px] text-slate-300 leading-snug">{anom.reasoning}</p>
+
+        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5 border-t border-slate-800/80">
+          <span>实际值: <strong className="text-slate-100">{anom.actualValue}</strong></span>
+          <span>参考基准: <strong className="text-slate-300">{anom.expectedValue}</strong></span>
+          {anom.zScore != null && <span>Z-Score: <strong className="text-amber-300 font-mono">{anom.zScore}σ</strong></span>}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div
@@ -480,8 +585,14 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
             className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all shadow-sm"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isScanning ? 'animate-spin' : ''}`} />
-            <span>{isScanning ? 'AI算法扫描中...' : '重新扫描异常'}</span>
+            <span>{isScanning ? '服务端重算中（口径校验+时序分析）...' : '重新扫描异常'}</span>
           </button>
+
+          {scanNotice && (
+            <span className="px-2.5 py-1 rounded-xl bg-slate-800/80 text-slate-300 border border-slate-700 text-[10px] font-medium">
+              {scanNotice}
+            </span>
+          )}
 
           {/* 高清 PDF 导出按钮（打开导出配置弹窗） */}
           <button
@@ -659,18 +770,28 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
         </p>
       </div>
 
-      {/* AI 异常高亮提示面板 */}
+      {/* AI 异常高亮提示面板（v0.9.73：服务端五步引擎结果，口径存疑 / 数值异常分区展示） */}
       {allAnomalies.length > 0 && showAnomalyPanel && (
         <div
           className="p-4 rounded-2xl bg-slate-950 border border-amber-500/40 space-y-3 shadow-lg shadow-amber-500/5"
           style={{ breakInside: 'avoid' }}
         >
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
               <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
               <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
                 AI 自动异常数据高亮扫描诊断结果 ({allAnomalies.length} 处)
               </span>
+              {scanSource === 'server' && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                  服务端重算{scanMeta?.scanTime ? ` · ${scanMeta.scanTime}` : ''}{scanMeta?.llmEnriched ? ' · LLM 归因已增强' : ''}
+                </span>
+              )}
+              {scanSource === 'local' && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/40 text-slate-300 border border-slate-600/50">
+                  本地快速扫描
+                </span>
+              )}
             </div>
             <div className="flex items-center space-x-2 text-[10px] print:hidden">
               {highSeverityCount > 0 && (
@@ -687,53 +808,29 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-            {allAnomalies.map((anom) => {
-              const isHigh = anom.severity === 'high';
-              return (
-                <div
-                  key={anom.id}
-                  className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${
-                    isHigh
-                      ? 'bg-rose-950/20 border-rose-500/40 text-rose-200'
-                      : 'bg-amber-950/20 border-amber-500/30 text-amber-200'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold flex items-center space-x-1 truncate">
-                      <Zap className={`w-3.5 h-3.5 ${isHigh ? 'text-rose-400' : 'text-amber-400'}`} />
-                      <span className="truncate">{anom.metricLabel}</span>
-                      {anom.dimensionValue && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-300">
-                          {anom.dimensionValue}
-                        </span>
-                      )}
-                    </span>
-                    <span
-                      className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                        anom.deviationPercent > 0
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                          : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                      }`}
-                    >
-                      {anom.deviationPercent > 0 ? '+' : ''}
-                      {anom.deviationPercent}% 偏离
-                    </span>
-                  </div>
+          {/* ⚠️ 口径存疑区（amber）：四红线违规项，不参与数值判定，引导重新生成报表 */}
+          {caliberAnomalies.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold text-amber-400 flex items-center space-x-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  口径存疑（{caliberAnomalies.length} 项）—— 报表查询与四红线口径不符，数值暂不可信；建议调整生成条件后重新生成报表，或联系管理员修正口径
+                </span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">{caliberAnomalies.map(renderAnomalyCard)}</div>
+            </div>
+          )}
 
-                  <p className="text-[11px] text-slate-300 leading-snug">
-                    {anom.reasoning}
-                  </p>
-
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5 border-t border-slate-800/80">
-                    <span>实际值: <strong className="text-slate-100">{anom.actualValue}</strong></span>
-                    <span>参考基准: <strong className="text-slate-300">{anom.expectedValue}</strong></span>
-                    {anom.zScore && <span>Z-Score: <strong className="text-amber-300 font-mono">{anom.zScore}σ</strong></span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {/* 📊 数值异常区（high=rose / medium=amber / low=slate）：含领域归因与建议 */}
+          {valueAnomalies.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-bold text-slate-400 flex items-center space-x-1.5">
+                <Activity className="w-3.5 h-3.5 shrink-0" />
+                <span>数值异常（{valueAnomalies.length} 项）</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">{valueAnomalies.map(renderAnomalyCard)}</div>
+            </div>
+          )}
         </div>
       )}
 

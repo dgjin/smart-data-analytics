@@ -1,5 +1,6 @@
 /**
- * P0-1 异常巡检订阅：数据源级巡检计划 = 既有报表异常检测引擎（scanReportForAnomalies）
+ * P0-1 异常巡检订阅：数据源级巡检计划复用服务端异常扫描引擎（scanReportAnomalies 五步引擎，v0.9.73 起），
+ * 无 SQL 重放能力时降级本地静态检测（scanReportForAnomalies）
  * + MySQL 巡检计划/运行历史表 + 内置低频调度器，不引入外部调度组件。
  *
  * 机制：每个计划绑定一个数据源，到期后扫描该数据源「最近一份真实数据（live）决策报表」，
@@ -13,6 +14,7 @@ import type mysql from 'mysql2/promise';
 import { getPool } from './infra/db';
 import { logger } from './infra/logger';
 import { scanReportForAnomalies } from '../src/utils/anomalyDetector';
+import { scanReportAnomalies } from './report/anomalyScan';
 import type { AnomalyItem, SavedReport } from '../src/types/analytics';
 import { getErrorMessage } from './infra/errorUtils';
 
@@ -289,8 +291,16 @@ export async function executePatrol(patrolId: string, pool?: mysql.Pool): Promis
     if (!latest) {
       outcome = { status: 'NO_DATA', anomalyCount: 0, highCount: 0, reportId: '', reportTitle: '', anomalies: [], error: '' };
     } else {
-      const scanned = scanReportForAnomalies(latest.report);
-      const all = Array.isArray(scanned.anomalies) ? scanned.anomalies : [];
+      // v0.9.73 巡检复用服务端五步引擎（口径校验/时序重算/维度适配/领域阈值，与报表页重扫同源）；
+      // 巡检为批量后台场景：skipLlm 跳过 LLM 归因保持秒级完成；引擎不可用时降级本地快速扫描不中断巡检
+      const scanned = await scanReportAnomalies({
+        reportId: latest.reportId,
+        report: latest.report,
+        dataSourceId: plan.data_source_id,
+        skipLlm: true,
+      });
+      const all =
+        scanned.ok === true ? scanned.anomalies : scanReportForAnomalies(latest.report).anomalies || [];
       const sorted = [...all].sort((a, b) => {
         const sev = (x: AnomalyItem) => (x.severity === 'high' ? 2 : x.severity === 'medium' ? 1 : 0);
         return sev(b) - sev(a);
