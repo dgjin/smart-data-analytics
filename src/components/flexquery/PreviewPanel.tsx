@@ -1,9 +1,10 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的结果预览区（下区：图表/明细 + 快速计算 + 固化保存 + 固定报表库）
 // 纯展示组件：全部状态与行为由 useFlexQueryState 注入，JSX 与拆分前保持一致
 import React from 'react';
-import { Pin, Save, Percent, Sigma, LayoutGrid, Download, Maximize2, Minimize2 } from 'lucide-react';
+import { Pin, Save, Percent, Sigma, LayoutGrid, Download, Maximize2, Minimize2, Zap, RefreshCw } from 'lucide-react';
 import { DynamicChart } from '../charts/DynamicChart';
 import { DataTable } from '../charts/DataTable';
+import { DrillModal } from '../reports/DrillModal';
 import { ChartConfig, ChartType } from '../../types/analytics';
 import { FlexHistoryItem, FlexQueryLibrary, SavedFlexQuery } from './FlexQueryLibrary';
 import { CHART_TYPE_OPTIONS, FlexBuilt, FlexPivot, FlexResult } from './flexQueryShared';
@@ -47,6 +48,14 @@ export interface PreviewPanelProps {
   favoriteIds: string[];
   onToggleFavorite: (id: string) => void;
   onSaveFromHistory: (h: FlexHistoryItem) => void;
+  /** v0.9.76：结果缓存标记与强制刷新 / 图表下钻 */
+  resultCached: boolean;
+  runQueryForceRefresh: () => void;
+  chartDrillable: boolean;
+  drillTarget: { dimensionKey: string; dimensionValue: string; dimensionLabel: string; originalSql: string } | null;
+  handleDrill: (dimensionKey: string, dimensionValue: string | number) => void;
+  closeDrill: () => void;
+  activeDataSourceId: string;
 }
 
 export const PreviewPanel: React.FC<PreviewPanelProps> = ({
@@ -86,6 +95,13 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   favoriteIds,
   onToggleFavorite,
   onSaveFromHistory,
+  resultCached,
+  runQueryForceRefresh,
+  chartDrillable,
+  drillTarget,
+  handleDrill,
+  closeDrill,
+  activeDataSourceId,
 }) => {
   return (
     <div
@@ -103,6 +119,21 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
               <span className="text-[10px] text-slate-400">
                 {result.rows.length} 行{result.truncated ? '（已达行数上限，结果被截断）' : ''}
                 {execTimeMs !== null ? ` · ${execTimeMs}ms` : ''}
+              </span>
+            )}
+            {/* v0.9.76 P1-9：服务端结果缓存命中标记 + 跳过缓存强制刷新 */}
+            {result && resultCached && (
+              <span className="flex items-center space-x-1 text-[10px] text-emerald-300 bg-emerald-950/50 border border-emerald-500/40 rounded-lg px-1.5 py-0.5">
+                <Zap className="w-3 h-3" />
+                <span>缓存命中</span>
+                <button
+                  onClick={runQueryForceRefresh}
+                  title="跳过缓存重新查询（获取最新数据）"
+                  className="flex items-center space-x-0.5 text-emerald-200 hover:text-white ml-0.5"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>强制刷新</span>
+                </button>
               </span>
             )}
             <button
@@ -200,7 +231,13 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             </div>
 
             {chartConfig && !pivotMode && (
-              <DynamicChart config={chartConfig} data={result.rows} height={fullZone === 'result' ? 440 : 260} />
+              <DynamicChart
+                config={chartConfig}
+                data={result.rows}
+                height={fullZone === 'result' ? 440 : 260}
+                onDrill={chartDrillable ? handleDrill : undefined}
+                drillable={chartDrillable}
+              />
             )}
 
             {pivotMode && pivot ? (
@@ -276,6 +313,19 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
           </>
         )}
       </div>
+
+      {/* v0.9.76 P1-12：图表下钻明细弹层（复用 /api/query/drill AST 改写） */}
+      {drillTarget && (
+        <DrillModal
+          open
+          onClose={closeDrill}
+          dataSourceId={activeDataSourceId}
+          originalSql={drillTarget.originalSql}
+          dimensionKey={drillTarget.dimensionKey}
+          dimensionValue={drillTarget.dimensionValue}
+          dimensionLabel={drillTarget.dimensionLabel}
+        />
+      )}
 
       {/* v0.4.13：固定报表与最近查询历史（P0-1 拆至 FlexQueryLibrary） */}
       <FlexQueryLibrary

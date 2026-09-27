@@ -85,4 +85,29 @@ test.describe('冒烟：critical 回归防线', () => {
     // 不得出现"加载知识库失败"错误横幅（路由缺失/返回 HTML 时的直接表现）
     await expect(page.getByText(/加载知识库失败/)).toHaveCount(0);
   });
+
+  test('灵活查询 P1 契约：异步执行端点与语义指标路由在线（v0.9.76，JSON 契约）', async ({ request }) => {
+    // v0.9.76 P1-10：后台执行端点——匿名访问必须 401 JSON（路由缺失/回退 HTML 会让前端 res.json() 崩溃）
+    const anon = await request.post('/api/query/execute-sql-async', { data: { dataSourceId: 'smoke-none', sql: 'SELECT 1' } });
+    expect(anon.status()).toBe(401);
+    expect(anon.headers()['content-type']).toContain('application/json');
+
+    const login = await request.post('/api/auth/login', { data: ADMIN });
+    expect(login.ok()).toBeTruthy();
+    const { token } = await login.json();
+
+    // 参数缺失 → 400 INVALID_INPUT（参数校验先于数据源解析，无需业务表）
+    const bad = await request.post('/api/query/execute-sql-async', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {},
+    });
+    expect(bad.status()).toBe(400);
+    expect((await bad.json()).code).toBe('INVALID_INPUT');
+
+    // v0.9.76 P1-7：语义指标列表（编辑器指标源）——200 JSON 且 metrics 为数组（空列表兜底）
+    const metrics = await request.get('/api/metrics?dataSourceId=smoke-none', { headers: { Authorization: `Bearer ${token}` } });
+    expect(metrics.status()).toBe(200);
+    expect(metrics.headers()['content-type']).toContain('application/json');
+    expect(Array.isArray((await metrics.json()).metrics)).toBeTruthy();
+  });
 });

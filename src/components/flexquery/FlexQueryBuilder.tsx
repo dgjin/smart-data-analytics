@@ -71,6 +71,21 @@ export const FlexQueryBuilder: React.FC = () => {
     setChartType,
     queryName,
     setQueryName,
+    // v0.9.76 新增配置段（语义指标 / OR 组 / 时间衍生列 / 后台执行）
+    metricMeasures,
+    addMetricMeasure,
+    removeMetricMeasure,
+    orGroups,
+    setOrGroups,
+    deriveds,
+    setDeriveds,
+    addDerived,
+    removeDerived,
+    hasTimeDim,
+    availableMetrics,
+    loadingMetrics,
+    backgroundMode,
+    setBackgroundMode,
     // 派生
     allFields,
     dimensionCols,
@@ -84,6 +99,13 @@ export const FlexQueryBuilder: React.FC = () => {
     execError,
     execTimeMs,
     toast,
+    // v0.9.76：后台进度 / 缓存命中标记 / 下钻
+    asyncProgress,
+    resultCached,
+    drillTarget,
+    chartDrillable,
+    handleDrill,
+    closeDrill,
     // 快速计算
     pivot,
     pivotAvailable,
@@ -95,6 +117,8 @@ export const FlexQueryBuilder: React.FC = () => {
     addField,
     resetBuilder,
     runQuery,
+    runQueryForceRefresh,
+    cancelQuery,
     columnValues,
     fetchColumnValues,
     handleExportCsv,
@@ -181,6 +205,10 @@ export const FlexQueryBuilder: React.FC = () => {
             meaOpen={meaOpen}
             setMeaOpen={setMeaOpen}
             addField={addField}
+            availableMetrics={availableMetrics}
+            loadingMetrics={loadingMetrics}
+            metricMeasures={metricMeasures}
+            addMetricMeasure={addMetricMeasure}
           />
 
           {/* 中：拖放区 + SQL + 执行（v0.4.12：支持全屏） */}
@@ -215,6 +243,19 @@ export const FlexQueryBuilder: React.FC = () => {
             setSqlOpen={setSqlOpen}
             runQuery={runQuery}
             executing={executing}
+            metricMeasures={metricMeasures}
+            removeMetricMeasure={removeMetricMeasure}
+            orGroups={orGroups}
+            setOrGroups={setOrGroups}
+            deriveds={deriveds}
+            setDeriveds={setDeriveds}
+            addDerived={addDerived}
+            removeDerived={removeDerived}
+            hasTimeDim={hasTimeDim}
+            backgroundMode={backgroundMode}
+            setBackgroundMode={setBackgroundMode}
+            asyncProgress={asyncProgress}
+            cancelQuery={cancelQuery}
           />
 
           {/* 下：结果 + 固定报表（v0.4.12：支持全屏） */}
@@ -255,6 +296,13 @@ export const FlexQueryBuilder: React.FC = () => {
             favoriteIds={favoriteIds}
             onToggleFavorite={toggleFavorite}
             onSaveFromHistory={saveFromHistory}
+            resultCached={resultCached}
+            runQueryForceRefresh={runQueryForceRefresh}
+            chartDrillable={chartDrillable}
+            drillTarget={drillTarget}
+            handleDrill={handleDrill}
+            closeDrill={closeDrill}
+            activeDataSourceId={activeDataSourceId}
           />
         </div>
       )}

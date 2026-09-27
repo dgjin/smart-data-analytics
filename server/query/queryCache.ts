@@ -4,7 +4,10 @@
  * P0-2：默认内存 Map（进程重启自然失效）；配置 REDIS_URL 后外置 Redis，多实例共享。
  * P1-6 真语义缓存：L1 归一化精确匹配之上叠加 L2 embedding 语义命中（相似度≥0.95），
  * 同义改写问题直接复用最近成功结果；命中返回原问题供前端标注「来自相似问题缓存」并提供刷新入口。
+ * v0.9.76 P1-9 SQL 结果缓存：灵活查询/自定义 SQL（execute-sql）按 dataVersion 缓存结果，
+ * TTL 默认 10 分钟（SQL_CACHE_TTL_MINUTES 覆盖），命中跳过数据库执行；数据源变更时随 invalidateQueryCache 失效。
  */
+import { createHash } from 'node:crypto';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { callEmbedding } from '../llm/llmClient';
 import { observeCacheHit } from '../infra/monitoring';
@@ -90,12 +93,13 @@ export async function setCachedQuery(
   }
 }
 
-/** 数据源结构变更后清理其缓存（Redis 模式按前缀 SCAN 删除），语义索引一并清理 */
+/** 数据源结构变更后清理其缓存（Redis 模式按前缀 SCAN 删除），语义索引与 SQL 结果缓存一并清理 */
 export async function invalidateQueryCache(dataSourceId?: string): Promise<void> {
   if (isRedisEnabled()) {
     try {
       await getStateStore().deleteByPrefix(dataSourceId ? `qc:${dataSourceId}::` : 'qc:');
       await getStateStore().deleteByPrefix(dataSourceId ? `qcidx:${dataSourceId}::` : 'qcidx:');
+      await getStateStore().deleteByPrefix(dataSourceId ? `fqsql:${dataSourceId}:` : 'fqsql:');
     } catch {
       // 失效操作失败不阻断主流程
     }
@@ -104,6 +108,7 @@ export async function invalidateQueryCache(dataSourceId?: string): Promise<void>
   if (!dataSourceId) {
     cache.clear();
     semanticIndex.clear();
+    sqlCache.clear();
     return;
   }
   for (const k of cache.keys()) {
@@ -112,6 +117,105 @@ export async function invalidateQueryCache(dataSourceId?: string): Promise<void>
   for (const k of semanticIndex.keys()) {
     if (k.startsWith(`${dataSourceId}::`)) semanticIndex.delete(k);
   }
+  for (const k of sqlCache.keys()) {
+    if (k.startsWith(`fqsql:${dataSourceId}:`)) sqlCache.delete(k);
+  }
+}
+
+// ---------- v0.9.76 P1-9 SQL 结果缓存（execute-sql / 灵活查询） ----------
+
+/**
+ * SQL 结果缓存 TTL：默认 10 分钟（分析型 SQL 结果时效要求低）。
+ * 惰性读取：面板热更 SQL_CACHE_TTL_MINUTES 即时生效。
+ */
+export const sqlCacheTtlMs = (): number => {
+  const mins = Number(process.env.SQL_CACHE_TTL_MINUTES);
+  return Number.isFinite(mins) && mins > 0 ? Math.floor(mins) * 60 * 1000 : 10 * 60 * 1000;
+};
+
+/** SQL 结果缓存体积上限（超过不缓存，避免大结果集撑爆内存/Redis） */
+const SQL_REDIS_MAX_PAYLOAD_BYTES = 1024 * 1024;
+/** 内存模式 SQL 结果缓存条数上限 */
+const SQL_CACHE_MAX_ENTRIES = 100;
+
+interface SqlCacheEntry {
+  payload: Record<string, unknown>;
+  version: string | null;
+  at: number;
+}
+
+const sqlCache = new Map<string, SqlCacheEntry>();
+
+/** 缓存键：数据源 + 最终 SQL 的 sha1 前 24 位（同一数据源下同 SQL 复用结果） */
+export function sqlResultCacheKey(dataSourceId: string, sql: string): string {
+  const hash = createHash('sha1').update(String(sql)).digest('hex').slice(0, 24);
+  return `fqsql:${dataSourceId}:${hash}`;
+}
+
+interface SqlCachePayload {
+  /** 写入时的数据版本（computeDataVersion 结果，可为 null）；不匹配视为未命中 */
+  version: string | null;
+  at: number;
+  data: Record<string, unknown>;
+}
+
+/**
+ * 读取 SQL 结果缓存：命中返回缓存载荷（不含元信息）；dataVersion 不匹配或已过期返回 null。
+ * Redis 异常/写失败一律 fail-open（按未命中处理）。
+ */
+export async function getCachedSqlResult(
+  dataSourceId: string,
+  sql: string,
+  version: string | null
+): Promise<Record<string, unknown> | null> {
+  const key = sqlResultCacheKey(dataSourceId, sql);
+  let payload: SqlCachePayload | null = null;
+  if (isRedisEnabled()) {
+    try {
+      const raw = await getStateStore().get(key);
+      payload = raw ? (JSON.parse(raw) as SqlCachePayload) : null;
+    } catch {
+      return null;
+    }
+  } else {
+    const entry = sqlCache.get(key);
+    if (entry) {
+      if (Date.now() - entry.at > sqlCacheTtlMs()) sqlCache.delete(key);
+      else payload = { version: entry.version, at: entry.at, data: entry.payload };
+    }
+  }
+  if (!payload || !payload.data) return null;
+  // dataVersion 比对：数据结构/内容变更后旧结果不命中；两端均为 null（数据源不支持版本）时按 TTL 兜底
+  if ((version ?? null) !== (payload.version ?? null)) return null;
+  observeCacheHit('l1');
+  return payload.data;
+}
+
+/** 写入 SQL 结果缓存：体积超限静默跳过；写失败不阻断主链路（fail-open） */
+export async function setCachedSqlResult(
+  dataSourceId: string,
+  sql: string,
+  version: string | null,
+  data: Record<string, unknown>
+): Promise<void> {
+  if (!data || typeof data !== 'object') return;
+  const key = sqlResultCacheKey(dataSourceId, sql);
+  if (isRedisEnabled()) {
+    try {
+      const raw = JSON.stringify({ version: version ?? null, at: Date.now(), data } satisfies SqlCachePayload);
+      if (raw.length <= SQL_REDIS_MAX_PAYLOAD_BYTES) {
+        await getStateStore().setEx(key, raw, Math.ceil(sqlCacheTtlMs() / 1000));
+      }
+    } catch {
+      // 写缓存失败静默忽略
+    }
+    return;
+  }
+  if (sqlCache.size >= SQL_CACHE_MAX_ENTRIES) {
+    const oldest = sqlCache.keys().next().value;
+    if (oldest !== undefined) sqlCache.delete(oldest);
+  }
+  sqlCache.set(key, { payload: data, version: version ?? null, at: Date.now() });
 }
 
 // ---------- P1-6 L2 语义缓存（embedding 相似度命中） ----------

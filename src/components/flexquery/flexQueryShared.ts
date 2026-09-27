@@ -1,10 +1,10 @@
 // P0 拆分：FlexQueryBuilder 上帝组件拆分的共享类型与常量
 //（原定义内联在 FlexQueryBuilder.tsx 顶部/组件体内，现由状态 Hook 与三个子组件共同引用）
 import { ChartType } from '../../types/analytics';
-import { FlexAgg, FlexBuildResult, FlexLikeMode, FlexTimeUnit } from '../../utils/flexQueryBuilder';
+import { FlexAgg, FlexBuildResult, FlexDerivedKind, FlexLikeMode, FlexTimeUnit } from '../../utils/flexQueryBuilder';
 
-/** 拖放目标区 */
-export type DropZone = 'dimension' | 'measure' | 'filter' | 'having';
+/** 拖放目标区（v0.9.76：新增语义指标区） */
+export type DropZone = 'dimension' | 'measure' | 'filter' | 'having' | 'metric';
 
 /** v0.4.11 字段面板分组可见性（字段较多时按类型过滤，减少滚动） */
 export type FieldTab = 'all' | 'dimension' | 'measure';
@@ -54,6 +54,24 @@ export const LIKE_MODE_LABELS: Record<FlexLikeMode, string> = {
   startsWith: '开头是',
   endsWith: '结尾是',
   exact: '精确匹配',
+};
+
+/** v0.9.76 P1-7：语义指标选项（GET /api/metrics 投影，仅 ACTIVE） */
+export interface MetricOption {
+  id: number;
+  name: string;
+  expr: string;
+  tableName: string;
+  filters: string;
+  description?: string;
+}
+
+/** v0.9.76 P1-8：时间衍生列中文标签（编辑器下拉与结果列名标注共用） */
+export const DERIVED_LABELS: Record<FlexDerivedKind, string> = {
+  yoy: '同比',
+  mom: '环比',
+  cum: '累计',
+  ma: '移动平均',
 };
 
 /** SQL 构建结果（buildFlexQuerySql 判别式联合；未选表时调用方为 null） */

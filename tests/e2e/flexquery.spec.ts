@@ -131,4 +131,97 @@ test.describe('灵活查询（FlexQuery）', () => {
     await limitSelect.selectOption('100000');
     await expect(limitSelect).toHaveValue('100000');
   });
+
+  test('[v0.9.76 P1] 编辑器区块：语义指标 / OR 条件组 / 时间衍生列', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+
+    // P1-7：字段面板语义指标区块（默认分组下渲染；无指标时为空态引导文案）
+    await expect(page.getByText(/^语义指标（\d+）$/)).toBeVisible();
+
+    // P1-11：OR 条件组空态 → 添加一组后出现组头与计数
+    await expect(page.getByText('未设置 OR 组（上方 WHERE 条件均为 AND 关系）')).toBeVisible();
+    await page.getByRole('button', { name: '+ 添加 OR 组' }).click();
+    await expect(page.getByText('组 1（任一满足）')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ 添加 OR 组（1/5）' })).toBeVisible();
+
+    // P1-8：时间衍生列区块存在；未为日期维度配置时间粒度时新增入口禁用
+    await expect(page.getByText('时间衍生列（同比/环比/累计/移动平均）')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+ 添加衍生' })).toBeDisabled();
+  });
+
+  test('[v0.9.76 P1-9] 结果缓存：二次执行命中缓存并可强制刷新', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+    await page.locator('[title*="点击加为维度"]').first().click();
+    await page.locator('[title*="点击加为指标"]').first().click();
+
+    // 第一次执行：结果渲染（若 10 分钟内已有同 SQL 缓存亦可能直接命中，两种都继续）
+    const first = page.waitForResponse((r) => r.url().includes('/api/query/execute-sql') && r.request().method() === 'POST', { timeout: 30_000 });
+    await page.getByRole('button', { name: /执行查询（真实数据库）/ }).click();
+    expect((await first).status()).toBe(200);
+    await expect(page.getByRole('button', { name: '导出 CSV' }).first()).toBeVisible({ timeout: 15_000 });
+
+    // 第二次执行同 SQL → 服务端 SQL 结果缓存必命中（TTL 10 分钟），响应标记 cached=true
+    const second = page.waitForResponse((r) => r.url().includes('/api/query/execute-sql') && r.request().method() === 'POST', { timeout: 30_000 });
+    await page.getByRole('button', { name: /执行查询（真实数据库）/ }).click();
+    const secondResp = await second;
+    expect((await secondResp.json()).cached).toBe(true);
+    await expect(page.getByText('缓存命中')).toBeVisible({ timeout: 15_000 });
+
+    // 强制刷新：绕过缓存重执行（bypassCache: true），响应 cached=false
+    const forced = page.waitForResponse(
+      (r) => r.url().includes('/api/query/execute-sql') && r.request().method() === 'POST' && r.request().postDataJSON()?.bypassCache === true,
+      { timeout: 30_000 },
+    );
+    await page.getByRole('button', { name: '强制刷新' }).click();
+    const forcedResp = await forced;
+    expect((await forcedResp.json()).cached).toBe(false);
+  });
+
+  test('[v0.9.76 P1-10] 后台执行：提交任务队列并回填结果', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+    await page.locator('[title*="点击加为维度"]').first().click();
+    await page.locator('[title*="点击加为指标"]').first().click();
+
+    // 勾选后台执行：提示文案切换（走任务队列，不受交互超时限制）
+    await page.getByLabel('后台执行（大查询）').check();
+    await expect(page.getByText('后台任务走独立连接池与超时策略，提交后可在任务中心查看结果')).toBeVisible();
+
+    const submit = page.waitForResponse(
+      (r) => r.url().includes('/api/query/execute-sql-async') && r.request().method() === 'POST',
+      { timeout: 30_000 },
+    );
+    await page.getByRole('button', { name: /执行查询（真实数据库）/ }).click();
+    expect((await submit).status()).toBe(202);
+
+    // 前端轮询任务状态（2s 间隔）至终态后回填结果，结果区渲染导出入口
+    await expect(page.getByRole('button', { name: '导出 CSV' }).first()).toBeVisible({ timeout: 60_000 });
+  });
+
+  test('[v0.9.76 P1-12] 图表下钻：点击柱状图打开明细弹层', async ({ page, request }) => {
+    const ds = await pickExecutableSource(request);
+    test.skip(!ds, '环境无可执行的库表类数据源，跳过灵活查询链路');
+    await openFlexQuery(page, ds!.id);
+    await pickTable(page, ds!.tables[0]);
+    await page.locator('[title*="点击加为维度"]').first().click();
+    await page.locator('[title*="点击加为指标"]').first().click();
+
+    const exec = page.waitForResponse((r) => r.url().includes('/api/query/execute-sql') && r.request().method() === 'POST', { timeout: 30_000 });
+    await page.getByRole('button', { name: /执行查询（真实数据库）/ }).click();
+    expect((await exec).status()).toBe(200);
+
+    // 默认柱状图 + 首维度无时间粒度 → 可下钻；点击首根柱体应打开明细弹层
+    const bar = page.locator('.recharts-bar-rectangle').first();
+    await expect(bar).toBeVisible({ timeout: 15_000 });
+    await bar.click();
+    await expect(page.getByText(/^下钻明细：/)).toBeVisible({ timeout: 15_000 });
+  });
 });

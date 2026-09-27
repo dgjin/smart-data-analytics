@@ -1,18 +1,24 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的查询配置画布（中区：拖放区 + 排序行数 + SQL 预览 + 执行）
 // 纯展示组件：拖拽悬停态（dragOverZone）为纯视觉关注点，收敛至本组件本地状态；其余由 useFlexQueryState 注入
 import React, { useState } from 'react';
-import { X, Play, Loader2, Filter, ArrowUpDown, RotateCcw, Maximize2, Minimize2, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, Play, Loader2, Filter, ArrowUpDown, RotateCcw, Maximize2, Minimize2, ChevronUp, ChevronDown, Gauge, TrendingUp } from 'lucide-react';
 import {
   FLEX_AGGS,
+  FLEX_DERIVED_KINDS,
   FLEX_FILTER_OPS,
   FLEX_HAVING_OPS,
   FLEX_LIKE_MODES,
   FLEX_NO_VALUE_OPS,
   FLEX_TIME_UNITS,
+  derivedAlias,
   measureAlias,
+  metricAlias,
   FlexAgg,
+  FlexDerived,
+  FlexDerivedKind,
   FlexLikeMode,
   FlexMeasure,
+  FlexMetricMeasure,
   FlexFilter,
   FlexHaving,
   FlexOrderBy,
@@ -22,6 +28,7 @@ import { SqlPreviewPanel } from './SqlPreviewPanel';
 import {
   AGG_LABELS,
   ColumnValuesState,
+  DERIVED_LABELS,
   DropZone,
   FieldWithTable,
   FlexBuilt,
@@ -61,6 +68,20 @@ export interface BuilderCanvasProps {
   setSqlOpen: React.Dispatch<React.SetStateAction<boolean>>;
   runQuery: (sqlOverride?: string, dsIdOverride?: string) => Promise<void>;
   executing: boolean;
+  /** v0.9.76 P1-7/P1-8/P1-10/P1-11：语义指标 / 时间衍生列 / 后台执行 / OR 条件组 */
+  metricMeasures: FlexMetricMeasure[];
+  removeMetricMeasure: (id: number) => void;
+  orGroups: FlexFilter[][];
+  setOrGroups: React.Dispatch<React.SetStateAction<FlexFilter[][]>>;
+  deriveds: FlexDerived[];
+  setDeriveds: React.Dispatch<React.SetStateAction<FlexDerived[]>>;
+  addDerived: (by: string, kind: FlexDerivedKind, periods?: number) => void;
+  removeDerived: (alias: string) => void;
+  hasTimeDim: boolean;
+  backgroundMode: boolean;
+  setBackgroundMode: React.Dispatch<React.SetStateAction<boolean>>;
+  asyncProgress: string | null;
+  cancelQuery: () => void;
 }
 
 export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
@@ -94,6 +115,19 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   setSqlOpen,
   runQuery,
   executing,
+  metricMeasures,
+  removeMetricMeasure,
+  orGroups,
+  setOrGroups,
+  deriveds,
+  setDeriveds,
+  addDerived,
+  removeDerived,
+  hasTimeDim,
+  backgroundMode,
+  setBackgroundMode,
+  asyncProgress,
+  cancelQuery,
 }) => {
   const [dragOverZone, setDragOverZone] = useState<DropZone | null>(null);
 
@@ -105,8 +139,33 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
   };
 
   // v0.9.75：多列排序——可添加的下一排序目标（未被占用的指标别名或维度）
+  // v0.9.76：语义指标别名并入候选集
+  const metricAliases = metricMeasures.map((m) => metricAlias(m.id));
   const usedSortKeys = new Set(orderBys.map((o) => o.by));
-  const nextSortTarget = [...measures.map(measureAlias), ...dimensions].find((k) => !usedSortKeys.has(k));
+  const nextSortTarget = [...measures.map(measureAlias), ...metricAliases, ...dimensions].find((k) => !usedSortKeys.has(k));
+
+  // v0.9.76 P1-8：可衍生目标（普通指标 + 语义指标）与行内补丁
+  const derivedTargets = [
+    ...measures.map((m) => ({ value: measureAlias(m), label: `指标 · ${AGG_LABELS[m.agg]}(${columnNames[m.column] || m.column})` })),
+    ...metricMeasures.map((mt) => ({ value: metricAlias(mt.id), label: `指标 · ${mt.name}` })),
+  ];
+  const patchDerived = (index: number, patch: Partial<FlexDerived>) => {
+    setDeriveds((prev) => {
+      const cur = prev[index];
+      if (!cur) return prev;
+      const next = { ...cur, ...patch };
+      const alias = derivedAlias(next.by, next.kind, next.periods);
+      // 同目标同类型重复时忽略本次变更（与 addDerived 去重一致）
+      if (prev.some((d, i) => i !== index && derivedAlias(d.by, d.kind, d.periods) === alias)) return prev;
+      return prev.map((d, i) => (i === index ? next : d));
+    });
+  };
+
+  // v0.9.76 P1-11：OR 条件组行内补丁（组内任一满足，组间 AND）
+  const patchOrRow = (gi: number, fi: number, patch: Partial<FlexFilter>) => {
+    setOrGroups((prev) => prev.map((g, i) => (i === gi ? g.map((x, j) => (j === fi ? { ...x, ...patch } : x)) : g)));
+  };
+  const newOrRow = (): FlexFilter => ({ column: allFields[0]?.fullName || '', op: '=', value: '' });
 
   const zoneClass = (zone: DropZone) =>
     `rounded-xl border-2 border-dashed p-2 min-h-[52px] transition-colors ${
@@ -204,7 +263,7 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
         {/* 指标区 */}
         <div className="space-y-1">
           <p className="text-[10px] font-bold text-emerald-400 uppercase">
-            聚合指标{measures.length > 0 ? `（${measures.length}）` : ''}
+            聚合指标{measures.length + metricMeasures.length > 0 ? `（${measures.length + metricMeasures.length}）` : ''}
           </p>
           <div
             onDragOver={(e) => {
@@ -215,8 +274,8 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
             onDrop={(e) => handleDrop('measure', e)}
             className={zoneClass('measure')}
           >
-            {measures.length === 0 ? (
-              <p className="text-[10px] text-slate-500 text-center py-1.5">拖入或点击左侧指标</p>
+            {measures.length === 0 && metricMeasures.length === 0 ? (
+              <p className="text-[10px] text-slate-500 text-center py-1.5">拖入或点击左侧指标，或在字段面板点击语义指标</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {measures.map((m, idx) => (
@@ -242,6 +301,23 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                     <span>{columnNames[m.column] || m.column}</span>
                     <button
                       onClick={() => setMeasures((prev) => prev.filter((_, i) => i !== idx))}
+                      className="hover:text-rose-400"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                {/* v0.9.76 P1-7：语义指标 chips（口径在指标治理中定义，此处仅展示与移除） */}
+                {metricMeasures.map((mt) => (
+                  <span
+                    key={metricAlias(mt.id)}
+                    title={`${mt.expr}${mt.filters ? ` · 固定过滤：${mt.filters}` : ''}`}
+                    className="text-[11px] px-2 py-1 rounded-lg bg-violet-950/60 border border-violet-500/40 text-violet-200 flex items-center space-x-1.5"
+                  >
+                    <Gauge className="w-3 h-3 text-violet-400" />
+                    <span>{mt.name}</span>
+                    <button
+                      onClick={() => removeMetricMeasure(mt.id)}
                       className="hover:text-rose-400"
                     >
                       <X className="w-3 h-3" />
@@ -362,6 +438,98 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
             </div>
           )}
         </div>
+      </div>
+
+      {/* v0.9.76 P1-11：OR 条件组（组内任一满足、组间 AND；最多 5 组、每组 5 条） */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-bold text-orange-400 uppercase">OR 条件组（组内任一满足，组间 AND）</p>
+          <button
+            onClick={() => setOrGroups((prev) => (prev.length >= 5 ? prev : [...prev, [newOrRow()]]))}
+            disabled={orGroups.length >= 5 || allFields.length === 0}
+            className={`text-[10px] ${
+              orGroups.length >= 5 || allFields.length === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-orange-300 hover:text-orange-200'
+            }`}
+          >
+            + 添加 OR 组{orGroups.length > 0 ? `（${orGroups.length}/5）` : ''}
+          </button>
+        </div>
+        {orGroups.length === 0 ? (
+          <p className="text-[10px] text-slate-500">未设置 OR 组（上方 WHERE 条件均为 AND 关系）</p>
+        ) : (
+          <div className="space-y-1.5">
+            {orGroups.map((group, gi) => (
+              <div key={gi} className="rounded-xl border-2 border-dashed border-orange-500/30 bg-slate-900/60 p-2 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-orange-300">组 {gi + 1}（任一满足）</span>
+                  <button
+                    onClick={() => setOrGroups((prev) => prev.filter((_, i) => i !== gi))}
+                    className="text-[10px] text-slate-400 hover:text-rose-400 flex items-center space-x-0.5"
+                  >
+                    <X className="w-3 h-3" />
+                    <span>移除组</span>
+                  </button>
+                </div>
+                {group.map((f, fi) => (
+                  <div key={fi} className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                    <select
+                      value={f.column}
+                      onChange={(e) => patchOrRow(gi, fi, { column: e.target.value, value: '' })}
+                      className="bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-200 focus:outline-none max-w-[130px]"
+                    >
+                      {allFields.map((c) => (
+                        <option key={c.fullName} value={c.fullName}>{c.description || c.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={f.op}
+                      onChange={(e) => patchOrRow(gi, fi, { op: e.target.value as FlexFilter['op'] })}
+                      className="bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-200 focus:outline-none"
+                    >
+                      {FLEX_FILTER_OPS.map((op) => (
+                        <option key={op} value={op}>{op}</option>
+                      ))}
+                    </select>
+                    {f.op === 'LIKE' && (
+                      <select
+                        value={f.likeMode || 'contains'}
+                        onChange={(e) => patchOrRow(gi, fi, { likeMode: e.target.value as FlexLikeMode })}
+                        title="LIKE 匹配模式"
+                        className="bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-[10px] text-slate-200 focus:outline-none"
+                      >
+                        {FLEX_LIKE_MODES.map((mode) => (
+                          <option key={mode} value={mode}>{LIKE_MODE_LABELS[mode]}</option>
+                        ))}
+                      </select>
+                    )}
+                    {!FLEX_NO_VALUE_OPS.includes(f.op) && (
+                      <FilterValueControl
+                        filter={f}
+                        field={allFields.find((c) => c.fullName === f.column)}
+                        valuesState={columnValues[f.column]}
+                        onFetchValues={() => void fetchColumnValues(f.column)}
+                        onPatch={(patch) => patchOrRow(gi, fi, patch)}
+                      />
+                    )}
+                    <button
+                      onClick={() => setOrGroups((prev) => prev.map((g, i) => (i === gi ? g.filter((_, j) => j !== fi) : g)))}
+                      className="text-slate-400 hover:text-rose-400"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setOrGroups((prev) => prev.map((g, i) => (i === gi && g.length < 5 ? [...g, newOrRow()] : g)))}
+                  disabled={group.length >= 5}
+                  className={`text-[10px] ${group.length >= 5 ? 'text-slate-600 cursor-not-allowed' : 'text-orange-300 hover:text-orange-200'}`}
+                >
+                  + 添加条件（{group.length}/5）
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 指标过滤区（HAVING，v0.4.10） */}
@@ -491,6 +659,12 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
                       指标 · {AGG_LABELS[m.agg]}({columnNames[m.column] || m.column})
                     </option>
                   ))}
+                  {/* v0.9.76：语义指标同样作为排序目标 */}
+                  {metricMeasures.map((mt) => (
+                    <option key={`omt-${metricAlias(mt.id)}`} value={metricAlias(mt.id)}>
+                      指标 · {mt.name}
+                    </option>
+                  ))}
                   {dimensions.map((d) => (
                     <option key={`od-${d}`} value={d}>
                       维度 · {columnNames[d] || d}
@@ -537,6 +711,83 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
         </div>
       </div>
 
+      {/* v0.9.76 P1-8：时间衍生列（同比/环比/累计/移动平均；需已配置时间粒度的维度） */}
+      <div className="space-y-1.5 text-[11px]">
+        <div className="flex items-center justify-between">
+          <span className="text-slate-400 flex items-center space-x-1">
+            <TrendingUp className="w-3 h-3" />
+            <span>时间衍生列（同比/环比/累计/移动平均）</span>
+          </span>
+          <button
+            onClick={() => {
+              const by = derivedTargets[0]?.value;
+              if (by) addDerived(by, 'yoy');
+            }}
+            disabled={!hasTimeDim || deriveds.length >= 6 || derivedTargets.length === 0}
+            className={`text-[10px] ${
+              !hasTimeDim || deriveds.length >= 6 || derivedTargets.length === 0
+                ? 'text-slate-600 cursor-not-allowed'
+                : 'text-indigo-300 hover:text-indigo-200'
+            }`}
+          >
+            + 添加衍生{deriveds.length > 0 ? `（${deriveds.length}/6）` : ''}
+          </button>
+        </div>
+        {deriveds.length === 0 ? (
+          <p className="text-[10px] text-slate-500">
+            {hasTimeDim ? '未设置衍生列（可选）' : '需先为日期维度选择时间粒度（上方维度 chip 内）'}
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {deriveds.map((d, idx) => {
+              const alias = derivedAlias(d.by, d.kind, d.periods);
+              return (
+                <div key={alias} className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                  <select
+                    value={d.by}
+                    onChange={(e) => patchDerived(idx, { by: e.target.value })}
+                    className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none max-w-[220px]"
+                  >
+                    {derivedTargets.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={d.kind}
+                    onChange={(e) => patchDerived(idx, { kind: e.target.value as FlexDerivedKind })}
+                    className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none"
+                  >
+                    {FLEX_DERIVED_KINDS.map((k) => (
+                      <option key={k} value={k}>{DERIVED_LABELS[k]}</option>
+                    ))}
+                  </select>
+                  {d.kind === 'ma' && (
+                    <select
+                      value={d.periods || 3}
+                      onChange={(e) => patchDerived(idx, { periods: Number(e.target.value) })}
+                      title="移动平均窗口期数（2~12）"
+                      className="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-slate-200 focus:outline-none"
+                    >
+                      {[2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
+                        <option key={n} value={n}>MA({n})</option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="text-[10px] text-slate-500 font-mono truncate max-w-[150px]" title={alias}>{alias}</span>
+                  <button
+                    onClick={() => removeDerived(alias)}
+                    className="text-slate-400 hover:text-rose-400"
+                    title="移除该衍生列"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* SQL 预览（v0.4.11 可折叠）：P0-1 拆至 SqlPreviewPanel */}
       <SqlPreviewPanel built={built} sqlOpen={sqlOpen} onToggle={() => setSqlOpen((v) => !v)} />
 
@@ -556,11 +807,32 @@ export const BuilderCanvas: React.FC<BuilderCanvasProps> = ({
         }`}
       >
         {executing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-        <span>{executing ? '执行中…' : '执行查询（真实数据库）'}</span>
+        <span>{executing ? (backgroundMode ? '后台执行中…' : '执行中…') : '执行查询（真实数据库）'}</span>
       </button>
-      {/* v0.4.14：执行超时提示 */}
+      {/* v0.9.76 P1-10：后台执行开关、进度与取消 */}
+      <div className="flex items-center justify-between text-[10px] text-slate-400">
+        <label className="flex items-center space-x-1 cursor-pointer" title="提交后台任务队列执行（不阻塞页面；结果最多保留 2 万行）">
+          <input
+            type="checkbox"
+            checked={backgroundMode}
+            onChange={(e) => setBackgroundMode(e.target.checked)}
+            className="accent-indigo-500"
+          />
+          <span>后台执行（大查询）</span>
+        </label>
+        {executing && (
+          <button onClick={cancelQuery} className="text-rose-300 hover:text-rose-200 flex items-center space-x-0.5">
+            <X className="w-3 h-3" />
+            <span>取消</span>
+          </button>
+        )}
+      </div>
+      {asyncProgress && <p className="text-[10px] text-indigo-300 text-center">{asyncProgress}</p>}
+      {/* v0.4.14：执行超时提示（后台模式走任务队列，不受交互超时限制） */}
       <p className="text-[10px] text-slate-500 text-center px-2">
-        执行超时上限 10s；查询行数 {'>'} 10 万或执行时长 {'>'} 3s 将记入慢查询审计
+        {backgroundMode
+          ? '后台任务走独立连接池与超时策略，提交后可在任务中心查看结果'
+          : '执行超时上限 10s；查询行数 > 10 万或执行时长 > 3s 将记入慢查询审计'}
       </p>
     </div>
   );

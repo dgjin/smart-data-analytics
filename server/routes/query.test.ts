@@ -1,6 +1,6 @@
 /**
  * query 路由契约测试（质量优化 Stage 2）：问数主链路 / SSE 续传 / 推导回放 / 计划模式 /
- * 反馈闭环 / SQL 重跑 / SQL 助手 / 图表下钻，共 8 个端点。
+ * 反馈闭环 / SQL 重跑 / 大查询后台执行 / SQL 助手 / 图表下钻，共 9 个端点。
  *
  * 覆盖：无 token → 401；角色门槛 → 403；数据源 ACL → 403；参数校验 → 400；
  * 业务错误码（RATE_LIMITED / QUERY_IN_FLIGHT / DS_ACCESS_DENIED / AI_SWITCHED_OFF /
@@ -54,7 +54,12 @@ vi.mock('../query/queryCache', () => ({
   setCachedQuery: vi.fn(),
   cacheKey: vi.fn(),
   getSemanticCachedQuery: vi.fn(),
+  getCachedSqlResult: vi.fn(),
+  setCachedSqlResult: vi.fn(),
 }));
+// v0.9.76 P1-9/P1-10：SQL 结果缓存需数据版本探测；后台执行走任务队列
+vi.mock('../dataVersion', () => ({ computeDataVersion: vi.fn() }));
+vi.mock('../infra/taskQueue', () => ({ submitTask: vi.fn() }));
 vi.mock('../query/queryPlan', () => ({
   generateQueryPlan: vi.fn(),
   storePlan: vi.fn(),
@@ -78,7 +83,9 @@ import { executeSafeSql } from '../query/sqlExecutor';
 import { saveFeedback } from '../query/queryFeedback';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { recordConversation } from '../query/conversationHistory';
-import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery } from '../query/queryCache';
+import { getCachedQuery, setCachedQuery, cacheKey, getSemanticCachedQuery, getCachedSqlResult, setCachedSqlResult } from '../query/queryCache';
+import { computeDataVersion } from '../dataVersion';
+import { submitTask } from '../infra/taskQueue';
 import type { QueryPlan } from '../query/queryPlan';
 import { generateQueryPlan, storePlan, consumePlan } from '../query/queryPlan';
 import type { NormalizedQueryResult } from '../../src/utils/queryResultNormalizer';
@@ -168,6 +175,11 @@ beforeEach(() => {
   vi.mocked(getCachedQuery).mockResolvedValue(null);
   vi.mocked(getSemanticCachedQuery).mockResolvedValue(null);
   vi.mocked(setCachedQuery).mockResolvedValue(undefined);
+  // v0.9.76：SQL 结果缓存 / 数据版本 / 任务队列默认放行
+  vi.mocked(getCachedSqlResult).mockResolvedValue(null);
+  vi.mocked(setCachedSqlResult).mockResolvedValue(undefined);
+  vi.mocked(computeDataVersion).mockResolvedValue({ version: 'dv_test' });
+  vi.mocked(submitTask).mockResolvedValue({ taskId: 'task_test_1' });
   vi.mocked(recordConversation).mockResolvedValue(undefined);
   vi.mocked(saveFeedback).mockResolvedValue(undefined);
   vi.mocked(storePlan).mockResolvedValue(undefined);
@@ -707,6 +719,104 @@ describe('POST /api/query/execute-sql：SQL 重跑契约', () => {
     expect(res.body.rows).toEqual([{ id: 1 }]);
     expect(res.body.finalSql).toBe('SELECT * FROM clients LIMIT 100000');
     expect(res.body.dataProvenance).toBe('live');
+    expect(res.body.cached).toBe(false);
+    // v0.9.76 P1-9：成功结果写 SQL 缓存（键接入数据版本）
+    expect(setCachedSqlResult).toHaveBeenCalledWith('ds1', 'SELECT * FROM clients', 'dv_test', expect.objectContaining({ rowCount: 1 }));
+  });
+
+  it('SQL 结果缓存命中 → 200 cached=true 且不再执行 SQL', async () => {
+    querySpy.mockImplementation(withAuth());
+    vi.mocked(getCachedSqlResult).mockResolvedValue({
+      rows: [{ id: 9 }],
+      rowCount: 1,
+      truncated: false,
+      rowLimit: 100000,
+      finalSql: 'SELECT 1 LIMIT 100000',
+      dataProvenance: 'live',
+    });
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(200);
+    expect(res.body.cached).toBe(true);
+    expect(res.body.rows).toEqual([{ id: 9 }]);
+    expect(executeSafeSql).not.toHaveBeenCalled();
+    expect(getCachedSqlResult).toHaveBeenCalledWith('ds1', 'SELECT 1', 'dv_test');
+  });
+
+  it('bypassCache=true → 跳过读缓存并重执行（结果刷新写缓存）', async () => {
+    querySpy.mockImplementation(withAuth());
+    vi.mocked(executeSafeSql).mockResolvedValue({
+      ok: true,
+      result: { rows: [{ id: 2 }], rowCount: 1, truncated: false, finalSql: 'SELECT 2 LIMIT 100000' },
+    });
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ dataSourceId: 'ds1', sql: 'SELECT 2', bypassCache: true });
+    expect(res.status).toBe(200);
+    expect(res.body.cached).toBe(false);
+    expect(getCachedSqlResult).not.toHaveBeenCalled();
+    expect(setCachedSqlResult).toHaveBeenCalled();
+  });
+});
+
+// ────────────────────────── POST /execute-sql-async ──────────────────────────
+
+describe('POST /api/query/execute-sql-async：大查询后台执行契约（v0.9.76 P1-10）', () => {
+  const url = '/api/query/execute-sql-async';
+
+  it('缺少 token → 401', async () => {
+    const res = await request(app).post(url).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(401);
+  });
+
+  it('角色无权限（VIEWER）→ 403', async () => {
+    querySpy.mockImplementation(withAuth('VIEWER', 7));
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor('VIEWER', 7)}`).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('没有权限执行此操作');
+  });
+
+  it('缺少 dataSourceId / sql → 400', async () => {
+    querySpy.mockImplementation(withAuth());
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({});
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('INVALID_INPUT');
+    expect(res.body.error).toBe('dataSourceId 与 sql 必填');
+  });
+
+  it('无数据源访问权限 → 403 DS_ACCESS_DENIED', async () => {
+    querySpy.mockImplementation(withAuth());
+    vi.mocked(checkDataSourceAccess).mockResolvedValue(false);
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('DS_ACCESS_DENIED');
+  });
+
+  it('数据源已停用 → 403 AI_SWITCHED_OFF', async () => {
+    querySpy.mockImplementation(withAuth());
+    vi.mocked(loadSchemaContext).mockResolvedValue(ctx({ status: 'disconnected' }));
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('AI_SWITCHED_OFF');
+  });
+
+  it('成功入队 → 202 返回 taskId 与状态地址', async () => {
+    querySpy.mockImplementation(withAuth());
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(202);
+    expect(res.body.success).toBe(true);
+    expect(res.body.taskId).toBe('task_test_1');
+    expect(res.body.statusUrl).toBe('/api/tasks/task_test_1');
+    expect(submitTask).toHaveBeenCalledWith(
+      'flex_query',
+      expect.objectContaining({ dataSourceId: 'ds1', sql: 'SELECT 1' }),
+      expect.objectContaining({ id: 1 })
+    );
+  });
+
+  it('在途任务过多 → 429 RATE_LIMITED', async () => {
+    querySpy.mockImplementation(withAuth());
+    vi.mocked(submitTask).mockResolvedValue(null);
+    const res = await request(app).post(url).set('Authorization', `Bearer ${tokenFor()}`).send({ dataSourceId: 'ds1', sql: 'SELECT 1' });
+    expect(res.status).toBe(429);
+    expect(res.body.code).toBe('RATE_LIMITED');
   });
 });
 

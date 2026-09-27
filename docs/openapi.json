@@ -1653,6 +1653,10 @@
                   },
                   "dataSourceId": {
                     "type": "string"
+                  },
+                  "bypassCache": {
+                    "type": "boolean",
+                    "description": "true 时跳过 SQL 结果缓存读、重执行并刷新缓存（前端「强制刷新」）"
                   }
                 }
               }
@@ -1661,10 +1665,49 @@
         },
         "responses": {
           "200": {
-            "description": "查询结果（columns/rows）"
+            "description": "查询结果（columns/rows；缓存命中时 cached=true）"
           },
           "422": {
             "description": "SQL 被安全策略拒绝（SQL_REJECTED）"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/api/query/execute-sql-async": {
+      "post": {
+        "tags": [
+          "Query"
+        ],
+        "operationId": "executeSqlAsync",
+        "summary": "大查询后台执行（提交入任务队列，202 返回 taskId，前端轮询 /api/tasks/{id} 取结果）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "sql",
+                  "dataSourceId"
+                ],
+                "properties": {
+                  "sql": {
+                    "type": "string"
+                  },
+                  "dataSourceId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "任务已入队（taskId / statusUrl）"
           },
           "429": {
             "$ref": "#/components/responses/RateLimited"

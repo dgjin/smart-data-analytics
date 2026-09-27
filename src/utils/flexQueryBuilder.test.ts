@@ -6,6 +6,9 @@ import {
   betweenParts,
   aggExpression,
   dimResultAlias,
+  metricAlias,
+  derivedAlias,
+  YOY_LAG_BY_UNIT,
   FlexQueryConfig,
 } from './flexQueryBuilder';
 import { TableSchema } from '../types/analytics';
@@ -604,5 +607,182 @@ describe('buildFlexQuerySql: v0.9.75 P0 增强', () => {
     );
     expect(out.ok).toBe(true);
     if (out.ok) expect(out.sql).toContain('ORDER BY `dim_region`.`region_name` ASC');
+  });
+});
+
+describe('buildFlexQuerySql: v0.9.76 P1 增强（OR 组 / 语义指标 / 时间衍生列）', () => {
+  const DIM: TableSchema = {
+    id: 't2',
+    name: 'dim_region',
+    displayName: '区域维表',
+    description: '',
+    rowCount: 50,
+    columns: [
+      { name: 'region_code', type: 'string' },
+      { name: 'region_name', type: 'string' },
+    ],
+  };
+
+  it('OR 分组：组内 OR、组间 AND，空组忽略', () => {
+    const out = buildFlexQuerySql(
+      base({
+        filters: [{ column: 'BNTFJE', op: '>', value: '100' }],
+        orGroups: [
+          [
+            { column: 'JGMC', op: '=', value: '北京' },
+            { column: 'JGMC', op: '=', value: '上海' },
+          ],
+          [],
+        ],
+      }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain("WHERE `BNTFJE` > 100 AND (`JGMC` = '北京' OR `JGMC` = '上海')");
+    }
+  });
+
+  it('OR 分组：组内条件值缺失 → 拒绝；组数超限 → 拒绝', () => {
+    const missingValue = buildFlexQuerySql(
+      base({ orGroups: [[{ column: 'JGMC', op: '=', value: '' }]] }),
+      TABLE,
+      'mysql'
+    );
+    expect(missingValue.ok).toBe(false);
+
+    const tooMany = buildFlexQuerySql(
+      base({ orGroups: Array.from({ length: 6 }, () => [{ column: 'JGMC', op: '=', value: 'x' }]) }),
+      TABLE,
+      'mysql'
+    );
+    expect(tooMany.ok).toBe(false);
+  });
+
+  it('语义指标：expr 作为结果列 metric_<id>，固定过滤并入 WHERE（括号包裹）', () => {
+    const out = buildFlexQuerySql(
+      base({
+        measures: [],
+        orderBys: [],
+        metrics: [
+          { id: 3, name: '投放金额', expr: 'SUM(BNTFJE)', tableName: 'fct_jc_main_biz_stat', filters: "JGMC = '北京'" },
+        ],
+      }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toBe(
+        "SELECT `JGMC`, SUM(BNTFJE) AS `metric_3` FROM `fct_jc_main_biz_stat` WHERE (JGMC = '北京') GROUP BY `JGMC` LIMIT 100"
+      );
+    }
+    expect(metricAlias(3)).toBe('metric_3');
+  });
+
+  it('语义指标：归属表不一致 / 与所选表不符 / 含 JOIN / 过滤不一致 → 均拒绝', () => {
+    const m1 = { id: 1, name: 'A', expr: 'SUM(BNTFJE)', tableName: 'fct_jc_main_biz_stat', filters: '' };
+    const m2 = { id: 2, name: 'B', expr: 'SUM(BNTFJE)', tableName: 'other_table', filters: '' };
+    expect(buildFlexQuerySql(base({ metrics: [m1, m2] }), TABLE, 'mysql').ok).toBe(false);
+    expect(
+      buildFlexQuerySql(
+        base({ metrics: [{ ...m1, tableName: 'another_table' }] }),
+        TABLE,
+        'mysql'
+      ).ok
+    ).toBe(false);
+    expect(
+      buildFlexQuerySql(
+        base({ metrics: [m1], joins: [{ table: 'dim_region', type: 'LEFT', on: { left: 'JGMC', right: 'region_code' } }] }),
+        TABLE,
+        'mysql',
+        [TABLE, DIM]
+      ).ok
+    ).toBe(false);
+    expect(
+      buildFlexQuerySql(
+        base({ metrics: [m1, { ...m1, id: 2, filters: 'BNTFJE > 0' }] }),
+        TABLE,
+        'mysql'
+      ).ok
+    ).toBe(false);
+  });
+
+  it('时间衍生列：按月同比（LAG 12）与移动平均（3 期），外层包装查询', () => {
+    const out = buildFlexQuerySql(
+      base({
+        dimensions: ['SJRQ'],
+        dimTimeUnits: { SJRQ: 'month' },
+        orderBys: [],
+        deriveds: [
+          { by: 'sum_bntfje', kind: 'yoy' },
+          { by: 'sum_bntfje', kind: 'ma', periods: 3 },
+        ],
+      }),
+      TABLE,
+      'mysql'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('SELECT t.*, ');
+      expect(out.sql).toContain('LAG(t.`sum_bntfje`, 12) OVER (ORDER BY t.`SJRQ`)');
+      expect(out.sql).toContain('AS `sum_bntfje_yoy`');
+      expect(out.sql).toContain('ROWS BETWEEN 2 PRECEDING AND CURRENT ROW');
+      expect(out.sql).toContain('AS `sum_bntfje_ma3`');
+      expect(out.sql).toContain("FROM (SELECT DATE_FORMAT(`SJRQ`, '%Y-%m') AS `SJRQ`, SUM(`BNTFJE`) AS `sum_bntfje` FROM `fct_jc_main_biz_stat` GROUP BY DATE_FORMAT(`SJRQ`, '%Y-%m')) AS t");
+      expect(out.sql.endsWith('ORDER BY t.`SJRQ` ASC LIMIT 100')).toBe(true);
+    }
+  });
+
+  it('时间衍生列：累计（SUM OVER UNBOUNDED）与按季同比回看 4 期（PG 双引号）', () => {
+    const out = buildFlexQuerySql(
+      base({
+        dimensions: ['SJRQ'],
+        dimTimeUnits: { SJRQ: 'quarter' },
+        orderBys: [{ by: 'sum_bntfje', dir: 'desc' }],
+        deriveds: [
+          { by: 'sum_bntfje', kind: 'cum' },
+          { by: 'sum_bntfje', kind: 'mom' },
+        ],
+      }),
+      TABLE,
+      'pg'
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.sql).toContain('SUM(t."sum_bntfje") OVER (ORDER BY t."SJRQ" ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS "sum_bntfje_cum"');
+      expect(out.sql).toContain('LAG(t."sum_bntfje", 1) OVER (ORDER BY t."SJRQ")');
+      expect(out.sql).toContain('ORDER BY t."sum_bntfje" DESC');
+    }
+    expect(YOY_LAG_BY_UNIT.quarter).toBe(4);
+    expect(derivedAlias('sum_bntfje', 'ma', 7)).toBe('sum_bntfje_ma7');
+  });
+
+  it('时间衍生列：无时间粒度 / 目标别名不存在 / 重复衍生 → 均拒绝', () => {
+    expect(
+      buildFlexQuerySql(base({ deriveds: [{ by: 'sum_bntfje', kind: 'yoy' }] }), TABLE, 'mysql').ok
+    ).toBe(false);
+    expect(
+      buildFlexQuerySql(
+        base({ dimTimeUnits: { JGMC: 'month' }, deriveds: [{ by: 'not_exist', kind: 'yoy' }] }),
+        TABLE,
+        'mysql'
+      ).ok
+    ).toBe(false);
+    expect(
+      buildFlexQuerySql(
+        base({
+          dimensions: ['SJRQ'],
+          dimTimeUnits: { SJRQ: 'month' },
+          deriveds: [
+            { by: 'sum_bntfje', kind: 'yoy' },
+            { by: 'sum_bntfje', kind: 'yoy' },
+          ],
+        }),
+        TABLE,
+        'mysql'
+      ).ok
+    ).toBe(false);
   });
 });

@@ -9,6 +9,8 @@ import type mysql from 'mysql2/promise';
 import { registerTaskHandler } from './infra/taskQueue';
 import { writeAudit } from './infra/auditLog';
 import { loadSchemaContext, isLiveCapableType } from './query/schemaContext';
+import { executeSafeSql } from './query/sqlExecutor';
+import { maskRows } from './query/dlp';
 import { runLiveReport, consumeReportPlan } from './report/liveReport';
 import { runSimulatedReport } from './report/simulatedReport';
 import { getFallbackExecutiveReport } from './serverFallbacks';
@@ -16,12 +18,13 @@ import { normalizeReport } from '../src/utils/queryResultNormalizer';
 import { normalizeExportData, buildExportFilename } from './report/reportExport';
 import { runPdfGenerator } from './report/pdfExport';
 import { getPool } from './infra/db';
+import type { UserRole } from './auth/auth';
 
 /** 处理器内统一的用户快照（提交时冻结，worker 执行时不再依赖会话） */
 export interface TaskUserSnapshot {
   id: number;
   username: string;
-  role: string;
+  role: UserRole;
   department?: string;
 }
 
@@ -162,6 +165,60 @@ async function runReportFromQuery(payload: Record<string, unknown>, reportProgre
   return { success: true, isFallback: true, report: getFallbackExecutiveReport(templateType, ctx.schema), templateName, dataProvenance: 'simulated' };
 }
 
+/**
+ * v0.9.76 P1-10 灵活查询后台执行：交互端点预估大查询时改走本任务（提交即返回 taskId）。
+ * 结果按提交人快照 DLP 脱敏后存任务表（result_json），前端轮询 /api/tasks/:id 渲染；
+ * 执行走导出级连接池配额与超时（不挤占交互问数，见 sqlExecutor 场景分级）。
+ */
+const FLEX_QUERY_STORED_ROW_LIMIT = 20000;
+
+async function runFlexQuery(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
+  const startedAt = Date.now();
+  const user = payload.user as TaskUserSnapshot;
+  const dataSourceId = typeof payload.dataSourceId === 'string' ? payload.dataSourceId : '';
+  const sql = typeof payload.sql === 'string' ? payload.sql : '';
+  const auditBase = { userId: user.id, username: user.username, endpoint: 'flex_query' as const, dataSourceId };
+  const auditQuestion = `async-flex:${sql.slice(0, 120)}`;
+
+  const ctx = await loadSchemaContext(dataSourceId, undefined);
+  if (ctx.status === 'disconnected') {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_SWITCH', detail: '数据源已停用智能问数', durationMs: Date.now() - startedAt });
+    throw new Error('该数据源的智能问数功能已被管理员停用');
+  }
+
+  await reportProgress('大查询后台执行中');
+  const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved, FLEX_QUERY_STORED_ROW_LIMIT, ctx.rowFilters, 'export');
+  if (outcome.ok !== true) {
+    writeAudit({ ...auditBase, question: auditQuestion, status: 'DENIED_INPUT', detail: String(outcome.reason).slice(0, 200), durationMs: Date.now() - startedAt });
+    throw new Error(outcome.reason);
+  }
+
+  // P2-12 DLP：按提交人快照脱敏后落盘（任务结果仅本人或 ADMIN 可见，见 routes/tasks.ts）
+  const dlpOut = maskRows(outcome.result.rows, user);
+  const durationMs = Date.now() - startedAt;
+  const isSlow = durationMs > 3000 || outcome.result.rowCount > 100000;
+  writeAudit({
+    ...auditBase,
+    question: auditQuestion,
+    status: 'SUCCESS',
+    detail: `${isSlow ? 'SLOW: ' : ''}异步执行 ${durationMs}ms，行数 ${outcome.result.rowCount}`,
+    executedSql: outcome.result.finalSql,
+    rowCount: outcome.result.rowCount,
+    durationMs,
+  });
+  return {
+    success: true,
+    rows: dlpOut.rows,
+    rowCount: outcome.result.rowCount,
+    truncated: outcome.result.truncated,
+    rowLimit: FLEX_QUERY_STORED_ROW_LIMIT,
+    finalSql: outcome.result.finalSql,
+    executionTimeMs: durationMs,
+    dataProvenance: 'live',
+    ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
+  };
+}
+
 async function runExportPdf(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>, taskId: string): Promise<unknown> {
   const startedAt = Date.now();
   const user = payload.user as TaskUserSnapshot;
@@ -194,4 +251,5 @@ export function registerBuiltinTaskHandlers(): void {
   registerTaskHandler('report_generate', (payload, ctx) => runReportGenerate((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
   registerTaskHandler('report_generate_from_query', (payload, ctx) => runReportFromQuery((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
   registerTaskHandler('report_export_pdf', (payload, ctx) => runExportPdf((payload ?? {}) as Record<string, unknown>, ctx.reportProgress, ctx.taskId));
+  registerTaskHandler('flex_query', (payload, ctx) => runFlexQuery((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
 }

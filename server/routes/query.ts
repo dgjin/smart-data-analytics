@@ -8,6 +8,7 @@
  * - POST /plan                   计划模式（先出计划，用户批准后执行）
  * - POST /feedback               反馈闭环（点赞沉淀 few-shot 样例）
  * - POST /execute-sql            SQL 重跑（SELECT-only 安全执行层）
+ * - POST /execute-sql-async      大查询后台执行（v0.9.76 P1-10：任务队列，202 + taskId）
  * - POST /sql-assist             SQL AI 助手（解释/优化）
  * - POST /drill                  图表点击下钻
  *
@@ -29,6 +30,9 @@ import { callLLMText, validateModelSelection, setLlmOverride } from '../llm/llmC
 import { buildColumnNames } from '../query/liveQuery';
 import { runDrill } from '../query/drill';
 import { executeSafeSql, MAX_ROWS } from '../query/sqlExecutor';
+import { getCachedSqlResult, setCachedSqlResult } from '../query/queryCache';
+import { computeDataVersion } from '../dataVersion';
+import { submitTask } from '../infra/taskQueue';
 import { saveFeedback } from '../query/queryFeedback';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { maskRows } from '../query/dlp';
@@ -273,6 +277,28 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
     return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
   }
 
+  // v0.9.76 P1-9：SQL 结果缓存（键 = 数据源 + SQL，随 dataVersion 与数据源变更失效）。
+  // bypassCache=true（前端「强制刷新」）跳过读缓存、重执行并刷新缓存条目。
+  const bypassCache = req.body?.bypassCache === true;
+  const dv = await computeDataVersion(dataSourceId);
+  if (!bypassCache) {
+    const cached = await getCachedSqlResult(dataSourceId, sql, dv.version);
+    if (cached) {
+      // P2-12 DLP：缓存存原始行（不污染），命中响应仍按当前角色脱敏
+      const cachedRows = Array.isArray(cached.rows) ? (cached.rows as Record<string, unknown>[]) : [];
+      const hitDlp = maskRows(cachedRows, user);
+      writeAudit({ ...auditBase, question: `exec:${sql.slice(0, 120)}`, status: 'CACHE', detail: `SQL 结果缓存命中（数据版本 ${dv.version ?? '-'}）`, executedSql: sql, durationMs: Date.now() - startedAt });
+      return res.json({
+        success: true,
+        ...cached,
+        rows: hitDlp.rows,
+        executionTimeMs: Date.now() - startedAt,
+        cached: true,
+        ...(hitDlp.maskedColumns.length > 0 ? { dlp: { maskedColumns: hitDlp.maskedColumns, maskedLabels: hitDlp.maskedLabels } } : {}),
+      });
+    }
+  }
+
   // v0.4.14：maxRows 不传（用服务端默认 100000），与灵活查询 LIMIT 放宽对齐
   const outcome = await executeSafeSql(dataSourceId, sql, ctx.schema, ctx.sensitiveRemoved, undefined, ctx.rowFilters);
   if (outcome.ok !== true) {
@@ -293,6 +319,15 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
   }
   // P2-12 DLP：执行结果按角色脱敏（VIEWER/ANALYST 敏感列掩码，ADMIN 豁免）
   const dlpOut = maskRows(outcome.result.rows, user);
+  // v0.9.76 P1-9：成功结果写 SQL 缓存（存原始未脱敏行，脱敏在响应时复制；写失败 fail-open 不阻断响应）
+  await setCachedSqlResult(dataSourceId, sql, dv.version, {
+    rows: outcome.result.rows,
+    rowCount: outcome.result.rowCount,
+    truncated: outcome.result.truncated,
+    rowLimit: MAX_ROWS,
+    finalSql: outcome.result.finalSql,
+    dataProvenance: 'live',
+  });
   return res.json({
     success: true,
     executionTimeMs: Date.now() - startedAt,
@@ -303,8 +338,62 @@ router.post('/execute-sql', rateLimiter, authMiddleware, requireRole('ADMIN', 'A
     rowLimit: MAX_ROWS,
     finalSql: outcome.result.finalSql,
     dataProvenance: 'live',
+    cached: false,
     ...(dlpOut.maskedColumns.length > 0 ? { dlp: { maskedColumns: dlpOut.maskedColumns, maskedLabels: dlpOut.maskedLabels } } : {}),
   });
+});
+
+// 3c-async. v0.9.76 P1-10：大查询后台执行——提交即返回 taskId（前端轮询 /api/tasks/:id 渲染结果）。
+// 权限/开关校验在提交端点完成；任务以提交人快照身份经 export 级连接池执行（不挤占交互问数）。
+router.post('/execute-sql-async', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const { dataSourceId, sql } = req.body || {};
+  const auditBase = {
+    userId: user.id,
+    username: user.username,
+    endpoint: 'flex_query' as const,
+    dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+  };
+
+  if (typeof dataSourceId !== 'string' || !dataSourceId || typeof sql !== 'string' || !sql.trim()) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'dataSourceId 与 sql 必填' });
+  }
+  if (sql.length > 10000) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'SQL 长度超出限制' });
+  }
+  // P2-11 数据源访问控制
+  if (!(await checkDataSourceAccess(user, dataSourceId))) {
+    writeAudit({ ...auditBase, question: `async-flex:${sql.slice(0, 120)}`, status: 'DENIED_AUTH', detail: '无数据源访问权限（ACL）', durationMs: Date.now() - startedAt });
+    return res.status(403).json({ code: ERROR_CODES.DS_ACCESS_DENIED, error: '没有该数据源的访问权限，可向管理员申请开通' });
+  }
+  const limit = await checkUserQueryLimit(user.id);
+  if (!limit.ok) {
+    writeAudit({ ...auditBase, question: `async-flex:${sql.slice(0, 120)}`, status: 'DENIED_RATE', detail: limit.reason, durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: limit.reason });
+  }
+  const ctx = await loadSchemaContext(dataSourceId, undefined);
+  if (ctx.status === 'disconnected') {
+    return res.status(403).json({ code: ERROR_CODES.AI_SWITCHED_OFF, error: '该数据源的智能问数功能已被管理员停用' });
+  }
+
+  let submitted: { taskId: string } | null;
+  try {
+    submitted = await submitTask('flex_query', {
+      dataSourceId,
+      sql,
+      user: { id: user.id, username: user.username, role: user.role, department: user.department },
+    }, { id: user.id, username: user.username });
+  } catch (err) {
+    logger.error('[FlexQuery] async submit failed:', getErrorMessage(err));
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务提交失败，请稍后重试' });
+  }
+  if (!submitted) {
+    writeAudit({ ...auditBase, question: `async-flex:${sql.slice(0, 120)}`, status: 'DENIED_RATE', detail: '在途任务过多', durationMs: Date.now() - startedAt });
+    return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: '您有多个任务正在排队或执行中，请等待完成后再提交' });
+  }
+  writeAudit({ ...auditBase, question: `async-flex:${sql.slice(0, 120)}`, status: 'QUEUED', detail: `taskId=${submitted.taskId}`, durationMs: Date.now() - startedAt });
+  return res.status(202).json({ success: true, taskId: submitted.taskId, status: 'PENDING', statusUrl: `/api/tasks/${submitted.taskId}` });
 });
 
 // 3d. API Endpoint: SQL AI 助手（借鉴 Chat2DB 的 SQL 解释/优化）

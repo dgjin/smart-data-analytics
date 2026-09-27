@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import { normalizeQuestion, cacheKey, getCachedQuery, setCachedQuery, invalidateQueryCache, getSemanticCachedQuery, semanticCacheThreshold, cacheTtlMs } from './queryCache';
+import {
+  normalizeQuestion,
+  cacheKey,
+  getCachedQuery,
+  setCachedQuery,
+  invalidateQueryCache,
+  getSemanticCachedQuery,
+  semanticCacheThreshold,
+  cacheTtlMs,
+  sqlResultCacheKey,
+  getCachedSqlResult,
+  setCachedSqlResult,
+  sqlCacheTtlMs,
+} from './queryCache';
 import { callEmbedding } from '../llm/llmClient';
 
 // P1-6 L2 语义缓存测试：embedding 走 mock（按归一化文本查表），向量确定性可控
@@ -155,5 +168,72 @@ describe('queryCache: P1-6 L2 语义缓存', () => {
     registerEmbedding('重点客户的拜访次数是多少', [0.93, 0.3676]);
     await setCachedQuery(cacheKey('ds-hard', '各客户类型的拜访次数是多少'), { success: true }, { dataSourceId: 'ds-hard', question: '各客户类型的拜访次数是多少' });
     expect(await getSemanticCachedQuery('ds-hard', '重点客户的拜访次数是多少')).toBeNull();
+  });
+});
+
+describe('queryCache: v0.9.76 P1-9 SQL 结果缓存', () => {
+  it('sqlResultCacheKey：fqsql 前缀 + 确定性哈希（同一 SQL 同键、不同 SQL 异键、不落原文）', () => {
+    const k1 = sqlResultCacheKey('ds1', 'SELECT * FROM t LIMIT 10');
+    const k2 = sqlResultCacheKey('ds1', 'SELECT * FROM t LIMIT 10');
+    const k3 = sqlResultCacheKey('ds1', 'SELECT * FROM t LIMIT 20');
+    expect(k1).toBe(k2);
+    expect(k1).not.toBe(k3);
+    expect(k1.startsWith('fqsql:ds1:')).toBe(true);
+    expect(k1).not.toContain('SELECT');
+    // 数据源隔离
+    expect(sqlResultCacheKey('ds2', 'SELECT * FROM t LIMIT 10')).not.toBe(k1);
+  });
+
+  it('写入后可命中，返回载荷不含版本元信息', async () => {
+    await setCachedSqlResult('ds-sql', 'SELECT 1', 'v1', { rows: [{ a: 1 }], rowCount: 1 });
+    const hit = await getCachedSqlResult('ds-sql', 'SELECT 1', 'v1');
+    expect(hit).toBeTruthy();
+    expect(hit!.rowCount).toBe(1);
+    expect(hit).not.toHaveProperty('version');
+    expect(hit).not.toHaveProperty('__fqVersion');
+  });
+
+  it('dataVersion 不匹配 → 不命中；两端均为 null（数据源不支持版本）→ 按 TTL 兜底命中', async () => {
+    await setCachedSqlResult('ds-ver', 'SELECT 2', 'v1', { rows: [] });
+    expect(await getCachedSqlResult('ds-ver', 'SELECT 2', 'v2')).toBeNull();
+    expect(await getCachedSqlResult('ds-ver', 'SELECT 2', 'v1')).toBeTruthy();
+
+    await setCachedSqlResult('ds-ver-null', 'SELECT 3', null, { rows: [] });
+    expect(await getCachedSqlResult('ds-ver-null', 'SELECT 3', null)).toBeTruthy();
+    // 当前有版本、缓存无版本 → 保守不命中
+    expect(await getCachedSqlResult('ds-ver-null', 'SELECT 3', 'v9')).toBeNull();
+  });
+
+  it('未写入返回 null，数据源间隔离', async () => {
+    expect(await getCachedSqlResult('ds-x', 'SELECT 4', null)).toBeNull();
+    await setCachedSqlResult('ds-x', 'SELECT 4', null, { rows: [{ x: 1 }] });
+    expect(await getCachedSqlResult('ds-y', 'SELECT 4', null)).toBeNull();
+  });
+
+  it('invalidateQueryCache 同步清理 SQL 结果缓存（不影响其他数据源）', async () => {
+    await setCachedSqlResult('ds-inv-a', 'SELECT 5', null, { rows: [] });
+    await setCachedSqlResult('ds-inv-b', 'SELECT 5', null, { rows: [] });
+    await invalidateQueryCache('ds-inv-a');
+    expect(await getCachedSqlResult('ds-inv-a', 'SELECT 5', null)).toBeNull();
+    expect(await getCachedSqlResult('ds-inv-b', 'SELECT 5', null)).toBeTruthy();
+    await invalidateQueryCache();
+    expect(await getCachedSqlResult('ds-inv-b', 'SELECT 5', null)).toBeNull();
+  });
+
+  it('sqlCacheTtlMs 惰性读取：默认 10 分钟，env 覆盖即时生效', () => {
+    const original = process.env.SQL_CACHE_TTL_MINUTES;
+    try {
+      delete process.env.SQL_CACHE_TTL_MINUTES;
+      expect(sqlCacheTtlMs()).toBe(10 * 60 * 1000);
+      process.env.SQL_CACHE_TTL_MINUTES = '5';
+      expect(sqlCacheTtlMs()).toBe(5 * 60 * 1000);
+      process.env.SQL_CACHE_TTL_MINUTES = 'abc';
+      expect(sqlCacheTtlMs()).toBe(10 * 60 * 1000);
+      process.env.SQL_CACHE_TTL_MINUTES = '0';
+      expect(sqlCacheTtlMs()).toBe(10 * 60 * 1000);
+    } finally {
+      if (original === undefined) delete process.env.SQL_CACHE_TTL_MINUTES;
+      else process.env.SQL_CACHE_TTL_MINUTES = original;
+    }
   });
 });

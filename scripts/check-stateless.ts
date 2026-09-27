@@ -39,6 +39,7 @@ export const STATE_WHITELIST: WhitelistEntry[] = [
   { file: 'server/report/liveReport.ts', name: 'reportPlanStore', category: 'redis-fallback', reason: '报表计划存储（rqp:*）的内存回退；多实例经 Redis 共享' },
   { file: 'server/query/queryCache.ts', name: 'cache', category: 'redis-fallback', reason: '问数结果缓存（qc:*）的内存回退；多实例经 Redis 共享命中' },
   { file: 'server/query/queryCache.ts', name: 'semanticIndex', category: 'redis-fallback', reason: '语义缓存索引（qcidx:*）的内存回退；多实例经 Redis 共享' },
+  { file: 'server/query/queryCache.ts', name: 'sqlCache', category: 'redis-fallback', reason: 'v0.9.76 灵活查询 SQL 结果缓存（fqsql:*）的内存回退，条数上限 100；多实例经 Redis 共享命中' },
   { file: 'server/auth/oidc.ts', name: 'stateStore', category: 'redis-fallback', reason: 'OIDC 登录 state（oidc:st:*）的内存回退；多实例经 Redis 共享防重放' },
   { file: 'server/infra/rateLimiter.ts', name: 'requestLog', category: 'redis-fallback', reason: 'IP 限流窗口（rl:*）的内存回退；多实例经 Redis INCR 共享限额' },
   { file: 'server/infra/userQueryLimit.ts', name: 'hits', category: 'redis-fallback', reason: '用户配额窗口（uql:*）的内存回退；多实例经 Redis 共享' },

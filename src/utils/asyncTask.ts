@@ -23,6 +23,8 @@ export interface PollTaskOptions {
   timeoutMs?: number;
   /** 进度文案变化回调（用于 UI 阶段提示） */
   onProgress?: (progress: string, status: 'PENDING' | 'RUNNING') => void;
+  /** v0.9.76：取消等待（AbortController 信号；仅停止前端轮询，服务端任务继续执行） */
+  signal?: AbortSignal;
 }
 
 /**
@@ -37,10 +39,12 @@ export async function pollTask(taskId: string, opts: PollTaskOptions = {}): Prom
   let consecutiveErrors = 0;
 
   while (Date.now() < deadline) {
+    if (opts.signal?.aborted) throw new Error('任务等待已取消');
     let task: AsyncTaskStatus | null;
     try {
       const resp = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
         headers: { Accept: 'application/json' },
+        signal: opts.signal,
       });
       if (resp.status === 404) throw new Error('任务不存在或已被清理');
       if (!resp.ok) {
@@ -50,12 +54,13 @@ export async function pollTask(taskId: string, opts: PollTaskOptions = {}): Prom
       task = (await resp.json()) as AsyncTaskStatus;
       consecutiveErrors = 0;
     } catch (err) {
-      // 404 与 401（apiFetch 内抛 ApiError）不可恢复，直接抛；其余视为瞬时抖动
+      // 404 与 401（apiFetch 内抛 ApiError）不可恢复，直接抛；取消等待亦直接抛；其余视为瞬时抖动
+      if (opts.signal?.aborted || (err as { name?: string })?.name === 'AbortError') throw new Error('任务等待已取消', { cause: err });
       const msg = String(getErrorMessage(err) || '');
       if (msg.includes('任务不存在') || err?.name === 'ApiError') throw err;
       consecutiveErrors += 1;
       if (consecutiveErrors >= 5) {
-        throw new Error(`任务状态查询连续失败：${msg || '网络异常'}`);
+        throw new Error(`任务状态查询连续失败：${msg || '网络异常'}`, { cause: err });
       }
       await new Promise((r) => setTimeout(r, intervalMs));
       continue;

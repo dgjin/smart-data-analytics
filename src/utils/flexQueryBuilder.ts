@@ -9,6 +9,8 @@
  * （ROUND(AGG(col)/divisor, 2)），HAVING 中金额列表达式同口径；COUNT 类聚合与「元」原值不换算。
  * v0.9.75（灵活查询 P0 增强）：时间维度粒度分组（按年/季/月/周/日）、多列排序（orderBys 数组）、
  * LIKE 匹配模式（包含/开头是/结尾是/精确）、维度结果列名统一取末段（修复跨表维度图表/透视键不匹配）。
+ * v0.9.76（灵活查询 P1 增强）：OR 分组（组内 OR/组间 AND）、语义指标接入（治理口径 expr + 固定过滤，
+ * 同归属表/同过滤约束）、时间衍生列（同比/环比/累计/移动平均，LAG/SUM/AVG OVER 窗口函数双方言）。
  */
 import { TableSchema } from '../types/analytics';
 
@@ -51,6 +53,26 @@ export interface FlexOrderBy {
   dir: 'desc' | 'asc';
 }
 
+/** v0.9.76：语义指标度量（expr/filters 为指标治理审批产物，客户端仅作基本防多语句校验，服务端执行层兜底） */
+export interface FlexMetricMeasure {
+  id: number;
+  name: string;
+  expr: string;
+  tableName: string;
+  filters: string;
+}
+
+/** v0.9.76：时间衍生列类型（yoy 同比 / mom 环比 / cum 累计 / ma 移动平均） */
+export type FlexDerivedKind = 'yoy' | 'mom' | 'cum' | 'ma';
+export const FLEX_DERIVED_KINDS: FlexDerivedKind[] = ['yoy', 'mom', 'cum', 'ma'];
+
+/** v0.9.76：时间衍生列配置（by 为目标指标别名；periods 仅 ma 使用，2~12，默认 3） */
+export interface FlexDerived {
+  by: string;
+  kind: FlexDerivedKind;
+  periods?: number;
+}
+
 /** 多表关联（JOIN）配置 */
 export interface FlexJoin {
   /** 关联表名 */
@@ -75,6 +97,12 @@ export interface FlexQueryConfig {
   orderBys: FlexOrderBy[];
   /** v0.9.75：维度时间粒度（维度全名 → 粒度）；未配置的维度按原值分组 */
   dimTimeUnits?: Record<string, FlexTimeUnit>;
+  /** v0.9.76：任一满足（OR）筛选分组：组内 OR、组间 AND；空组忽略 */
+  orGroups?: FlexFilter[][];
+  /** v0.9.76：语义指标度量（约束：同归属表 + 同固定过滤 + 不支持 JOIN） */
+  metrics?: FlexMetricMeasure[];
+  /** v0.9.76：时间衍生列（需首个配置了时间粒度的维度作为窗口排序键） */
+  deriveds?: FlexDerived[];
   /** 返回行数上限（1-100000，v0.4.14 放宽防 OOM 兜底） */
   limit: number;
 }
@@ -130,6 +158,20 @@ export function measureAlias(m: { column: string; agg: FlexAgg }): string {
   const prefix = m.agg === 'COUNT_DISTINCT' ? 'countd' : m.agg.toLowerCase();
   return `${prefix}_${m.column.toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
 }
+
+/** v0.9.76：语义指标结果列别名 metric_<id>（ident-safe） */
+export function metricAlias(id: number): string {
+  return `metric_${Math.floor(Number(id) || 0)}`;
+}
+
+/** v0.9.76：时间衍生列别名（ma 附带窗口期数；by 为已有指标别名，均 ident-safe） */
+export function derivedAlias(by: string, kind: FlexDerivedKind, periods?: number): string {
+  if (kind === 'ma') return `${by}_ma${Math.min(Math.max(Math.floor(periods || 3), 2), 12)}`;
+  return `${by}_${kind}`;
+}
+
+/** 同比回看期数（按时间粒度换算一年周期）：年 1 / 季 4 / 月 12 / 周 52 / 日 365 */
+export const YOY_LAG_BY_UNIT: Record<FlexTimeUnit, number> = { year: 1, quarter: 4, month: 12, week: 52, day: 365 };
 
 /**
  * v0.9.75：维度结果列名——table.column 取末段列名（与驱动返回列名一致）。
@@ -208,6 +250,29 @@ export function filterValueToSql(op: FlexFilterOp, raw: string, likeMode: FlexLi
 
 export type FlexBuildResult = { ok: true; sql: string } | { ok: false; error: string };
 
+/** v0.9.76：单条筛选条件 → SQL 片段（WHERE 主列表与 OR 组共用；非法返回错误文案） */
+function buildFilterCondition(
+  f: FlexFilter,
+  ident: (name: string) => string | null,
+): { ok: true; sql: string } | { ok: false; error: string } {
+  const col = ident(f.column);
+  if (!col) return { ok: false, error: `筛选列「${f.column}」不存在于该表` };
+  if (!FLEX_FILTER_OPS.includes(f.op)) return { ok: false, error: `不支持的筛选条件「${f.op}」` };
+  if (FLEX_NO_VALUE_OPS.includes(f.op)) return { ok: true, sql: `${col} ${f.op}` };
+  if (!f.value.trim()) return { ok: false, error: `筛选列「${f.column}」的值不能为空` };
+  if (f.op === 'IN') return { ok: true, sql: `${col} IN ${filterValueToSql('IN', f.value)}` };
+  if (f.op === 'BETWEEN') {
+    const parts = betweenParts(f.value);
+    if (!parts) return { ok: false, error: `筛选列「${f.column}」的区间需填两个端点（如 100, 500）` };
+    return { ok: true, sql: `${col} BETWEEN ${parts[0]} AND ${parts[1]}` };
+  }
+  if (f.op === 'LIKE') {
+    if (f.likeMode && !FLEX_LIKE_MODES.includes(f.likeMode)) return { ok: false, error: `不支持的匹配模式「${f.likeMode}」` };
+    return { ok: true, sql: `${col} LIKE ${filterValueToSql('LIKE', f.value, f.likeMode)}` };
+  }
+  return { ok: true, sql: `${col} ${f.op} ${filterValueToSql(f.op, f.value)}` };
+}
+
 /**
  * 按配置构建单表/多表聚合 SQL。dialect 决定标识符引号（mysql 反引号 / pg 双引号）。
  * 所有表名与列名必须在 table 与 allTables 的 schema 列集合内（客户端白名单第一道防线）。
@@ -256,8 +321,36 @@ export function buildFlexQuerySql(
     return table.columns.find((c) => c.name === name);
   };
 
-  if (config.dimensions.length === 0 && config.measures.length === 0) {
+  // v0.9.76：语义指标度量 / OR 分组 / 时间衍生列（可选）
+  const metricMeasures = Array.isArray(config.metrics) ? config.metrics : [];
+  const orGroups = Array.isArray(config.orGroups) ? config.orGroups : [];
+  const deriveds = Array.isArray(config.deriveds) ? config.deriveds : [];
+  if (metricMeasures.length > 8) return { ok: false, error: '语义指标最多同时使用 8 个' };
+
+  if (config.dimensions.length === 0 && config.measures.length === 0 && metricMeasures.length === 0) {
     return { ok: false, error: '请至少拖入一个维度或一个指标' };
+  }
+
+  // v0.9.76 语义指标约束：同归属表 + 同固定过滤条件 + 不支持 JOIN（口径治理要求所列口径可合并）
+  let metricFixedFilter = '';
+  if (metricMeasures.length > 0) {
+    const metricTable = metricMeasures[0].tableName;
+    if (metricMeasures.some((m) => m.tableName !== metricTable)) {
+      return { ok: false, error: '所选语义指标归属表不一致，请分开查询' };
+    }
+    if (table.name !== metricTable) {
+      return { ok: false, error: `含语义指标时数据表须为「${metricTable}」，请切换数据表或移除指标` };
+    }
+    if (config.joins && config.joins.length > 0) {
+      return { ok: false, error: '含语义指标时暂不支持关联表（JOIN）' };
+    }
+    metricFixedFilter = String(metricMeasures[0].filters || '').trim();
+    if (metricMeasures.some((m) => String(m.filters || '').trim() !== metricFixedFilter)) {
+      return { ok: false, error: '所选语义指标的固定过滤条件不一致，无法合并查询' };
+    }
+    if (metricFixedFilter && /;\s*\S/.test(metricFixedFilter)) {
+      return { ok: false, error: '语义指标固定过滤条件非法' };
+    }
   }
 
   const selectParts: string[] = [];
@@ -299,28 +392,35 @@ export function buildFlexQuerySql(
     aliasToQuoted.set(alias, `${q}${alias}${q}`);
   }
 
+  // v0.9.76：语义指标表达式段（expr 为指标治理审批产物；此处仅做基本防多语句校验，结果列别名 metric_<id>）
+  for (const mt of metricMeasures) {
+    const alias = metricAlias(mt.id);
+    if (aliasToQuoted.has(alias)) continue; // 同指标重复容错（UI 已拦截）
+    if (!mt.expr || /;\s*\S/.test(mt.expr)) return { ok: false, error: `语义指标「${mt.name}」表达式非法` };
+    selectParts.push(`${mt.expr} AS ${q}${alias}${q}`);
+    aliasToQuoted.set(alias, `${q}${alias}${q}`);
+  }
+
+  // WHERE：语义指标固定过滤 → 主筛选（AND）→ OR 组（组内 OR、组间 AND，空组忽略）
   const whereParts: string[] = [];
+  if (metricFixedFilter) whereParts.push(`(${metricFixedFilter})`);
   for (const f of config.filters) {
-    const col = ident(f.column);
-    if (!col) return { ok: false, error: `筛选列「${f.column}」不存在于该表` };
-    if (!FLEX_FILTER_OPS.includes(f.op)) return { ok: false, error: `不支持的筛选条件「${f.op}」` };
-    if (FLEX_NO_VALUE_OPS.includes(f.op)) {
-      whereParts.push(`${col} ${f.op}`);
-      continue;
+    const cond = buildFilterCondition(f, ident);
+    if (cond.ok !== true) return cond;
+    whereParts.push(cond.sql);
+  }
+  if (orGroups.length > 5) return { ok: false, error: 'OR 分组最多 5 组' };
+  for (const group of orGroups) {
+    const rows = Array.isArray(group) ? group : [];
+    if (rows.length === 0) continue;
+    if (rows.length > 5) return { ok: false, error: '每组 OR 条件最多 5 条' };
+    const conds: string[] = [];
+    for (const f of rows) {
+      const cond = buildFilterCondition(f, ident);
+      if (cond.ok !== true) return cond;
+      conds.push(cond.sql);
     }
-    if (!f.value.trim()) return { ok: false, error: `筛选列「${f.column}」的值不能为空` };
-    if (f.op === 'IN') {
-      whereParts.push(`${col} IN ${filterValueToSql('IN', f.value)}`);
-    } else if (f.op === 'BETWEEN') {
-      const parts = betweenParts(f.value);
-      if (!parts) return { ok: false, error: `筛选列「${f.column}」的区间需填两个端点（如 100, 500）` };
-      whereParts.push(`${col} BETWEEN ${parts[0]} AND ${parts[1]}`);
-    } else if (f.op === 'LIKE') {
-      if (f.likeMode && !FLEX_LIKE_MODES.includes(f.likeMode)) return { ok: false, error: `不支持的匹配模式「${f.likeMode}」` };
-      whereParts.push(`${col} LIKE ${filterValueToSql('LIKE', f.value, f.likeMode)}`);
-    } else {
-      whereParts.push(`${col} ${f.op} ${filterValueToSql(f.op, f.value)}`);
-    }
+    whereParts.push(`(${conds.join(' OR ')})`);
   }
 
   // HAVING：聚合表达式过滤（全方言安全写法：重复聚合表达式而非引用别名）
@@ -345,6 +445,30 @@ export function buildFlexQuerySql(
   }
 
   const limit = Math.min(Math.max(Math.floor(config.limit) || 10000, 1), 100000);
+
+  // v0.9.76：时间衍生列校验（同比/环比/累计/移动平均；需已配置时间粒度的维度作为窗口排序键）
+  let timeAlias = '';
+  let timeUnit: FlexTimeUnit | undefined;
+  for (const d of config.dimensions) {
+    const u = config.dimTimeUnits?.[d];
+    if (u) {
+      timeAlias = dimResultAlias(d);
+      timeUnit = u;
+      break;
+    }
+  }
+  if (deriveds.length > 0) {
+    if (!timeAlias || !timeUnit) return { ok: false, error: '同比/环比/累计/移动平均需先为日期维度选择时间粒度' };
+    if (deriveds.length > 6) return { ok: false, error: '时间衍生列最多 6 个' };
+    const seenDerived = new Set<string>();
+    for (const dv of deriveds) {
+      if (!FLEX_DERIVED_KINDS.includes(dv.kind)) return { ok: false, error: `不支持的衍生类型「${dv.kind}」` };
+      if (!aliasToQuoted.has(dv.by)) return { ok: false, error: `衍生列目标「${dv.by}」不在当前指标中` };
+      const alias = derivedAlias(dv.by, dv.kind, dv.periods);
+      if (seenDerived.has(alias)) return { ok: false, error: `衍生列「${alias}」重复` };
+      seenDerived.add(alias);
+    }
+  }
 
   // v0.4.14：多表 JOIN 子句生成（校验关联表与字段合法性）
   const joinParts: string[] = [];
@@ -373,8 +497,51 @@ export function buildFlexQuerySql(
   if (whereParts.length) segments.push(`WHERE ${whereParts.join(' AND ')}`);
   if (groupParts.length) segments.push(`GROUP BY ${groupParts.join(', ')}`);
   if (havingParts.length) segments.push(`HAVING ${havingParts.join(' AND ')}`);
-  if (orderSegments.length) segments.push(`ORDER BY ${orderSegments.join(', ')}`);
-  segments.push(`LIMIT ${limit}`);
 
-  return { ok: true, sql: segments.join(' ') };
+  // 无衍生列：内层直接排序 + 截断（与 v0.9.75 行为一致）
+  if (deriveds.length === 0) {
+    if (orderSegments.length) segments.push(`ORDER BY ${orderSegments.join(', ')}`);
+    segments.push(`LIMIT ${limit}`);
+    return { ok: true, sql: segments.join(' ') };
+  }
+
+  // v0.9.76 有衍生列：内层聚合（不截断）→ 外层 t.* + 窗口列（LAG/SUM/AVG OVER，MySQL 8 与 PG 双方言）
+  const tq = (alias: string) => `t.${q}${alias}${q}`;
+  const overOrder = `ORDER BY ${tq(timeAlias)}`;
+  const yoyLagUnit: FlexTimeUnit = timeUnit || 'month';
+  const outerCols: string[] = [];
+  for (const dv of deriveds) {
+    const col = tq(dv.by);
+    const alias = derivedAlias(dv.by, dv.kind, dv.periods);
+    if (dv.kind === 'yoy' || dv.kind === 'mom') {
+      const lag = dv.kind === 'yoy' ? YOY_LAG_BY_UNIT[yoyLagUnit] : 1;
+      const prev = `LAG(${col}, ${lag}) OVER (${overOrder})`;
+      outerCols.push(`ROUND((${col} - ${prev}) / NULLIF(ABS(${prev}), 0) * 100, 2) AS ${q}${alias}${q}`);
+    } else if (dv.kind === 'cum') {
+      outerCols.push(`SUM(${col}) OVER (${overOrder} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS ${q}${alias}${q}`);
+    } else {
+      const p = Math.min(Math.max(Math.floor(dv.periods || 3), 2), 12);
+      outerCols.push(`ROUND(AVG(${col}) OVER (${overOrder} ROWS BETWEEN ${p - 1} PRECEDING AND CURRENT ROW), 2) AS ${q}${alias}${q}`);
+    }
+  }
+  // 外层排序：用户排序列映射为内层结果列名（t 前缀）；未设置时按时间升序（便于逐期阅读同比/累计）
+  const outerRefMap = new Map<string, string>();
+  for (const alias of aliasToQuoted.keys()) outerRefMap.set(alias, alias);
+  for (const d of config.dimensions) {
+    outerRefMap.set(d, dimResultAlias(d));
+    outerRefMap.set(dimResultAlias(d), dimResultAlias(d));
+  }
+  const outerOrder: string[] = [];
+  for (const o of config.orderBys || []) {
+    if (!o.by) continue;
+    const target = outerRefMap.get(o.by);
+    if (!target) continue;
+    outerOrder.push(`${tq(target)} ${o.dir === 'asc' ? 'ASC' : 'DESC'}`);
+  }
+  if (outerOrder.length === 0) outerOrder.push(`${tq(timeAlias)} ASC`);
+
+  return {
+    ok: true,
+    sql: `SELECT t.*, ${outerCols.join(', ')} FROM (${segments.join(' ')}) AS t ORDER BY ${outerOrder.join(', ')} LIMIT ${limit}`,
+  };
 }

@@ -1,11 +1,11 @@
 // P0 上帝组件拆分：自 FlexQueryBuilder 提取的字段面板（上区：表选择 + 字段列表 + 关联表配置）
 // 纯展示组件：全部状态与行为由 useFlexQueryState 注入，JSX 与拆分前保持一致
 import React from 'react';
-import { Table2, Loader2, Search, Tag, Hash, Check, Filter, Plus, ChevronUp, ChevronDown } from 'lucide-react';
+import { Table2, Loader2, Search, Tag, Hash, Check, Filter, Plus, ChevronUp, ChevronDown, Gauge } from 'lucide-react';
 import { TableSchema } from '../../types/analytics';
-import { FlexJoin } from '../../utils/flexQueryBuilder';
+import { FlexJoin, FlexMetricMeasure } from '../../utils/flexQueryBuilder';
 import { JoinConfigPanel } from './JoinConfigPanel';
-import { DropZone, FieldTab, FieldWithTable } from './flexQueryShared';
+import { DropZone, FieldTab, FieldWithTable, MetricOption } from './flexQueryShared';
 
 export interface FieldPaletteProps {
   tables: TableSchema[];
@@ -29,6 +29,11 @@ export interface FieldPaletteProps {
   meaOpen: boolean;
   setMeaOpen: React.Dispatch<React.SetStateAction<boolean>>;
   addField: (column: string, zone?: DropZone) => void;
+  /** v0.9.76 P1-7：语义指标（治理口径，归属表锁定，点击添加到指标区） */
+  availableMetrics: MetricOption[];
+  loadingMetrics: boolean;
+  metricMeasures: FlexMetricMeasure[];
+  addMetricMeasure: (id: number) => void;
 }
 
 export const FieldPalette: React.FC<FieldPaletteProps> = ({
@@ -53,6 +58,10 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
   meaOpen,
   setMeaOpen,
   addField,
+  availableMetrics,
+  loadingMetrics,
+  metricMeasures,
+  addMetricMeasure,
 }) => {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 shadow-lg">
@@ -238,6 +247,46 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
                       })}
                     </div>
                   ))}
+              </div>
+            )}
+            {fieldTab !== 'dimension' && (
+              <div>
+                <p className="flex items-center space-x-1 text-[10px] font-bold text-slate-400 uppercase px-1 py-0.5">
+                  <Gauge className="w-3 h-3 text-violet-400" />
+                  <span>语义指标（{availableMetrics.length}）</span>
+                  {loadingMetrics && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
+                </p>
+                {loadingMetrics && availableMetrics.length === 0 ? (
+                  <p className="text-[10px] text-slate-500 px-1 py-1">语义指标加载中…</p>
+                ) : availableMetrics.length === 0 ? (
+                  <p className="text-[10px] text-slate-500 px-1 py-1">当前数据源暂无已生效的语义指标（可在指标治理中创建）</p>
+                ) : (
+                  <div className="space-y-px max-h-[28vh] overflow-y-auto pr-0.5">
+                    {availableMetrics.map((m) => {
+                      const used = metricMeasures.some((x) => x.id === m.id);
+                      const tableMismatch = !!tableSchema && m.tableName !== tableSchema.name;
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => addMetricMeasure(m.id)}
+                          title={`${m.name} · ${m.expr}${m.filters ? ` · 固定过滤：${m.filters}` : ''}（归属表：${m.tableName}）${tableMismatch ? ' · 需先切换数据表' : ''}（点击添加到语义指标区）`}
+                          className={`group flex items-center space-x-1.5 px-1.5 py-1 rounded-lg cursor-pointer text-[11px] hover:bg-slate-800/80 ${
+                            used ? 'text-violet-300' : tableMismatch ? 'text-slate-500' : 'text-slate-300'
+                          }`}
+                        >
+                          {used ? (
+                            <Check className="w-3 h-3 text-violet-400 shrink-0" />
+                          ) : (
+                            <Gauge className="w-3 h-3 text-slate-600 group-hover:text-violet-400 shrink-0" />
+                          )}
+                          <span className="truncate flex-1">{m.name}</span>
+                          <span className={`text-[9px] shrink-0 ${tableMismatch ? 'text-amber-500/80' : 'text-slate-500'}`}>{m.tableName}</span>
+                          <Plus className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 shrink-0" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>

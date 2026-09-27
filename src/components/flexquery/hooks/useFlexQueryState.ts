@@ -8,29 +8,37 @@ import { downloadServerCsv } from '../../../utils/exportCsv';
 import { TableSchema, ChartConfig, ChartType } from '../../../types/analytics';
 import {
   buildFlexQuerySql,
+  derivedAlias,
   dimResultAlias,
   isAmountColumn,
   measureAlias,
+  metricAlias,
+  FlexDerived,
+  FlexDerivedKind,
   FlexMeasure,
   FlexFilter,
   FlexHaving,
   FlexOrderBy,
   FlexJoin,
+  FlexMetricMeasure,
   FlexQueryConfig,
   FlexTimeUnit,
 } from '../../../utils/flexQueryBuilder';
+import { pollTask } from '../../../utils/asyncTask';
 import { useEffectiveAmountUnit, AMOUNT_UNIT_DIVISORS } from '../../../hooks/useAmountUnitStore';
 import { FlexHistoryItem, SavedFlexQuery } from '../FlexQueryLibrary';
 import {
   AGG_LABELS,
   ColumnValuesState,
   DB_TYPES,
+  DERIVED_LABELS,
   DropZone,
   FieldTab,
   FieldWithTable,
   FlexBuilt,
   FlexPivot,
   FlexResult,
+  MetricOption,
   TIME_UNIT_LABELS,
 } from '../flexQueryShared';
 import { getErrorMessage } from '../../../utils/errorUtils';
@@ -76,12 +84,20 @@ export function useFlexQueryState() {
   const [selectedTable, setSelectedTable] = useState('');
   // v0.9.75：列取值探测缓存（声明须在下方 Schema 加载 effect 之前，避免闭包前向引用）
   const [columnValues, setColumnValues] = useState<Record<string, ColumnValuesState>>({});
+  // v0.9.76 P1-7：语义指标选择与候选（声明须在下方数据源/语义指标加载 effect 之前，避免闭包前向引用）
+  const [metricMeasures, setMetricMeasures] = useState<FlexMetricMeasure[]>([]);
+  const [availableMetrics, setAvailableMetrics] = useState<MetricOption[]>([]);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
 
+  // 数据源切换/可用性变化时统一重置并加载 Schema 与语义指标（v0.9.76 P1-7：语义指标并入同源加载，避免独立 effect 重复置位）
   useEffect(() => {
     setTables([]);
     setSelectedTable('');
     setSchemaError(null);
     setColumnValues({});
+    setMetricMeasures([]);
+    setAvailableMetrics([]);
+    setLoadingMetrics(false);
     if (!activeDataSourceId || !dbSupported) return;
     let cancelled = false;
     setLoadingTables(true);
@@ -97,6 +113,32 @@ export function useFlexQueryState() {
       })
       .finally(() => {
         if (!cancelled) setLoadingTables(false);
+      });
+    // 语义指标：当前数据源 ACTIVE 指标（仅取编辑器所需字段；加载态与列表同生命周期）
+    setLoadingMetrics(true);
+    apiFetch(`/api/metrics?dataSourceId=${encodeURIComponent(activeDataSourceId)}`)
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (cancelled) return;
+        const list = res.ok && Array.isArray(data?.metrics) ? (data.metrics as Record<string, unknown>[]) : [];
+        setAvailableMetrics(
+          list
+            .filter((m) => m.status === 'ACTIVE' && typeof m.id === 'number' && typeof m.name === 'string' && typeof m.expr === 'string')
+            .map((m) => ({
+              id: m.id as number,
+              name: m.name as string,
+              expr: m.expr as string,
+              tableName: String(m.tableName || ''),
+              filters: String(m.filters || ''),
+              description: typeof m.description === 'string' ? m.description : undefined,
+            })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setAvailableMetrics([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMetrics(false);
       });
     return () => {
       cancelled = true;
@@ -123,6 +165,13 @@ export function useFlexQueryState() {
     }
   });
   const [fieldSearch, setFieldSearch] = useState('');
+  // v0.9.76 P1：OR 条件组 / 时间衍生列 / 后台执行 / 结果缓存与下钻（语义指标状态见上方 Schema 加载区）
+  const [orGroups, setOrGroups] = useState<FlexFilter[][]>([]);
+  const [deriveds, setDeriveds] = useState<FlexDerived[]>([]);
+  const [backgroundMode, setBackgroundMode] = useState(false);
+  const [asyncProgress, setAsyncProgress] = useState<string | null>(null);
+  const [resultCached, setResultCached] = useState(false);
+  const [drillTarget, setDrillTarget] = useState<{ dimensionKey: string; dimensionValue: string; dimensionLabel: string; originalSql: string } | null>(null);
   // v0.4.11 布局优化：字段分组过滤/折叠、SQL 预览折叠
   const [fieldTab, setFieldTab] = useState<FieldTab>('all');
   const [dimOpen, setDimOpen] = useState(true);
@@ -154,7 +203,8 @@ export function useFlexQueryState() {
 
   // v0.9.75（承接 v0.4.10 自愈逻辑，扩展为多列 + 粒度清理）：聚合/维度变更后剔除失效排序列
   // （旧别名失效会阻塞执行）；全部失效时回退首指标别名（无指标回退首维度）；同时清理已移除维度的粒度配置
-  const validAliases = new Set(measures.map(measureAlias));
+  // v0.9.76：语义指标别名并入有效别名集（排序/衍生列引用同口径校验）
+  const validAliases = new Set([...measures.map(measureAlias), ...metricMeasures.map((m) => metricAlias(m.id))]);
   useEffect(() => {
     setOrderBys((prev) => {
       const kept = prev.filter((o) => validAliases.has(o.by) || dimensions.includes(o.by));
@@ -176,8 +226,14 @@ export function useFlexQueryState() {
       }
       return changed ? kept : prev;
     });
+    // v0.9.76：衍生列目标失效清理（指标移除后其衍生列一并移除，避免阻塞执行）
+    setDeriveds((prev) => {
+      const kept = prev.filter((d) => validAliases.has(d.by));
+      return kept.length === prev.length ? prev : kept;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [measures, dimensions]);
+  }, [measures, dimensions, metricMeasures]);
+
   /** v0.9.75：设置/清除维度时间粒度（unit 为 null 时清除） */
   const setDimUnit = (column: string, unit: FlexTimeUnit | null) => {
     setDimTimeUnits((prev) => {
@@ -238,8 +294,22 @@ export function useFlexQueryState() {
   }, [dimensions, measures, filters, havings]);
 
   const config: FlexQueryConfig = useMemo(
-    () => ({ table: selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit }),
-    [selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit],
+    () => ({
+      table: selectedTable,
+      joins,
+      dimensions,
+      measures,
+      filters,
+      havings,
+      orderBys,
+      dimTimeUnits,
+      limit,
+      // v0.9.76：OR 条件组 / 语义指标 / 时间衍生列（可选段，构建器已做兼容容错）
+      orGroups,
+      metrics: metricMeasures,
+      deriveds,
+    }),
+    [selectedTable, joins, dimensions, measures, filters, havings, orderBys, dimTimeUnits, limit, orGroups, metricMeasures, deriveds],
   );
 
   // v0.5.4 金额单位：模块覆盖优先，未覆盖跟随全局；换算在 SQL 构建期完成（金额列聚合除以除数）
@@ -415,6 +485,50 @@ export function useFlexQueryState() {
     }
   };
 
+  // ---------- v0.9.76 P1-7：语义指标（归属表锁定，与 buildFlexQuerySql 同口径前置校验） ----------
+  /** 添加语义指标：校验数据表/JOIN/固定过滤一致性；无排序时默认按该指标降序 */
+  const addMetricMeasure = (id: number) => {
+    const opt = availableMetrics.find((m) => m.id === id);
+    if (!opt) return;
+    if (!selectedTable) return showToast('请先选择数据表');
+    if (metricMeasures.some((m) => m.id === id)) return showToast('该语义指标已在指标区中');
+    if (metricMeasures.length >= 8) return showToast('语义指标最多同时使用 8 个');
+    if (opt.tableName !== selectedTable) return showToast(`指标「${opt.name}」归属表为「${opt.tableName}」，请先切换数据表`);
+    if (joins.length > 0) return showToast('含语义指标时暂不支持关联表（JOIN）');
+    if (metricMeasures[0] && String(metricMeasures[0].filters || '').trim() !== String(opt.filters || '').trim()) {
+      return showToast('与已选语义指标的固定过滤条件不一致，无法合并查询');
+    }
+    setMetricMeasures((prev) => [
+      ...prev,
+      { id: opt.id, name: opt.name, expr: opt.expr, tableName: opt.tableName, filters: opt.filters },
+    ]);
+    if (orderBys.length === 0) setOrderBys([{ by: metricAlias(opt.id), dir: 'desc' }]);
+  };
+
+  const removeMetricMeasure = (id: number) => setMetricMeasures((prev) => prev.filter((m) => m.id !== id));
+
+  // ---------- v0.9.76 P1-8：时间衍生列（同比/环比/累计/移动平均；窗口排序键为已配粒度的首维度） ----------
+  /** 是否已配置时间粒度维度（衍生列窗口排序键；无则不满足生成条件） */
+  const hasTimeDim = dimensions.some((d) => !!dimTimeUnits[d]);
+
+  /** 添加衍生列：目标须为现有指标/语义指标别名；同目标同类型去重；上限 6 */
+  const addDerived = (by: string, kind: FlexDerivedKind, periods?: number) => {
+    if (!validAliases.has(by)) return showToast('请先添加目标指标');
+    if (!hasTimeDim) return showToast('同比/环比/累计/移动平均需先为日期维度选择时间粒度');
+    if (deriveds.length >= 6) return showToast('时间衍生列最多 6 个');
+    const alias = derivedAlias(by, kind, periods);
+    if (deriveds.some((d) => derivedAlias(d.by, d.kind, d.periods) === alias)) return showToast('该衍生列已存在');
+    setDeriveds((prev) => [
+      ...prev,
+      kind === 'ma' ? { by, kind, periods: Math.min(Math.max(Math.floor(periods || 3), 2), 12) } : { by, kind },
+    ]);
+  };
+
+  /** 移除衍生列（按衍生别名定位，别名在构建期保证唯一） */
+  const removeDerived = (alias: string) => {
+    setDeriveds((prev) => prev.filter((d) => derivedAlias(d.by, d.kind, d.periods) !== alias));
+  };
+
   const resetBuilder = () => {
     setDimensions([]);
     setMeasures([]);
@@ -431,6 +545,12 @@ export function useFlexQueryState() {
     setExecError(null);
     setPivotMode(false);
     setShowPct(false);
+    // v0.9.76：语义指标 / OR 条件组 / 时间衍生列 / 缓存标记 / 下钻目标一并清空
+    setMetricMeasures([]);
+    setOrGroups([]);
+    setDeriveds([]);
+    setResultCached(false);
+    setDrillTarget(null);
   };
 
   // ---------- v0.9.75：低基数列取值探测（服务端 DISTINCT + 白名单/敏感列约束，懒加载缓存） ----------
@@ -463,45 +583,108 @@ export function useFlexQueryState() {
   };
 
   // ---------- 执行 ----------
-  const runQuery = async (sqlOverride?: string, dsIdOverride?: string) => {
+  /** v0.9.76：执行中止控制器（同步请求/后台等待共用；取消仅停止前端等待，服务端任务继续执行） */
+  const abortRef = useRef<AbortController | null>(null);
+  /** v0.9.76：最近一次成功执行的 SQL（下钻 AST 改写复用；后台执行同样记录） */
+  const executedSqlRef = useRef('');
+
+  /** 写入最近查询历史（按配置去重，上限 8 条；v0.9.76 自 runQuery 抽取供同步/后台路径复用） */
+  const pushHistory = (dsId: string) => {
+    const cfgKey = JSON.stringify(config);
+    const item: FlexHistoryItem = {
+      id: `hist-${Date.now()}`,
+      name: queryName.trim() || `${tableSchema?.displayName || config.table} 查询`,
+      dataSourceId: dsId,
+      config: JSON.parse(cfgKey) as FlexQueryConfig,
+      chartType,
+      ranAt: `${new Date().toISOString().slice(5, 10)} ${new Date().toTimeString().slice(0, 5)}`,
+    };
+    persistHistory([item, ...history.filter((h) => JSON.stringify(h.config) !== cfgKey)].slice(0, 8));
+  };
+
+  /** v0.9.76 P1-9：取消当前执行/等待（AbortController） */
+  const cancelQuery = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  };
+
+  /**
+   * v0.9.76：执行查询。opts.bypassCache=true 跳过服务端结果缓存（强制刷新）；
+   * backgroundMode=true 转异步任务端点并轮询进度（大查询不阻塞页面，P1-10）。
+   */
+  const runQuery = async (sqlOverride?: string, dsIdOverride?: string, opts?: { bypassCache?: boolean }) => {
     const sql = sqlOverride ?? (built?.ok ? built.sql : null);
     // 注意：基线 tsconfig 未启 strictNullChecks，布尔判别式 !built.ok 无法窄化联合类型，须用 === false 显式比较
     if (!sql) return setExecError(built && built.ok === false ? built.error : '请先选择数据表并拖入维度/指标');
     const dsId = dsIdOverride ?? activeDataSourceId;
     if (!dsId) return setExecError('请先选择数据源');
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setExecuting(true);
     setExecError(null);
+    setResultCached(false);
+    setAsyncProgress(null);
     try {
+      if (backgroundMode) {
+        // P1-10：提交后台任务 → 轮询 → 以任务结果渲染（结果已按提交人快照 DLP 脱敏）
+        const submitRes = await apiFetch('/api/query/execute-sql-async', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataSourceId: dsId, sql }),
+          signal: ac.signal,
+        });
+        const submitted = await submitRes.json().catch(() => null);
+        if (!submitRes.ok || !submitted?.taskId) throw new Error(submitted?.error || `后台执行提交失败（HTTP ${submitRes.status}）`);
+        setAsyncProgress('后台任务已提交，等待执行…');
+        const task = await pollTask(String(submitted.taskId), {
+          signal: ac.signal,
+          onProgress: (progress, status) => setAsyncProgress(`${status === 'PENDING' ? '排队中' : '执行中'}：${progress}`),
+        });
+        const payload = (task.result ?? null) as { rows?: Record<string, unknown>[]; truncated?: boolean; executionTimeMs?: number } | null;
+        const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+        const cols = rows.length ? Object.keys(rows[0]) : [];
+        executedSqlRef.current = sql;
+        setResult({ columns: cols, rows, truncated: payload?.truncated === true });
+        setExecTimeMs(typeof payload?.executionTimeMs === 'number' ? payload.executionTimeMs : null);
+        pushHistory(dsId);
+        return;
+      }
       const res = await apiFetch('/api/query/execute-sql', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataSourceId: dsId, sql }),
+        body: JSON.stringify({ dataSourceId: dsId, sql, ...(opts?.bypassCache ? { bypassCache: true } : {}) }),
+        signal: ac.signal,
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success && Array.isArray(data.rows)) {
         const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
-        setResult({ columns: cols, rows: data.rows, truncated: data.truncated === true });
+        executedSqlRef.current = sql;
+        setResult({ columns: cols, rows: data.rows as Record<string, unknown>[], truncated: data.truncated === true });
         setExecTimeMs(typeof data.executionTimeMs === 'number' ? data.executionTimeMs : null);
-        // 记入最近查询历史（按配置去重，上限 8 条）
-        const cfgKey = JSON.stringify(config);
-        const item: FlexHistoryItem = {
-          id: `hist-${Date.now()}`,
-          name: queryName.trim() || `${tableSchema?.displayName || config.table} 查询`,
-          dataSourceId: dsId,
-          config: JSON.parse(cfgKey) as FlexQueryConfig,
-          chartType,
-          ranAt: `${new Date().toISOString().slice(5, 10)} ${new Date().toTimeString().slice(0, 5)}`,
-        };
-        persistHistory([item, ...history.filter((h) => JSON.stringify(h.config) !== cfgKey)].slice(0, 8));
+        // P1-9：服务端结果缓存命中标记（结果区展示「缓存命中」与强制刷新入口）
+        setResultCached(data.cached === true);
+        pushHistory(dsId);
       } else {
         setExecError(data?.error || `执行失败（HTTP ${res.status}）`);
       }
     } catch (err) {
-      setExecError(getErrorMessage(err) || '网络异常，执行失败');
+      const msg = getErrorMessage(err) || '';
+      const errName = (err as { name?: string })?.name;
+      if (ac.signal.aborted || errName === 'AbortError' || msg.includes('已取消')) {
+        setExecError(msg.includes('任务等待') ? '已取消等待（任务仍在后台执行，可在任务中心查看结果）' : '已取消执行');
+      } else {
+        setExecError(msg || '网络异常，执行失败');
+      }
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setExecuting(false);
+      setAsyncProgress(null);
     }
   };
+
+  /** v0.9.76 P1-9：强制刷新（跳过服务端结果缓存重执行） */
+  const runQueryForceRefresh = () => runQuery(undefined, undefined, { bypassCache: true });
 
   // ---------- 图表配置 ----------
   const columnNames = useMemo(() => {
@@ -519,6 +702,15 @@ export function useFlexQueryState() {
       map[alias] = `${AGG_LABELS[m.agg]}(${src?.description || m.column})${unitSuffix}`;
       map[`pct_${alias}`] = `占比·${src?.description || m.column}`;
     });
+    // v0.9.76：语义指标列名（指标名 + 口径说明悬浮）与时间衍生列名（目标指标名 · 衍生类型标注）
+    metricMeasures.forEach((mt) => {
+      map[metricAlias(mt.id)] = mt.name;
+    });
+    deriveds.forEach((dv) => {
+      const base = map[dv.by] || dv.by;
+      const suffix = dv.kind === 'ma' ? `MA(${Math.min(Math.max(Math.floor(dv.periods || 3), 2), 12)})` : DERIVED_LABELS[dv.kind];
+      map[derivedAlias(dv.by, dv.kind, dv.periods)] = `${base}·${suffix}`;
+    });
     // v0.9.75：维度结果列名（末段列名）登记，含时间粒度标注；跨表维度配置键与结果键双向登记
     dimensions.forEach((d) => {
       const src = allFields.find((c) => c.fullName === d) || tableSchema?.columns.find((c) => c.name === d);
@@ -528,18 +720,25 @@ export function useFlexQueryState() {
       map[dimResultAlias(d)] = label;
     });
     return map;
-  }, [tableSchema, allFields, measures, dimensions, dimTimeUnits, amountUnit, flexAmountUnit]);
+  }, [tableSchema, allFields, measures, metricMeasures, deriveds, dimensions, dimTimeUnits, amountUnit, flexAmountUnit]);
 
   const chartConfig: ChartConfig | null = useMemo(() => {
-    if (!result || dimensions.length === 0 || measures.length === 0 || chartType === 'table') return null;
+    if (!result || dimensions.length === 0 || (measures.length === 0 && metricMeasures.length === 0) || chartType === 'table') return null;
+    // v0.9.76：y 轴含普通指标 + 语义指标 + 累计/移动平均衍生列（同比/环比为比率列，仅在表格查看）
+    const yAxisKeys = [
+      ...measures.map(measureAlias),
+      ...metricMeasures.map((m) => metricAlias(m.id)),
+      ...deriveds.filter((d) => d.kind === 'cum' || d.kind === 'ma').map((d) => derivedAlias(d.by, d.kind, d.periods)),
+    ];
+    if (yAxisKeys.length === 0) return null;
     return {
       type: chartType,
       title: queryName.trim() || `${tableSchema?.displayName || selectedTable} · 灵活查询`,
       xAxisKey: dimResultAlias(dimensions[0]),
-      yAxisKeys: measures.map(measureAlias),
+      yAxisKeys,
       xAxisName: columnNames[dimResultAlias(dimensions[0])],
     };
-  }, [result, dimensions, measures, chartType, queryName, tableSchema, selectedTable, columnNames]);
+  }, [result, dimensions, measures, metricMeasures, deriveds, chartType, queryName, tableSchema, selectedTable, columnNames]);
 
   // ---------- v0.4.10 快速计算：占比 / 透视图 / CSV 导出（参照 Agile Query） ----------
   const firstAlias = measures.length ? measureAlias(measures[0]) : '';
@@ -596,8 +795,15 @@ export function useFlexQueryState() {
       const val = m.agg === 'MIN' ? min : m.agg === 'MAX' ? max : sum;
       row[alias] = m.agg === 'COUNT' ? Math.round(val) : Math.round(val * 100) / 100;
     }
+    // v0.9.76：语义指标与衍生列无客户端合计语义（口径由表达式决定），置空展示 -
+    metricMeasures.forEach((mt) => {
+      row[metricAlias(mt.id)] = null;
+    });
+    deriveds.forEach((dv) => {
+      row[derivedAlias(dv.by, dv.kind, dv.periods)] = null;
+    });
     return row;
-  }, [result, showTotals, dimensions, measures]);
+  }, [result, showTotals, dimensions, measures, metricMeasures, deriveds]);
 
   /** 透视图：两维度行列交叉 + 单指标值（客户端透视，不额外查库） */
   const pivot: FlexPivot | null = useMemo(() => {
@@ -676,6 +882,16 @@ export function useFlexQueryState() {
     setMeasures(rawMeasures);
     setFilters(Array.isArray(rawCfg?.filters) ? rawCfg.filters : []);
     setHavings(Array.isArray(rawCfg?.havings) ? rawCfg.havings : []);
+    // v0.9.76：可选段兼容加载（旧配置无这些字段，按空处理；语义指标仅保留与配置表同归属的合法项）
+    setMetricMeasures(
+      Array.isArray(rawCfg?.metrics)
+        ? rawCfg.metrics.filter((m) => !!m && typeof m.id === 'number' && typeof m.expr === 'string' && String(m.tableName || '') === String(rawCfg?.table || ''))
+        : [],
+    );
+    setOrGroups(Array.isArray(rawCfg?.orGroups) ? rawCfg.orGroups.filter((g) => Array.isArray(g)) : []);
+    setDeriveds(Array.isArray(rawCfg?.deriveds) ? rawCfg.deriveds.filter((d) => !!d && !!d.by && !!d.kind) : []);
+    setResultCached(false);
+    setDrillTarget(null);
     setOrderBys(obs);
     setDimTimeUnits(rawCfg?.dimTimeUnits && typeof rawCfg.dimTimeUnits === 'object' ? rawCfg.dimTimeUnits : {});
     setShowTotals(false);
@@ -708,6 +924,28 @@ export function useFlexQueryState() {
     };
     void saveNewQuery(item);
   };
+
+  // ---------- v0.9.76 P1-12：图表下钻（复用 /api/query/drill 的 AST 改写通道） ----------
+  /** 下钻可用性：直角坐标图（柱/折线/面积）+ 首维度非时间粒度（时间粒度下钻语义不明确） */
+  const chartDrillable = useMemo(
+    () => !!chartConfig && (chartType === 'bar' || chartType === 'line' || chartType === 'area') && !dimTimeUnits[dimensions[0]],
+    [chartConfig, chartType, dimTimeUnits, dimensions],
+  );
+
+  /** 点击图表维度触发下钻：以最近成功执行的 SQL 为底，记录维度键/值供 DrillModal 改写 */
+  const handleDrill = (dimensionKey: string, dimensionValue: string | number) => {
+    const originalSql = executedSqlRef.current || (built?.ok ? built.sql : '');
+    if (!originalSql || !result) return;
+    const key = dimResultAlias(dimensionKey);
+    setDrillTarget({
+      dimensionKey: key,
+      dimensionValue: String(dimensionValue),
+      dimensionLabel: columnNames[key] || dimensionKey,
+      originalSql,
+    });
+  };
+
+  const closeDrill = () => setDrillTarget(null);
 
   return {
     // store 透出（顶部数据源切换 + 看板跳转）
@@ -766,6 +1004,21 @@ export function useFlexQueryState() {
     setChartType,
     queryName,
     setQueryName,
+    // v0.9.76 新增配置段（语义指标 / OR 组 / 时间衍生列 / 后台执行）
+    metricMeasures,
+    addMetricMeasure,
+    removeMetricMeasure,
+    orGroups,
+    setOrGroups,
+    deriveds,
+    setDeriveds,
+    addDerived,
+    removeDerived,
+    hasTimeDim,
+    availableMetrics,
+    loadingMetrics,
+    backgroundMode,
+    setBackgroundMode,
     // 派生
     allFields,
     dimensionCols,
@@ -779,6 +1032,13 @@ export function useFlexQueryState() {
     execError,
     execTimeMs,
     toast,
+    // v0.9.76：后台进度 / 缓存命中标记 / 下钻
+    asyncProgress,
+    resultCached,
+    drillTarget,
+    chartDrillable,
+    handleDrill,
+    closeDrill,
     // 快速计算
     pivot,
     pivotAvailable,
@@ -790,6 +1050,8 @@ export function useFlexQueryState() {
     addField,
     resetBuilder,
     runQuery,
+    runQueryForceRefresh,
+    cancelQuery,
     fetchColumnValues,
     columnValues,
     handleExportCsv,
