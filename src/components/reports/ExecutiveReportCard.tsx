@@ -42,6 +42,7 @@ import {
   Presentation,
   FileSpreadsheet,
   FileType,
+  ChevronDown,
 } from 'lucide-react';
 import { SavedReport, AnomalyItem, ChartComment, ChartCommentReply } from '../../types/analytics';
 import { DynamicChart, ComparisonMode } from '../charts/DynamicChart';
@@ -146,6 +147,7 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   const handleReScanAnomalies = async () => {
     setIsScanning(true);
     setScanNotice(null);
+    setShowAnomalyPanel(true); // 重扫时重新展开异常面板（收起状态下扫描结果不可见）
     const hasSqlTrace = report.id !== 'report-demo-1' && Array.isArray(report.executedSqls) && report.executedSqls.length > 0;
     if (!hasSqlTrace) {
       const scanned = scanReportForAnomalies(report);
@@ -570,6 +572,15 @@ export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
                 <Zap className="w-3 h-3 text-amber-400" />
                 <span>监测到 {allAnomalies.length} 项数据异常波动</span>
               </span>
+            )}
+            {allAnomalies.length > 0 && !showAnomalyPanel && (
+              <button
+                onClick={() => setShowAnomalyPanel(true)}
+                className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors flex items-center space-x-1"
+              >
+                <ChevronDown className="w-3 h-3" />
+                <span>展开异常面板</span>
+              </button>
             )}
           </div>
           <h2 className="text-xl md:text-2xl font-extrabold tracking-tight">
