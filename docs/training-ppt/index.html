@@ -30,7 +30,7 @@
     <div class="card flat"><div class="pill c3">培训时长</div><p class="lead" style="font-size:15px;margin-top:10px;">约 75 分钟 + 现场实操与答疑</p></div>
     <div class="card flat"><div class="pill c4">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取使用指南与更新日志</p></div>
   </div>
-  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，把真实查询结果变成图表、KPI 和洞察解读，还能一键产出完整分析报告和高管决策简报。今天的培训大约七十五分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容对齐系统内置帮助中心的功能说明书，覆盖到最新版本 v0.9.62——包括 Agent 多步编排、看板高级分析三件套、专家角色、灵活查询、报告模式、铁律规则库和 Fallback 对抗训练，以及治理资产统一入口、系统管理分类 Tab 化，和云端 DeepSeek 引擎接入（本地 / 云端模型对比评测已完成）这些最新变化。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
+  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，把真实查询结果变成图表、KPI 和洞察解读，还能一键产出完整分析报告和高管决策简报。今天的培训大约七十五分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容对齐系统内置帮助中心的功能说明书，覆盖到最新版本 v0.9.79——包括 Agent 多步编排、看板高级分析三件套、专家角色、灵活查询（v0.9.79 图形化表关系画布：拖字段拼装 SQL、拖表建关联）、报告模式、铁律规则库和 Fallback 对抗训练，以及治理资产统一入口、系统管理分类 Tab 化，和云端 DeepSeek 引擎接入（本地 / 云端模型对比评测已完成）这些最新变化。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
 </section>
 
 <!-- ============ P2 培训目标与议程 ============ -->
@@ -367,16 +367,57 @@
   <p class="lead" style="margin-bottom:18px;">不写 SQL、不依赖 AI——选表、点字段、配筛选，自助产出可复用的固定报表；结果同样走安全执行层。</p>
   <div class="grid grid-4 anim-stagger-list">
     <div class="card"><div class="pill c1">双入口加字段</div><p style="font-size:13px;color:var(--text-2);margin-top:10px;line-height:1.6;">字段列表点击快捷添加 + 筛选区独立下拉（v0.9.37 双入口），配字段像拼积木</p></div>
-    <div class="card"><div class="pill c2">跨表关联</div><p style="font-size:13px;color:var(--text-2);margin-top:10px;line-height:1.6;">INNER / LEFT JOIN 多表关联配置，table.column 跨表引用自由组合</p></div>
+    <div class="card"><div class="pill c2">表关系画布（v0.9.79）</div><p style="font-size:13px;color:var(--text-2);margin-top:10px;line-height:1.6;">拖表入画布即建关联（关联条件智能预填），连接符可视化调整 INNER / LEFT；table.column 跨表引用自由组合</p></div>
     <div class="card"><div class="pill c3">高级筛选</div><p style="font-size:13px;color:var(--text-2);margin-top:10px;line-height:1.6;">区间 / 空值 / 去重计数 / 聚合后过滤（HAVING）/ 自定义排序字段与方向</p></div>
-    <div class="card"><div class="pill c4">大结果集</div><p style="font-size:13px;color:var(--text-2);margin-top:10px;line-height:1.6;">行数上限 1 万行（可选 5 万），按真实记录数输出，面板支持全屏模式</p></div>
+    <div class="card"><div class="pill c4">大结果集</div><p style="font-size:13px;color:var(--text-2);margin-top:10px;line-height:1.6;">行数默认 1 万、可选至 10 万（v0.9.64），按真实记录数输出，面板支持全屏模式</p></div>
   </div>
   <div class="card tinted" style="margin-top:20px;" data-anim="fade-up">
     <h3 style="font-size:16px;margin-bottom:8px;">🧩 与问数怎么分工</h3>
     <p style="font-size:14px;color:var(--accent-2);line-height:1.65;">AI 问数回答「一句话的问题」，灵活查询搭建「每周都要跑的固定报表」——查询结构一次配好反复执行，口径 100% 稳定；结果可固化到看板，与问数共享数据源和行级权限。</p>
   </div>
   <img src="assets/images/flex-blocks.png" alt="" data-anim="zoom-in" style="display:block;height:150px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
-  <div class="notes">很多同事问：AI 生成的 SQL 我不放心，有没有更传统一点的方式？有，就是灵活查询。它在左侧导航第五项，完全不用写 SQL，也不用跟 AI 对话——选一张表，在字段列表里点一下就把字段加进来了，v0.9.37 之后筛选区还有独立的下拉入口，两个入口随便用哪个。要跨表就在关联配置里选 JOIN 关系，table 点 column 的跨表引用都支持。筛选能力也很全：区间、空值、去重计数、甚至聚合之后再过滤的 HAVING 都有，排序字段和方向自己定。查出来的行数上限一万行，可以放宽到五万，按真实记录数输出，不会有截断。它和问数的分工很清楚：临时性的、探索性的问题交给 AI 问数；那种每周例会都要跑一遍的固定报表，用灵活查询一次配好，口径永远稳定。做好的结果同样可以固化到看板上。所以 AI 和自助工具在这套系统里是互补的，不是替代关系。</div>
+  <div class="notes">很多同事问：AI 生成的 SQL 我不放心，有没有更传统一点的方式？有，就是灵活查询。它在左侧导航第五项，完全不用写 SQL，也不用跟 AI 对话——选一张表，在字段列表里点一下就把字段加进来了，v0.9.37 之后筛选区还有独立的下拉入口，两个入口随便用哪个。要跨表就用「表关系画布」——主表和关联表以卡片呈现，把表从表库拖进画布就自动建好关联、猜好条件，连接线上可随时改 INNER / LEFT 和两侧字段；table 点 column 的跨表引用都支持。筛选能力也很全：区间、空值、去重计数、甚至聚合之后再过滤的 HAVING 都有，排序字段和方向自己定。查出来的行数默认一万行，可以放宽到十万，按真实记录数输出，不会有截断。它和问数的分工很清楚：临时性的、探索性的问题交给 AI 问数；那种每周例会都要跑一遍的固定报表，用灵活查询一次配好，口径永远稳定。做好的结果同样可以固化到看板上。所以 AI 和自助工具在这套系统里是互补的，不是替代关系。</div>
+</section>
+
+<!-- ============ P13b 表关系画布（v0.9.79 新增） ============ -->
+<section class="slide" data-mod="2">
+  <div class="kicker">MODULE 02 · 灵活查询 · v0.9.79</div>
+  <h2>表关系画布：图形化拼装 SQL</h2>
+  <p class="lead" style="margin-bottom:16px;">表和字段从「下拉 + 列表」升级为「表卡片 + 连接符」——字段拖到下方查询配置区即拼装，拖表入画布即建关联。</p>
+  <div class="split">
+    <div class="card flat" data-anim="fade-up" style="display:flex;flex-direction:column;justify-content:center;">
+      <div style="display:flex;align-items:stretch;gap:8px;">
+        <div style="flex:1;border:1.5px solid rgba(99,102,241,.5);border-radius:10px;overflow:hidden;background:var(--surface);">
+          <div style="padding:4px 8px;font-size:11.5px;font-weight:700;color:#4338ca;background:rgba(99,102,241,.08);border-bottom:1px solid rgba(99,102,241,.2);">客户表<span style="margin-left:6px;font-size:9px;font-weight:400;padding:0 4px;border-radius:4px;background:rgba(99,102,241,.15);">主表</span></div>
+          <div style="padding:5px 8px;font-size:11px;color:var(--text-2);line-height:1.9;">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#10b981;margin-right:5px;"></span>客户号<span style="margin-left:4px;font-size:9px;color:#d97706;">主键</span><br>
+            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#94a3b8;margin-right:5px;"></span>客户名称<br>
+            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#0ea5e9;margin-right:5px;"></span>客户类型
+          </div>
+        </div>
+        <div style="width:104px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;">
+          <span style="font-size:9.5px;font-weight:700;color:#6366f1;border:1px solid rgba(99,102,241,.4);border-radius:6px;padding:1px 7px;">INNER</span>
+          <span style="width:100%;border-top:2px dashed rgba(99,102,241,.5);"></span>
+          <span style="font-size:9.5px;color:var(--text-2);font-family:monospace;">ON 客户号 = 客户号</span>
+        </div>
+        <div style="flex:1;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);">
+          <div style="padding:4px 8px;font-size:11.5px;font-weight:700;color:#0e7490;background:rgba(6,182,212,.08);border-bottom:1px solid rgba(6,182,212,.2);">拜访记录表</div>
+          <div style="padding:5px 8px;font-size:11px;color:var(--text-2);line-height:1.9;">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#10b981;margin-right:5px;"></span>客户号<br>
+            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#06b6d4;margin-right:5px;"></span>拜访日期<br>
+            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#10b981;margin-right:5px;"></span>拜访金额
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:10px;font-size:10.5px;color:#94a3b8;text-align:center;">字段带类型徽标 · 主键与「已使用」标记 —— 拖字段到查询配置区即拼装 SQL</div>
+    </div>
+    <div class="steps" data-anim="slide-left">
+      <div class="step"><div class="body"><h3 style="font-size:14.5px;">拖字段拼装 SQL</h3><p style="font-size:12.5px;">画布字段直接拖到下方维度 / 指标 / 筛选 / HAVING 区（或点击快速添加），像拼积木一样组装查询</p></div></div>
+      <div class="step"><div class="body"><h3 style="font-size:14.5px;">拖表即建关联</h3><p style="font-size:12.5px;">「表库」拖表入画布或点击即自动建立 JOIN；关联条件按字段名智能预填（同名主键 / xxx_id 参照）</p></div></div>
+      <div class="step"><div class="body"><h3 style="font-size:14.5px;">连接符可视化调整</h3><p style="font-size:12.5px;">切换 INNER / LEFT、点「ON a = b」就地改两侧字段、一键移除；与原行式关联面板同一份配置</p></div></div>
+    </div>
+  </div>
+  <div class="notes">最后一页讲灵活查询的最新形态——表关系画布。以前选表、看字段都是下拉框和列表，看得见但摸不着；现在主表和关联表都变成卡片，直接在画布上展开：每个字段带着类型徽标，数值、文本、日期一眼可辨，主键有标记，已经用上的字段会打勾。两个核心动作：第一，拖字段——把卡片里的字段拖到下方的维度、指标、筛选或者 HAVING 区域，SQL 就拼出来了，不想拖、点一下字段也能快速添加，跟拼积木一样；第二，拖表建关联——数据源里没用到的表都在「表库」里躺着，拖进画布就建立关联，系统会按字段名智能猜好关联条件，比如两边都有客户号、或者订单表的客户 ID 对客户表的主键，猜好之后连接线上直接切换 INNER 还是 LEFT、点一下就能就地改两侧关联字段，不要了一键移除。画布和原来的行式关联配置是同一份数据，哪边改都同步，安全边界也完全不变——SELECT 查询、表白名单、敏感列过滤、行级权限一个不少。</div>
 </section>
 
 <!-- ============ P14 可视化决策报表 ============ -->
@@ -709,7 +750,7 @@
         <ul class="plain" style="font-size:13.5px;color:var(--text-2);line-height:1.72;">
           <li>· <b>自上而下九段</b>：客户端 → 前端应用层 → API 安全网关 → 业务逻辑层（31 路由 + 40+ 核心服务）→ AI 引擎层 → 数据与存储层 → 基础设施 / 部署 / 质量</li>
           <li>· <b>业务逻辑层按三类看</b>：编排（问数 / 报表 / 异步任务）、能力（Schema 两件套 / 执行器 / Fallback）、上下文治理（知识库 / 反馈闭环 / 指标 / 铁律 / 专家角色）</li>
-          <li>· <b>工程口径</b>：159 REST 端点 · 112 测试文件 / 1552 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
+          <li>· <b>工程口径</b>：187 REST 端点 · 130 测试文件 / 1889 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
           <li>· <b>部署形态</b>：Node 运行时一体的开发态 → esbuild 打包 + Docker 容器 → Prometheus / Grafana 监控</li>
           <li>· <b>图例</b>：蓝=主流程、绿=数据读写、紫=LLM 调用、灰=基础设施、橙=v0.6+ 新增能力</li>
         </ul>
@@ -768,9 +809,9 @@
   <div class="kicker">MODULE 04 · 质量与部署</div>
   <h2>质量保障与部署形态</h2>
   <div class="grid grid-4 anim-stagger-list" style="margin-top:16px;">
-    <div class="stat"><div class="v">1552</div><div class="l">单元测试全部通过（112 文件），覆盖 SQL 安全校验、权限注入、Fallback 对抗训练等核心链路</div></div>
-    <div class="stat"><div class="v">9</div><div class="l">端到端 E2E 用例（3 套套件），模拟真实用户完整操作路径</div></div>
-    <div class="stat"><div class="v">159</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
+    <div class="stat"><div class="v">1889</div><div class="l">单元测试全部通过（130 文件），覆盖 SQL 安全校验、权限注入、Fallback 对抗训练等核心链路</div></div>
+    <div class="stat"><div class="v">17</div><div class="l">端到端 E2E 用例（3 套套件），模拟真实用户完整操作路径</div></div>
+    <div class="stat"><div class="v">187</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
     <div class="stat"><div class="v">0</div><div class="l">TypeScript 三档严格编译错误 · ESLint any / console 规则零豁免</div></div>
   </div>
   <div class="split" style="margin-top:24px;">
@@ -784,7 +825,7 @@
     </div>
   </div>
   <img src="assets/images/deploy-rocket.png" alt="" data-anim="zoom-in" style="display:block;height:170px;width:auto;margin:16px auto 0;border-radius:var(--radius);mix-blend-mode:multiply;">
-  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：一千五百五十二个单元测试全部通过，覆盖了最要命的安全校验、权限注入，以及最新的 Fallback 对抗训练链路；九个端到端用例分三套套件，模拟真实用户的完整操作路径；一百五十九个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前端、服务端加空值检查三档 TypeScript 严格模式编译零错误，ESLint 的 any 与 console 规则零豁免。而且这些不是摆设——每次代码推送前有七道自动化门禁，任何一道红灯都会被拒绝，质量不是口号，是门禁。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地与云端双引擎推理。对企业来说，这意味着低运维成本和长期可维护性。</div>
+  <div class="notes">大家关心的最后一个问题：这套系统靠不靠谱。给四个数字：一千八百八十九个单元测试全部通过，覆盖了最要命的安全校验、权限注入，以及最新的 Fallback 对抗训练链路；十七个端到端用例分三套套件，模拟真实用户的完整操作路径；一百八十七个 REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查；前端、服务端加空值检查三档 TypeScript 严格模式编译零错误，ESLint 的 any 与 console 规则零豁免。而且这些不是摆设——每次代码推送前有七道自动化门禁，任何一道红灯都会被拒绝，质量不是口号，是门禁。部署形态是 Docker 容器化，一条 compose 命令拉起完整环境，数据库连接和引擎配置全走环境变量，升级就是换镜像，回滚也是。技术栈都是主流稳健选型：React 加 TypeScript 前端、Node 服务端、SSE 流式、多源数据库接入、本地与云端双引擎推理。对企业来说，这意味着低运维成本和长期可维护性。</div>
 </section>
 
 <!-- ============ P29 总结与 FAQ ============ -->

@@ -1,5 +1,5 @@
 /**
- * 系统帮助路由：实时读取 docs 下帮助文档并返回给前端渲染。
+ * 系统帮助路由：实时读取 docs/核心文档 下帮助文档并返回给前端渲染。
  * - GET /manual：用户使用指南（面向终端用户回答「系统怎么用」），缺失时回退《系统功能说明书》；
  * - GET /changelog：更新日志（按版本记录主要更新内容，供用户备查，v0.9.36）。
  * 兼容两种运行形态：
@@ -21,9 +21,13 @@ const __dirname = path.dirname(typeof __filename !== 'undefined' ? __filename : 
 const MANUAL_FILENAMES = ['用户使用指南.md', '系统功能说明书.md'];
 const CHANGELOG_FILENAME = '更新日志.md';
 
-// 候选路径：server/routes -> server -> 项目根；以及打包后 dist -> 项目根
+// 候选路径：server/routes -> server -> 项目根；以及打包后 dist -> 项目根。
+// v0.9.79 起核心文档迁入 docs/核心文档/ 独立目录，旧路径保留兜底（兼容历史部署目录结构）。
 function candidatePathsFor(name: string): string[] {
   return [
+    path.join(__dirname, '..', '..', 'docs', '核心文档', name),
+    path.join(__dirname, '..', '..', '..', 'docs', '核心文档', name),
+    path.join(process.cwd(), 'docs', '核心文档', name),
     path.join(__dirname, '..', '..', 'docs', name),
     path.join(__dirname, '..', '..', '..', 'docs', name),
     path.join(process.cwd(), 'docs', name),
