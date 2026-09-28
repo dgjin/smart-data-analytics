@@ -1,13 +1,14 @@
 // P0-1 拆分：单条对话消息卡片（用户提问 / 助手回答）——从 QueryChat.tsx 抽出的纯展示组件，
 // 涵盖反馈点赞、数据来源徽标、语义缓存、DLP 提示、歧义澄清、M2 计划卡片、P1-7 Agent 编排卡片、
 // 报告卡片、KPI/图表/明细表结果区与推荐追问；一切状态变更通过回调 props 回传父组件
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BarChart3,
   Bot,
   CheckCircle,
   Code2,
   Copy,
+  Download,
   FileText,
   HelpCircle,
   Lightbulb,
@@ -30,6 +31,8 @@ import { DataTable } from '../charts/DataTable';
 import { DynamicChart } from '../charts/DynamicChart';
 import { KPIStats } from '../charts/KPIStats';
 import { TraceReplay } from './AnalysisTracePanel';
+import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
+import { exportQueryResult, QUERY_EXPORT_FORMATS, QueryExportFormat } from '../../utils/queryResultExport';
 
 export interface ChatMessageItemProps {
   msg: ChatMessage;
@@ -137,6 +140,37 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
     };
   }, [resultFull]);
 
+  // v0.9.82 问数结果文档导出：按钮禁用态防重复提交；结果行内提示 4s 自动消退
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState<QueryExportFormat | null>(null);
+  const [exportNotice, setExportNotice] = useState<{ ok: boolean; message: string } | null>(null);
+  const dsName = useAnalyticsStore((s) => s.dataSources.find((d) => d.id === s.activeDataSourceId)?.name || '');
+  const dsId = useAnalyticsStore((s) => s.activeDataSourceId);
+  useEffect(() => {
+    if (!exportNotice) return;
+    const timer = setTimeout(() => setExportNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [exportNotice]);
+
+  /** v0.9.82 导出问数结果文档：截图本条消息的图表 → 服务端生成 PDF/Word/MD → 浏览器下载 */
+  const handleExportResult = async (format: QueryExportFormat) => {
+    const qr = msg.queryResult;
+    if (!qr || exporting) return;
+    setExporting(format);
+    setExportNotice(null);
+    const outcome = await exportQueryResult({
+      format,
+      title: msg.question || '分析结果',
+      dataSourceName: dsName,
+      dataSourceId: dsId,
+      provenance: msg.dataProvenance || qr.dataProvenance,
+      result: qr,
+      rootEl: rootRef.current,
+    });
+    setExporting(null);
+    setExportNotice({ ok: outcome.ok, message: outcome.message });
+  };
+
   /** 结果区主体（KPI/洞察/图表/明细）：普通与全屏两态复用同一份 JSX，full 时图表加高、明细分页放大 */
   const renderResultBody = (full: boolean) => {
     const qr = msg.queryResult;
@@ -177,7 +211,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
 
         {/* Interactive Chart */}
         {qr.chartConfig && (
-          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div data-query-chart-root className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <BarChart3 className="w-4 h-4 text-cyan-400" />
@@ -235,6 +269,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
 
       {/* Message Card */}
       <div
+        ref={rootRef}
         className={`max-w-4xl space-y-3 ${
           isUser
             ? 'bg-indigo-600/90 text-white px-4 py-2.5 rounded-2xl rounded-tr-none text-xs leading-relaxed shadow-md'
@@ -705,22 +740,49 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
           </div>
         )}
 
-        {/* Query Result Analysis Dashboard Block（v0.9.38：头部工具条含全屏入口，主体两态复用 renderResultBody） */}
+        {/* Query Result Analysis Dashboard Block（v0.9.38：头部工具条含全屏入口，主体两态复用 renderResultBody；
+            v0.9.82：工具条新增 PDF/Word/MD 文档导出） */}
         {msg.queryResult && (
           <div className="space-y-4 pt-2 border-t border-slate-800">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-400">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-slate-400 shrink-0">
                 分析结果 · 共 {msg.queryResult.totalCount} 行
               </span>
-              <button
-                onClick={() => setResultFull(true)}
-                title="全屏查看，图表与明细数据完整呈现（Esc 退出）"
-                className="flex items-center space-x-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-cyan-300 text-[11px] font-medium transition-colors"
-              >
-                <Maximize2 className="w-3 h-3" />
-                <span>全屏</span>
-              </button>
+              <div className="flex items-center space-x-1.5 flex-wrap justify-end">
+                <span className="flex items-center space-x-1 text-[11px] text-slate-400">
+                  <Download className="w-3 h-3" />
+                  <span>导出</span>
+                </span>
+                {QUERY_EXPORT_FORMATS.map(({ format, label }) => (
+                  <button
+                    key={format}
+                    onClick={() => handleExportResult(format)}
+                    disabled={exporting !== null}
+                    title={`导出为 ${label} 文档（含 AI 解读、KPI、SQL、图表与明细数据，带溯源水印）`}
+                    className="flex items-center space-x-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-cyan-300 text-[11px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {exporting === format && <Loader2 className="w-3 h-3 animate-spin" />}
+                    <span>{exporting === format ? '导出中' : label}</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => setResultFull(true)}
+                  title="全屏查看，图表与明细数据完整呈现（Esc 退出）"
+                  className="flex items-center space-x-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-cyan-300 text-[11px] font-medium transition-colors"
+                >
+                  <Maximize2 className="w-3 h-3" />
+                  <span>全屏</span>
+                </button>
+              </div>
             </div>
+            {exportNotice && (
+              <div
+                role="status"
+                className={`text-[11px] ${exportNotice.ok ? 'text-emerald-400' : 'text-rose-400'}`}
+              >
+                {exportNotice.message}
+              </div>
+            )}
             {renderResultBody(false)}
           </div>
         )}

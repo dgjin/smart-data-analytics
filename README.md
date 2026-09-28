@@ -21,6 +21,7 @@
 - **对话历史**：问数留痕服务端落库（跨设备共享），支持关键词搜索、一键重问、单条删除与 Markdown 导出
 - **模型自选**：问数输入框旁下拉选择 AI 模型（Ollama 已安装模型实时列出，云端引擎百炼/Gemini/DeepSeek 按配置列入），选择随提问生效并持久化
 - **推导过程回放**：全程步骤埋点（query_trace），完成后可展开时间线查看每环节 SQL/行数/耗时
+- **结果文档导出**（v0.9.82）：问数结果区一键导出 PDF / Word / MD 文档（含提问原文、数据来源、AI 解读、核心指标、归因洞察、SQL、图表截图与明细前 100 行 / 前 12 列），服务端统一注入导出人水印并写入审计
 - **计划模式**（开关）：先由 LLM 生成分析计划供批准，再携带 planId 执行
 - **Agent 编排**（开关，P1-7）：提问先规划多能力步骤（取数 → 时序预测 → 多维归因），批准后逐步执行并汇总结果；计划 10 分钟有效、一次性消费（与计划模式互斥）
 - **报告模式**（开关）：提问直接生成完整分析报告（摘要+KPI+图表+洞察），支持选择报告模板或智能推断；报告落库并可在「问数报告中心」集中管理
@@ -63,7 +64,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
-| 测试 | Vitest（130 文件 / 1889 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
+| 测试 | Vitest（133 文件 / 1925 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
 
 ## 快速开始
 
@@ -183,8 +184,11 @@ server/
   auditLog.ts              # 问数审计
   llmClient.ts             # 统一 LLM 通道（Ollama/千问/Gemini/DeepSeek）
   anomalyPatrol.ts         # P0-1 异常巡检引擎（巡检计划/内置调度器/复用报表异常检测）
-  pdfExport.ts             # 报告 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
+  queryExport.ts           # 问数结果文档导出（载荷归一化 + Markdown 生成，v0.9.82）
+  queryExportWord.ts       # 问数结果 Word 导出（docx 组装，v0.9.82）
+  pdfExport.ts             # 报告 / 问数结果 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
   pdfgen/report_pdf.py     # ReportLab 排版脚本（A4 竖/横版、中文 CID 字体、图表 PNG 嵌入）
+  pdfgen/query_pdf.py      # 问数结果 PDF 排版脚本（A4 竖版、图表 PNG 嵌入，v0.9.82）
   routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help
 src/
   components/              # query/charts/reports/dashboard/datasource/help/admin/auth
@@ -201,7 +205,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（130 文件 / 1889 用例）
+npm test             # Vitest（133 文件 / 1925 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

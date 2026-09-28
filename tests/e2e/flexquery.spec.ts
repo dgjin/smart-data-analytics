@@ -221,6 +221,9 @@ test.describe('灵活查询（FlexQuery）', () => {
     // 默认柱状图 + 首维度无时间粒度 → 可下钻；点击首根柱体应打开明细弹层
     const bar = page.locator('.recharts-bar-rectangle').first();
     await expect(bar).toBeVisible({ timeout: 15_000 });
+    // 先悬停再点击：合成点击过快时 Recharts 的 activeLabel 尚未建立，首次点击不触发下钻（悬停建立 active 态后点击稳定命中）
+    await bar.hover();
+    await page.waitForTimeout(200);
     await bar.click();
     await expect(page.getByText(/^下钻明细：/)).toBeVisible({ timeout: 15_000 });
   });

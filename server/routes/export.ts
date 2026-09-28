@@ -1,10 +1,12 @@
 /**
- * P2-12 DLP 数据防泄漏：统一 CSV 导出通道。
+ * P2-12 DLP 数据防泄漏：统一导出通道（CSV / 问数结果文档）。
  *
  * - 水印：文件首行/尾行嵌入导出人、部门、时间、行数（泄漏可溯源）
- * - 下载审批：行数超过 DLP_EXPORT_APPROVE_ROWS（默认 5000）且非 ADMIN → 生成
+ * - 下载审批：CSV 导出行数超过 DLP_EXPORT_APPROVE_ROWS（默认 5000）且非 ADMIN → 生成
  *   download_requests 审批单（202 approvalRequired）；ADMIN 通过后 24h 内可导出一次
  *   （导出成功即转 CONSUMED，一次性授权）
+ * - 问数结果文档导出（v0.9.82 POST /query-doc）：PDF / Word / Markdown 三格式，
+ *   明细截断前 100 行（低于免审批阈值，不构成 DLP 绕过）+ 服务端注入导出人水印
  * - 审计：所有导出/拦截均落 query_audit_log（endpoint='export'）
  */
 import { Router } from 'express';
@@ -14,6 +16,11 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { getPool } from '../infra/db';
 import { writeAudit } from '../infra/auditLog';
 import { ERROR_CODES } from '../infra/errorCodes';
+import { logger } from '../infra/logger';
+import { getErrorMessage } from '../infra/errorUtils';
+import { normalizeQueryExportData, buildQueryMarkdown, buildQueryExportFilename } from '../query/queryExport';
+import { buildQueryWord } from '../query/queryExportWord';
+import { runQueryPdfGenerator } from '../report/pdfExport';
 
 const router = Router();
 router.use(authMiddleware);
@@ -162,6 +169,64 @@ router.post('/csv', rateLimiter, async (req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fname}`);
   return res.send(csv);
+});
+
+// POST /api/export/query-doc —— 问数结果文档导出（v0.9.82，PDF / Word / Markdown 三格式）
+// DLP 规范与 CSV 一致：导出人水印服务端注入（防伪造）+ 全程审计；明细在 normalize 层截断前 100 行 / 前 12 列
+router.post('/query-doc', rateLimiter, async (req, res) => {
+  const startedAt = Date.now();
+  const user = req.user!;
+  const format = req.body?.format;
+  const auditBase = {
+    userId: user.id,
+    username: user.username,
+    endpoint: 'export' as const,
+    dataSourceId: typeof req.body?.dataSourceId === 'string' ? req.body.dataSourceId : '',
+  };
+
+  if (format !== 'pdf' && format !== 'word' && format !== 'md') {
+    writeAudit({ ...auditBase, question: 'query-export', status: 'DENIED_INPUT', detail: `format 非法: ${String(format).slice(0, 20)}`, durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: 'format 须为 pdf / word / md' });
+  }
+  const data = normalizeQueryExportData(req.body);
+  if (!data) {
+    writeAudit({ ...auditBase, question: 'query-export', status: 'DENIED_INPUT', detail: '问数导出参数非法（缺少提问原文）', durationMs: Date.now() - startedAt });
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '导出参数无效（缺少提问原文）' });
+  }
+  // P2-12 DLP 导出水印：导出人（含部门）与导出时间由服务端注入（覆盖前端传入，防伪造）
+  // 与 CSV 通道同规范：导出人 / 导出时间分列呈现，避免各渲染器拼装时时间重复
+  data.exportedBy = `${user.username}${user.department ? `（${user.department}）` : ''}`;
+  data.createdAt = new Date().toLocaleString('zh-CN', { hour12: false });
+
+  const qTag = `query-export-${format}:${data.title.slice(0, 60)}`;
+  const ext = format === 'word' ? '.docx' : `.${format}`;
+  const fname = encodeURIComponent(buildQueryExportFilename(data.title, ext));
+  try {
+    if (format === 'md') {
+      const md = buildQueryMarkdown(data);
+      writeAudit({ ...auditBase, question: qTag, status: 'SUCCESS', rowCount: data.rows.length, durationMs: Date.now() - startedAt });
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fname}`);
+      return res.send(md);
+    }
+    if (format === 'word') {
+      const buf = await buildQueryWord(data);
+      writeAudit({ ...auditBase, question: qTag, status: 'SUCCESS', rowCount: data.rows.length, durationMs: Date.now() - startedAt });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fname}`);
+      return res.send(buf);
+    }
+    const pdf = await runQueryPdfGenerator(data);
+    writeAudit({ ...auditBase, question: qTag, status: 'SUCCESS', rowCount: data.rows.length, durationMs: Date.now() - startedAt });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fname}`);
+    return res.send(pdf);
+  } catch (err) {
+    logger.error('Query Doc Export Error:', err);
+    writeAudit({ ...auditBase, question: qTag, status: 'FALLBACK', detail: String(getErrorMessage(err)).slice(0, 200), durationMs: Date.now() - startedAt });
+    const fmtLabel = format === 'pdf' ? 'PDF' : format === 'word' ? 'Word' : 'Markdown';
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: `${fmtLabel} 生成失败，请稍后重试` });
+  }
 });
 
 // GET /api/export/requests/mine —— 我的下载申请

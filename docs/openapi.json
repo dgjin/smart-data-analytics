@@ -3312,6 +3312,110 @@
         }
       }
     },
+    "/api/export/query-doc": {
+      "post": {
+        "tags": [
+          "Export"
+        ],
+        "operationId": "exportQueryDoc",
+        "summary": "问数结果文档导出（PDF / Word / Markdown；服务端注入水印 + 审计，明细截断前 100 行）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "format",
+                  "title"
+                ],
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "pdf",
+                      "word",
+                      "md"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "提问原文（文档标题）"
+                  },
+                  "dataSourceName": {
+                    "type": "string"
+                  },
+                  "dataSourceId": {
+                    "type": "string"
+                  },
+                  "dataProvenance": {
+                    "type": "string",
+                    "enum": [
+                      "live",
+                      "simulated"
+                    ]
+                  },
+                  "sql": {
+                    "type": "string"
+                  },
+                  "aiExplanation": {
+                    "type": "string"
+                  },
+                  "kpiMetrics": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "keyInsights": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "chartTitle": {
+                    "type": "string"
+                  },
+                  "chartImageBase64": {
+                    "type": "string",
+                    "description": "图表 PNG data URL（服务端魔数校验后嵌入）"
+                  },
+                  "columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "totalCount": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "附件二进制（application/pdf / wordprocessingml / text/markdown）"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/api/export/requests/mine": {
       "get": {
         "tags": [

@@ -19,18 +19,26 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url));
 
 /** 脚本路径候选：开发（server/pdfgen/）与打包（dist/ 上一级项目根）双环境 */
-const PDF_SCRIPT_CANDIDATES = [
-  path.join(__dirname, 'pdfgen', 'report_pdf.py'),
-  path.join(__dirname, '..', 'server', 'pdfgen', 'report_pdf.py'),
-  path.join(process.cwd(), 'server', 'pdfgen', 'report_pdf.py'),
-];
-
-/** 解析 ReportLab 脚本路径；不存在返回 null（部署环境缺 Python 资产时路由层优雅降级） */
-export function resolvePdfScriptPath(): string | null {
-  for (const p of PDF_SCRIPT_CANDIDATES) {
+function resolveScriptPath(fileName: string): string | null {
+  const candidates = [
+    path.join(__dirname, 'pdfgen', fileName),
+    path.join(__dirname, '..', 'server', 'pdfgen', fileName),
+    path.join(process.cwd(), 'server', 'pdfgen', fileName),
+  ];
+  for (const p of candidates) {
     if (existsSync(p)) return p;
   }
   return null;
+}
+
+/** 解析报告 PDF 脚本路径（report_pdf.py）；不存在返回 null（部署环境缺 Python 资产时路由层优雅降级） */
+export function resolvePdfScriptPath(): string | null {
+  return resolveScriptPath('report_pdf.py');
+}
+
+/** 解析问数结果 PDF 脚本路径（query_pdf.py，v0.9.82）；不存在返回 null */
+export function resolveQueryPdfScriptPath(): string | null {
+  return resolveScriptPath('query_pdf.py');
 }
 
 /** 环境探测：python3 + reportlab 是否可用（供测试跳过与路由健康检查） */
@@ -60,21 +68,20 @@ export function checkPdfEnv(): Promise<{ ok: boolean; reason?: string }> {
 }
 
 /**
- * 调用 ReportLab 脚本生成 PDF。
- * stdin 传 JSON（报告数据），stdout 收 PDF 二进制；非 0 退出码视为失败并带 stderr 摘要。
+ * 调用 ReportLab 脚本生成 PDF（通用主体，v0.9.82 抽出供报告/问数双脚本复用）。
+ * stdin 传 JSON（文档数据），stdout 收 PDF 二进制；非 0 退出码视为失败并带 stderr 摘要。
  */
-export function runPdfGenerator(data: unknown, timeoutMs = 60000): Promise<Buffer> {
+function runPdfScript(script: string | null, missingScriptMessage: string, data: unknown, timeoutMs: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const script = resolvePdfScriptPath();
     if (!script) {
-      reject(new Error('PDF 生成脚本不存在（server/pdfgen/report_pdf.py 缺失）'));
+      reject(new Error(missingScriptMessage));
       return;
     }
     let payload: string;
     try {
       payload = JSON.stringify(data);
     } catch {
-      reject(new Error('报告数据序列化失败'));
+      reject(new Error('PDF 导出数据序列化失败'));
       return;
     }
 
@@ -128,4 +135,14 @@ export function runPdfGenerator(data: unknown, timeoutMs = 60000): Promise<Buffe
       child.stdin.end();
     });
   });
+}
+
+/** 报告 PDF：调用 report_pdf.py 生成（报告卡片导出链路） */
+export function runPdfGenerator(data: unknown, timeoutMs = 60000): Promise<Buffer> {
+  return runPdfScript(resolvePdfScriptPath(), 'PDF 生成脚本不存在（server/pdfgen/report_pdf.py 缺失）', data, timeoutMs);
+}
+
+/** 问数结果 PDF：调用 query_pdf.py 生成（v0.9.82 问数结果导出链路） */
+export function runQueryPdfGenerator(data: unknown, timeoutMs = 60000): Promise<Buffer> {
+  return runPdfScript(resolveQueryPdfScriptPath(), 'PDF 生成脚本不存在（server/pdfgen/query_pdf.py 缺失）', data, timeoutMs);
 }
