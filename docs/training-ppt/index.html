@@ -379,20 +379,20 @@
   <div class="notes">很多同事问：AI 生成的 SQL 我不放心，有没有更传统一点的方式？有，就是灵活查询。它在左侧导航第五项，完全不用写 SQL，也不用跟 AI 对话——选一张表，在字段列表里点一下就把字段加进来了，v0.9.37 之后筛选区还有独立的下拉入口，两个入口随便用哪个。要跨表就用「表关系画布」——主表和关联表以卡片呈现，把表从表库拖进画布就自动建好关联、猜好条件，连接线上可随时改 INNER / LEFT 和两侧字段；table 点 column 的跨表引用都支持。筛选能力也很全：区间、空值、去重计数、甚至聚合之后再过滤的 HAVING 都有，排序字段和方向自己定。查出来的行数默认一万行，可以放宽到十万，按真实记录数输出，不会有截断。它和问数的分工很清楚：临时性的、探索性的问题交给 AI 问数；那种每周例会都要跑一遍的固定报表，用灵活查询一次配好，口径永远稳定。做好的结果同样可以固化到看板上。所以 AI 和自助工具在这套系统里是互补的，不是替代关系。</div>
 </section>
 
-<!-- ============ P13b 表关系画布（v0.9.79 新增） ============ -->
+<!-- ============ P13b 表关系画布（v0.9.79 新增，v0.9.80 字段图形化） ============ -->
 <section class="slide" data-mod="2">
-  <div class="kicker">MODULE 02 · 灵活查询 · v0.9.79</div>
+  <div class="kicker">MODULE 02 · 灵活查询 · v0.9.79–v0.9.80</div>
   <h2>表关系画布：图形化拼装 SQL</h2>
-  <p class="lead" style="margin-bottom:16px;">表和字段从「下拉 + 列表」升级为「表卡片 + 连接符」——字段拖到下方查询配置区即拼装，拖表入画布即建关联。</p>
+  <p class="lead" style="margin-bottom:16px;">表和字段从「下拉 + 列表」升级为「表卡片 + 连接符」，字段图形化为「字段片」——悬停即快捷筛选、关联字段联动高亮；字段拖到下方查询配置区即拼装，拖表入画布即建关联。</p>
   <div class="split">
     <div class="card flat" data-anim="fade-up" style="display:flex;flex-direction:column;justify-content:center;">
       <div style="display:flex;align-items:stretch;gap:8px;">
         <div style="flex:1;border:1.5px solid rgba(99,102,241,.5);border-radius:10px;overflow:hidden;background:var(--surface);">
           <div style="padding:4px 8px;font-size:11.5px;font-weight:700;color:#4338ca;background:rgba(99,102,241,.08);border-bottom:1px solid rgba(99,102,241,.2);">客户表<span style="margin-left:6px;font-size:9px;font-weight:400;padding:0 4px;border-radius:4px;background:rgba(99,102,241,.15);">主表</span></div>
-          <div style="padding:5px 8px;font-size:11px;color:var(--text-2);line-height:1.9;">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#10b981;margin-right:5px;"></span>客户号<span style="margin-left:4px;font-size:9px;color:#d97706;">主键</span><br>
-            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#94a3b8;margin-right:5px;"></span>客户名称<br>
-            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#0ea5e9;margin-right:5px;"></span>客户类型
+          <div style="padding:5px 8px;font-size:11px;color:var(--text-2);line-height:2.1;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(16,185,129,.16);border:1px solid rgba(16,185,129,.55);vertical-align:-1px;margin-right:5px;"></span>客户号<span style="margin-left:4px;font-size:9px;padding:0 3px;border-radius:3px;background:rgba(217,119,6,.15);color:#d97706;">主键</span><br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(100,116,139,.16);border:1px solid rgba(100,116,139,.5);vertical-align:-1px;margin-right:5px;"></span>客户名称<br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(14,165,233,.16);border:1px solid rgba(14,165,233,.5);vertical-align:-1px;margin-right:5px;"></span>客户类型
           </div>
         </div>
         <div style="width:104px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;">
@@ -402,22 +402,22 @@
         </div>
         <div style="flex:1;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);">
           <div style="padding:4px 8px;font-size:11.5px;font-weight:700;color:#0e7490;background:rgba(6,182,212,.08);border-bottom:1px solid rgba(6,182,212,.2);">拜访记录表</div>
-          <div style="padding:5px 8px;font-size:11px;color:var(--text-2);line-height:1.9;">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#10b981;margin-right:5px;"></span>客户号<br>
-            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#06b6d4;margin-right:5px;"></span>拜访日期<br>
-            <span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:#10b981;margin-right:5px;"></span>拜访金额
+          <div style="padding:5px 8px;font-size:11px;color:var(--text-2);line-height:2.1;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(16,185,129,.16);border:1px solid rgba(16,185,129,.55);vertical-align:-1px;margin-right:5px;"></span>客户号<br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(6,182,212,.16);border:1px solid rgba(6,182,212,.5);vertical-align:-1px;margin-right:5px;"></span>拜访日期<br>
+            <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:rgba(16,185,129,.16);border:1px solid rgba(16,185,129,.55);vertical-align:-1px;margin-right:5px;"></span>拜访金额
           </div>
         </div>
       </div>
-      <div style="margin-top:10px;font-size:10.5px;color:#94a3b8;text-align:center;">字段带类型徽标 · 主键与「已使用」标记 —— 拖字段到查询配置区即拼装 SQL</div>
+      <div style="margin-top:10px;font-size:10.5px;color:#94a3b8;text-align:center;">字段片：类型色块 + 主键 / 「已使用」徽章 —— 悬停快捷筛选 · 连接线联动高亮关联字段 · 拖字段即拼装 SQL</div>
     </div>
     <div class="steps" data-anim="slide-left">
       <div class="step"><div class="body"><h3 style="font-size:14.5px;">拖字段拼装 SQL</h3><p style="font-size:12.5px;">画布字段直接拖到下方维度 / 指标 / 筛选 / HAVING 区（或点击快速添加），像拼积木一样组装查询</p></div></div>
       <div class="step"><div class="body"><h3 style="font-size:14.5px;">拖表即建关联</h3><p style="font-size:12.5px;">「表库」拖表入画布或点击即自动建立 JOIN；关联条件按字段名智能预填（同名主键 / xxx_id 参照）</p></div></div>
-      <div class="step"><div class="body"><h3 style="font-size:14.5px;">连接符可视化调整</h3><p style="font-size:12.5px;">切换 INNER / LEFT、点「ON a = b」就地改两侧字段、一键移除；与原行式关联面板同一份配置</p></div></div>
+      <div class="step"><div class="body"><h3 style="font-size:14.5px;">连接符可视化调整</h3><p style="font-size:12.5px;">切换 INNER / LEFT（线色靛蓝 / 琥珀）、点「ON a = b」就地改两侧字段、一键移除；<b>悬停连接线（或编辑关联）两侧字段片联动高亮</b>，与原行式关联面板同一份配置</p></div></div>
     </div>
   </div>
-  <div class="notes">最后一页讲灵活查询的最新形态——表关系画布。以前选表、看字段都是下拉框和列表，看得见但摸不着；现在主表和关联表都变成卡片，直接在画布上展开：每个字段带着类型徽标，数值、文本、日期一眼可辨，主键有标记，已经用上的字段会打勾。两个核心动作：第一，拖字段——把卡片里的字段拖到下方的维度、指标、筛选或者 HAVING 区域，SQL 就拼出来了，不想拖、点一下字段也能快速添加，跟拼积木一样；第二，拖表建关联——数据源里没用到的表都在「表库」里躺着，拖进画布就建立关联，系统会按字段名智能猜好关联条件，比如两边都有客户号、或者订单表的客户 ID 对客户表的主键，猜好之后连接线上直接切换 INNER 还是 LEFT、点一下就能就地改两侧关联字段，不要了一键移除。画布和原来的行式关联配置是同一份数据，哪边改都同步，安全边界也完全不变——SELECT 查询、表白名单、敏感列过滤、行级权限一个不少。</div>
+  <div class="notes">最后一页讲灵活查询的最新形态——表关系画布。以前选表、看字段都是下拉框和列表，看得见但摸不着；现在主表和关联表都变成卡片，直接在画布上展开：每个字段带着类型徽标，数值、文本、日期一眼可辨，主键有标记，已经用上的字段会打勾。两个核心动作：第一，拖字段——把卡片里的字段拖到下方的维度、指标、筛选或者 HAVING 区域，SQL 就拼出来了，不想拖、点一下字段也能快速添加，跟拼积木一样；第二，拖表建关联——数据源里没用到的表都在「表库」里躺着，拖进画布就建立关联，系统会按字段名智能猜好关联条件，比如两边都有客户号、或者订单表的客户 ID 对客户表的主键，猜好之后连接线上直接切换 INNER 还是 LEFT、点一下就能就地改两侧关联字段，不要了一键移除。画布和原来的行式关联配置是同一份数据，哪边改都同步，安全边界也完全不变——SELECT 查询、表白名单、敏感列过滤、行级权限一个不少。v0.9.80 又把字段片做得更顺手：字段自带类型色块和徽章，鼠标移上去直接出现快捷筛选键，日期文本一键进 WHERE、数值一键进 HAVING；把鼠标放到连接线上，这条线连接的两侧字段会一起亮起来，改关联、看关联都不再费眼；连接线还按类型变色，INNER 靛蓝、LEFT 琥珀，表头顺带标出行数和字段数。</div>
 </section>
 
 <!-- ============ P14 可视化决策报表 ============ -->

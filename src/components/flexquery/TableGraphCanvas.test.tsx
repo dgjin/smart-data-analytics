@@ -2,6 +2,8 @@
  * 表关系画布组件测试（v0.9.79）：图形化卡片渲染（描述优先名/类型徽标/主键标记）、
  * 字段点击添加（主表无前缀 / 关联表带前缀）、搜索过滤、表库点击与拖拽建立关联、
  * 连接符类型切换、关联字段内联编辑与移除（受控状态生效）。
+ * v0.9.80：字段片图形化——悬停快捷筛选按钮（日期→WHERE / 数值→HAVING，stopPropagation）与
+ * 连接符悬停/编辑联动高亮两侧关联字段片（编辑态优先于悬停态）。
  * @vitest-environment jsdom
  */
 import React, { useState } from 'react';
@@ -172,5 +174,40 @@ describe('TableGraphCanvas: 表关系画布（v0.9.79）', () => {
     // 移除后该表回到表库可再次添加（画布卡片消失，仅剩表库 chip 一处名称）
     expect(screen.getByTitle('拖入画布或点击添加关联：客户维表')).toBeTruthy();
     expect(screen.getAllByText('客户维表')).toHaveLength(1);
+  });
+
+  it('悬停字段片快捷筛选按钮直接落位（日期→WHERE / 数值→HAVING）且不触发整行点击', () => {
+    const { addField } = setup();
+    // 唯一非数值字段 biz_date → WHERE 筛选（title 唯一）
+    fireEvent.click(screen.getByTitle('添加为筛选条件'));
+    expect(addField).toHaveBeenCalledTimes(1);
+    expect(addField).toHaveBeenCalledWith('biz_date', 'filter');
+    // 数值字段 → HAVING（订单号列序在前，取首个）
+    fireEvent.click(screen.getAllByTitle('添加为 HAVING 指标过滤')[0]);
+    expect(addField).toHaveBeenLastCalledWith('order_id', 'having');
+    // stopPropagation：未触发整行 onClick 的裸 addField(fullName) 调用
+    expect(addField).not.toHaveBeenCalledWith('biz_date');
+    expect(addField).not.toHaveBeenCalledWith('order_id');
+  });
+
+  it('连接符悬停/编辑联动高亮两侧关联字段片（编辑态优先于悬停态）', () => {
+    setup({ joins: [JOIN] });
+    const mainField = screen.getByTestId('flex-field-customer_id');
+    const dimField = screen.getByTestId('flex-field-dim_customer.customer_id');
+    expect(mainField.className).not.toContain('border-indigo-400/70');
+    // 悬停连接符：两侧关联字段片高亮
+    const connector = screen.getByTestId('flex-join-connector');
+    fireEvent.mouseEnter(connector);
+    expect(mainField.className).toContain('border-indigo-400/70');
+    expect(dimField.className).toContain('border-indigo-400/70');
+    fireEvent.mouseLeave(connector);
+    expect(mainField.className).not.toContain('border-indigo-400/70');
+    // 编辑态优先：展开内联编辑后（无悬停）保持高亮，完成后回落
+    fireEvent.click(screen.getByTitle('点击编辑关联字段'));
+    expect(mainField.className).toContain('border-indigo-400/70');
+    expect(dimField.className).toContain('border-indigo-400/70');
+    fireEvent.click(screen.getByText('完成'));
+    expect(mainField.className).not.toContain('border-indigo-400/70');
+    expect(dimField.className).not.toContain('border-indigo-400/70');
   });
 });
