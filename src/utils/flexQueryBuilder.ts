@@ -13,6 +13,8 @@
  * 同归属表/同过滤约束）、时间衍生列（同比/环比/累计/移动平均，LAG/SUM/AVG OVER 窗口函数双方言）。
  * v0.9.77（灵活查询 P2 增强）：计算字段（表达式作用于聚合结果列，白名单 tokenizer 校验：四则运算/
  * 比较 + ROUND/ABS/LEAST/GREATEST/NULLIF/COALESCE + IF 转译 CASE WHEN，双方言兼容）。
+ * v0.9.79（灵活查询图形化增强）：表关系画布与拖拽拼装——suggestJoinOn 关联字段自动猜测
+ * （拖表入画布建立 JOIN 时预填条件，同名列/主键/`xxx_id` 参照模式打分）。
  */
 import { TableSchema } from '../types/analytics';
 
@@ -521,6 +523,39 @@ function buildFilterCondition(
     return { ok: true, sql: `${col} LIKE ${filterValueToSql('LIKE', f.value, f.likeMode)}` };
   }
   return { ok: true, sql: `${col} ${f.op} ${filterValueToSql(f.op, f.value)}` };
+}
+
+/**
+ * v0.9.79：表间关联字段自动猜测（拖表入画布建立 JOIN 时预填条件）。
+ * 打分优先级：两表同名列（关联表侧主键 100 > 主表侧主键 95 > 普通同名 70，`_id` 结尾列小幅加成）
+ * ＞「`xxx_id` ↔ id 主键」参照模式（55/50）；无候选时回退两侧主键（或 id 列、首字段），
+ * 结果仅作预填，由用户在画布连接符上确认调整。
+ */
+export function suggestJoinOn(mainTable: TableSchema, joinTable: TableSchema): { left: string; right: string } {
+  const main = mainTable?.columns || [];
+  const join = joinTable?.columns || [];
+  const candidates: { score: number; left: string; right: string }[] = [];
+  for (const mc of main) {
+    for (const jc of join) {
+      if (mc.name === jc.name) {
+        if (jc.isPrimaryKey) candidates.push({ score: 100, left: mc.name, right: jc.name });
+        else if (mc.isPrimaryKey) candidates.push({ score: 95, left: mc.name, right: jc.name });
+        else candidates.push({ score: /_id$/i.test(mc.name) ? 75 : 70, left: mc.name, right: jc.name });
+      } else if (/_id$/i.test(mc.name) && jc.isPrimaryKey && /^id$/i.test(jc.name)) {
+        candidates.push({ score: 55, left: mc.name, right: jc.name });
+      } else if (/_id$/i.test(jc.name) && mc.isPrimaryKey && /^id$/i.test(mc.name)) {
+        candidates.push({ score: 50, left: mc.name, right: jc.name });
+      }
+    }
+  }
+  if (candidates.length > 0) {
+    // reduce 取最高分（同分保留先遇到的候选，遍历顺序即列序，结果稳定）
+    const best = candidates.reduce((a, b) => (b.score > a.score ? b : a));
+    return { left: best.left, right: best.right };
+  }
+  const mainKey = main.find((c) => c.isPrimaryKey) || main.find((c) => /^id$/i.test(c.name)) || main[0];
+  const joinKey = join.find((c) => c.isPrimaryKey) || join.find((c) => /^id$/i.test(c.name)) || join[0];
+  return { left: mainKey?.name || '', right: joinKey?.name || '' };
 }
 
 /**

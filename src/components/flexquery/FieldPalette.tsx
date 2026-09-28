@@ -5,6 +5,7 @@ import { Table2, Loader2, Search, Tag, Hash, Check, Filter, Plus, ChevronUp, Che
 import { TableSchema } from '../../types/analytics';
 import { FlexJoin, FlexMetricMeasure } from '../../utils/flexQueryBuilder';
 import { JoinConfigPanel } from './JoinConfigPanel';
+import { TableGraphCanvas } from './TableGraphCanvas';
 import { DropZone, FieldTab, FieldWithTable, FlexTablePreview, MetricOption } from './flexQueryShared';
 
 export interface FieldPaletteProps {
@@ -29,6 +30,8 @@ export interface FieldPaletteProps {
   meaOpen: boolean;
   setMeaOpen: React.Dispatch<React.SetStateAction<boolean>>;
   addField: (column: string, zone?: DropZone) => void;
+  /** v0.9.79：拖表/点表入画布建立关联（图形化 JOIN，关联字段启发式预填） */
+  addJoinByTable: (table: string) => void;
   /** v0.9.76 P1-7：语义指标（治理口径，归属表锁定，点击添加到指标区） */
   availableMetrics: MetricOption[];
   loadingMetrics: boolean;
@@ -62,6 +65,7 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
   meaOpen,
   setMeaOpen,
   addField,
+  addJoinByTable,
   availableMetrics,
   loadingMetrics,
   metricMeasures,
@@ -123,6 +127,19 @@ export const FieldPalette: React.FC<FieldPaletteProps> = ({
           </div>
         )}
       </div>
+
+      {/* v0.9.79：表关系画布（图形化表/字段展现 + 拖表建联 + 拖字段拼装 SQL），与行式 JoinConfigPanel 共享 joins 状态 */}
+      <TableGraphCanvas
+        tables={tables}
+        tableSchema={tableSchema}
+        selectedTable={selectedTable}
+        joins={joins}
+        setJoins={setJoins}
+        usedColumns={usedColumns}
+        fieldSearch={fieldSearch}
+        addField={addField}
+        addJoinByTable={addJoinByTable}
+      />
 
       {/* v0.4.14：关联表配置（P0-1 拆至 JoinConfigPanel，多表 JOIN） */}
       <JoinConfigPanel

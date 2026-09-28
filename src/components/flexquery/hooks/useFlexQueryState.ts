@@ -14,6 +14,7 @@ import {
   isAmountColumn,
   measureAlias,
   metricAlias,
+  suggestJoinOn,
   FlexCalcField,
   FlexDerived,
   FlexDerivedKind,
@@ -507,6 +508,19 @@ export function useFlexQueryState() {
     } else {
       setFilters((prev) => [...prev, { column, op: '=', value: '' }]);
     }
+  };
+
+  // ---------- v0.9.79 图形化建联：拖表/点表入画布（表关系画布 TableGraphCanvas） ----------
+  /** 拖表入画布建立 JOIN：校验后按字段名启发式预填关联条件（可在连接符或行式面板继续调整） */
+  const addJoinByTable = (table: string) => {
+    if (!tableSchema) return showToast('请先选择数据表');
+    if (!table || table === selectedTable) return showToast('不能把主表自身添加为关联表');
+    if (joins.some((j) => j.table === table)) return showToast('该表已在画布中');
+    const jt = tables.find((t) => t.name === table);
+    if (!jt) return showToast('关联表不存在于当前数据源');
+    const on = suggestJoinOn(tableSchema, jt);
+    setJoins((prev) => [...prev, { table, type: 'INNER', on }]);
+    showToast(`已添加关联表「${jt.displayName || jt.name}」：${on.left || '?'} = ${on.right || '?'}（可点击连接符调整）`);
   };
 
   // ---------- v0.9.76 P1-7：语义指标（归属表锁定，与 buildFlexQuerySql 同口径前置校验） ----------
@@ -1368,6 +1382,7 @@ export function useFlexQueryState() {
     chartConfig,
     // 行为
     addField,
+    addJoinByTable,
     resetBuilder,
     runQuery,
     runQueryForceRefresh,

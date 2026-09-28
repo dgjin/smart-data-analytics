@@ -148,6 +148,7 @@ export const FlexQueryBuilder: React.FC = () => {
     chartConfig,
     // 行为
     addField,
+    addJoinByTable,
     resetBuilder,
     runQuery,
     runQueryForceRefresh,
@@ -238,6 +239,7 @@ export const FlexQueryBuilder: React.FC = () => {
             meaOpen={meaOpen}
             setMeaOpen={setMeaOpen}
             addField={addField}
+            addJoinByTable={addJoinByTable}
             availableMetrics={availableMetrics}
             loadingMetrics={loadingMetrics}
             metricMeasures={metricMeasures}

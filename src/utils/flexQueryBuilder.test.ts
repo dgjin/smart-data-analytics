@@ -10,6 +10,7 @@ import {
   dimResultAlias,
   metricAlias,
   derivedAlias,
+  suggestJoinOn,
   YOY_LAG_BY_UNIT,
   FlexQueryConfig,
 } from './flexQueryBuilder';
@@ -919,5 +920,69 @@ describe('buildFlexQuerySql：计算字段集成（v0.9.77 P2-13）', () => {
     expect(buildFlexQuerySql(base({ calcFields: [{ id: 'calc-4', name: 'y', expr: 'nope + 1' }] }), TABLE, 'mysql').ok).toBe(false);
     expect(calcAlias({ id: 'calc-1730000000001', name: '留存率' })).toBe('calc_1730000000001');
     expect(calcAlias({ name: 'Margin' })).toBe('calc_margin');
+  });
+});
+
+describe('suggestJoinOn: 表间关联字段自动猜测（v0.9.79）', () => {
+  const MAIN: TableSchema = {
+    id: 't1',
+    name: 'orders',
+    displayName: '订单表',
+    description: '',
+    rowCount: 100,
+    columns: [
+      { name: 'order_id', type: 'number', isPrimaryKey: true },
+      { name: 'customer_id', type: 'number' },
+      { name: 'amount', type: 'number' },
+    ],
+  };
+  const joinTable = (name: string, columns: TableSchema['columns']): TableSchema => ({
+    id: `t-${name}`,
+    name,
+    displayName: name,
+    description: '',
+    rowCount: 10,
+    columns,
+  });
+
+  it('同名且关联表侧为主键（100 分优先，维度表经典参照）', () => {
+    const join = joinTable('customers', [
+      { name: 'customer_id', type: 'number', isPrimaryKey: true },
+      { name: 'customer_name', type: 'string' },
+    ]);
+    expect(suggestJoinOn(MAIN, join)).toEqual({ left: 'customer_id', right: 'customer_id' });
+  });
+
+  it('同名且主表侧为主键（95 分）', () => {
+    const join = joinTable('order_notes', [
+      { name: 'order_id', type: 'number' },
+      { name: 'note', type: 'string' },
+    ]);
+    expect(suggestJoinOn(MAIN, join)).toEqual({ left: 'order_id', right: 'order_id' });
+  });
+
+  it('普通同名候选按列序稳定取首（_id 结尾小幅加成不改变同名主判）', () => {
+    const join = joinTable('tmp', [
+      { name: 'amount', type: 'number' },
+      { name: 'customer_id', type: 'number' },
+    ]);
+    expect(suggestJoinOn(MAIN, join)).toEqual({ left: 'customer_id', right: 'customer_id' });
+  });
+
+  it('无同名时 xxx_id ↔ id 主键参照模式（55 分）', () => {
+    const join = joinTable('dim_store', [
+      { name: 'id', type: 'number', isPrimaryKey: true },
+      { name: 'store_name', type: 'string' },
+    ]);
+    expect(suggestJoinOn(MAIN, join)).toEqual({ left: 'order_id', right: 'id' });
+  });
+
+  it('无任何候选时回退两侧主键；空列安全返回空串', () => {
+    const join = joinTable('regions', [
+      { name: 'pk_region', type: 'string', isPrimaryKey: true },
+      { name: 'region_name', type: 'string' },
+    ]);
+    expect(suggestJoinOn(MAIN, join)).toEqual({ left: 'order_id', right: 'pk_region' });
+    expect(suggestJoinOn({ ...MAIN, columns: [] }, { ...join, columns: [] })).toEqual({ left: '', right: '' });
   });
 });
