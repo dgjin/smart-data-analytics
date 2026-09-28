@@ -146,26 +146,32 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
         {/* KPI Cards */}
         {qr.kpiMetrics && <KPIStats metrics={qr.kpiMetrics} />}
 
-        {/* AI Key Insights Box */}
+        {/* AI Key Insights Box（v0.9.81 排版升级：三列网格→单列阅读流；头部图标底色块 + 条数计数徽章；
+            序号圆角底色块 + 分割线分组 + 行悬停反馈，中文长句 leading-relaxed 舒展排布） */}
         {qr.keyInsights && qr.keyInsights.length > 0 && (
-          <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl space-y-2">
-            <div className="flex items-center space-x-1.5 font-bold text-indigo-300 text-xs">
-              <Lightbulb className="w-4 h-4 text-amber-400" />
-              <span>AI 归因分析与决策提示:</span>
+          <div className="bg-indigo-950/30 border border-indigo-500/25 rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 border-b border-indigo-500/15">
+              <div className="flex items-center space-x-2 min-w-0">
+                <span className="w-6 h-6 rounded-lg bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
+                  <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                </span>
+                <span className="font-bold text-indigo-300 text-xs truncate">AI 归因分析与决策提示</span>
+              </div>
+              <span className="shrink-0 text-[10px] text-indigo-300/70">{qr.keyInsights.length} 条洞察</span>
             </div>
-            <ul className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-slate-200">
+            <ol className="divide-y divide-indigo-500/10">
               {qr.keyInsights.map((insight, idx) => (
                 <li
                   key={idx}
-                  className="p-2 bg-slate-900/80 rounded-xl border border-slate-800/80 flex items-start space-x-2"
+                  className="flex items-start space-x-2.5 px-3.5 py-2.5 hover:bg-indigo-500/5 transition-colors"
                 >
-                  <span className="w-4 h-4 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0 font-bold text-[10px] mt-0.5">
+                  <span className="w-5 h-5 rounded-lg bg-indigo-500/15 border border-indigo-500/25 text-indigo-300 flex items-center justify-center shrink-0 font-bold text-[10px]">
                     {idx + 1}
                   </span>
-                  <span className="leading-tight">{insight}</span>
+                  <span className="min-w-0 text-xs leading-relaxed text-slate-200">{insight}</span>
                 </li>
               ))}
-            </ul>
+            </ol>
           </div>
         )}
 
