@@ -248,11 +248,12 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
 
   return (
     <div className="space-y-4">
-      {/* 面板头部：数据源选择 + 新增 */}
+      {/* 面板头部：数据源选择 + 新增。1366px 以下纵向堆叠；右侧操作区整体 shrink-0，
+          按钮/图标禁止压缩与文字折行（避免「导出/导入/登记知识」被挤成竖排） */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex flex-col min-[1366px]:flex-row min-[1366px]:items-center min-[1366px]:justify-between gap-3">
           <div className="flex items-center space-x-2">
-            <div className="p-2 rounded-xl bg-indigo-600 text-white">
+            <div className="p-2 rounded-xl bg-indigo-600 text-white shrink-0">
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
@@ -262,7 +263,7 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
               </div>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2 min-[1366px]:shrink-0">
             <select
               value={selectedId}
               onChange={(e) => setSelectedId(e.target.value)}
@@ -280,9 +281,9 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
                   onClick={handleExport}
                   disabled={!selectedId || exporting}
                   title="导出当前数据源的全部知识文档为 JSON 备份文件"
-                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs font-semibold shadow transition-all"
+                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs font-semibold shadow transition-all whitespace-nowrap shrink-0"
                 >
-                  <Download className={`w-4 h-4 ${exporting ? 'animate-bounce' : ''}`} />
+                  <Download className={`w-4 h-4 shrink-0 ${exporting ? 'animate-bounce' : ''}`} />
                   <span>{exporting ? '导出中...' : '导出'}</span>
                 </button>
                 <button
@@ -294,9 +295,9 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
                   }}
                   disabled={!selectedId}
                   title="从 JSON 备份文件导入知识文档到当前数据源"
-                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs font-semibold shadow transition-all"
+                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs font-semibold shadow transition-all whitespace-nowrap shrink-0"
                 >
-                  <Upload className="w-4 h-4" />
+                  <Upload className="w-4 h-4 shrink-0" />
                   <span>导入</span>
                 </button>
                 <button
@@ -305,9 +306,9 @@ export const KnowledgeBasePanel: React.FC<{ dataSources: DataSource[]; initialId
                     setShowAdd(true);
                   }}
                   disabled={!selectedId}
-                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow transition-all"
+                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold shadow transition-all whitespace-nowrap shrink-0"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-4 h-4 shrink-0" />
                   <span>登记知识</span>
                 </button>
               </>
