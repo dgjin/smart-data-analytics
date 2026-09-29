@@ -19,6 +19,12 @@ import { normalizeExportData, buildExportFilename } from './report/reportExport'
 import { runPdfGenerator } from './report/pdfExport';
 import { getPool } from './infra/db';
 import type { UserRole } from './auth/auth';
+import { executeAutoConfig, type AutoConfigReport } from './datasource/autoConfig';
+import { seedSchemaFewShotExamples, syncKnowledgeEntriesToRag, syncSchemaMetadataToRag } from './knowledge/autoKnowledgeSync';
+import { getPipelineSnapshot, probeEmbedding, savePipelineSnapshot, type PipelineSnapshot, type PipelineSubtask } from './setupWizard';
+import { getErrorMessage } from './infra/errorUtils';
+import { logger } from './infra/logger';
+import type { SchemaTable } from './query/schemaTypes';
 
 /** 处理器内统一的用户快照（提交时冻结，worker 执行时不再依赖会话） */
 export interface TaskUserSnapshot {
@@ -246,10 +252,224 @@ async function runExportPdf(payload: Record<string, unknown>, reportProgress: (t
   };
 }
 
+// ---------------- v0.9.84 首启初始化向导流水线 ----------------
+
+/** 流水线子任务定义（顺序即依赖；与《首启初始化向导交互设计》Step③ 表格一一对应） */
+const SETUP_SUBTASK_DEFS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: 'schema_collect', label: 'Schema 元数据采集' },
+  { key: 'capability_config', label: '画像与能力配置' },
+  { key: 'knowledge_skeleton', label: '知识骨架生成' },
+  { key: 'knowledge_vectorize', label: '知识条目向量入库' },
+  { key: 'schema_vectorize', label: 'Schema 元数据向量入库' },
+  { key: 'fewshot_seed', label: '样例库种子' },
+];
+
+/** schema_json 边界解析（mysql2 可能已自动解析 JSON 列） */
+function parseSchemaJson(raw: unknown): SchemaTable[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as SchemaTable[];
+  try {
+    const v = JSON.parse(String(raw)) as unknown;
+    return Array.isArray(v) ? (v as SchemaTable[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 初始化全新流水线快照（所有子任务 pending） */
+function initPipelineSnapshot(dataSourceId: string): PipelineSnapshot {
+  return {
+    dataSourceId,
+    startedAt: new Date().toISOString(),
+    subtasks: SETUP_SUBTASK_DEFS.map((d) => ({ ...d, state: 'pending', counters: null, error: null, ms: null })),
+  };
+}
+
+/** 单子任务包装：状态推进 + 快照增量落库 + 失败中断（已成功子任务保留，人工重试只重跑失败项） */
+async function execSetupSubtask(
+  snapshot: PipelineSnapshot,
+  key: string,
+  reportProgress: (t: string) => Promise<void>,
+  progressText: string,
+  fn: () => Promise<{ counters?: Record<string, number>; skip?: string }>,
+): Promise<void> {
+  const def = SETUP_SUBTASK_DEFS.find((d) => d.key === key);
+  if (!def) return;
+  let st = snapshot.subtasks.find((s) => s.key === key);
+  if (!st) {
+    st = { ...def, state: 'pending', counters: null, error: null, ms: null };
+    snapshot.subtasks.push(st);
+  }
+  const t0 = Date.now();
+  st.state = 'running';
+  st.error = null;
+  await savePipelineSnapshot(snapshot);
+  await reportProgress(progressText);
+  try {
+    const out = await fn();
+    st.state = out.skip ? 'skipped' : 'success';
+    st.error = out.skip ?? null;
+    st.counters = out.counters ?? null;
+  } catch (err) {
+    st.state = 'failed';
+    st.error = getErrorMessage(err).slice(0, 300);
+    st.ms = Date.now() - t0;
+    await savePipelineSnapshot(snapshot);
+    throw err;
+  }
+  st.ms = Date.now() - t0;
+  await savePipelineSnapshot(snapshot);
+}
+
+/**
+ * v0.9.84 首启初始化向导：自动初始化流水线（6 子任务，见 docs/首启初始化向导交互设计20260929.md Step③）。
+ * - 子任务 1 读落库 schema_json（接入/同步结构时已采集，避免执行期依赖目标库连通）；
+ * - 子任务 2/3 复用 autoConfig 纯函数；子任务 4/5/6 复用 autoKnowledgeSync 分解函数（确定性 doc_id 幂等）；
+ * - 部分失败策略：单子任务失败即中断后续（已成功保留），payload.subtask 携带 key 时仅重跑该子任务；
+ * - Embedding 不可用时子任务 4/5 标 skipped 不阻断后续（待办清单持续提示，检索走既有词法降级链）。
+ */
+async function runSetupPipeline(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
+  const user = payload.user as TaskUserSnapshot;
+  const dataSourceId = typeof payload.dataSourceId === 'string' ? payload.dataSourceId : '';
+  const retryKey = typeof payload.subtask === 'string' && payload.subtask ? payload.subtask : '';
+  if (!dataSourceId) throw new Error('缺少 dataSourceId 参数');
+  if (retryKey && !SETUP_SUBTASK_DEFS.some((d) => d.key === retryKey)) throw new Error(`未知子任务：${retryKey}`);
+  const actor = String(user?.username || 'system').slice(0, 50);
+  const startedAt = Date.now();
+
+  // 数据源存在性校验（向导期间被删除 → 明确指引返回数据源选择）
+  const [dsRows] = await getPool().query<mysql.RowDataPacket[]>('SELECT id, name, schema_json FROM data_sources WHERE id = ? LIMIT 1', [dataSourceId]);
+  const ds = dsRows[0];
+  if (!ds) throw new Error('数据源不存在（可能已被删除），请返回数据源选择重新接入');
+  const dsName = String(ds.name || dataSourceId);
+  const tables = parseSchemaJson(ds.schema_json);
+
+  // 快照：全新执行初始化；单子任务重试沿用现有进度（已成功子任务不重跑）
+  let snapshot: PipelineSnapshot;
+  if (retryKey) {
+    const existing = await getPipelineSnapshot();
+    snapshot =
+      existing && existing.dataSourceId === dataSourceId
+        ? { ...existing, subtasks: existing.subtasks.map((s) => ({ ...s })) }
+        : initPipelineSnapshot(dataSourceId);
+  } else {
+    snapshot = initPipelineSnapshot(dataSourceId);
+  }
+  await savePipelineSnapshot(snapshot);
+  const shouldRun = (key: string) => !retryKey || retryKey === key;
+  const retryLabel = retryKey ? SETUP_SUBTASK_DEFS.find((d) => d.key === retryKey)?.label || retryKey : '';
+  await reportProgress(retryKey ? `重试子任务：${retryLabel}` : '自动初始化流水线启动');
+
+  let report: AutoConfigReport | null = null;
+  const autoConfigOf = (): AutoConfigReport => {
+    const rpt = report ?? executeAutoConfig(dataSourceId, dsName, tables);
+    report = rpt;
+    return rpt;
+  };
+
+  // 子任务 1：Schema 元数据采集（读取落库结构；空则失败并指引「同步结构」）
+  if (shouldRun('schema_collect')) {
+    await execSetupSubtask(snapshot, 'schema_collect', reportProgress, '子任务 1/6：Schema 元数据采集', async () => {
+      if (tables.length === 0) {
+        throw new Error('该数据源尚未采集 Schema 元数据，请先在数据源管理中执行「同步结构」后重试');
+      }
+      const columns = tables.reduce((n, t) => n + (Array.isArray(t.columns) ? t.columns.length : 0), 0);
+      return { counters: { tables: tables.length, columns } };
+    });
+  }
+
+  // 子任务 2：画像与能力配置（executeAutoConfig 纯函数 + capability 落库）
+  if (shouldRun('capability_config')) {
+    await execSetupSubtask(snapshot, 'capability_config', reportProgress, '子任务 2/6：画像与能力配置', async () => {
+      const rpt = autoConfigOf();
+      await getPool().query('UPDATE data_sources SET anomaly_capabilities_json = ? WHERE id = ?', [JSON.stringify(rpt.capabilities), dataSourceId]);
+      const cap = rpt.capabilities;
+      const enabled = [cap.timeSeriesRecalc.enabled, cap.categoricalDetection.enabled, cap.caliberCheck.enabled].filter(Boolean).length;
+      return { counters: { capabilities: enabled } };
+    });
+  }
+
+  // 子任务 3：知识骨架生成（knowledge_base_entries + 铁律模板 PENDING；确定性 entry_id 幂等覆盖）
+  if (shouldRun('knowledge_skeleton')) {
+    await execSetupSubtask(snapshot, 'knowledge_skeleton', reportProgress, '子任务 3/6：知识骨架生成', async () => {
+      const rpt = autoConfigOf();
+      const pool = getPool();
+      for (let i = 0; i < rpt.knowledgeEntries.length; i++) {
+        const entry = rpt.knowledgeEntries[i];
+        await pool.query(
+          `INSERT INTO knowledge_base_entries (entry_id, data_source_id, title, content, tags, category, version, is_preset, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, '1.0', 0, ?)
+           ON DUPLICATE KEY UPDATE content = VALUES(content), title = VALUES(title), tags = VALUES(tags)`,
+          [`kb_auto_${dataSourceId}_${i + 1}`, dataSourceId, entry.title, entry.content, JSON.stringify(entry.tags), entry.category, actor],
+        );
+      }
+      for (const tpl of rpt.ironRuleTemplates) {
+        await pool.query(
+          `INSERT INTO iron_rules (data_source_id, title, content, status, created_by)
+           VALUES (?, ?, ?, 'PENDING', ?)
+           ON DUPLICATE KEY UPDATE content = VALUES(content)`,
+          [dataSourceId, tpl.title, tpl.content, actor],
+        );
+      }
+      return { counters: { entries: rpt.knowledgeEntries.length, ironRules: rpt.ironRuleTemplates.length } };
+    });
+  }
+
+  // Embedding 可用性探测：不可用时子任务 4/5 跳过（不阻断 6 与整体完成）
+  let embedSkip = '';
+  if (shouldRun('knowledge_vectorize') || shouldRun('schema_vectorize')) {
+    const probe = await probeEmbedding();
+    if (!probe.ok) {
+      embedSkip = `Embedding 模型不可用（${probe.error || '探测失败'}）：知识向量检索退化为词法匹配，可在「系统设置」补齐后重试本子任务`;
+      await reportProgress('Embedding 不可用：子任务 4/5 跳过');
+    }
+  }
+
+  // 子任务 4：知识条目向量入库（断点 1 闭环：entries → knowledge_base）
+  if (shouldRun('knowledge_vectorize')) {
+    await execSetupSubtask(snapshot, 'knowledge_vectorize', reportProgress, '子任务 4/6：知识条目向量入库', async () => {
+      if (embedSkip) return { skip: embedSkip };
+      const summary = await syncKnowledgeEntriesToRag(dataSourceId, autoConfigOf().knowledgeEntries, actor);
+      return { counters: { docs: summary.docs, chunks: summary.chunks, pruned: summary.pruned } };
+    });
+  }
+
+  // 子任务 5：Schema 元数据向量入库（断点 2 闭环：每表切一块 embedding）
+  if (shouldRun('schema_vectorize')) {
+    await execSetupSubtask(snapshot, 'schema_vectorize', reportProgress, '子任务 5/6：Schema 元数据向量入库', async () => {
+      if (embedSkip) return { skip: embedSkip };
+      const summary = await syncSchemaMetadataToRag(dataSourceId, dsName, tables, actor);
+      return { counters: { docs: summary.docs, chunks: summary.chunks, pruned: summary.pruned } };
+    });
+  }
+
+  // 子任务 6：样例库种子（断点 3 闭环：通用 few-shot 语法范式；不依赖 embedding 可用性）
+  if (shouldRun('fewshot_seed')) {
+    await execSetupSubtask(snapshot, 'fewshot_seed', reportProgress, '子任务 6/6：样例库种子', async () => {
+      const summary = await seedSchemaFewShotExamples(dataSourceId, tables, actor);
+      return { counters: { seeded: summary.seeded, skipped: summary.skipped } };
+    });
+  }
+
+  const totals = {
+    success: snapshot.subtasks.filter((s) => s.state === 'success').length,
+    skipped: snapshot.subtasks.filter((s) => s.state === 'skipped').length,
+    failed: snapshot.subtasks.filter((s) => s.state === 'failed').length,
+  };
+  logger.info(`[SetupPipeline] ${dataSourceId}${retryKey ? ` 重试 ${retryKey}` : ''} 完成：成功 ${totals.success}，跳过 ${totals.skipped}，失败 ${totals.failed}，耗时 ${Date.now() - startedAt}ms`);
+  return {
+    dataSourceId,
+    ...(retryKey ? { retry: retryKey } : {}),
+    subtasks: snapshot.subtasks.map((s) => ({ key: s.key, state: s.state, counters: s.counters, ms: s.ms })),
+    totals,
+  };
+}
+
 /** 注册全部内置处理器（server 启动时调用一次）；队列侧 payload 为 JSON.parse 产物，边界处收窄为对象 */
 export function registerBuiltinTaskHandlers(): void {
   registerTaskHandler('report_generate', (payload, ctx) => runReportGenerate((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
   registerTaskHandler('report_generate_from_query', (payload, ctx) => runReportFromQuery((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
   registerTaskHandler('report_export_pdf', (payload, ctx) => runExportPdf((payload ?? {}) as Record<string, unknown>, ctx.reportProgress, ctx.taskId));
   registerTaskHandler('flex_query', (payload, ctx) => runFlexQuery((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
+  registerTaskHandler('setup_pipeline', (payload, ctx) => runSetupPipeline((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
 }

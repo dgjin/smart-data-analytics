@@ -64,7 +64,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
-| 测试 | Vitest（134 文件 / 1947 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
+| 测试 | Vitest（136 文件 / 1981 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
 
 ## 快速开始
 
@@ -178,6 +178,7 @@ server/
   queryFeedback.ts         # 反馈与 SQL 样例库（auto_train）
   knowledgeBase.ts         # 业务知识库检索
   autoKnowledgeSync.ts     # 数据源接入自动知识同步（条目/Schema 向量入库 + few-shot 种子，v0.9.83）
+  setupWizard.ts           # 首启初始化向导后端（状态机/环境探测/流水线快照，v0.9.84）
   externalKnowledge.ts     # 外部知识库接入（检索协议适配 + 密钥加密 + 聚合检索）
   conversationHistory.ts   # 对话历史服务端落库
   skillLibrary.ts          # 技能库（分享-审核流）
@@ -190,7 +191,7 @@ server/
   pdfExport.ts             # 报告 / 问数结果 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
   pdfgen/report_pdf.py     # ReportLab 排版脚本（A4 竖/横版、中文 CID 字体、图表 PNG 嵌入）
   pdfgen/query_pdf.py      # 问数结果 PDF 排版脚本（A4 竖版、图表 PNG 嵌入，v0.9.82）
-  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help
+  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help/setup
 src/
   components/              # query/charts/reports/dashboard/datasource/help/admin/auth
   hooks/  utils/  types/   # 状态管理（Zustand）与工具
@@ -206,7 +207,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（134 文件 / 1947 用例）
+npm test             # Vitest（136 文件 / 1981 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

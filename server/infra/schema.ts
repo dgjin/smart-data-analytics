@@ -635,4 +635,20 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.84 首启初始化向导：全局单行状态表（id 恒为 1），持久化向导进度 / 步骤结果快照 / 流水线任务 id，
+  // 支持断点续做与多管理员接管继续（见 docs/首启初始化向导交互设计20260929.md §6.1）；种子行由 seed.ts 幂等写入。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS setup_wizard_state (
+      id TINYINT PRIMARY KEY,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      current_step TINYINT NOT NULL DEFAULT 0,
+      step_results JSON NULL,
+      pipeline_task_id VARCHAR(64) NULL,
+      skipped_until TIMESTAMP NULL,
+      started_by VARCHAR(50) NOT NULL DEFAULT '',
+      completed_at TIMESTAMP NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }

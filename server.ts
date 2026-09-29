@@ -76,6 +76,8 @@ import patrolRoutes from './server/routes/patrols';
 import analyticsRoutes from './server/routes/analytics';
 // P1-7 Agent 编排（Planner + Executor，见 server/routes/agent.ts）
 import agentRoutes from './server/routes/agent';
+// v0.9.84 首启初始化向导（状态/探测/流水线，见 server/routes/setup.ts）
+import setupRoutes from './server/routes/setup';
 import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol';
 // v0.9.77 P2-15 固定报表订阅调度器（周期重跑 + 阈值告警，见 server/flexSubscriptions.ts）
 import { startFlexSubscriptionScheduler } from './server/flexSubscriptions';
@@ -330,6 +332,8 @@ async function startServer() {
   app.use('/api/analytics', analyticsRoutes);
   // P1-7 Agent 编排（见 server/routes/agent.ts）
   app.use('/api/agent', agentRoutes);
+  // v0.9.84 首启初始化向导（见 server/routes/setup.ts；仅 ADMIN）
+  app.use('/api/setup', setupRoutes);
 
   // API 兜底 404：所有未匹配的 /api/* 请求（任意方法）统一返回 JSON，
   // 避免 Express 默认 404 HTML 页面导致前端 res.json() 抛出 "Unexpected token '<', <!DOCTYPE..."

@@ -19,7 +19,7 @@ import { getPool } from './db';
 import { logger } from './logger';
 import { getErrorMessage } from './errorUtils';
 
-export type TaskType = 'report_generate' | 'report_generate_from_query' | 'report_export_pdf' | 'flex_query';
+export type TaskType = 'report_generate' | 'report_generate_from_query' | 'report_export_pdf' | 'flex_query' | 'setup_pipeline';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
 
 export interface AsyncTask {

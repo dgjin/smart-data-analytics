@@ -161,4 +161,7 @@ export async function seedInitialData(pool: mysql.Pool): Promise<void> {
     logger.info('[DB] Seeded org root node: 总部');
   }
 
+  // v0.9.84 首启初始化向导：单行状态种子（幂等；已有行不动，保护进行中的向导进度）
+  await pool.query("INSERT IGNORE INTO setup_wizard_state (id, status) VALUES (1, 'pending')");
+
 }
