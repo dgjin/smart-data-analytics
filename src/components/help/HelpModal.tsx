@@ -6,12 +6,17 @@
  * - 文档按 ## 模块以「抽屉」收缩展示（默认展开首个模块，支持全部展开/收起）；
  * - 头部搜索框跨使用指南与更新日志检索章节（GET /api/help/search），
  *   结果显示来源/标题/摘要（高亮关键词），点击跳转到对应页签并展开定位该模块。
+ * v0.9.90（检索体验）：
+ * - 搜索采用 stale-while-revalidate：再次检索期间保留上次结果（标题行提示「正在搜索」），
+ *   仅在无结果可展示时显示加载态，消除输入过程中「结果 ↔ 加载」反复替换的闪烁；
+ * - 文档视图搜索时仅隐藏不卸载且保留滚动位置，清空搜索后原位置恢复，不再跳回顶部；
+ * - MarkdownView 以 memo 渲染，输入搜索词时跳过文档重解析。
  * 「智能问答」（v0.9.88）：基于帮助文档章节检索 + LLM 快速回答使用问题（POST /api/help/ask），
  * 支持多轮追问，回答附命中章节作为参考来源。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send, Search, ChevronDown } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
@@ -81,7 +86,7 @@ function TableBlock({ rows, keyPrefix }: { key?: string; rows: string[]; keyPref
   );
 }
 
-export const MarkdownView: React.FC<{ markdown: string }> = ({ markdown }) => {
+const MarkdownViewInner: React.FC<{ markdown: string }> = ({ markdown }) => {
   const lines = markdown.split('\n');
   const blocks: React.ReactNode[] = [];
   let i = 0;
@@ -242,6 +247,9 @@ export const MarkdownView: React.FC<{ markdown: string }> = ({ markdown }) => {
 
   return <div className="space-y-1">{blocks}</div>;
 };
+
+/** memo：搜索输入等高频重渲染场景下，同一段 markdown 跳过重复解析（v0.9.90） */
+export const MarkdownView = React.memo(MarkdownViewInner);
 
 // ---------- 文档模块抽屉与搜索（v0.9.89） ----------
 
@@ -512,6 +520,9 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const highlightTimer = useRef<number | null>(null);
   const searchSeq = useRef(0);
+  // v0.9.90：文档滚动位置暂存（进入搜索前保存；用户清空搜索后在绘制前恢复，避免跳回顶部）
+  const savedScrollRef = useRef(0);
+  const restoreScrollRef = useRef(false);
 
   const load = async (target: HelpTab, force = false) => {
     const endpoint = TAB_META[target].endpoint;
@@ -554,7 +565,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (query.trim()) {
-        clearSearch();
+        clearSearch(true);
         return;
       }
       onClose();
@@ -573,6 +584,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       setSearchLoading(false);
       return;
     }
+    setSearchError(null); // 新查询开始，清除上一次的错误态（v0.9.90）
     setSearchLoading(true);
     const timer = window.setTimeout(() => void runSearch(q), 250);
     return () => window.clearTimeout(timer);
@@ -618,8 +630,10 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
   };
 
-  const clearSearch = () => {
+  /** 清空搜索；restoreScroll=true（用户主动清空）时清空后恢复文档原滚动位置（v0.9.90） */
+  const clearSearch = (restoreScroll = false) => {
     searchSeq.current++; // 使在途请求失效
+    if (restoreScroll && searchActive) restoreScrollRef.current = true;
     setQuery('');
     setSearchResults(null);
     setSearchError(null);
@@ -670,6 +684,13 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       return next;
     });
   };
+
+  // v0.9.90：用户清空搜索后，在浏览器绘制前把文档视图恢复到搜索前的滚动位置（无可见跳动）
+  useLayoutEffect(() => {
+    if (searchActive || !restoreScrollRef.current) return;
+    restoreScrollRef.current = false;
+    if (scrollRef.current) scrollRef.current.scrollTop = savedScrollRef.current;
+  }, [searchActive]);
 
   return (
     <div
@@ -748,14 +769,18 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
                 <input
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    // 进入搜索前记录文档滚动位置（v0.9.90）
+                    if (!searchActive && scrollRef.current) savedScrollRef.current = scrollRef.current.scrollTop;
+                    setQuery(e.target.value);
+                  }}
                   placeholder="搜索帮助内容…"
                   aria-label="搜索帮助内容"
                   className="w-56 pl-8 pr-7 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
                 />
                 {query && (
                   <button
-                    onClick={clearSearch}
+                    onClick={() => clearSearch(true)}
                     title="清空搜索"
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
                   >
@@ -768,60 +793,10 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         </div>
 
         {/* 内容：智能问答自带滚动区与固定输入栏；文档页签为「模块抽屉」滚动区；搜索词非空时显示结果列表 */}
-        {tab === 'ask' ? (
-          <AskPanel />
-        ) : searchActive ? (
-          <div className="flex-1 overflow-y-auto px-6 py-5">
-            {searchLoading && (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                <RefreshCw className="w-6 h-6 animate-spin mb-3" />
-                <p className="text-xs">正在搜索「{query.trim()}」…</p>
-              </div>
-            )}
-            {!searchLoading && searchError && (
-              <div className="flex flex-col items-center justify-center py-16 text-rose-400">
-                <FileText className="w-6 h-6 mb-3" />
-                <p className="text-xs">{searchError}</p>
-                <button
-                  onClick={() => void runSearch(query.trim())}
-                  className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-                >
-                  重试
-                </button>
-              </div>
-            )}
-            {!searchLoading && !searchError && searchResults && searchResults.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                <Search className="w-6 h-6 mb-3" />
-                <p className="text-xs">未找到与「{query.trim()}」相关的章节，试试更短的关键词</p>
-                <p className="text-[11px] text-slate-600 mt-1.5">也可以切换到「智能问答」直接用自然语言提问</p>
-              </div>
-            )}
-            {!searchLoading && !searchError && !!searchResults?.length && (
-              <div className="space-y-2">
-                <p className="text-[11px] text-slate-500 mb-1">找到 {searchResults.length} 个相关章节，点击跳转</p>
-                {searchResults.map((r, i) => (
-                  <button
-                    key={`${r.source}-${r.title}-${i}`}
-                    onClick={() => jumpToHit(r)}
-                    className="w-full text-left rounded-xl border border-slate-800 hover:border-cyan-600/60 hover:bg-slate-800/40 px-4 py-3 transition-colors group"
-                  >
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 shrink-0">
-                        {r.source}
-                      </span>
-                      <span className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 truncate">
-                        {r.title}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">{renderHighlightedSnippet(r.snippet, query.trim())}</p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5">
+        {tab === 'ask' && <AskPanel />}
+        {/* 文档视图：搜索时仅隐藏不卸载（保留 DOM 与滚动位置），清空搜索后原样恢复展示（v0.9.90） */}
+        {tab !== 'ask' && (
+          <div ref={scrollRef} className={`flex-1 overflow-y-auto px-6 py-5 ${searchActive ? 'hidden' : ''}`}>
             {loading && !current && (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
                 <RefreshCw className="w-6 h-6 animate-spin mb-3" />
@@ -872,6 +847,67 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     />
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+        {/* 搜索结果视图：加载中保留上次结果（stale-while-revalidate），避免结果与加载态反复替换闪烁（v0.9.90） */}
+        {tab !== 'ask' && searchActive && (
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {!searchError && (searchResults === null || (searchLoading && searchResults.length === 0)) && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <RefreshCw className="w-6 h-6 animate-spin mb-3" />
+                <p className="text-xs">正在搜索「{query.trim()}」…</p>
+              </div>
+            )}
+            {!searchLoading && searchError && (
+              <div className="flex flex-col items-center justify-center py-16 text-rose-400">
+                <FileText className="w-6 h-6 mb-3" />
+                <p className="text-xs">{searchError}</p>
+                <button
+                  onClick={() => void runSearch(query.trim())}
+                  className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                >
+                  重试
+                </button>
+              </div>
+            )}
+            {!searchLoading && !searchError && searchResults && searchResults.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <Search className="w-6 h-6 mb-3" />
+                <p className="text-xs">未找到与「{query.trim()}」相关的章节，试试更短的关键词</p>
+                <p className="text-[11px] text-slate-600 mt-1.5">也可以切换到「智能问答」直接用自然语言提问</p>
+              </div>
+            )}
+            {!searchError && !!searchResults?.length && (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-500 mb-1 flex items-center space-x-1.5">
+                  {searchLoading ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>正在搜索，以下为上次结果…</span>
+                    </>
+                  ) : (
+                    <span>找到 {searchResults.length} 个相关章节，点击跳转</span>
+                  )}
+                </p>
+                {searchResults.map((r, i) => (
+                  <button
+                    key={`${r.source}-${r.title}-${i}`}
+                    onClick={() => jumpToHit(r)}
+                    className="w-full text-left rounded-xl border border-slate-800 hover:border-cyan-600/60 hover:bg-slate-800/40 px-4 py-3 transition-colors group"
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 shrink-0">
+                        {r.source}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 truncate">
+                        {r.title}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">{renderHighlightedSnippet(r.snippet, query.trim())}</p>
+                  </button>
+                ))}
               </div>
             )}
           </div>
