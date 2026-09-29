@@ -286,7 +286,7 @@ export const FallbackApprovalPanel: React.FC = () => {
     : 0;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-4">
       {/* 标题条：模块标识 + 说明 + 刷新（与其他管理面板同风格） */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
         <div className="flex items-center space-x-2 min-w-0">
@@ -311,25 +311,25 @@ export const FallbackApprovalPanel: React.FC = () => {
       {/* KPI 卡片 */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="text-sm text-slate-400 mb-1">总样本数</div>
-          <div className="text-3xl font-bold text-slate-100">{stats.total}</div>
+          <div className="text-[11px] text-slate-500 mb-1">总样本数</div>
+          <div className="text-xl font-extrabold text-slate-100 tabular-nums">{stats.total}</div>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="text-sm text-slate-400 mb-1">待审核</div>
-          <div className="text-3xl font-bold text-amber-400">{stats.pending}</div>
+          <div className="text-[11px] text-slate-500 mb-1">待审核</div>
+          <div className="text-xl font-extrabold text-amber-400 tabular-nums">{stats.pending}</div>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="text-sm text-slate-400 mb-1">已采纳</div>
-          <div className="text-3xl font-bold text-emerald-400">{stats.approved}</div>
+          <div className="text-[11px] text-slate-500 mb-1">已采纳</div>
+          <div className="text-xl font-extrabold text-emerald-400 tabular-nums">{stats.approved}</div>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="text-sm text-slate-400 mb-1">已拒绝</div>
-          <div className="text-3xl font-bold text-rose-400">{stats.rejected}</div>
+          <div className="text-[11px] text-slate-500 mb-1">已拒绝</div>
+          <div className="text-xl font-extrabold text-rose-400 tabular-nums">{stats.rejected}</div>
         </div>
       </div>
 
       {/* 工具栏 */}
-      <div className="flex items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-xl p-4">
         <div className="flex items-center gap-3">
           <Search size={18} className="text-slate-400" />
           <input
@@ -337,7 +337,7 @@ export const FallbackApprovalPanel: React.FC = () => {
             placeholder="搜索查询或 SQL..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="bg-transparent border-none focus:outline-none text-slate-200 w-80"
+            className="bg-transparent border-none focus:outline-none text-slate-200 text-xs w-80"
           />
         </div>
         
@@ -345,7 +345,7 @@ export const FallbackApprovalPanel: React.FC = () => {
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="ALL">全部状态</option>
             <option value="PENDING">待审核</option>
@@ -357,13 +357,13 @@ export const FallbackApprovalPanel: React.FC = () => {
             <>
               <button
                 onClick={() => handleBatchAction('approve')}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs transition-all"
               >
                 ✅ 批量采纳 ({checkedIds.size})
               </button>
               <button
                 onClick={() => handleBatchAction('reject')}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg transition-all"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs transition-all"
               >
                 ❌ 批量拒绝 ({checkedIds.size})
               </button>
@@ -373,7 +373,7 @@ export const FallbackApprovalPanel: React.FC = () => {
       </div>
 
       {/* 表格 */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-x-auto">
         <table className="w-full text-xs">
           <thead className="bg-slate-800 text-slate-300 text-xs font-mono uppercase tracking-wider">
             <tr>
@@ -384,13 +384,13 @@ export const FallbackApprovalPanel: React.FC = () => {
                   </button>
                 </th>
               )}
-              <th className="p-4">原始查询</th>
-              <th className="p-4">错误消息</th>
-              <th className="p-4">优先级分</th>
-              <th className="p-4">使用策略</th>
-              <th className="p-4">状态</th>
-              <th className="p-4">操作</th>
-              <th className="p-4">排名</th>
+              <th className="p-4 whitespace-nowrap">原始查询</th>
+              <th className="p-4 whitespace-nowrap">错误消息</th>
+              <th className="p-4 whitespace-nowrap">优先级分</th>
+              <th className="p-4 whitespace-nowrap">使用策略</th>
+              <th className="p-4 whitespace-nowrap">状态</th>
+              <th className="p-4 whitespace-nowrap">操作</th>
+              <th className="p-4 whitespace-nowrap">排名</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -418,7 +418,7 @@ export const FallbackApprovalPanel: React.FC = () => {
                     />
                   </td>
                   <td className="p-4">
-                    <div className="text-sm text-slate-200 truncate max-w-xs" title={item.original_query}>
+                    <div className="text-xs text-slate-200 truncate max-w-xs" title={item.original_query}>
                       {item.original_query}
                     </div>
                   </td>
@@ -430,7 +430,7 @@ export const FallbackApprovalPanel: React.FC = () => {
                   {/* 优先级分 */}
                   <td className="p-4">
                     {item.total_score !== undefined && (
-                      <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${
+                      <span className={`whitespace-nowrap px-2 py-1 rounded-lg text-xs font-bold border ${
                         item.total_score >= 80 
                           ? 'bg-violet-500/20 text-violet-400 border-violet-500/30'
                           : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
@@ -440,22 +440,22 @@ export const FallbackApprovalPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="p-4">
-                    <span className="text-xs font-mono text-slate-400">{item.resolved_strategy || '-'}</span>
+                    <span className="whitespace-nowrap text-xs font-mono text-slate-400">{item.resolved_strategy || '-'}</span>
                   </td>
                   <td className="p-4">
-                    <span className={`px-2 py-1 rounded-lg text-xs font-medium border ${STATUS_META[item.annotation_status].color}`}>
+                    <span className={`whitespace-nowrap px-2 py-1 rounded-lg text-xs font-medium border ${STATUS_META[item.annotation_status].color}`}>
                       {STATUS_META[item.annotation_status].label}
                     </span>
                   </td>
                   <td className="p-4">
                     <button
                       onClick={() => setSelectedItem({ ...item, normalizedQuery: item.original_query })}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm transition-all flex items-center gap-2"
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs transition-all flex items-center gap-2 whitespace-nowrap"
                     >
                       <Eye size={14} /> 审核
                     </button>
                   </td>
-                  <td className="p-4">{item.rank || '-'}</td>
+                  <td className="p-4 whitespace-nowrap">{item.rank || '-'}</td>
                 </tr>
               ))
             )}
