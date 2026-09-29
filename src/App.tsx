@@ -8,6 +8,7 @@ import { DataSourceManager } from './components/datasource/DataSourceManager';
 import { Login } from './components/auth/Login';
 import { ForceChangePassword } from './components/auth/ForceChangePassword';
 import { AdminPanel } from './components/admin/AdminPanel';
+import { SetupWizardHost } from './components/setup/SetupWizardHost';
 import { useAnalyticsStore } from './hooks/useAnalyticsStore';
 import { useAuthStore } from './hooks/useAuthStore';
 import { logger } from './utils/logger';
@@ -101,6 +102,9 @@ export default function App() {
 
       {/* PWA：离线横幅（断网时提示数据功能不可用，恢复后自动消失） */}
       <OfflineBanner />
+
+      {/* v0.9.85 首启初始化向导：L1 自动弹出 + L2 常驻横幅（仅管理员，完成后永久消失） */}
+      {user.role === 'ADMIN' && <SetupWizardHost />}
 
       {/* Main Body */}
       <div className="flex flex-1 overflow-hidden">

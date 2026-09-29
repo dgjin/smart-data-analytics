@@ -6405,10 +6405,10 @@
           "Setup"
         ],
         "operationId": "getSetupState",
-        "summary": "首启初始化向导：向导状态 + 环境汇总（readiness 探针 / LLM 引擎 / embedding 模型 / 数据源统计；仅 ADMIN）",
+        "summary": "首启初始化向导：向导状态 + 环境汇总 + 初始化成果数字（readiness 探针 / LLM 引擎 / embedding 模型 / 数据源统计 / 知识切片与样例计数；仅 ADMIN）",
         "responses": {
           "200": {
-            "description": "向导状态（status/currentStep/stepResults/pipelineTaskId/skippedUntil）与环境汇总 env"
+            "description": "向导状态（status/currentStep/stepResults/pipelineTaskId/skippedUntil）、环境汇总 env 与成果数字 summary"
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"

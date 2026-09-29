@@ -26,6 +26,7 @@ vi.mock('./seedData', () => ({ INITIAL_DATA_SOURCES: [{ id: 'ds_demo1' }, { id: 
 
 import {
   buildChecklist,
+  buildSummary,
   collectEnvSummary,
   completeWizard,
   getWizardState,
@@ -201,6 +202,26 @@ describe('buildChecklist：待办清单五项组装', () => {
     checklistPool({ rules: 0, chunks: 0, entries: 1, examples: 3 });
     const items = await buildChecklist();
     expect(items.find((i) => i.key === 'examples')?.status).toBe('warn');
+  });
+});
+
+describe('buildSummary：向导成果数字（Step⑤ 总结卡）', () => {
+  it('数据源/表/切片/样例汇总（tables 非数值兜底 0）', async () => {
+    mockPool((sql) => {
+      if (sql.includes('FROM data_sources')) return [[{ cnt: 2, tables: 10 }]];
+      if (sql.includes('FROM knowledge_base')) return [[{ cnt: 120 }]];
+      if (sql.includes('FROM sql_examples')) return [[{ cnt: 8 }]];
+      return undefined;
+    });
+    expect(await buildSummary()).toEqual({ datasources: 2, tables: 10, chunks: 120, examples: 8 });
+
+    mockPool((sql) => {
+      if (sql.includes('FROM data_sources')) return [[{ cnt: 1, tables: null }]];
+      if (sql.includes('FROM knowledge_base')) return [[{ cnt: 0 }]];
+      if (sql.includes('FROM sql_examples')) return [[{ cnt: 0 }]];
+      return undefined;
+    });
+    expect((await buildSummary()).tables).toBe(0);
   });
 });
 

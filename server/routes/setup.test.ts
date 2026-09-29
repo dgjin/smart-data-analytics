@@ -16,6 +16,7 @@ vi.mock('../infra/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), erro
 const h = vi.hoisted(() => ({
   getWizardState: vi.fn(),
   collectEnvSummary: vi.fn(),
+  buildSummary: vi.fn(),
   saveStepResult: vi.fn(),
   probeLlm: vi.fn(),
   probeEmbedding: vi.fn(),
@@ -30,6 +31,7 @@ const h = vi.hoisted(() => ({
 vi.mock('../setupWizard', () => ({
   getWizardState: h.getWizardState,
   collectEnvSummary: h.collectEnvSummary,
+  buildSummary: h.buildSummary,
   saveStepResult: h.saveStepResult,
   probeLlm: h.probeLlm,
   probeEmbedding: h.probeEmbedding,
@@ -79,13 +81,15 @@ describe('鉴权与角色守卫（authMiddleware + requireRole(ADMIN)）', () =>
 });
 
 describe('GET /api/setup/state：向导状态 + 环境汇总', () => {
-  it('成功 → 状态与 env 合并返回', async () => {
+  it('成功 → 状态与 env、summary 合并返回', async () => {
     h.getWizardState.mockResolvedValue({ status: 'in_progress', currentStep: 2, stepResults: { '2': { dataSourceId: 'ds_1' } }, pipelineTaskId: 'task_x' });
     h.collectEnvSummary.mockResolvedValue({ llm: { ok: true, engine: 'ollama' } });
+    h.buildSummary.mockResolvedValue({ datasources: 2, tables: 10, chunks: 120, examples: 8 });
     const res = await request(app).get('/api/setup/state').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ status: 'in_progress', currentStep: 2, pipelineTaskId: 'task_x' });
     expect(res.body.env).toEqual({ llm: { ok: true, engine: 'ollama' } });
+    expect(res.body.summary).toEqual({ datasources: 2, tables: 10, chunks: 120, examples: 8 });
   });
 
   it('业务层异常 → 500 兜底文案', async () => {

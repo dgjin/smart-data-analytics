@@ -30,6 +30,7 @@
 
 ### 数据治理
 - **多源接入**：MySQL / PostgreSQL / Greenplum / CSV / API / JSON；**接入自动化配置**（v0.9.73）——新数据源保存后自动完成 Schema 深度分析（时间列/分类维度/指标列识别 + 快照/版本/业务编号探查）并生成异常扫描能力配置（时序重算/维度检测/口径校验自动启用），前端展示「自动化配置报告」（已完成项/待确认项/建议操作）；预填铁律规则模板（PENDING 待确认）并自动生成知识库骨架条目（数据源概览/时间维度注意事项/快照口径/版本过滤）；**接入自动知识同步**（v0.9.83）——知识条目与 Schema 元数据自动切块向量入库（文档 ID 确定性哈希幂等、残留自动清理），接入即被问数检索到，并按真实表结构预置六类范式 few-shot 样例种子（趋势/排名/最新快照/版本过滤/去重计数/计数兜底），冷启动无需等待人工补录
+- **首启初始化向导**（v0.9.85，仅管理员）：新部署首次启动自动进入五步引导（环境检测 → 模型服务 → 数据自动准备 → 待办事项 → 完成），环境自检（数据库 / Redis / 模型 / 向量 / 演示数据）与数据源接入、知识向量化一站式跑通；支持跳过、断点续做与中途退出，暂不配置转顶部横幅（7 天免打扰），完成初始化后系统管理首屏「系统体检」卡片可随时复检
 - **Scope 白名单 + 敏感列过滤**：问数仅访问授权表，敏感字段自动剔除
 - **行级权限**：scope 登记表级行过滤谓词，所有真实执行链路由 AST 强制注入为过滤派生表（fail-closed）
 - **语义指标层**：管理员登记指标口径（同义词/聚合表达式/固定过滤，带审批状态 PENDING/ACTIVE/REJECTED/DISABLED 与版本历史，仅 ACTIVE 参与注入），问数命中即模板化注入，口径全系统一致；使用侧在三级溯源的指标口径卡同步可见审批状态与版本历史（P0-4）
@@ -193,7 +194,7 @@ server/
   pdfgen/query_pdf.py      # 问数结果 PDF 排版脚本（A4 竖版、图表 PNG 嵌入，v0.9.82）
   routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help/setup
 src/
-  components/              # query/charts/reports/dashboard/datasource/help/admin/auth
+  components/              # query/charts/reports/dashboard/datasource/setup/help/admin/auth
   hooks/  utils/  types/   # 状态管理（Zustand）与工具
 docs/核心文档/            # 核心文档独立目录（v0.9.79）
 docs/核心文档/用户使用指南.md    # 终端用户操作向导（系统内帮助实时读取）
@@ -207,7 +208,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（136 文件 / 1981 用例）
+npm test             # Vitest（139 文件 / 2007 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

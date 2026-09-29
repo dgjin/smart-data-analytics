@@ -50,6 +50,8 @@ import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
 import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
+// v0.9.85 首启初始化向导 · L3 常驻入口卡片（未完成=向导入口 / 已完成=系统体检）
+import { SetupStatusCard } from '../setup/SetupStatusCard';
 // v0.9.56 规则治理整合：业务知识库与 SQL 样例库由「数据源与 Schema」迁入
 import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
 import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
@@ -415,6 +417,9 @@ export const AdminPanel: React.FC = () => {
 
         {/* 右栏内容区（独立滚动，切换分类自动回顶） */}
         <div ref={contentRef} className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* v0.9.85 首启初始化向导 L3 入口：未完成显示引导卡片，已完成转为系统体检 */}
+          <SetupStatusCard />
+
           {/* Notice */}
           {notice && (
             <div className={`p-4 rounded-xl border ${

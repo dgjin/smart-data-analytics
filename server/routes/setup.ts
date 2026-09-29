@@ -23,6 +23,7 @@ import { getPool } from '../infra/db';
 import { getTask, submitTask } from '../infra/taskQueue';
 import {
   buildChecklist,
+  buildSummary,
   collectEnvSummary,
   completeWizard,
   getPipelineSnapshot,
@@ -36,11 +37,11 @@ import {
 
 const router = Router();
 
-// GET /api/setup/state —— 向导状态 + 环境汇总（前端进入向导 / 刷新恢复时调用）
+// GET /api/setup/state —— 向导状态 + 环境汇总 + 成果数字（前端进入向导 / 刷新恢复 / Step⑤ 总结卡）
 router.get('/state', authMiddleware, requireRole('ADMIN'), async (_req, res) => {
   try {
-    const [state, env] = await Promise.all([getWizardState(), collectEnvSummary()]);
-    res.json({ ...state, env });
+    const [state, env, summary] = await Promise.all([getWizardState(), collectEnvSummary(), buildSummary()]);
+    res.json({ ...state, env, summary });
   } catch (err) {
     logger.error(`[Setup] 状态读取失败: ${getErrorMessage(err)}`);
     res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '向导状态获取失败' });
