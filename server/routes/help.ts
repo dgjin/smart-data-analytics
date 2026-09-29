@@ -2,8 +2,9 @@
  * 系统帮助路由：实时读取 docs/核心文档 下帮助文档并返回给前端渲染。
  * - GET /manual：用户使用指南（面向终端用户回答「系统怎么用」），缺失时回退《系统功能说明书》；
  * - GET /changelog：更新日志（按版本记录主要更新内容，供用户备查，v0.9.36）；
+ * - GET /search：帮助中心关键词搜索（v0.9.89）——?q= 跨「使用指南 / 更新日志」检索章节，纯本地计算；
  * - POST /ask：帮助中心「智能问答」（v0.9.88）——基于帮助文档章节检索 + LLM 快速作答。
- * 文档读取与问答业务分别下沉到 server/help/helpDocs.ts 与 server/help/helpAsk.ts，
+ * 文档读取与检索/问答业务分别下沉到 server/help/helpDocs.ts / helpSearch.ts / helpAsk.ts，
  * 与既有路由惯例一致：路由层仅做参数校验、限流与鉴权装配。
  */
 import { Router } from 'express';
@@ -14,6 +15,7 @@ import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
 import { CHANGELOG_FILENAME, candidatePathsFor, readDoc, readManual } from '../help/helpDocs';
 import { MAX_QUESTION_CHARS, answerHelpQuestion, normalizeHelpHistory } from '../help/helpAsk';
+import { MAX_SEARCH_CHARS, searchHelpDocs } from '../help/helpSearch';
 
 const router = Router();
 
@@ -33,6 +35,28 @@ router.get('/changelog', authMiddleware, (_req, res) => {
     return res.status(404).json({ error: '更新日志文件不存在，请联系管理员' });
   }
   return res.json(changelog);
+});
+
+// GET /api/help/search —— 帮助中心关键词搜索（v0.9.89）：?q= 跨使用指南与更新日志检索章节，返回命中列表
+// 纯本地词法计算（不调用 LLM），登录用户即可用
+router.get('/search', authMiddleware, (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '关键词必填' });
+  }
+  if (q.length > MAX_SEARCH_CHARS) {
+    return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: `关键词过长（不超过 ${MAX_SEARCH_CHARS} 字）` });
+  }
+  // 与智能问答同源装配检索语料：使用指南（缺失时服务端已回退说明书）+ 更新日志
+  const sources: { label: string; markdown: string }[] = [];
+  const manual = readManual();
+  if (manual) sources.push({ label: '用户使用指南', markdown: manual.markdown });
+  const changelog = readDoc(candidatePathsFor(CHANGELOG_FILENAME));
+  if (changelog) sources.push({ label: '更新日志', markdown: changelog.markdown });
+  if (sources.length === 0) {
+    return res.status(404).json({ error: '帮助文档缺失，请联系管理员' });
+  }
+  return res.json({ results: searchHelpDocs(sources, q) });
 });
 
 // POST /api/help/ask —— 帮助中心「智能问答」（v0.9.88）：{question, history?} → {answer, sections}

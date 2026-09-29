@@ -1,16 +1,21 @@
 /**
  * 系统帮助弹窗：实时读取 docs/核心文档 下帮助文档（GET /api/help/manual、/api/help/changelog）并渲染。
  * 「使用指南」面向终端用户回答「系统怎么用」（服务端在指南缺失时回退功能说明书）；
- * 「更新日志」按版本记录主要更新内容，供用户备查（v0.9.36）；
+ * 「更新日志」按版本记录主要更新内容，供用户备查（v0.9.36）。
+ * v0.9.89：
+ * - 文档按 ## 模块以「抽屉」收缩展示（默认展开首个模块，支持全部展开/收起）；
+ * - 头部搜索框跨使用指南与更新日志检索章节（GET /api/help/search），
+ *   结果显示来源/标题/摘要（高亮关键词），点击跳转到对应页签并展开定位该模块。
  * 「智能问答」（v0.9.88）：基于帮助文档章节检索 + LLM 快速回答使用问题（POST /api/help/ask），
  * 支持多轮追问，回答附命中章节作为参考来源。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send, Search, ChevronDown } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { splitDocForAccordion } from '../../utils/markdownAccordion';
 
 // ---------- 轻量 Markdown 渲染 ----------
 
@@ -238,6 +243,83 @@ export const MarkdownView: React.FC<{ markdown: string }> = ({ markdown }) => {
   return <div className="space-y-1">{blocks}</div>;
 };
 
+// ---------- 文档模块抽屉与搜索（v0.9.89） ----------
+
+interface HelpSearchHit {
+  title: string;
+  source: string;
+  snippet: string;
+  score: number;
+}
+
+/** 摘要高亮词剥离：与 server/help/helpSearch 的填充词同款正则（仅影响高亮显示，不参与检索） */
+const SNIPPET_FILLER_RE = /为什么|在哪里|怎么|如何|什么|哪些|哪个|哪里|哪儿|在哪|是否|能否|请问|告诉我|帮我|帮忙|一下/g;
+
+/** 摘要高亮：优先匹配完整关键词，其次匹配剔除疑问/口语词后的短语；均未命中则原样展示 */
+function renderHighlightedSnippet(snippet: string, query: string): React.ReactNode {
+  const candidates = [query, query.replace(SNIPPET_FILLER_RE, ' ').replace(/\s+/g, ' ').trim()].filter(
+    (t) => t.length >= 2,
+  );
+  const lower = snippet.toLowerCase();
+  const hit = candidates.find((c) => lower.includes(c.toLowerCase()));
+  if (!hit) return snippet;
+  const lc = hit.toLowerCase();
+  const nodes: React.ReactNode[] = [];
+  let rest = snippet;
+  while (true) {
+    const at = rest.toLowerCase().indexOf(lc);
+    if (at < 0) {
+      if (rest) nodes.push(<React.Fragment key={nodes.length}>{rest}</React.Fragment>);
+      break;
+    }
+    if (at > 0) nodes.push(<React.Fragment key={nodes.length}>{rest.slice(0, at)}</React.Fragment>);
+    nodes.push(
+      <mark key={nodes.length} className="bg-cyan-500/20 text-cyan-200 rounded px-0.5">
+        {rest.slice(at, at + hit.length)}
+      </mark>
+    );
+    rest = rest.slice(at + hit.length);
+  }
+  return <>{nodes}</>;
+}
+
+/** 模块抽屉：标题行点击展开/收起，展开后渲染模块正文（含 ### 子标题） */
+const DrawerSection: React.FC<{
+  title: string;
+  markdown: string;
+  expanded: boolean;
+  highlighted: boolean;
+  onToggle: () => void;
+}> = ({ title, markdown, expanded, highlighted, onToggle }) => (
+  <div
+    data-accordion-title={title}
+    className={`rounded-xl border transition-colors ${
+      highlighted ? 'border-cyan-500/70 bg-cyan-500/5' : 'border-slate-800 bg-slate-900/40'
+    }`}
+  >
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      className="w-full flex items-center justify-between px-4 py-3 text-left group"
+    >
+      <span
+        className={`text-sm font-semibold transition-colors ${
+          expanded ? 'text-cyan-300' : 'text-slate-200 group-hover:text-cyan-300'
+        }`}
+      >
+        {title}
+      </span>
+      <ChevronDown className={`w-4 h-4 shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+    </button>
+    {expanded && (
+      <div className="px-4 pb-3 pt-2 border-t border-slate-800/70">
+        <MarkdownView markdown={markdown} />
+      </div>
+    )}
+  </div>
+);
+
 // ---------- 智能问答面板（v0.9.88） ----------
 
 interface AskMessage {
@@ -417,6 +499,19 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [contents, setContents] = useState<Partial<Record<HelpTab, DocContent>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 抽屉展开集合（key = `${tab}::${模块标题}`）
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // 搜索状态：query 非空时内容区显示搜索结果
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<HelpSearchHit[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  // 搜索跳转：待定位模块（页签 + 标题），渲染后滚动展开并短暂高亮
+  const [pendingScroll, setPendingScroll] = useState<{ tab: HelpTab; title: string } | null>(null);
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const highlightTimer = useRef<number | null>(null);
+  const searchSeq = useRef(0);
 
   const load = async (target: HelpTab, force = false) => {
     const endpoint = TAB_META[target].endpoint;
@@ -428,10 +523,20 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const res = await apiFetch(endpoint);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `加载${TAB_META[target].title}失败`);
+      const markdown = data.markdown || '';
       setContents((prev) => ({
         ...prev,
-        [target]: { markdown: data.markdown || '', updatedAt: data.updatedAt || null },
+        [target]: { markdown, updatedAt: data.updatedAt || null },
       }));
+      // 默认展开首个模块（仅当该页签尚无任何展开项时，保留用户已有的收起选择）
+      const first = splitDocForAccordion(markdown).find((s) => s.title);
+      if (first?.title) {
+        setExpanded((prev) => {
+          const key = `${target}::${first.title}`;
+          if (prev.has(key) || [...prev].some((k) => k.startsWith(`${target}::`))) return prev;
+          return new Set(prev).add(key);
+        });
+      }
     } catch (err) {
       setError(getErrorMessage(err) || `加载${TAB_META[target].title}失败`);
     } finally {
@@ -441,21 +546,130 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   useEffect(() => {
     load('manual');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Esc：搜索词非空时先清空搜索，否则关闭弹窗
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      if (query.trim()) {
+        clearSearch();
+        return;
+      }
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [query, onClose]);
+
+  // 搜索防抖：输入停顿 250ms 后请求；序号机制丢弃过期响应，避免旧结果覆盖新结果
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearchError(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const timer = window.setTimeout(() => void runSearch(q), 250);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  // 搜索跳转：目标页签文档就绪后，滚动到对应模块并短暂高亮
+  useEffect(() => {
+    if (!pendingScroll || tab !== pendingScroll.tab || !contents[pendingScroll.tab]) return;
+    const container = scrollRef.current;
+    const node = container
+      ? Array.from(container.querySelectorAll<HTMLElement>('[data-accordion-title]')).find(
+          (el) => el.dataset.accordionTitle === pendingScroll.title,
+        )
+      : undefined;
+    if (container) {
+      if (node) node.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      else container.scrollTo({ top: 0 }); // 命中「文档概述」等头部内容时回到顶部
+    }
+    const key = `${pendingScroll.tab}::${pendingScroll.title}`;
+    setHighlightKey(key);
+    if (highlightTimer.current) window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlightKey(null), 2000);
+    setPendingScroll(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScroll, tab, contents]);
+
+  const runSearch = async (q: string) => {
+    const seq = ++searchSeq.current;
+    try {
+      const res = await apiFetch(`/api/help/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (seq !== searchSeq.current) return; // 已有更新查询发出，丢弃过期响应
+      if (!res.ok) throw new Error(data.error || '搜索失败');
+      setSearchResults(Array.isArray(data.results) ? data.results : []);
+      setSearchError(null);
+    } catch (err) {
+      if (seq !== searchSeq.current) return;
+      setSearchError(getErrorMessage(err) || '搜索失败');
+      setSearchResults(null);
+    } finally {
+      if (seq === searchSeq.current) setSearchLoading(false);
+    }
+  };
+
+  const clearSearch = () => {
+    searchSeq.current++; // 使在途请求失效
+    setQuery('');
+    setSearchResults(null);
+    setSearchError(null);
+    setSearchLoading(false);
+  };
 
   const switchTab = (t: HelpTab) => {
     setTab(t);
     setError(null);
+    clearSearch(); // 切换页签回到文档视图
     if (t !== 'ask') void load(t);
   };
 
+  const toggleDrawer = (t: HelpTab, title: string) => {
+    const key = `${t}::${title}`;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  /** 搜索结果点击：切页签 + 展开命中模块（### 命中时定位其父 ## 模块）并滚动定位 */
+  const jumpToHit = (r: HelpSearchHit) => {
+    const targetTab: HelpTab = r.source === '更新日志' ? 'changelog' : 'manual';
+    const parentTitle = r.title.split(' · ')[0];
+    clearSearch();
+    setTab(targetTab);
+    setError(null);
+    void load(targetTab);
+    setExpanded((prev) => new Set(prev).add(`${targetTab}::${parentTitle}`));
+    setPendingScroll({ tab: targetTab, title: parentTitle });
+  };
+
   const current = contents[tab];
+  const searchActive = query.trim().length > 0;
+  const sections = useMemo(() => (current ? splitDocForAccordion(current.markdown) : []), [current]);
+  const moduleTitles = useMemo(() => sections.filter((s) => s.title).map((s) => s.title as string), [sections]);
+  const allExpanded = moduleTitles.length > 0 && moduleTitles.every((t) => expanded.has(`${tab}::${t}`));
+  const toggleAll = () => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const t of moduleTitles) {
+        if (allExpanded) next.delete(`${tab}::${t}`);
+        else next.add(`${tab}::${t}`);
+      }
+      return next;
+    });
+  };
 
   return (
     <div
@@ -478,9 +692,11 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <p className="text-[11px] text-slate-500">
                   {tab === 'ask'
                     ? '由 AI 基于使用指南与更新日志实时作答'
-                    : current?.updatedAt
-                      ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}`
-                      : '实时读取最新文档'}
+                    : searchActive
+                      ? '跨「使用指南 / 更新日志」搜索章节'
+                      : current?.updatedAt
+                        ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}`
+                        : '实时读取最新文档'}
                 </p>
               </div>
             </div>
@@ -504,35 +720,108 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </div>
           </div>
 
-          {/* 页签：使用指南 / 更新日志 */}
-          <div className="flex space-x-1 mt-3">
-            {(Object.keys(TAB_META) as HelpTab[]).map((key) => {
-              const meta = TAB_META[key];
-              const Icon = meta.icon;
-              const active = tab === key;
-              return (
-                <button
-                  key={key}
-                  onClick={() => switchTab(key)}
-                  className={`flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${
-                    active
-                      ? 'text-cyan-300 border-cyan-400 bg-slate-800/60'
-                      : 'text-slate-500 border-transparent hover:text-slate-300 hover:bg-slate-800/40'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{meta.title}</span>
-                </button>
-              );
-            })}
+          {/* 页签 + 搜索框（搜索跨使用指南与更新日志） */}
+          <div className="flex items-end justify-between gap-3 mt-3">
+            <div className="flex space-x-1">
+              {(Object.keys(TAB_META) as HelpTab[]).map((key) => {
+                const meta = TAB_META[key];
+                const Icon = meta.icon;
+                const active = tab === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => switchTab(key)}
+                    className={`flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${
+                      active
+                        ? 'text-cyan-300 border-cyan-400 bg-slate-800/60'
+                        : 'text-slate-500 border-transparent hover:text-slate-300 hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{meta.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {tab !== 'ask' && (
+              <div className="relative mb-0.5">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="搜索帮助内容…"
+                  aria-label="搜索帮助内容"
+                  className="w-56 pl-8 pr-7 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+                />
+                {query && (
+                  <button
+                    onClick={clearSearch}
+                    title="清空搜索"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 内容：智能问答自带滚动区与固定输入栏；其余页签为文档滚动区 */}
+        {/* 内容：智能问答自带滚动区与固定输入栏；文档页签为「模块抽屉」滚动区；搜索词非空时显示结果列表 */}
         {tab === 'ask' ? (
           <AskPanel />
-        ) : (
+        ) : searchActive ? (
           <div className="flex-1 overflow-y-auto px-6 py-5">
+            {searchLoading && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <RefreshCw className="w-6 h-6 animate-spin mb-3" />
+                <p className="text-xs">正在搜索「{query.trim()}」…</p>
+              </div>
+            )}
+            {!searchLoading && searchError && (
+              <div className="flex flex-col items-center justify-center py-16 text-rose-400">
+                <FileText className="w-6 h-6 mb-3" />
+                <p className="text-xs">{searchError}</p>
+                <button
+                  onClick={() => void runSearch(query.trim())}
+                  className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                >
+                  重试
+                </button>
+              </div>
+            )}
+            {!searchLoading && !searchError && searchResults && searchResults.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <Search className="w-6 h-6 mb-3" />
+                <p className="text-xs">未找到与「{query.trim()}」相关的章节，试试更短的关键词</p>
+                <p className="text-[11px] text-slate-600 mt-1.5">也可以切换到「智能问答」直接用自然语言提问</p>
+              </div>
+            )}
+            {!searchLoading && !searchError && !!searchResults?.length && (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-500 mb-1">找到 {searchResults.length} 个相关章节，点击跳转</p>
+                {searchResults.map((r, i) => (
+                  <button
+                    key={`${r.source}-${r.title}-${i}`}
+                    onClick={() => jumpToHit(r)}
+                    className="w-full text-left rounded-xl border border-slate-800 hover:border-cyan-600/60 hover:bg-slate-800/40 px-4 py-3 transition-colors group"
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 shrink-0">
+                        {r.source}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-200 group-hover:text-cyan-300 truncate">
+                        {r.title}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">{renderHighlightedSnippet(r.snippet, query.trim())}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5">
             {loading && !current && (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
                 <RefreshCw className="w-6 h-6 animate-spin mb-3" />
@@ -551,18 +840,53 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </button>
               </div>
             )}
-            {current && !error && <MarkdownView markdown={current.markdown} />}
+            {current && !error && (
+              <div className="space-y-2">
+                {/* 模块工具条：模块计数 + 全部展开 / 收起 */}
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] text-slate-500">共 {moduleTitles.length} 个模块，点击标题展开 / 收起</span>
+                  {moduleTitles.length > 0 && (
+                    <button onClick={toggleAll} className="text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors">
+                      {allExpanded ? '全部收起' : '全部展开'}
+                    </button>
+                  )}
+                </div>
+                {sections.map((s, i) => {
+                  if (!s.title) {
+                    return (
+                      <div key={`${tab}-head-${i}`}>
+                        <MarkdownView markdown={s.markdown} />
+                      </div>
+                    );
+                  }
+                  const title = s.title;
+                  const key = `${tab}::${title}`;
+                  return (
+                    <DrawerSection
+                      key={`${tab}-${title}-${i}`}
+                      title={title}
+                      markdown={s.markdown}
+                      expanded={expanded.has(key)}
+                      highlighted={highlightKey === key}
+                      onToggle={() => toggleDrawer(tab, title)}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
         {/* 底部 */}
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
           <span>
-            {tab === 'manual'
-              ? '面向使用者的操作指南，随功能更新同步维护'
-              : tab === 'changelog'
-                ? '按版本记录主要更新内容，供备查'
-                : 'AI 回答基于帮助文档节选，仅供参考'}
+            {searchActive
+              ? '搜索范围：使用指南 + 更新日志，点击结果跳转对应模块'
+              : tab === 'manual'
+                ? '面向使用者的操作指南，随功能更新同步维护'
+                : tab === 'changelog'
+                  ? '按版本记录主要更新内容，供备查'
+                  : 'AI 回答基于帮助文档节选，仅供参考'}
           </span>
           <button
             onClick={onClose}

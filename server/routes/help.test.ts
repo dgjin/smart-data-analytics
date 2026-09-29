@@ -1,7 +1,7 @@
 /**
- * help 路由契约测试（v0.9.88 帮助中心「智能问答」）：
+ * help 路由契约测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充 GET /search）：
  * 鉴权守卫（登录即可用，不限角色）+ 参数校验（400）+ 成功透传（含历史清洗）+ 业务异常兜底（502）；
- * 同时覆盖既有 GET /manual、GET /changelog 的透传与 404 分支。
+ * 同时覆盖既有 GET /manual、GET /changelog 的透传与 404 分支，以及 GET /search 的参数校验与命中/缺失分支。
  * 文档读取（helpDocs）与问答业务（helpAsk.answerHelpQuestion）mock，仅验证 HTTP 契约。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -93,6 +93,41 @@ describe('GET /manual 与 /changelog：文档透传与缺失分支', () => {
     docs.readDoc.mockReturnValue(null);
     res = await request(app).get('/api/help/changelog').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /search：帮助文档关键词搜索契约', () => {
+  const get = (query: Record<string, string>) =>
+    request(app).get('/api/help/search').set('Authorization', `Bearer ${VIEWER_TOKEN}`).query(query);
+
+  it('缺 q / 纯空白 → 400，不读取文档结果', async () => {
+    let res = await get({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('关键词必填');
+
+    res = await get({ q: '   ' });
+    expect(res.status).toBe(400);
+  });
+
+  it('q 超过 100 字 → 400', async () => {
+    const res = await get({ q: '长'.repeat(101) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('关键词过长');
+  });
+
+  it('成功 → 200 返回命中章节（含来源与摘要）', async () => {
+    docs.readManual.mockReturnValue({ markdown: '## 数据源管理\n在数据管理页签新增数据源。', updatedAt: 'x' });
+    const res = await get({ q: '新增数据源' });
+    expect(res.status).toBe(200);
+    expect(res.body.results.length).toBeGreaterThan(0);
+    expect(res.body.results[0]).toMatchObject({ title: '数据源管理', source: '用户使用指南' });
+    expect(typeof res.body.results[0].snippet).toBe('string');
+  });
+
+  it('使用指南与更新日志均缺失 → 404', async () => {
+    const res = await get({ q: '数据源' });
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('帮助文档缺失，请联系管理员');
   });
 });
 

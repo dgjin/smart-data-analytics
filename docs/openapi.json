@@ -2928,6 +2928,37 @@
         }
       }
     },
+    "/api/help/search": {
+      "get": {
+        "tags": [
+          "Help"
+        ],
+        "operationId": "searchHelp",
+        "summary": "帮助中心关键词搜索（跨使用指南与更新日志检索章节，返回命中章节与摘要片段）",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "搜索关键词（≤100 字）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "命中章节列表（title / source / snippet / score，按相关度降序）"
+          },
+          "400": {
+            "description": "q 缺失或超长"
+          },
+          "404": {
+            "description": "帮助文档缺失"
+          }
+        }
+      }
+    },
     "/api/auth/oidc/login": {
       "get": {
         "tags": [

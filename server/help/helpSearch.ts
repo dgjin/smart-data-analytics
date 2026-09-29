@@ -1,8 +1,9 @@
 /**
- * 帮助文档章节级检索（v0.9.88 帮助中心「智能问答」）：
+ * 帮助文档章节级检索（v0.9.88 帮助中心「智能问答」；v0.9.89 扩展关键词搜索 searchHelpDocs）：
  * 无 embedding 依赖的轻量词法检索——按 Markdown 标题（## / ###）把帮助文档切成章节，
  * 以「中文 bigram 集合重叠度」打分（标题命中加权 3 倍、长章节做长度惩罚），
- * 取最相关的若干章节组成问答上下文，控制提示词体量、提升本地模型响应速度。
+ * 取最相关的若干章节组成问答上下文，控制提示词体量、提升本地模型响应速度；
+ * 搜索场景复用同一打分口径，但不设上下文预算，返回「标题 + 来源 + 摘要」供列表展示。
  * 纯函数、无模块级状态；对空文档 / 异常输入返回空结果，不抛错。
  */
 
@@ -150,4 +151,89 @@ export function selectHelpSections(
     used += content.length;
   }
   return picked;
+}
+
+// ---------- 帮助文档关键词搜索（v0.9.89） ----------
+
+/** 搜索关键词长度上限（路由层校验同源使用） */
+export const MAX_SEARCH_CHARS = 100;
+/** 摘要片段长度上限（超出截断并加省略号） */
+const SNIPPET_CHARS = 120;
+/** 搜索默认返回条数上限 */
+const SEARCH_TOP_K = 20;
+
+export interface HelpSearchHit {
+  /** 章节标题（含父链，如「3. 智能问答：怎么问、怎么看 · 历史对话」） */
+  title: string;
+  /** 来源文档 label */
+  source: string;
+  /** 命中摘要：围绕首个命中行截取的正文片段（已清洗 Markdown 标记，不超过 120 字） */
+  snippet: string;
+  /** 相关度得分（与 selectHelpSections 同口径） */
+  score: number;
+}
+
+/** 行级 Markdown 标记清洗：标题井号、列表/引用前缀、加粗/行内代码记号、表格竖线 → 纯文本摘要 */
+function cleanMarkdownLine(line: string): string {
+  return String(line || '')
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^\s*[->*+]\s+/, '')
+    .replace(/^\s*\d+\.\s+/, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\|/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 生成命中摘要：从首个与关键词 bigram 有交集的行开始向后拼接，超长截断加省略号；仅标题命中时取正文开头 */
+function buildSnippet(body: string, queryBigrams: Set<string>): string {
+  const lines = String(body || '')
+    .split(/\r?\n/)
+    .map(cleanMarkdownLine)
+    .filter(Boolean);
+  if (lines.length === 0) return '';
+  const hitAt = lines.findIndex((line) => {
+    const gs = bigramSet(line);
+    for (const g of queryBigrams) if (gs.has(g)) return true;
+    return false;
+  });
+  let text = '';
+  let truncated = false;
+  for (const line of hitAt >= 0 ? lines.slice(hitAt) : lines) {
+    text += (text ? ' ' : '') + line;
+    if (text.length > SNIPPET_CHARS) {
+      text = text.slice(0, SNIPPET_CHARS);
+      truncated = true;
+      break;
+    }
+  }
+  return truncated ? `${text}…` : text;
+}
+
+/**
+ * 关键词搜索帮助文档（v0.9.89）：与智能问答共用分词与打分口径，但不设上下文预算，
+ * 命中章节按相关度降序返回「标题 + 来源 + 摘要」，供帮助中心搜索框展示与跳转定位。
+ */
+export function searchHelpDocs(
+  sources: HelpDocSource[],
+  query: string,
+  opts: { topK?: number } = {},
+): HelpSearchHit[] {
+  const topK = Math.max(1, Math.floor(opts.topK ?? SEARCH_TOP_K));
+  const queryBigrams = bigramSet(stripQuestionFillers(query));
+  if (queryBigrams.size === 0) return [];
+
+  const hits: HelpSearchHit[] = [];
+  for (const src of sources) {
+    const label = String(src?.label || '').trim() || '帮助文档';
+    for (const sec of splitMarkdownSections(String(src?.markdown || ''))) {
+      const score = scoreSection(queryBigrams, sec.title, sec.content);
+      if (score > 0) {
+        hits.push({ title: sec.title, source: label, snippet: buildSnippet(sec.content, queryBigrams), score });
+      }
+    }
+  }
+  hits.sort((a, b) => b.score - a.score);
+  return hits.slice(0, topK);
 }

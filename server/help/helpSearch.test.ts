@@ -1,10 +1,11 @@
 /**
- * 帮助章节检索纯函数测试（v0.9.88 帮助中心「智能问答」）：
+ * 帮助章节检索纯函数测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充关键词搜索）：
  * bigram 切分、Markdown 章节切分（父链标题 / 文档概述 / 空章节丢弃）、
- * 检索排序（标题命中加权、长章节长度惩罚）与 topK / maxChars 预算约束。
+ * 检索排序（标题命中加权、长章节长度惩罚）与 topK / maxChars 预算约束，
+ * 以及 searchHelpDocs 的命中排序、摘要截取（围绕命中行 / 超长省略）、来源标注与 topK 限制。
  */
 import { describe, it, expect } from 'vitest';
-import { bigramSet, selectHelpSections, splitMarkdownSections, stripQuestionFillers } from './helpSearch';
+import { bigramSet, searchHelpDocs, selectHelpSections, splitMarkdownSections, stripQuestionFillers } from './helpSearch';
 
 describe('bigramSet：文本 → bigram 集合', () => {
   it('中英文与数字小写化，剔除符号与空白', () => {
@@ -151,5 +152,58 @@ describe('selectHelpSections：相关章节选取', () => {
     expect(picked.map((s) => s.title)).toEqual(['数据源丙', '数据源甲']); // 丙短章节优先；甲截断占满预算；乙因预算耗尽跳过
     const total = picked.reduce((n, s) => n + s.content.length, 0);
     expect(total).toBeLessThanOrEqual(550);
+  });
+});
+
+describe('searchHelpDocs：关键词搜索（摘要 + 来源）', () => {
+  const docs = [
+    {
+      label: '用户使用指南',
+      markdown: [
+        '## 数据源管理',
+        '在「数据管理」页签新增数据源，填写连接信息并测试连接。',
+        '## 报表导出',
+        '报表支持导出 PDF 与 Word 文档。',
+      ].join('\n'),
+    },
+    {
+      label: '更新日志',
+      markdown: '## v0.9.80\n灵活查询表关系画布字段图形化。',
+    },
+  ];
+
+  it('命中章节含来源与摘要，按相关度降序', () => {
+    const hits = searchHelpDocs(docs, '新增数据源');
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].title).toBe('数据源管理');
+    expect(hits[0].source).toBe('用户使用指南');
+    expect(hits[0].snippet).toContain('数据源');
+    expect(hits[0].score).toBeGreaterThan(0);
+  });
+
+  it('摘要围绕首个命中行截取：跳过无关开头，超长截断加省略号', () => {
+    const longDocs = [
+      {
+        label: 'D',
+        markdown: ['## 长章节', '开头是无关内容。', `数据源结构如下：${'表字段说明。'.repeat(50)}`].join('\n'),
+      },
+    ];
+    const hits = searchHelpDocs(longDocs, '数据源结构');
+    expect(hits[0].snippet.startsWith('数据源结构如下')).toBe(true);
+    expect(hits[0].snippet.endsWith('…')).toBe(true);
+    expect(hits[0].snippet.length).toBeLessThanOrEqual(121); // 120 字上限 + 省略号
+  });
+
+  it('仅标题命中（正文无命中词）→ 摘要取正文开头，并清洗 Markdown 标记', () => {
+    const t = [{ label: 'D', markdown: ['## 报表导出', '- **支持**导出 `PDF`。'].join('\n') }];
+    const hits = searchHelpDocs(t, '报表导出');
+    expect(hits[0].snippet).toBe('支持导出 PDF。');
+  });
+
+  it('无命中 / 空查询 → 空数组；topK 限制返回数', () => {
+    expect(searchHelpDocs(docs, 'zzzz')).toEqual([]);
+    expect(searchHelpDocs(docs, '？!')).toEqual([]);
+    const many = [{ label: 'D', markdown: ['## 甲', '数据源。', '## 乙', '数据源。', '## 丙', '数据源。'].join('\n') }];
+    expect(searchHelpDocs(many, '数据源', { topK: 2 })).toHaveLength(2);
   });
 });
