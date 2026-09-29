@@ -326,9 +326,9 @@ export const MetricsPanel: React.FC = () => {
     <div className="space-y-4">
       {/* 工具条：数据源选择 + 新建 */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl">
-        <div className="flex items-center space-x-3">
-          <BookMarked className="w-4 h-4 text-indigo-400" />
-          <span className="text-xs font-bold text-slate-300">语义指标库</span>
+        <div className="flex items-center flex-wrap gap-y-1.5 space-x-3">
+          <BookMarked className="w-4 h-4 text-indigo-400 shrink-0" />
+          <span className="text-xs font-bold text-slate-300 whitespace-nowrap shrink-0">语义指标库</span>
           <select
             value={dataSourceId}
             onChange={(e) => setDataSourceId(e.target.value)}
@@ -339,7 +339,7 @@ export const MetricsPanel: React.FC = () => {
             ))}
           </select>
           {pendingCount > 0 && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold whitespace-nowrap shrink-0">
               {pendingCount} 条待审批
             </span>
           )}
@@ -348,9 +348,9 @@ export const MetricsPanel: React.FC = () => {
           <button
             onClick={() => loadMetrics()}
             disabled={isLoading}
-            className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap shrink-0"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
             <span>刷新</span>
           </button>
           {isAdmin && (
@@ -359,9 +359,9 @@ export const MetricsPanel: React.FC = () => {
                 onClick={handleExport}
                 disabled={exporting || !dataSourceId}
                 title="导出当前数据源的全部指标定义为 JSON 备份文件"
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold transition-colors"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               >
-                <Download className={`w-3.5 h-3.5 ${exporting ? 'animate-pulse' : ''}`} />
+                <Download className={`w-3.5 h-3.5 shrink-0 ${exporting ? 'animate-pulse' : ''}`} />
                 <span>{exporting ? '导出中…' : '导出'}</span>
               </button>
               <button
@@ -374,18 +374,18 @@ export const MetricsPanel: React.FC = () => {
                 }}
                 disabled={!dataSourceId}
                 title="从 JSON 备份文件导入指标定义到当前数据源"
-                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold transition-colors"
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               >
-                <Upload className="w-3.5 h-3.5" />
+                <Upload className="w-3.5 h-3.5 shrink-0" />
                 <span>导入</span>
               </button>
             </>
           )}
           <button
             onClick={() => setIsCreating((v) => !v)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>{isAdmin ? '新建指标' : '提议指标'}</span>
           </button>
         </div>
@@ -452,12 +452,12 @@ export const MetricsPanel: React.FC = () => {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-slate-400 border-b border-slate-800 bg-slate-950/50">
-                <th className="px-4 py-3 font-medium">指标</th>
-                <th className="px-4 py-3 font-medium">口径</th>
-                <th className="px-4 py-3 font-medium">状态</th>
-                <th className="px-4 py-3 font-medium">版本</th>
-                <th className="px-4 py-3 font-medium">提议/审批</th>
-                <th className="px-4 py-3 font-medium text-right">操作</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap">指标</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap">口径</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap">状态</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap">版本</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap">提议/审批</th>
+                <th className="px-4 py-3 font-medium whitespace-nowrap text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -466,20 +466,27 @@ export const MetricsPanel: React.FC = () => {
                 return (
                   <tr key={m.id} className="border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-slate-200">{m.name}</div>
-                      {m.aliases.length > 0 && <div className="text-[10px] text-slate-500">同义词：{m.aliases.join('、')}</div>}
+                      <div className="font-semibold text-slate-200 truncate max-w-xs" title={m.name}>{m.name}</div>
+                      {m.aliases.length > 0 && (
+                        <div className="text-[10px] text-slate-500 truncate max-w-xs" title={`同义词：${m.aliases.join('、')}`}>
+                          同义词：{m.aliases.join('、')}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
-                      <code className="text-[11px] text-indigo-300">{m.expr}</code>
-                      <div className="text-[10px] text-slate-500">
+                      <code className="block text-[11px] text-indigo-300 truncate max-w-xs" title={m.expr}>{m.expr}</code>
+                      <div
+                        className="text-[10px] text-slate-500 truncate max-w-xs"
+                        title={`表 ${m.tableName}${m.filters ? ` · WHERE ${m.filters}` : ''}`}
+                      >
                         表 {m.tableName}{m.filters ? ` · WHERE ${m.filters}` : ''}
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold ${meta.cls}`}>{meta.label}</span>
+                      <span className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold whitespace-nowrap ${meta.cls}`}>{meta.label}</span>
                     </td>
-                    <td className="px-4 py-3 text-slate-400">v{m.version || 1}</td>
-                    <td className="px-4 py-3 text-slate-500 text-[10px]">
+                    <td className="px-4 py-3 text-slate-400 whitespace-nowrap">v{m.version || 1}</td>
+                    <td className="px-4 py-3 text-slate-500 text-[10px] whitespace-nowrap">
                       <div>提议：{m.createdBy || '-'}</div>
                       {m.approvedBy && <div>审批：{m.approvedBy}</div>}
                     </td>
@@ -487,30 +494,30 @@ export const MetricsPanel: React.FC = () => {
                       <div className="flex items-center justify-end space-x-1.5">
                         {isAdmin && m.status === 'PENDING' && (
                           <>
-                            <button onClick={() => handleAction(m, 'approve')} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40 text-[11px] font-medium transition-colors">
-                              <CheckCircle2 className="w-3 h-3" /><span>通过</span>
+                            <button onClick={() => handleAction(m, 'approve')} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0">
+                              <CheckCircle2 className="w-3 h-3 shrink-0" /><span>通过</span>
                             </button>
-                            <button onClick={() => handleAction(m, 'reject')} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors">
-                              <XCircle className="w-3 h-3" /><span>驳回</span>
+                            <button onClick={() => handleAction(m, 'reject')} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0">
+                              <XCircle className="w-3 h-3 shrink-0" /><span>驳回</span>
                             </button>
                           </>
                         )}
                         {!isAdmin && m.status === 'REJECTED' && m.createdBy === currentUser?.username && (
-                          <button onClick={() => handleAction(m, 'repropose')} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-amber-800/60 text-amber-300 hover:bg-amber-950/40 text-[11px] font-medium transition-colors">
-                            <RotateCcw className="w-3 h-3" /><span>重新提议</span>
+                          <button onClick={() => handleAction(m, 'repropose')} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-amber-800/60 text-amber-300 hover:bg-amber-950/40 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0">
+                            <RotateCcw className="w-3 h-3 shrink-0" /><span>重新提议</span>
                           </button>
                         )}
-                        <button onClick={() => openVersions(m)} title="版本历史" className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium transition-colors">
-                          <History className="w-3 h-3" /><span>历史</span>
+                        <button onClick={() => openVersions(m)} title="版本历史" className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0">
+                          <History className="w-3 h-3 shrink-0" /><span>历史</span>
                         </button>
                         {isAdmin && (m.status === 'ACTIVE' || m.status === 'DISABLED') && (
-                          <button onClick={() => handleToggleStatus(m)} className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${m.status === 'ACTIVE' ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40'}`}>
+                          <button onClick={() => handleToggleStatus(m)} className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 ${m.status === 'ACTIVE' ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40'}`}>
                             {m.status === 'ACTIVE' ? '停用' : '启用'}
                           </button>
                         )}
                         {isAdmin && (
-                          <button onClick={() => handleDelete(m)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors">
-                            <Trash2 className="w-3 h-3" /><span>删除</span>
+                          <button onClick={() => handleDelete(m)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors whitespace-nowrap shrink-0">
+                            <Trash2 className="w-3 h-3 shrink-0" /><span>删除</span>
                           </button>
                         )}
                       </div>
