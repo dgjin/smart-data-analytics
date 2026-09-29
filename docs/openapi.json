@@ -2870,6 +2870,64 @@
         }
       }
     },
+    "/api/help/ask": {
+      "post": {
+        "tags": [
+          "Help"
+        ],
+        "operationId": "askHelp",
+        "summary": "帮助中心智能问答（基于帮助文档章节检索 + LLM，返回回答与命中的文档章节）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "question"
+                ],
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "description": "用户问题（≤500 字）"
+                  },
+                  "history": {
+                    "type": "array",
+                    "description": "最近对话历史（服务端限最近 6 条、单条 ≤300 字）",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "assistant"
+                          ]
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "回答与命中的文档章节"
+          },
+          "400": {
+            "description": "question 缺失或超长"
+          },
+          "502": {
+            "description": "AI 回答失败（LLM 不可用）"
+          }
+        }
+      }
+    },
     "/api/auth/oidc/login": {
       "get": {
         "tags": [

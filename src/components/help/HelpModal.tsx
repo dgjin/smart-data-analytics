@@ -1,12 +1,14 @@
 /**
  * 系统帮助弹窗：实时读取 docs/核心文档 下帮助文档（GET /api/help/manual、/api/help/changelog）并渲染。
  * 「使用指南」面向终端用户回答「系统怎么用」（服务端在指南缺失时回退功能说明书）；
- * 「更新日志」按版本记录主要更新内容，供用户备查（v0.9.36）。
+ * 「更新日志」按版本记录主要更新内容，供用户备查（v0.9.36）；
+ * 「智能问答」（v0.9.88）：基于帮助文档章节检索 + LLM 快速回答使用问题（POST /api/help/ask），
+ * 支持多轮追问，回答附命中章节作为参考来源。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
-import React, { useEffect, useState } from 'react';
-import { X, BookOpen, RefreshCw, FileText, History } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
 
@@ -236,13 +238,172 @@ export const MarkdownView: React.FC<{ markdown: string }> = ({ markdown }) => {
   return <div className="space-y-1">{blocks}</div>;
 };
 
+// ---------- 智能问答面板（v0.9.88） ----------
+
+interface AskMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  /** 命中的帮助文档章节（「来源 · 标题」），助手消息展示参考来源 */
+  sections?: string[];
+  error?: boolean;
+}
+
+/** 首次进入的引导问题（帮助中心最高频的使用疑问） */
+const ASK_SUGGESTIONS = [
+  '如何配置数据源？',
+  '怎么导入 Excel / CSV 数据？',
+  '金额单位在哪里设置？',
+  '如何导出报表 PDF / Word？',
+];
+
+const AskPanel: React.FC = () => {
+  const [messages, setMessages] = useState<AskMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [pending, setPending] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, pending]);
+
+  const send = async (raw?: string) => {
+    const question = (raw ?? input).trim();
+    if (!question || pending) return;
+    setInput('');
+    const base: AskMessage[] = [...messages, { role: 'user', content: question }];
+    setMessages(base);
+    setPending(true);
+    try {
+      // 携带最近 3 轮（≤6 条）历史，支持「那它呢」这类指代追问；服务端会再次清洗限量
+      const history = base.slice(-7, -1).map((m) => ({ role: m.role, content: m.content }));
+      const res = await apiFetch('/api/help/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, history }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'AI 回答失败');
+      setMessages([
+        ...base,
+        { role: 'assistant', content: String(data.answer || ''), sections: Array.isArray(data.sections) ? data.sections : [] },
+      ]);
+    } catch (err) {
+      setMessages([...base, { role: 'assistant', content: getErrorMessage(err) || 'AI 回答失败，请稍后重试', error: true }]);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col px-6 py-5">
+      <div className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center mb-3">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <p className="text-xs text-slate-400 mb-1">向 AI 提问系统使用问题，基于「使用指南 / 更新日志」快速作答</p>
+            <p className="text-[11px] text-slate-500 mb-4">支持追问，回答会附上参考章节</p>
+            <div className="flex flex-wrap justify-center gap-2 max-w-md">
+              {ASK_SUGGESTIONS.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => void send(q)}
+                  className="px-3 py-1.5 text-xs rounded-full border border-slate-700 text-slate-300 hover:border-cyan-600/60 hover:text-cyan-300 hover:bg-slate-800/60 transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4 py-1">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {m.role === 'user' ? (
+                  <div className="max-w-[85%] rounded-xl bg-indigo-600 px-4 py-2.5">
+                    <p className="text-xs text-white leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                  </div>
+                ) : (
+                  <div
+                    className={`max-w-[85%] rounded-xl border px-4 py-3 ${
+                      m.error ? 'border-rose-700/50 bg-rose-950/20' : 'border-slate-700 bg-slate-800/60'
+                    }`}
+                  >
+                    {m.error ? (
+                      <p className="text-xs text-rose-300 leading-relaxed">{m.content}</p>
+                    ) : (
+                      <MarkdownView markdown={m.content} />
+                    )}
+                    {!!m.sections?.length && (
+                      <p className="mt-2 pt-2 border-t border-slate-700/60 text-[10px] text-slate-500">
+                        参考：{m.sections.join('、')}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+            {pending && (
+              <div className="flex justify-start">
+                <div className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 flex items-center space-x-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce [animation-delay:0.15s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-bounce [animation-delay:0.3s]" />
+                  <span className="pl-1 text-[11px] text-slate-500">AI 正在查阅帮助文档…</span>
+                </div>
+              </div>
+            )}
+            <div ref={endRef} />
+          </div>
+        )}
+      </div>
+
+      {/* 输入区（固定于面板底部；消息列表独立滚动） */}
+      <div className="mt-3 flex items-end space-x-2">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          rows={2}
+          maxLength={500}
+          placeholder="输入系统使用问题（Enter 发送，Shift+Enter 换行）"
+          className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+        />
+        <button
+          onClick={() => void send()}
+          disabled={pending || !input.trim()}
+          title="发送"
+          className="p-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+        >
+          <Send className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-600">
+        <span>回答基于帮助文档节选生成，仅供参考</span>
+        {messages.length > 0 && (
+          <button onClick={() => setMessages([])} className="text-slate-500 hover:text-slate-300 transition-colors">
+            清空对话
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ---------- 帮助弹窗 ----------
 
-type HelpTab = 'manual' | 'changelog';
+type HelpTab = 'manual' | 'changelog' | 'ask';
 
-const TAB_META: Record<HelpTab, { title: string; endpoint: string; icon: typeof BookOpen }> = {
+const TAB_META: Record<HelpTab, { title: string; endpoint?: string; icon: typeof BookOpen }> = {
   manual: { title: '使用指南', endpoint: '/api/help/manual', icon: BookOpen },
   changelog: { title: '更新日志', endpoint: '/api/help/changelog', icon: History },
+  ask: { title: '智能问答', icon: Sparkles },
 };
 
 interface DocContent {
@@ -258,11 +419,13 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [error, setError] = useState<string | null>(null);
 
   const load = async (target: HelpTab, force = false) => {
+    const endpoint = TAB_META[target].endpoint;
+    if (!endpoint) return; // 智能问答页签不走文档加载
     if (!force && contents[target]) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(TAB_META[target].endpoint);
+      const res = await apiFetch(endpoint);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `加载${TAB_META[target].title}失败`);
       setContents((prev) => ({
@@ -289,7 +452,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const switchTab = (t: HelpTab) => {
     setTab(t);
     setError(null);
-    void load(t);
+    if (t !== 'ask') void load(t);
   };
 
   const current = contents[tab];
@@ -313,18 +476,24 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <div>
                 <h2 className="text-sm font-semibold text-slate-100">帮助中心</h2>
                 <p className="text-[11px] text-slate-500">
-                  {current?.updatedAt ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}` : '实时读取最新文档'}
+                  {tab === 'ask'
+                    ? '由 AI 基于使用指南与更新日志实时作答'
+                    : current?.updatedAt
+                      ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}`
+                      : '实时读取最新文档'}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-1.5">
-              <button
-                onClick={() => load(tab, true)}
-                title="重新加载"
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
-              >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
+              {tab !== 'ask' && (
+                <button
+                  onClick={() => load(tab, true)}
+                  title="重新加载"
+                  className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              )}
               <button
                 onClick={onClose}
                 title="关闭（Esc）"
@@ -359,32 +528,42 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
         </div>
 
-        {/* 内容 */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          {loading && !current && (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-              <RefreshCw className="w-6 h-6 animate-spin mb-3" />
-              <p className="text-xs">正在加载{TAB_META[tab].title}…</p>
-            </div>
-          )}
-          {error && (
-            <div className="flex flex-col items-center justify-center py-16 text-rose-400">
-              <FileText className="w-6 h-6 mb-3" />
-              <p className="text-xs">{error}</p>
-              <button
-                onClick={() => load(tab, true)}
-                className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-              >
-                重试
-              </button>
-            </div>
-          )}
-          {current && !error && <MarkdownView markdown={current.markdown} />}
-        </div>
+        {/* 内容：智能问答自带滚动区与固定输入栏；其余页签为文档滚动区 */}
+        {tab === 'ask' ? (
+          <AskPanel />
+        ) : (
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {loading && !current && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <RefreshCw className="w-6 h-6 animate-spin mb-3" />
+                <p className="text-xs">正在加载{TAB_META[tab].title}…</p>
+              </div>
+            )}
+            {error && (
+              <div className="flex flex-col items-center justify-center py-16 text-rose-400">
+                <FileText className="w-6 h-6 mb-3" />
+                <p className="text-xs">{error}</p>
+                <button
+                  onClick={() => load(tab, true)}
+                  className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                >
+                  重试
+                </button>
+              </div>
+            )}
+            {current && !error && <MarkdownView markdown={current.markdown} />}
+          </div>
+        )}
 
         {/* 底部 */}
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
-          <span>{tab === 'manual' ? '面向使用者的操作指南，随功能更新同步维护' : '按版本记录主要更新内容，供备查'}</span>
+          <span>
+            {tab === 'manual'
+              ? '面向使用者的操作指南，随功能更新同步维护'
+              : tab === 'changelog'
+                ? '按版本记录主要更新内容，供备查'
+                : 'AI 回答基于帮助文档节选，仅供参考'}
+          </span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
