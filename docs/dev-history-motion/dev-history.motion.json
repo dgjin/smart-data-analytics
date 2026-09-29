@@ -1,0 +1,2405 @@
+{
+  "animation_contract": {
+    "connectors_visible_at_opening": false,
+    "draw_easing": "linear",
+    "draw_schedule": [
+      {
+        "frames": [
+          1,
+          6
+        ],
+        "order": 0,
+        "role": "ingress",
+        "stage": 1
+      },
+      {
+        "frames": [
+          4,
+          9
+        ],
+        "order": 0,
+        "role": "policy",
+        "stage": 2
+      },
+      {
+        "frames": [
+          8,
+          13
+        ],
+        "order": 0,
+        "role": "fanout",
+        "stage": 3
+      },
+      {
+        "frames": [
+          11,
+          16
+        ],
+        "order": 1,
+        "role": "fanout",
+        "stage": 3
+      },
+      {
+        "frames": [
+          14,
+          19
+        ],
+        "order": 2,
+        "role": "fanout",
+        "stage": 3
+      },
+      {
+        "frames": [
+          18,
+          23
+        ],
+        "order": 0,
+        "role": "data-write",
+        "stage": 4
+      },
+      {
+        "frames": [
+          21,
+          26
+        ],
+        "order": 1,
+        "role": "data-write",
+        "stage": 4
+      },
+      {
+        "frames": [
+          24,
+          29
+        ],
+        "order": 2,
+        "role": "data-write",
+        "stage": 4
+      },
+      {
+        "frames": [
+          28,
+          33
+        ],
+        "order": 0,
+        "role": "event",
+        "stage": 5
+      },
+      {
+        "frames": [
+          31,
+          36
+        ],
+        "order": 0,
+        "role": "telemetry",
+        "stage": 6
+      }
+    ],
+    "empty_opening_frame": 0,
+    "forbidden": [
+      "node-motion",
+      "text-motion",
+      "glow",
+      "blur",
+      "shadow",
+      "scan-line",
+      "halo",
+      "ripple",
+      "terminal-cursor",
+      "camera-motion",
+      "animated-background",
+      "breathing"
+    ],
+    "maximum_concurrent_draws": 2,
+    "nodes_visible_every_frame": true,
+    "persistent_data_flow": {
+      "bead_advance_per_rendered_frame": 6.0,
+      "body": {
+        "color": "inherit-source-stroke",
+        "dash_pattern": [
+          12,
+          31
+        ],
+        "filter_free": true,
+        "linecap": "round",
+        "linejoin": "round",
+        "marker_free": true,
+        "opacity": 0.92,
+        "primitive": "blueprint-distribution-wave",
+        "resolved_style_3_source_stroke_width": 2.1,
+        "resolved_style_3_stroke_width": 2.94,
+        "resolved_style_3_stroke_width_at_50_percent": 1.47,
+        "source_colors_in_schedule_order": [
+          "#38bdf8",
+          "#67e8f9",
+          "#38bdf8",
+          "#38bdf8",
+          "#38bdf8",
+          "#fde047",
+          "#fde047",
+          "#fde047",
+          "#fb7185",
+          "#fb7185"
+        ],
+        "stroke_width": "min(3.4, max(2.8, source_stroke * 1.40))"
+      },
+      "dash_offset_per_rendered_frame": -6.0,
+      "dash_period": 43,
+      "direction": "source-to-target",
+      "direction_sentinels": {
+        "data-write/0": [
+          "down"
+        ],
+        "data-write/1": [
+          "down"
+        ],
+        "data-write/2": [
+          "down"
+        ],
+        "event/0": [
+          "right"
+        ],
+        "fanout/0": [
+          "down",
+          "left",
+          "down"
+        ],
+        "fanout/1": [
+          "down"
+        ],
+        "fanout/2": [
+          "down",
+          "right",
+          "down"
+        ],
+        "ingress/0": [
+          "right"
+        ],
+        "policy/0": [
+          "right"
+        ],
+        "telemetry/0": [
+          "down"
+        ]
+      },
+      "expected_initial_phases": [
+        7,
+        14,
+        21,
+        21,
+        21,
+        28,
+        28,
+        28,
+        35,
+        42
+      ],
+      "fade_in_factors": [
+        0.3,
+        0.65,
+        1.0
+      ],
+      "fade_in_frames": [
+        36,
+        38
+      ],
+      "full_opacity_frames": [
+        38,
+        109
+      ],
+      "minimum_review_scale": "50%",
+      "period_step_coprime": true,
+      "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+      "phase_repeat_within_stream_interval": true,
+      "primitive": "blueprint-distribution-wave",
+      "registration_bead": {
+        "animated_attributes": [
+          "cx",
+          "cy",
+          "opacity"
+        ],
+        "diameter_at_50_percent": 3,
+        "diameter_at_960px": 6,
+        "direction": "source-to-target",
+        "fill": "#e0f2fe",
+        "filter_free": true,
+        "initial_path_distance": "stage-locked-phase",
+        "marker_free": true,
+        "opacity": 0.98,
+        "path_advance_per_rendered_frame": 6.0,
+        "primitive": "blueprint-registration-bead",
+        "radius": 3.0,
+        "shape": "circle",
+        "stroke": "inherit-source-stroke",
+        "stroke_width": 1.2,
+        "wrap": "target-end-to-source-start"
+      },
+      "registration_bead_count": 10,
+      "registration_bead_primitive": "blueprint-registration-bead",
+      "rendered_frames": [
+        36,
+        114
+      ],
+      "reset_behavior": "all ten bodies and registration beads keep advancing while topology, labels, and both Blueprint flow layers fade together",
+      "reset_opacity_samples": [
+        1.0,
+        0.7575,
+        0.515,
+        0.2725,
+        0.03
+      ],
+      "reset_range": [
+        110,
+        114
+      ],
+      "roles": [
+        "ingress",
+        "policy",
+        "fanout",
+        "fanout",
+        "fanout",
+        "data-write",
+        "data-write",
+        "data-write",
+        "event",
+        "telemetry"
+      ],
+      "route_keys": [
+        {
+          "order": 0,
+          "role": "ingress"
+        },
+        {
+          "order": 0,
+          "role": "policy"
+        },
+        {
+          "order": 0,
+          "role": "fanout"
+        },
+        {
+          "order": 1,
+          "role": "fanout"
+        },
+        {
+          "order": 2,
+          "role": "fanout"
+        },
+        {
+          "order": 0,
+          "role": "data-write"
+        },
+        {
+          "order": 1,
+          "role": "data-write"
+        },
+        {
+          "order": 2,
+          "role": "data-write"
+        },
+        {
+          "order": 0,
+          "role": "event"
+        },
+        {
+          "order": 0,
+          "role": "telemetry"
+        }
+      ],
+      "stage_locks": {
+        "data-write": {
+          "equal_length_paths": true,
+          "orders": [
+            0,
+            1,
+            2
+          ],
+          "phase": 28
+        },
+        "fanout": {
+          "orders": [
+            0,
+            1,
+            2
+          ],
+          "phase": 21
+        }
+      },
+      "stream_count": 10,
+      "stream_interval_frame_count": 79,
+      "travel_easing": "linear",
+      "travel_pixels_per_frame_at_50_percent": 3,
+      "travel_pixels_per_frame_at_960px": 6,
+      "travel_pixels_per_second_at_50_percent_20fps": 60,
+      "travel_pixels_per_second_at_960px_20fps": 120,
+      "travel_user_units_per_rendered_frame": 6
+    },
+    "primitive": "connector-draw-on-with-persistent-data-flow",
+    "reset_opacity_samples": [
+      1.0,
+      0.7575,
+      0.515,
+      0.2725,
+      0.03
+    ],
+    "reset_range": [
+      110,
+      114
+    ],
+    "route_label_opacity_states": 7,
+    "schedule_key": "(data-motion-role, data-motion-order)",
+    "settled_markers": "original marker appears only after route arrival",
+    "settled_topology_dynamic": true,
+    "source_edges_hidden_by_transient_css": true,
+    "text_geometry_motion": 0,
+    "topology_draw_on": true
+  },
+  "artifact": {
+    "bytes": 290057,
+    "encoder": "ffmpeg/gif-palette",
+    "format": "gif",
+    "mime_type": "image/gif",
+    "path": "/Users/dgjin/dgjinapp/智能问数据分析系统/docs/dev-history-motion/dev-history.gif",
+    "probe": {
+      "codec_name": "gif",
+      "container": {
+        "duration": "5.750000",
+        "format_name": "gif"
+      },
+      "duration": "5.750000",
+      "height": 720,
+      "nb_frames": "115",
+      "nb_read_frames": "115",
+      "pix_fmt": "bgra",
+      "r_frame_rate": "20/1",
+      "width": 960
+    },
+    "sha256": "d4c81d02aaff6d1aadcfdbf67a14c14b7168302bf10bcf7b447c5061bd1c5b21",
+    "source_frame_count": 115
+  },
+  "dry_run": false,
+  "duration_seconds": 5.75,
+  "encoded_dimensions": {
+    "height": 720,
+    "width": 960
+  },
+  "fixture_sha256": null,
+  "fps": 20,
+  "frame_count": 115,
+  "frame_uniqueness_contract": {
+    "adjacent_duplicates_allowed": false,
+    "intentional_reset_boundary_opacity": 1.0,
+    "intentional_reset_boundary_repeat_frame": 110,
+    "long_timeline_repeat_scope": [
+      38,
+      109
+    ],
+    "minimum_unique_rasters_for_long_timeline": 75,
+    "opening_construction_and_reset_tail_globally_distinct": true,
+    "strict_all_unique_through_frame_count": 75
+  },
+  "height": 720,
+  "input_kind": "svg",
+  "loop": {
+    "adjacent_duplicate_count": 0,
+    "all_frames_unique": true,
+    "delta_quality": {
+      "adjacent_max": 0.0012438313725490196,
+      "adjacent_median": 0.0004888352941176471,
+      "adjacent_min": 1.5165450980392156e-05,
+      "adjacent_p95": 0.0005693490196078432,
+      "changed_area_method": "accumulated adjacent luma delta greater than 2 percent",
+      "changed_area_ratio": 0.019252039215686276,
+      "metric": "normalized-luma-mean-absolute-difference",
+      "seam": 0.00014182196078431372,
+      "seam_within_adjacent_p95": true
+    },
+    "embedded_loop_count": 0,
+    "encoded_frames": {
+      "adjacent_duplicate_count": 0,
+      "adjacent_duplicate_pairs": [],
+      "algorithm": "framemd5",
+      "all_frames_unique": true,
+      "first_frame_hash": "4ba69856ffcb34cfd53a89d7dfcf461e",
+      "frame_count": 115,
+      "intentional_reset_boundary_opacity": 1.0,
+      "intentional_reset_boundary_repeat_count": 0,
+      "intentional_reset_boundary_repeat_evidence": [],
+      "intentional_reset_boundary_repeat_frame": 110,
+      "last_frame_hash": "4774cdcec8d42fcffaba6769840ab7d6",
+      "minimum_unique_frame_count": 75,
+      "opening_construction_and_reset_tail_globally_distinct": true,
+      "repeat_scope": [
+        38,
+        109
+      ],
+      "repeat_scope_policy": "non-adjacent-repeats-inside-full-opacity-plus-reset-start-boundary",
+      "repeated_frame_group_count": 0,
+      "repeated_frame_index_evidence": [],
+      "repeats_confined_to_full_opacity": true,
+      "repeats_confined_to_permitted_scope": true,
+      "unique_frame_count": 115
+    },
+    "first_frame_sha256": "aeb7de3426a029dd3e804ecb46c4b0bb5016a44af2a9a2a860388ebe775c8bb9",
+    "intentional_reset_boundary_repeat_count": 0,
+    "intentional_reset_boundary_repeat_evidence": [],
+    "last_frame_sha256": "11148c5654fc57c988dd5c9cb5785c900ff5899e621ab9d34255e90d19e7f32b",
+    "minimum_unique_frame_count": 75,
+    "opening_construction_and_reset_tail_globally_distinct": true,
+    "playback": "embedded-infinite",
+    "raw_frames": {
+      "adjacent_duplicate_count": 0,
+      "adjacent_duplicate_pairs": [],
+      "algorithm": "sha256",
+      "all_frames_unique": true,
+      "first_frame_hash": "aeb7de3426a029dd3e804ecb46c4b0bb5016a44af2a9a2a860388ebe775c8bb9",
+      "frame_count": 115,
+      "intentional_reset_boundary_opacity": 1.0,
+      "intentional_reset_boundary_repeat_count": 0,
+      "intentional_reset_boundary_repeat_evidence": [],
+      "intentional_reset_boundary_repeat_frame": 110,
+      "last_frame_hash": "11148c5654fc57c988dd5c9cb5785c900ff5899e621ab9d34255e90d19e7f32b",
+      "minimum_unique_frame_count": 75,
+      "opening_construction_and_reset_tail_globally_distinct": true,
+      "repeat_scope": [
+        38,
+        109
+      ],
+      "repeat_scope_policy": "non-adjacent-repeats-inside-full-opacity-plus-reset-start-boundary",
+      "repeated_frame_group_count": 0,
+      "repeated_frame_index_evidence": [],
+      "repeats_confined_to_full_opacity": true,
+      "repeats_confined_to_permitted_scope": true,
+      "unique_frame_count": 115
+    },
+    "repeat_scope": [
+      38,
+      109
+    ],
+    "repeat_scope_policy": "non-adjacent-repeats-inside-full-opacity-plus-reset-start-boundary",
+    "repeated_frame_index_evidence": [],
+    "repeats_confined_to_full_opacity": true,
+    "repeats_confined_to_permitted_scope": true,
+    "sampling": "uniform-frame-centers",
+    "unique_frame_count": 115
+  },
+  "loop_playback": "embedded-infinite",
+  "mime_type": "image/gif",
+  "motion_class": "semantic",
+  "motion_grammar": {
+    "curves": {
+      "draw": "linear",
+      "persistent-data-flow": "linear",
+      "reset": "linear"
+    },
+    "draw_on": {
+      "connectors_visible_at_opening": false,
+      "draw_easing": "linear",
+      "draw_schedule": [
+        {
+          "frames": [
+            1,
+            6
+          ],
+          "order": 0,
+          "role": "ingress",
+          "stage": 1
+        },
+        {
+          "frames": [
+            4,
+            9
+          ],
+          "order": 0,
+          "role": "policy",
+          "stage": 2
+        },
+        {
+          "frames": [
+            8,
+            13
+          ],
+          "order": 0,
+          "role": "fanout",
+          "stage": 3
+        },
+        {
+          "frames": [
+            11,
+            16
+          ],
+          "order": 1,
+          "role": "fanout",
+          "stage": 3
+        },
+        {
+          "frames": [
+            14,
+            19
+          ],
+          "order": 2,
+          "role": "fanout",
+          "stage": 3
+        },
+        {
+          "frames": [
+            18,
+            23
+          ],
+          "order": 0,
+          "role": "data-write",
+          "stage": 4
+        },
+        {
+          "frames": [
+            21,
+            26
+          ],
+          "order": 1,
+          "role": "data-write",
+          "stage": 4
+        },
+        {
+          "frames": [
+            24,
+            29
+          ],
+          "order": 2,
+          "role": "data-write",
+          "stage": 4
+        },
+        {
+          "frames": [
+            28,
+            33
+          ],
+          "order": 0,
+          "role": "event",
+          "stage": 5
+        },
+        {
+          "frames": [
+            31,
+            36
+          ],
+          "order": 0,
+          "role": "telemetry",
+          "stage": 6
+        }
+      ],
+      "empty_opening_frame": 0,
+      "forbidden": [
+        "node-motion",
+        "text-motion",
+        "glow",
+        "blur",
+        "shadow",
+        "scan-line",
+        "halo",
+        "ripple",
+        "terminal-cursor",
+        "camera-motion",
+        "animated-background",
+        "breathing"
+      ],
+      "maximum_concurrent_draws": 2,
+      "nodes_visible_every_frame": true,
+      "persistent_data_flow": {
+        "bead_advance_per_rendered_frame": 6.0,
+        "body": {
+          "color": "inherit-source-stroke",
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "filter_free": true,
+          "linecap": "round",
+          "linejoin": "round",
+          "marker_free": true,
+          "opacity": 0.92,
+          "primitive": "blueprint-distribution-wave",
+          "resolved_style_3_source_stroke_width": 2.1,
+          "resolved_style_3_stroke_width": 2.94,
+          "resolved_style_3_stroke_width_at_50_percent": 1.47,
+          "source_colors_in_schedule_order": [
+            "#38bdf8",
+            "#67e8f9",
+            "#38bdf8",
+            "#38bdf8",
+            "#38bdf8",
+            "#fde047",
+            "#fde047",
+            "#fde047",
+            "#fb7185",
+            "#fb7185"
+          ],
+          "stroke_width": "min(3.4, max(2.8, source_stroke * 1.40))"
+        },
+        "dash_offset_per_rendered_frame": -6.0,
+        "dash_period": 43,
+        "direction": "source-to-target",
+        "direction_sentinels": {
+          "data-write/0": [
+            "down"
+          ],
+          "data-write/1": [
+            "down"
+          ],
+          "data-write/2": [
+            "down"
+          ],
+          "event/0": [
+            "right"
+          ],
+          "fanout/0": [
+            "down",
+            "left",
+            "down"
+          ],
+          "fanout/1": [
+            "down"
+          ],
+          "fanout/2": [
+            "down",
+            "right",
+            "down"
+          ],
+          "ingress/0": [
+            "right"
+          ],
+          "policy/0": [
+            "right"
+          ],
+          "telemetry/0": [
+            "down"
+          ]
+        },
+        "expected_initial_phases": [
+          7,
+          14,
+          21,
+          21,
+          21,
+          28,
+          28,
+          28,
+          35,
+          42
+        ],
+        "fade_in_factors": [
+          0.3,
+          0.65,
+          1.0
+        ],
+        "fade_in_frames": [
+          36,
+          38
+        ],
+        "full_opacity_frames": [
+          38,
+          109
+        ],
+        "minimum_review_scale": "50%",
+        "period_step_coprime": true,
+        "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+        "phase_repeat_within_stream_interval": true,
+        "primitive": "blueprint-distribution-wave",
+        "registration_bead": {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "diameter_at_50_percent": 3,
+          "diameter_at_960px": 6,
+          "direction": "source-to-target",
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "initial_path_distance": "stage-locked-phase",
+          "marker_free": true,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6.0,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3.0,
+          "shape": "circle",
+          "stroke": "inherit-source-stroke",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        "registration_bead_count": 10,
+        "registration_bead_primitive": "blueprint-registration-bead",
+        "rendered_frames": [
+          36,
+          114
+        ],
+        "reset_behavior": "all ten bodies and registration beads keep advancing while topology, labels, and both Blueprint flow layers fade together",
+        "reset_opacity_samples": [
+          1.0,
+          0.7575,
+          0.515,
+          0.2725,
+          0.03
+        ],
+        "reset_range": [
+          110,
+          114
+        ],
+        "roles": [
+          "ingress",
+          "policy",
+          "fanout",
+          "fanout",
+          "fanout",
+          "data-write",
+          "data-write",
+          "data-write",
+          "event",
+          "telemetry"
+        ],
+        "route_keys": [
+          {
+            "order": 0,
+            "role": "ingress"
+          },
+          {
+            "order": 0,
+            "role": "policy"
+          },
+          {
+            "order": 0,
+            "role": "fanout"
+          },
+          {
+            "order": 1,
+            "role": "fanout"
+          },
+          {
+            "order": 2,
+            "role": "fanout"
+          },
+          {
+            "order": 0,
+            "role": "data-write"
+          },
+          {
+            "order": 1,
+            "role": "data-write"
+          },
+          {
+            "order": 2,
+            "role": "data-write"
+          },
+          {
+            "order": 0,
+            "role": "event"
+          },
+          {
+            "order": 0,
+            "role": "telemetry"
+          }
+        ],
+        "stage_locks": {
+          "data-write": {
+            "equal_length_paths": true,
+            "orders": [
+              0,
+              1,
+              2
+            ],
+            "phase": 28
+          },
+          "fanout": {
+            "orders": [
+              0,
+              1,
+              2
+            ],
+            "phase": 21
+          }
+        },
+        "stream_count": 10,
+        "stream_interval_frame_count": 79,
+        "travel_easing": "linear",
+        "travel_pixels_per_frame_at_50_percent": 3,
+        "travel_pixels_per_frame_at_960px": 6,
+        "travel_pixels_per_second_at_50_percent_20fps": 60,
+        "travel_pixels_per_second_at_960px_20fps": 120,
+        "travel_user_units_per_rendered_frame": 6
+      },
+      "primitive": "connector-draw-on-with-persistent-data-flow",
+      "reset_opacity_samples": [
+        1.0,
+        0.7575,
+        0.515,
+        0.2725,
+        0.03
+      ],
+      "reset_range": [
+        110,
+        114
+      ],
+      "route_label_opacity_states": 7,
+      "schedule_key": "(data-motion-role, data-motion-order)",
+      "settled_markers": "original marker appears only after route arrival",
+      "settled_topology_dynamic": true,
+      "source_edges_hidden_by_transient_css": true,
+      "text_geometry_motion": 0,
+      "topology_draw_on": true
+    },
+    "duration_seconds": 5.75,
+    "frame_duration_ms": 50.0,
+    "phases": {
+      "draw": {
+        "frames": [
+          1,
+          36
+        ],
+        "seconds": [
+          0.075,
+          1.825
+        ]
+      },
+      "empty": {
+        "frames": [
+          0,
+          0
+        ],
+        "seconds": [
+          0.025,
+          0.025
+        ]
+      },
+      "full_opacity": {
+        "frames": [
+          38,
+          109
+        ],
+        "seconds": [
+          1.925,
+          5.475
+        ]
+      },
+      "reset": {
+        "frames": [
+          110,
+          114
+        ],
+        "seconds": [
+          5.525,
+          5.725
+        ]
+      },
+      "stream": {
+        "frames": [
+          36,
+          114
+        ],
+        "seconds": [
+          1.825,
+          5.725
+        ]
+      }
+    },
+    "sample_index_expression": "time * fps - 0.5",
+    "sampling": "uniform-frame-centers",
+    "version": "3.4"
+  },
+  "motion_grammar_version": "3.4",
+  "motion_scene": "service-blueprint",
+  "ok": true,
+  "output": "/Users/dgjin/dgjinapp/智能问数据分析系统/docs/dev-history-motion/dev-history.gif",
+  "output_format": "gif",
+  "preset": "service-blueprint",
+  "rendered_pixels": 79488000,
+  "renderer": {
+    "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "duration_seconds": 5.75,
+    "effects": 27,
+    "engine": "chromium-svg-draw-on-persistent-data-flow",
+    "fps": 20,
+    "frame_count": 115,
+    "height": 720,
+    "input_kind": "svg",
+    "loop_frame_policy": "integer-frame-index-centers-with-steady-state-plus-reset-boundary-repeat-scope",
+    "module": "puppeteer",
+    "module_version": "25.12.0",
+    "ok": true,
+    "paint_barrier": "fonts-ready-plus-two-animation-frames-before-capture",
+    "preset": "service-blueprint",
+    "resolved_module": "/Users/dgjin/node_modules/.pnpm/puppeteer@25.12.0/node_modules/puppeteer/lib/puppeteer/puppeteer.js",
+    "sandbox": "enabled",
+    "scene_report": {
+      "animated_background_count": 0,
+      "blueprint_registration_beads": [
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "client-request",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 7,
+          "initial_point": {
+            "x": 227,
+            "y": 173
+          },
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 1,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 80,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "ingress",
+          "schedule_key": "ingress/0",
+          "shape": "circle",
+          "stroke": "#38bdf8",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "policy-check",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 14,
+          "initial_point": {
+            "x": 474,
+            "y": 173
+          },
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 2,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 110,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "policy",
+          "schedule_key": "policy/0",
+          "shape": "circle",
+          "stroke": "#67e8f9",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "a-route-order",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 21,
+          "initial_point": {
+            "x": 362,
+            "y": 221
+          },
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 3,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 342,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/0",
+          "shape": "circle",
+          "stroke": "#38bdf8",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "b-route-catalog",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 21,
+          "initial_point": {
+            "x": 380,
+            "y": 221
+          },
+          "marker_free": true,
+          "motion_order": 1,
+          "motion_stage": 3,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 130,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/1",
+          "shape": "circle",
+          "stroke": "#38bdf8",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "c-route-billing",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 21,
+          "initial_point": {
+            "x": 398,
+            "y": 221
+          },
+          "marker_free": true,
+          "motion_order": 2,
+          "motion_stage": 3,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 342,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/2",
+          "shape": "circle",
+          "stroke": "#38bdf8",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "order-store",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 28,
+          "initial_point": {
+            "x": 150,
+            "y": 408
+          },
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 4,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 100,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/0",
+          "shape": "circle",
+          "stroke": "#fde047",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "catalog-cache",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 28,
+          "initial_point": {
+            "x": 380,
+            "y": 408
+          },
+          "marker_free": true,
+          "motion_order": 1,
+          "motion_stage": 4,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 100,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/1",
+          "shape": "circle",
+          "stroke": "#fde047",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "billing-store",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 28,
+          "initial_point": {
+            "x": 610,
+            "y": 408
+          },
+          "marker_free": true,
+          "motion_order": 2,
+          "motion_stage": 4,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 100,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/2",
+          "shape": "circle",
+          "stroke": "#fde047",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "publish-event",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 35,
+          "initial_point": {
+            "x": 715,
+            "y": 355
+          },
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 5,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 80,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "event",
+          "schedule_key": "event/0",
+          "shape": "circle",
+          "stroke": "#fb7185",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "direction": "source-to-target",
+          "edge_id": "observe",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_path_distance": 42,
+          "initial_point": {
+            "x": 830,
+            "y": 422
+          },
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 6,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "path_length": 100,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "telemetry",
+          "schedule_key": "telemetry/0",
+          "shape": "circle",
+          "stroke": "#fb7185",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        }
+      ],
+      "blur_count": 0,
+      "camera_motion_count": 0,
+      "connectors_visible_at_opening": false,
+      "direction_sentinels": [
+        {
+          "actual": [
+            "right"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "right"
+          ],
+          "order": 0,
+          "passed": true,
+          "role": "ingress",
+          "schedule_key": "ingress/0"
+        },
+        {
+          "actual": [
+            "right"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "right"
+          ],
+          "order": 0,
+          "passed": true,
+          "role": "policy",
+          "schedule_key": "policy/0"
+        },
+        {
+          "actual": [
+            "down",
+            "left",
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down",
+            "left",
+            "down"
+          ],
+          "order": 0,
+          "passed": true,
+          "role": "fanout",
+          "schedule_key": "fanout/0"
+        },
+        {
+          "actual": [
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down"
+          ],
+          "order": 1,
+          "passed": true,
+          "role": "fanout",
+          "schedule_key": "fanout/1"
+        },
+        {
+          "actual": [
+            "down",
+            "right",
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down",
+            "right",
+            "down"
+          ],
+          "order": 2,
+          "passed": true,
+          "role": "fanout",
+          "schedule_key": "fanout/2"
+        },
+        {
+          "actual": [
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down"
+          ],
+          "order": 0,
+          "passed": true,
+          "role": "data-write",
+          "schedule_key": "data-write/0"
+        },
+        {
+          "actual": [
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down"
+          ],
+          "order": 1,
+          "passed": true,
+          "role": "data-write",
+          "schedule_key": "data-write/1"
+        },
+        {
+          "actual": [
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down"
+          ],
+          "order": 2,
+          "passed": true,
+          "role": "data-write",
+          "schedule_key": "data-write/2"
+        },
+        {
+          "actual": [
+            "right"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "right"
+          ],
+          "order": 0,
+          "passed": true,
+          "role": "event",
+          "schedule_key": "event/0"
+        },
+        {
+          "actual": [
+            "down"
+          ],
+          "bead_advance_per_rendered_frame": 6,
+          "dash_offset_per_rendered_frame": -6,
+          "expected": [
+            "down"
+          ],
+          "order": 0,
+          "passed": true,
+          "role": "telemetry",
+          "schedule_key": "telemetry/0"
+        }
+      ],
+      "draw_clones": 10,
+      "draw_contract": {
+        "easing": "linear",
+        "marker_after_arrival": true,
+        "marker_during_draw": false,
+        "source_geometry": "exact immutable edge clone"
+      },
+      "draw_schedule": [
+        {
+          "easing": "linear",
+          "edge_id": "client-request",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 0,
+          "rendered_frames": [
+            1,
+            6
+          ],
+          "role": "ingress",
+          "schedule_key": "ingress/0",
+          "stage": 1
+        },
+        {
+          "easing": "linear",
+          "edge_id": "policy-check",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 0,
+          "rendered_frames": [
+            4,
+            9
+          ],
+          "role": "policy",
+          "schedule_key": "policy/0",
+          "stage": 2
+        },
+        {
+          "easing": "linear",
+          "edge_id": "a-route-order",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 0,
+          "rendered_frames": [
+            8,
+            13
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/0",
+          "stage": 3
+        },
+        {
+          "easing": "linear",
+          "edge_id": "b-route-catalog",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 1,
+          "rendered_frames": [
+            11,
+            16
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/1",
+          "stage": 3
+        },
+        {
+          "easing": "linear",
+          "edge_id": "c-route-billing",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 2,
+          "rendered_frames": [
+            14,
+            19
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/2",
+          "stage": 3
+        },
+        {
+          "easing": "linear",
+          "edge_id": "order-store",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 0,
+          "rendered_frames": [
+            18,
+            23
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/0",
+          "stage": 4
+        },
+        {
+          "easing": "linear",
+          "edge_id": "catalog-cache",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 1,
+          "rendered_frames": [
+            21,
+            26
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/1",
+          "stage": 4
+        },
+        {
+          "easing": "linear",
+          "edge_id": "billing-store",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 2,
+          "rendered_frames": [
+            24,
+            29
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/2",
+          "stage": 4
+        },
+        {
+          "easing": "linear",
+          "edge_id": "publish-event",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 0,
+          "rendered_frames": [
+            28,
+            33
+          ],
+          "role": "event",
+          "schedule_key": "event/0",
+          "stage": 5
+        },
+        {
+          "easing": "linear",
+          "edge_id": "observe",
+          "marker_after_arrival": true,
+          "marker_during_draw": false,
+          "order": 0,
+          "rendered_frames": [
+            31,
+            36
+          ],
+          "role": "telemetry",
+          "schedule_key": "telemetry/0",
+          "stage": 6
+        }
+      ],
+      "empty_opening_frame": 0,
+      "extra_scene_primitives": [],
+      "grammar_version": "3.4",
+      "halo_count": 0,
+      "maximum_concurrent_draws": 2,
+      "node_glow_pulse_count": 0,
+      "node_motion": 0,
+      "nodes_visible_every_frame": true,
+      "packet_head_count": 0,
+      "persistent_packet_heads": [],
+      "persistent_stream_contract": {
+        "bead_advance_per_rendered_frame": 6,
+        "body": {
+          "color": "inherit-source-stroke",
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "filter_free": true,
+          "linecap": "round",
+          "linejoin": "round",
+          "marker_free": true,
+          "opacity": 0.92,
+          "primitive": "blueprint-distribution-wave",
+          "resolved_style_3_source_stroke_width": 2.1,
+          "resolved_style_3_stroke_width": 2.94,
+          "resolved_style_3_stroke_width_at_50_percent": 1.47,
+          "source_colors_in_schedule_order": [
+            "#38bdf8",
+            "#67e8f9",
+            "#38bdf8",
+            "#38bdf8",
+            "#38bdf8",
+            "#fde047",
+            "#fde047",
+            "#fde047",
+            "#fb7185",
+            "#fb7185"
+          ],
+          "stroke_width": "min(3.4, max(2.8, source_stroke * 1.40))"
+        },
+        "dash_offset_per_rendered_frame": -6,
+        "dash_period": 43,
+        "direction": "source-to-target",
+        "expected_initial_phases": [
+          7,
+          14,
+          21,
+          21,
+          21,
+          28,
+          28,
+          28,
+          35,
+          42
+        ],
+        "fade_in_factors": [
+          0.3,
+          0.65,
+          1
+        ],
+        "fade_in_frames": [
+          36,
+          38
+        ],
+        "full_opacity_frames": [
+          38,
+          109
+        ],
+        "minimum_review_scale": "50%",
+        "period_step_coprime": true,
+        "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+        "phase_repeat_within_stream_interval": true,
+        "primitive": "blueprint-distribution-wave",
+        "registration_bead": {
+          "animated_attributes": [
+            "cx",
+            "cy",
+            "opacity"
+          ],
+          "diameter_at_50_percent": 3,
+          "diameter_at_960px": 6,
+          "direction": "source-to-target",
+          "fill": "#e0f2fe",
+          "filter_free": true,
+          "initial_path_distance": "stage-locked-phase",
+          "marker_free": true,
+          "opacity": 0.98,
+          "path_advance_per_rendered_frame": 6,
+          "primitive": "blueprint-registration-bead",
+          "radius": 3,
+          "shape": "circle",
+          "stroke": "inherit-source-stroke",
+          "stroke_width": 1.2,
+          "wrap": "target-end-to-source-start"
+        },
+        "registration_bead_count": 10,
+        "registration_bead_primitive": "blueprint-registration-bead",
+        "rendered_frames": [
+          36,
+          114
+        ],
+        "reset_behavior": "all ten bodies and registration beads keep advancing while topology, labels, and both Blueprint flow layers fade together",
+        "reset_opacity_samples": [
+          1,
+          0.7575,
+          0.515,
+          0.2725,
+          0.03
+        ],
+        "reset_range": [
+          110,
+          114
+        ],
+        "stage_locks": {
+          "data_write": {
+            "equal_length_paths": true,
+            "orders": [
+              0,
+              1,
+              2
+            ],
+            "phase": 28
+          },
+          "fanout": {
+            "orders": [
+              0,
+              1,
+              2
+            ],
+            "phase": 21
+          }
+        },
+        "stream_count": 10,
+        "stream_interval_frame_count": 79,
+        "travel_easing": "linear",
+        "travel_pixels_per_frame_at_50_percent": 3,
+        "travel_pixels_per_frame_at_960px": 6,
+        "travel_pixels_per_second_at_50_percent_20fps": 60,
+        "travel_pixels_per_second_at_960px_20fps": 120,
+        "travel_user_units_per_rendered_frame": 6
+      },
+      "persistent_streams": [
+        {
+          "color": "#38bdf8",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "client-request",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 7,
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 1,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "ingress",
+          "schedule_key": "ingress/0",
+          "source_stroke": "#38bdf8",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#67e8f9",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "policy-check",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 14,
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 2,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "policy",
+          "schedule_key": "policy/0",
+          "source_stroke": "#67e8f9",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#38bdf8",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "a-route-order",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 21,
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 3,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/0",
+          "source_stroke": "#38bdf8",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#38bdf8",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "b-route-catalog",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 21,
+          "marker_free": true,
+          "motion_order": 1,
+          "motion_stage": 3,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/1",
+          "source_stroke": "#38bdf8",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#38bdf8",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "c-route-billing",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 21,
+          "marker_free": true,
+          "motion_order": 2,
+          "motion_stage": 3,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "fanout",
+          "schedule_key": "fanout/2",
+          "source_stroke": "#38bdf8",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#fde047",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "order-store",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 28,
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 4,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/0",
+          "source_stroke": "#fde047",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#fde047",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "catalog-cache",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 28,
+          "marker_free": true,
+          "motion_order": 1,
+          "motion_stage": 4,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/1",
+          "source_stroke": "#fde047",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#fde047",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "billing-store",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 28,
+          "marker_free": true,
+          "motion_order": 2,
+          "motion_stage": 4,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "data-write",
+          "schedule_key": "data-write/2",
+          "source_stroke": "#fde047",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#fb7185",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "publish-event",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 35,
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 5,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "event",
+          "schedule_key": "event/0",
+          "source_stroke": "#fb7185",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        },
+        {
+          "color": "#fb7185",
+          "dash_offset_per_rendered_frame": -6,
+          "dash_pattern": [
+            12,
+            31
+          ],
+          "dash_period": 43,
+          "direction": "source-to-target",
+          "edge_id": "observe",
+          "fade_in_frames": [
+            36,
+            38
+          ],
+          "filter_free": true,
+          "full_opacity_frames": [
+            38,
+            109
+          ],
+          "initial_phase": 42,
+          "marker_free": true,
+          "motion_order": 0,
+          "motion_stage": 6,
+          "opacity": 0.92,
+          "phase_policy": "(motionStage * 7 + motionOrder * 0) mod 43",
+          "primitive": "blueprint-distribution-wave",
+          "rendered_frames": [
+            36,
+            114
+          ],
+          "role": "telemetry",
+          "schedule_key": "telemetry/0",
+          "source_stroke": "#fb7185",
+          "stroke_width": 2.94,
+          "travel_easing": "linear"
+        }
+      ],
+      "preset": "service-blueprint",
+      "primitive": "connector-draw-on-with-persistent-data-flow",
+      "registration_bead_count": 10,
+      "reset_opacity_samples": [
+        1,
+        0.7575,
+        0.515,
+        0.2725,
+        0.03
+      ],
+      "reset_range": [
+        110,
+        114
+      ],
+      "ripple_count": 0,
+      "route_label_clones": 7,
+      "route_label_opacity_states": 7,
+      "scan_line_count": 0,
+      "schedule_key": "(data-motion-role, data-motion-order)",
+      "settled_marker_clones": 10,
+      "settled_topology_dynamic": true,
+      "shadow_count": 0,
+      "source_edges": 10,
+      "source_edges_hidden_by_transient_css": true,
+      "source_route_labels": 7,
+      "stage_locks": {
+        "data_write": {
+          "equal_length_paths": true,
+          "orders": [
+            0,
+            1,
+            2
+          ],
+          "phase": 28
+        },
+        "fanout": {
+          "orders": [
+            0,
+            1,
+            2
+          ],
+          "phase": 21
+        }
+      },
+      "static_dom_guard": true,
+      "stream_count": 10,
+      "terminal_cursor_count": 0,
+      "terminal_text_typing_count": 0,
+      "text_geometry_motion": 0,
+      "text_motion": 0,
+      "topology_draw_on": true
+    },
+    "width": 960
+  },
+  "report": "/Users/dgjin/dgjinapp/智能问数据分析系统/docs/dev-history-motion/dev-history.motion.json",
+  "required_encoder": "ffmpeg/gif",
+  "review_reference_source_sha256": "b8f55d9ea0c6111176d8ff50d2e844b2001ee5087a3940621e635e1b875d470d",
+  "review_status": "user-approved",
+  "runtime": {
+    "encoders": [
+      "gif"
+    ],
+    "ffmpeg": "/opt/homebrew/bin/ffmpeg",
+    "ffprobe": "/opt/homebrew/bin/ffprobe",
+    "format": {
+      "gif": true
+    },
+    "node": "/Users/dgjin/.local/bin/node",
+    "ok": true,
+    "renderer": {
+      "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "deterministic_timeline": true,
+      "input": "semantic-svg",
+      "module": "puppeteer",
+      "module_version": "25.12.0",
+      "motion_model": "connector-draw-on-with-persistent-data-flow",
+      "ok": true,
+      "presets": [
+        "memory-weave",
+        "tool-grounding",
+        "service-blueprint",
+        "memory-lifecycle",
+        "agent-orchestration",
+        "governed-runtime",
+        "token-stream",
+        "golden-circuit",
+        "review-trace",
+        "cloud-flow",
+        "event-transit",
+        "ops-pulse"
+      ],
+      "resolved_module": "/Users/dgjin/node_modules/.pnpm/puppeteer@25.12.0/node_modules/puppeteer/lib/puppeteer/puppeteer.js",
+      "sandbox_default": "enabled"
+    },
+    "worker": "/Users/dgjin/.agents/skills/fireworks-tech-graph/scripts/svg2gif.js"
+  },
+  "scene_signature": {
+    "distinctive_primitives": [
+      "semantic-route-build",
+      "settled-marker-arrival",
+      "ten-route-blueprint-distribution-wave",
+      "blueprint-registration-bead"
+    ],
+    "name": "service-blueprint-distribution-wave"
+  },
+  "seamless_loop_contract": "75 frames or fewer: every raster is unique; more than 75 frames: non-adjacent repeats are allowed within the full-opacity interval, plus the sole intentional reset-boundary exception at reset_start with opacity 1.00, with at least 75 unique rasters; seam MAD must not exceed p95 adjacent-frame MAD",
+  "semantic_profile": "generic",
+  "semantics": {
+    "edges": 10,
+    "edges_without_flow": 0,
+    "motion_metadata": "explicit",
+    "nodes": 11,
+    "resolved_schedule": [
+      {
+        "edge_id": "client-request",
+        "order": 0,
+        "role": "ingress",
+        "source_stroke": "#38bdf8",
+        "stage": 1
+      },
+      {
+        "edge_id": "policy-check",
+        "order": 0,
+        "role": "policy",
+        "source_stroke": "#67e8f9",
+        "stage": 2
+      },
+      {
+        "edge_id": "a-route-order",
+        "order": 0,
+        "role": "fanout",
+        "source_stroke": "#38bdf8",
+        "stage": 3
+      },
+      {
+        "edge_id": "b-route-catalog",
+        "order": 1,
+        "role": "fanout",
+        "source_stroke": "#38bdf8",
+        "stage": 3
+      },
+      {
+        "edge_id": "c-route-billing",
+        "order": 2,
+        "role": "fanout",
+        "source_stroke": "#38bdf8",
+        "stage": 3
+      },
+      {
+        "edge_id": "order-store",
+        "order": 0,
+        "role": "data-write",
+        "source_stroke": "#fde047",
+        "stage": 4
+      },
+      {
+        "edge_id": "catalog-cache",
+        "order": 1,
+        "role": "data-write",
+        "source_stroke": "#fde047",
+        "stage": 4
+      },
+      {
+        "edge_id": "billing-store",
+        "order": 2,
+        "role": "data-write",
+        "source_stroke": "#fde047",
+        "stage": 4
+      },
+      {
+        "edge_id": "publish-event",
+        "order": 0,
+        "role": "event",
+        "source_stroke": "#fb7185",
+        "stage": 5
+      },
+      {
+        "edge_id": "observe",
+        "order": 0,
+        "role": "telemetry",
+        "source_stroke": "#fb7185",
+        "stage": 6
+      }
+    ],
+    "schedule_key": "(data-motion-role, data-motion-order)",
+    "staged_edges": 10
+  },
+  "size_guidance": {
+    "artifact_target_bytes": 500000,
+    "artifact_within_target": true,
+    "warnings": []
+  },
+  "source": "/Users/dgjin/dgjinapp/智能问数据分析系统/docs/dev-history-motion/dev-history.svg",
+  "source_checks": {
+    "composition": {
+      "details": [],
+      "ok": true
+    },
+    "geometry": {
+      "details": [],
+      "ok": true
+    },
+    "markers": {
+      "details": [],
+      "ok": true
+    },
+    "xml": {
+      "details": [],
+      "ok": true
+    }
+  },
+  "source_integrity": {
+    "sha256": "d8576bf430bce83d83207d42599bf9fc1606b70aa1d1a13f31fb9776e3b56ad4",
+    "sha256_after": "d8576bf430bce83d83207d42599bf9fc1606b70aa1d1a13f31fb9776e3b56ad4",
+    "sha256_before": "d8576bf430bce83d83207d42599bf9fc1606b70aa1d1a13f31fb9776e3b56ad4",
+    "unchanged": true
+  },
+  "source_sha256": "d8576bf430bce83d83207d42599bf9fc1606b70aa1d1a13f31fb9776e3b56ad4",
+  "style_contract": {
+    "scope": "signature-speed-path-geometry-and-construction-schedule",
+    "source_policy": "semantic-schedule-and-geometry-not-exact-byte-hash",
+    "status": "user-approved"
+  },
+  "style_contract_status": "user-approved",
+  "style_id": 3,
+  "timing_revision": {
+    "approved_at": "2026-07-17",
+    "baseline": {
+      "duration_seconds": 3.75,
+      "frame_count": 75
+    },
+    "candidate": {
+      "added_full_opacity_frames": [
+        70,
+        109
+      ],
+      "duration_seconds": 5.75,
+      "frame_count": 115
+    },
+    "id": "+2s-settled-flow",
+    "only_pending_item": false,
+    "status": "user-approved"
+  },
+  "visual_theme": "Blueprint",
+  "width": 960
+}
