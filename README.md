@@ -29,7 +29,7 @@
 - **降级兜底**：LLM/数据库不可用时返回带明确标识的示例数据
 
 ### 数据治理
-- **多源接入**：MySQL / PostgreSQL / Greenplum / CSV / API / JSON；**接入自动化配置**（v0.9.73）——新数据源保存后自动完成 Schema 深度分析（时间列/分类维度/指标列识别 + 快照/版本/业务编号探查）并生成异常扫描能力配置（时序重算/维度检测/口径校验自动启用），前端展示「自动化配置报告」（已完成项/待确认项/建议操作）；预填铁律规则模板（PENDING 待确认）并自动生成知识库骨架条目（数据源概览/时间维度注意事项/快照口径/版本过滤）
+- **多源接入**：MySQL / PostgreSQL / Greenplum / CSV / API / JSON；**接入自动化配置**（v0.9.73）——新数据源保存后自动完成 Schema 深度分析（时间列/分类维度/指标列识别 + 快照/版本/业务编号探查）并生成异常扫描能力配置（时序重算/维度检测/口径校验自动启用），前端展示「自动化配置报告」（已完成项/待确认项/建议操作）；预填铁律规则模板（PENDING 待确认）并自动生成知识库骨架条目（数据源概览/时间维度注意事项/快照口径/版本过滤）；**接入自动知识同步**（v0.9.83）——知识条目与 Schema 元数据自动切块向量入库（文档 ID 确定性哈希幂等、残留自动清理），接入即被问数检索到，并按真实表结构预置六类范式 few-shot 样例种子（趋势/排名/最新快照/版本过滤/去重计数/计数兜底），冷启动无需等待人工补录
 - **Scope 白名单 + 敏感列过滤**：问数仅访问授权表，敏感字段自动剔除
 - **行级权限**：scope 登记表级行过滤谓词，所有真实执行链路由 AST 强制注入为过滤派生表（fail-closed）
 - **语义指标层**：管理员登记指标口径（同义词/聚合表达式/固定过滤，带审批状态 PENDING/ACTIVE/REJECTED/DISABLED 与版本历史，仅 ACTIVE 参与注入），问数命中即模板化注入，口径全系统一致；使用侧在三级溯源的指标口径卡同步可见审批状态与版本历史（P0-4）
@@ -64,7 +64,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
-| 测试 | Vitest（133 文件 / 1925 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
+| 测试 | Vitest（134 文件 / 1947 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
 
 ## 快速开始
 
@@ -177,6 +177,7 @@ server/
   queryHooks.ts            # 问数生命周期钩子
   queryFeedback.ts         # 反馈与 SQL 样例库（auto_train）
   knowledgeBase.ts         # 业务知识库检索
+  autoKnowledgeSync.ts     # 数据源接入自动知识同步（条目/Schema 向量入库 + few-shot 种子，v0.9.83）
   externalKnowledge.ts     # 外部知识库接入（检索协议适配 + 密钥加密 + 聚合检索）
   conversationHistory.ts   # 对话历史服务端落库
   skillLibrary.ts          # 技能库（分享-审核流）
@@ -205,7 +206,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（133 文件 / 1925 用例）
+npm test             # Vitest（134 文件 / 1947 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

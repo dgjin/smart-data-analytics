@@ -2,8 +2,10 @@
  * v0.4.16 - 导入复杂 SQL 样例库到 query_feedback 表
  * 
  * 用途：为智能问数模块提供 few-shot 样例，引导 LLM 生成复杂 SQL（WITH/CTE、窗口函数、条件聚合等）
- * 数据源 ID: ds_1786620486498（数据资源库）
+ * 数据源 ID：通过环境变量 DATASOURCE_ID 指定（默认 ds_1786620486498 数据资源库）
  * 样例数量：10 条复杂分析场景
+ *
+ * 用法：DATASOURCE_ID=ds_xxx npx tsx scripts/import-complex-sql-samples.ts
  */
 
 import mysql from 'mysql2/promise';
@@ -18,7 +20,7 @@ const MYSQL_USER = process.env.MYSQL_USER || 'root';
 const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || 'dgjin@321'; // 默认从 .env.local
 const MYSQL_DATABASE = process.env.MYSQL_DATABASE || 'smart_analytics';
 
-const DATA_SOURCE_ID = 'ds_1786620486498';
+const DATA_SOURCE_ID = process.env.DATASOURCE_ID || 'ds_1786620486498';
 
 async function importComplexSqlSamples() {
   console.log('📊 开始导入复杂 SQL 样例库...');

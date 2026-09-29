@@ -30,6 +30,7 @@ import { getErrorMessage } from '../infra/errorUtils';
 import { IDENT_RE } from '../driftDetector';
 import { executeAutoConfig } from '../datasource/autoConfig';
 import type { AnomalyCapabilities } from '../datasource/autoConfig';
+import { runAutoKnowledgeSync } from '../knowledge/autoKnowledgeSync';
 
 /** P0-2：data_sources 表行（SELECT * 动态列，仅声明取用字段） */
 interface DataSourceDbRow extends mysql.RowDataPacket {
@@ -408,6 +409,9 @@ async function persistAutoConfig(
         );
       }
       logger.info(`[DataSources] auto-config completed for ${id}: ${report.knowledgeEntries.length} KB entries, ${report.ironRuleTemplates.length} iron rule templates`);
+      // v0.9.83 断点闭环：结构化知识条目与 Schema 元数据同步切块 embedding 入 RAG 检索表（knowledge_base），
+      // 并为该数据源生成 few-shot 样例种子——接入即被问数检索到，无需等待人工补录（失败仅告警不阻断）
+      await runAutoKnowledgeSync(id, dsName, tables, actor, report.knowledgeEntries);
     } catch (err) {
       logger.warn('[DataSources] auto-config async write failed:', err);
     }
