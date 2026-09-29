@@ -3,7 +3,7 @@
  * 组件只做渲染与副作用，判定逻辑集中在此，便于 node 环境直测。
  */
 import { SETUP_STEPS } from './setupTypes';
-import type { PipelineProgress, ProbeResult, SetupWizardState } from './setupTypes';
+import type { PipelineProgress, ProbeResult, SetupChecklistItem, SetupWizardState } from './setupTypes';
 
 /** skipped_until 是否处于静默期（空值/非法值视为未静默） */
 export function isSkipActive(skippedUntil: string | null | undefined, now: number = Date.now()): boolean {
@@ -43,6 +43,11 @@ export function isPipelineFinished(p: PipelineProgress | null): boolean {
   if (!p) return false;
   if (p.status === 'SUCCESS' || p.status === 'FAILED') return true;
   return p.subtasks.length > 0 && p.subtasks.every((s) => s.state !== 'pending' && s.state !== 'running');
+}
+
+/** 体检卡片待处理项（v0.9.86）：过滤已处理（done）的待办清单项，todo/warn 持续跟踪 */
+export function pendingChecklistItems(items: SetupChecklistItem[] | null | undefined): SetupChecklistItem[] {
+  return (items || []).filter((i) => i.status !== 'done');
 }
 
 /** 子任务计数摘要 → 中文文案（42 表 / 613 列、120 切片、种子 8 条…；未知键以 k v 兜底） */

@@ -19,6 +19,7 @@ import {
   createFileTable,
   dropFileTable,
   getFilePhysicalTable,
+  getFilePhysicalTables,
   inferFileColumnTypes,
   isFileDataSourceType,
   parseFileContent,
@@ -57,6 +58,21 @@ describe('getFilePhysicalTable: 物理表名白名单读取', () => {
     expect(getFilePhysicalTable({})).toBeNull();
     expect(getFilePhysicalTable(null)).toBeNull();
     expect(getFilePhysicalTable('upl_abc')).toBeNull();
+  });
+});
+
+describe('getFilePhysicalTables: 物理表名列表（多表级联用，v0.9.86）', () => {
+  it('单表 physicalTable → 单元素列表；多表 physicalTables 去重归并', () => {
+    expect(getFilePhysicalTables({ physicalTable: 'upl_a' })).toEqual(['upl_a']);
+    expect(getFilePhysicalTables({ physicalTable: 'upl_a', physicalTables: ['upl_a', 'upl_b', 'upl_c'] })).toEqual(['upl_a', 'upl_b', 'upl_c']);
+    expect(getFilePhysicalTables({ physicalTables: ['upl_x', 'UPL_Y'] })).toEqual(['upl_x', 'upl_y']);
+  });
+
+  it('列表内非法项静默剔除；非对象/空配置 → 空列表', () => {
+    expect(getFilePhysicalTables({ physicalTables: ['users', 'upl_ok', 123, 'upl_bad`;--'] })).toEqual(['upl_ok']);
+    expect(getFilePhysicalTables({})).toEqual([]);
+    expect(getFilePhysicalTables(null)).toEqual([]);
+    expect(getFilePhysicalTables('upl_a')).toEqual([]);
   });
 });
 

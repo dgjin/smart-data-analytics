@@ -133,7 +133,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ initialState, onLater,
     >
       <div className="w-full max-w-5xl h-[min(720px,90vh)] flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
         {/* 顶栏 */}
-        <header className="flex items-center justify-between gap-3 px-6 py-4 border-b border-slate-800 shrink-0">
+        <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <Compass className="w-5 h-5 text-indigo-400 shrink-0" />
             <span className="text-base font-bold text-slate-100">首启初始化向导</span>
@@ -183,14 +183,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ initialState, onLater,
               </span>
               <span className="tabular-nums shrink-0">已完成 {doneCount}/5</span>
             </div>
-            <div key={step} className="flex-1 overflow-y-auto px-6 py-5">
+            <div key={step} className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
               {renderStep()}
             </div>
           </section>
         </div>
 
         {/* 底部操作条 */}
-        <footer className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-800 shrink-0">
+        <footer className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-t border-slate-800 shrink-0">
           <button type="button" className={outlineBtn} disabled={step === 0 || busy} onClick={() => gotoStep(step - 1)}>
             <ChevronLeft className="w-3.5 h-3.5" />
             上一步

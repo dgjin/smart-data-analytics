@@ -8,11 +8,12 @@ import {
   isPipelineFinished,
   isSkipActive,
   isWizardActive,
+  pendingChecklistItems,
   resolveInitialStep,
   stepTrackStates,
   summarizeReadiness,
 } from './setupLogic';
-import type { PipelineProgress, SetupWizardState } from './setupTypes';
+import type { PipelineProgress, SetupChecklistItem, SetupWizardState } from './setupTypes';
 
 function makeState(over: Partial<SetupWizardState> = {}): SetupWizardState {
   return {
@@ -139,5 +140,25 @@ describe('summarizeReadiness：Step⑤ 就绪判定', () => {
       env: { llm: { engine: 'qwen', model: 'qwen3.8-max', label: 'Qwen qwen3.8-max' } } as never,
     });
     expect(summarizeReadiness(state)[0].level).toBe('warn');
+  });
+});
+
+describe('pendingChecklistItems：体检待处理项过滤（v0.9.86）', () => {
+  const item = (key: string, status: SetupChecklistItem['status']): SetupChecklistItem => ({
+    key,
+    title: `T-${key}`,
+    detail: 'd',
+    status,
+  });
+
+  it('null / undefined / 空数组 → 空数组（容错）', () => {
+    expect(pendingChecklistItems(null)).toEqual([]);
+    expect(pendingChecklistItems(undefined)).toEqual([]);
+    expect(pendingChecklistItems([])).toEqual([]);
+  });
+
+  it('过滤已处理（done），todo / warn 持续跟踪', () => {
+    const items = [item('a', 'done'), item('b', 'todo'), item('c', 'warn')];
+    expect(pendingChecklistItems(items).map((i) => i.key)).toEqual(['b', 'c']);
   });
 });

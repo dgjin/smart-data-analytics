@@ -206,6 +206,40 @@ describe('POST /api/setup/pipeline：流水线任务创建', () => {
   });
 });
 
+describe('POST /api/setup/demo-data：演示数据集一键加载（Phase 2）', () => {
+  const post = () => request(app).post('/api/setup/demo-data').set('Authorization', `Bearer ${ADMIN_TOKEN}`).send({});
+
+  it('已有在途加载任务 → 409 并回传在途 taskId（防重复 DROP 重建）', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth, { match: 'setup_demo_data', rows: [{ id: 'task_loading' }] }]));
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(res.body.taskId).toBe('task_loading');
+    expect(h.submitTask).not.toHaveBeenCalled();
+  });
+
+  it('在途任务配额已满（submitTask 返回 null）→ 429', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth, { match: 'setup_demo_data', rows: [] }]));
+    h.submitTask.mockResolvedValue(null);
+    const res = await post();
+    expect(res.status).toBe(429);
+    expect(res.body.error).toBe('在途任务过多，请稍后再试');
+  });
+
+  it('成功 → 提交 setup_demo_data 任务（含 user 快照）→ {taskId}', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth, { match: 'setup_demo_data', rows: [] }]));
+    h.submitTask.mockResolvedValue({ taskId: 'task_demo' });
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ taskId: 'task_demo' });
+    expect(h.submitTask).toHaveBeenCalledWith(
+      'setup_demo_data',
+      { user: { id: 1, username: 'u1', role: 'ADMIN', department: '测试部' } },
+      { id: 1, username: 'u1' },
+    );
+    expect(h.setPipelineTask).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/setup/pipeline/:taskId：进度查询（轮询不限流）', () => {
   const get = (taskId: string) =>
     request(app).get(`/api/setup/pipeline/${taskId}`).set('Authorization', `Bearer ${ADMIN_TOKEN}`);
@@ -214,7 +248,7 @@ describe('GET /api/setup/pipeline/:taskId：进度查询（轮询不限流）', 
     h.getTask.mockResolvedValue(null);
     let res = await get('task_none');
     expect(res.status).toBe(404);
-    expect(res.body.error).toBe('流水线任务不存在');
+    expect(res.body.error).toBe('任务不存在');
 
     h.getTask.mockResolvedValue({ id: 't2', type: 'report_generate', status: 'RUNNING' });
     res = await get('t2');
@@ -226,13 +260,23 @@ describe('GET /api/setup/pipeline/:taskId：进度查询（轮询不限流）', 
     h.getPipelineSnapshot.mockResolvedValue({ subtasks: [{ key: 'schema_collect', status: 'success' }] });
     let res = await get('task_x');
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ taskId: 'task_x', status: 'RUNNING', progress: '向量化 3/6' });
+    expect(res.body).toMatchObject({ taskId: 'task_x', type: 'setup_pipeline', status: 'RUNNING', progress: '向量化 3/6' });
     expect(res.body.subtasks).toHaveLength(1);
     expect(res.body.result).toBeUndefined();
 
     h.getTask.mockResolvedValue({ id: 'task_x', type: 'setup_pipeline', status: 'SUCCESS', progress: '完成 6/6', error: null, result: { totals: { success: 6 } } });
     res = await get('task_x');
     expect(res.body.result).toEqual({ totals: { success: 6 } });
+  });
+
+  it('setup_demo_data 任务 → 进度文本透传，subtasks 为空（不读流水线快照）', async () => {
+    h.getTask.mockResolvedValue({ id: 'task_demo', type: 'setup_demo_data', status: 'RUNNING', progress: '步骤 2/3：注册演示数据源', error: null, result: null });
+    h.getPipelineSnapshot.mockResolvedValue({ subtasks: [{ key: 'stale' }] });
+    const res = await get('task_demo');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ taskId: 'task_demo', type: 'setup_demo_data', status: 'RUNNING', progress: '步骤 2/3：注册演示数据源' });
+    expect(res.body.subtasks).toEqual([]);
+    expect(h.getPipelineSnapshot).not.toHaveBeenCalled();
   });
 });
 

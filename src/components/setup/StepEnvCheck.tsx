@@ -105,7 +105,7 @@ export const StepEnvCheck: React.FC<SetupStepProps> = ({ state, refreshState, on
       key: 'demo',
       title: '内置演示数据',
       level: demoLoaded ? 'ok' : 'pending',
-      note: demoLoaded ? '已加载' : '未加载（可在第③步接入自有数据源）',
+      note: demoLoaded ? '已加载' : '未加载（可在第③步一键加载演示数据集，或接入自有数据源）',
     },
   ];
 

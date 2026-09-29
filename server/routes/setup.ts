@@ -4,7 +4,8 @@
  * - POST /step             保存步骤结果快照（{step,result}）
  * - POST /probe            单项探测（{kind:'llm'|'embedding'}）
  * - POST /pipeline         创建自动初始化流水线任务（{dataSourceId, subtask?} → {taskId}；subtask 仅重跑单个子任务）
- * - GET  /pipeline/:taskId  流水线进度（async_tasks 状态 + 子任务明细合并）
+ * - GET  /pipeline/:taskId  流水线进度（async_tasks 状态 + 子任务明细合并；兼容 setup_demo_data 任务）
+ * - POST /demo-data        一键加载内置演示数据集（Phase 2；{taskId}，进度复用 pipeline/:taskId 轮询）
  * - GET  /checklist        待办确认清单（Step④）
  * - POST /skip             暂不提醒（{days}，L2 横幅静默）
  * - POST /complete         完成向导（任一 CTA 触发）
@@ -121,17 +122,47 @@ router.post('/pipeline', rateLimiter, authMiddleware, requireRole('ADMIN'), asyn
   }
 });
 
-// GET /api/setup/pipeline/:taskId —— 流水线进度（async_tasks 状态 + 子任务明细；轮询端点不限流）
+// POST /api/setup/demo-data —— 一键加载内置演示数据集（Phase 2：建演示表 + 样本数据 + 注册数据源 + 向量化；幂等）
+// 前端以返回的 taskId 复用 GET /pipeline/:taskId 轮询进度
+router.post('/demo-data', rateLimiter, authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    // 防重：同一时刻仅允许一个在途加载任务（避免重复 DROP 重建互相干扰）
+    const [running] = await getPool().query<mysql.RowDataPacket[]>(
+      "SELECT id FROM async_tasks WHERE type = 'setup_demo_data' AND status IN ('PENDING','RUNNING') LIMIT 1",
+    );
+    if (running[0]) {
+      return res.status(409).json({ code: ERROR_CODES.CONFLICT, error: '演示数据加载任务执行中，请稍候', taskId: String(running[0].id) });
+    }
+    const user = req.user!;
+    const submitted = await submitTask(
+      'setup_demo_data',
+      // worker 侧以提交时快照作审计身份（与报告类任务一致）
+      { user: { id: user.id, username: user.username, role: user.role, department: user.department } },
+      { id: user.id, username: user.username },
+    );
+    if (!submitted) {
+      return res.status(429).json({ code: ERROR_CODES.RATE_LIMITED, error: '在途任务过多，请稍后再试' });
+    }
+    return res.json({ taskId: submitted.taskId });
+  } catch (err) {
+    logger.error(`[Setup] 演示数据加载创建失败: ${getErrorMessage(err)}`);
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '演示数据加载创建失败' });
+  }
+});
+
+// GET /api/setup/pipeline/:taskId —— 流水线/演示数据进度（async_tasks 状态 + 子任务明细；轮询端点不限流）
 router.get('/pipeline/:taskId', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const taskId = String(req.params.taskId);
     const task = await getTask(taskId);
-    if (!task || task.type !== 'setup_pipeline') {
-      return res.status(404).json({ code: ERROR_CODES.NOT_FOUND, error: '流水线任务不存在' });
+    if (!task || (task.type !== 'setup_pipeline' && task.type !== 'setup_demo_data')) {
+      return res.status(404).json({ code: ERROR_CODES.NOT_FOUND, error: '任务不存在' });
     }
-    const snapshot = await getPipelineSnapshot();
+    // 子任务快照仅流水线任务有（演示数据任务进度走 progress 文本）
+    const snapshot = task.type === 'setup_pipeline' ? await getPipelineSnapshot() : null;
     return res.json({
       taskId: task.id,
+      type: task.type,
       status: task.status,
       progress: task.progress,
       error: task.error,
@@ -139,8 +170,8 @@ router.get('/pipeline/:taskId', authMiddleware, requireRole('ADMIN'), async (req
       result: task.status === 'SUCCESS' ? task.result : undefined,
     });
   } catch (err) {
-    logger.error(`[Setup] 流水线进度读取失败: ${getErrorMessage(err)}`);
-    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '流水线进度获取失败' });
+    logger.error(`[Setup] 任务进度读取失败: ${getErrorMessage(err)}`);
+    return res.status(500).json({ code: ERROR_CODES.INTERNAL_ERROR, error: '任务进度获取失败' });
   }
 });
 

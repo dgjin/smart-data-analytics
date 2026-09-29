@@ -20,6 +20,7 @@ import {
   createFileTable,
   dropFileTable,
   getFilePhysicalTable,
+  getFilePhysicalTables,
   inferFileColumnTypes,
   parseFileContent,
   sanitizeColumns,
@@ -930,14 +931,14 @@ router.put('/:id', requireRole('ADMIN'), async (req, res) => {
 router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
   const id = String(req.params.id);
   try {
-    // v0.9.34 文件数据源级联：先读 config 取物理表名，删除登记后异步 DROP（失败仅告警不阻断）
+    // v0.9.34 文件数据源级联：先读 config 取物理表名（v0.9.86 起支持多表 physicalTables，如内置演示数据集），删除登记后异步 DROP（失败仅告警不阻断）
     const [dsRows] = await getPool().query<DataSourceDbRow[]>('SELECT config_json FROM data_sources WHERE id = ?', [id]);
-    const physicalTable = getFilePhysicalTable(safeJson(dsRows[0]?.config_json, {}));
+    const physicalTables = getFilePhysicalTables(safeJson(dsRows[0]?.config_json, {}));
     const [result] = await getPool().query<mysql.ResultSetHeader>('DELETE FROM data_sources WHERE id = ?', [id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: '数据源不存在' });
     }
-    if (physicalTable) {
+    for (const physicalTable of physicalTables) {
       dropFileTable(physicalTable).catch((err) => logger.warn('[DataSources] 级联删除文件物理表失败:', err?.message || err));
     }
     void invalidateSchemaCache(id);

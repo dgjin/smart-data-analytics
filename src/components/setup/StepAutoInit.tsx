@@ -11,7 +11,7 @@ import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { SetupApiError, setupGet, setupPost } from './setupApi';
 import { SetupStatusIcon, primaryBtn, outlineBtn, subtaskLevel } from './setupUi';
 import { formatCounters, isPipelineFinished } from './setupLogic';
-import type { PipelineProgress, SetupStepProps } from './setupTypes';
+import { DEMO_DATA_SOURCE_ID, type PipelineProgress, type SetupStepProps } from './setupTypes';
 
 interface Step3Snapshot {
   dataSourceId?: string;
@@ -51,6 +51,13 @@ export const StepAutoInit: React.FC<SetupStepProps> = ({ state, refreshState, on
   const [saving, setSaving] = useState(false);
 
   const runDsRef = useRef(snap?.dataSourceId || '');
+
+  // 演示数据一键加载（v0.9.86 Phase 2）：POST /demo-data → 复用 pipeline 进度轮询
+  const demoLoaded = state.env?.datasources?.demoLoaded === true;
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoTaskId, setDemoTaskId] = useState<string | null>(null);
+  const [demoText, setDemoText] = useState('');
+  const [demoSummary, setDemoSummary] = useState('');
 
   // 数据源清单（store 为空时补拉一次）
   useEffect(() => {
@@ -112,6 +119,45 @@ export const StepAutoInit: React.FC<SetupStepProps> = ({ state, refreshState, on
     };
   }, [taskId, onResult, onReadyChange, refreshState]);
 
+  // 演示数据加载轮询（2s；成功→刷新数据源清单并自动选中演示源；失败→行内报错可重试）
+  useEffect(() => {
+    if (!demoTaskId) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const tick = async () => {
+      try {
+        const p = await setupGet<PipelineProgress>(`/api/setup/pipeline/${demoTaskId}`);
+        if (stopped) return;
+        setDemoText(p.progress || '');
+        if (p.status === 'SUCCESS') {
+          const r = (p.result || {}) as { tables?: number; rows?: number };
+          setDemoSummary(r.tables ? `${r.tables} 表 / ${r.rows ?? 0} 行` : '');
+          setDemoLoading(false);
+          setDemoTaskId(null);
+          setNotice('演示数据集已就绪并注册为数据源，可点「开始执行」完成初始化');
+          await loadDataSources();
+          setSelectedDsId(DEMO_DATA_SOURCE_ID);
+          await refreshState();
+          return;
+        }
+        if (p.status === 'FAILED') {
+          setDemoLoading(false);
+          setDemoTaskId(null);
+          setError(p.error || '演示数据加载失败，可重试');
+          return;
+        }
+      } catch {
+        /* 轮询单次失败：保持循环 */
+      }
+      if (!stopped) timer = window.setTimeout(tick, 2000);
+    };
+    void tick();
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [demoTaskId, loadDataSources, refreshState]);
+
   const startPipeline = useCallback(
     async (dsId: string, subtask?: string) => {
       if (!dsId) return;
@@ -143,6 +189,27 @@ export const StepAutoInit: React.FC<SetupStepProps> = ({ state, refreshState, on
     },
     [onReadyChange],
   );
+
+  const startDemoLoad = useCallback(async () => {
+    setError('');
+    setNotice('');
+    setDemoLoading(true);
+    setDemoText('提交加载任务…');
+    setDemoSummary('');
+    try {
+      const r = await setupPost<{ taskId: string }>('/api/setup/demo-data');
+      setDemoTaskId(r.taskId);
+    } catch (err) {
+      // 409：已有在途加载任务 → 接管其进度
+      if (err instanceof SetupApiError && err.status === 409 && err.data.taskId) {
+        setDemoText('已有加载任务执行中，已接管其进度');
+        setDemoTaskId(String(err.data.taskId));
+        return;
+      }
+      setDemoLoading(false);
+      setError(err instanceof Error ? err.message : '演示数据加载启动失败');
+    }
+  }, []);
 
   const canSubmit = fs.host.trim() !== '' && fs.username.trim() !== '' && fs.database.trim() !== '';
 
@@ -272,13 +339,26 @@ export const StepAutoInit: React.FC<SetupStepProps> = ({ state, refreshState, on
             </div>
           </details>
 
-          {/* 演示数据（Phase 2） */}
-          <div className="flex items-center gap-3 rounded-xl border border-dashed border-slate-700 px-4 py-3">
+          {/* 演示数据一键加载（v0.9.86 Phase 2：建演示表 + 确定性样本 + 注册数据源 + 向量化） */}
+          <div className="flex items-center gap-3 flex-wrap rounded-xl border border-dashed border-slate-700 px-4 py-3">
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold text-slate-300">加载演示数据集</div>
-              <div className="text-xs text-slate-500 mt-0.5">在应用库中创建演示表并自动注册数据源</div>
+              <div className="text-sm font-semibold text-slate-300">
+                加载演示数据集
+                {demoLoaded && !demoLoading && (
+                  <span className="ml-2 text-xs font-normal text-emerald-300">已加载{demoSummary ? ` · ${demoSummary}` : ''}</span>
+                )}
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {demoLoading
+                  ? demoText || '加载中…'
+                  : demoLoaded
+                    ? '演示数据源已在列表中，选择后可执行六步初始化（幂等，重复加载将重建演示表）'
+                    : '在应用库中创建演示表（销售/营销/库存）并自动注册数据源'}
+              </div>
             </div>
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 shrink-0">Phase 2</span>
+            <button type="button" className={`${outlineBtn} shrink-0`} disabled={demoLoading} onClick={() => void startDemoLoad()}>
+              {demoLoading ? '加载中…' : demoLoaded ? '重新加载' : '一键加载'}
+            </button>
           </div>
 
           {snap?.dataSourceId && !snap?.skipped && (

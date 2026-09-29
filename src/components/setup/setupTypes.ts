@@ -8,6 +8,9 @@ export type WizardStatus = 'pending' | 'in_progress' | 'completed';
 /** L3 卡片「继续配置」唤起 L1 覆盖层（SetupStatusCard → SetupWizardHost，window 事件解耦） */
 export const SETUP_WIZARD_OPEN_EVENT = 'setup:wizard-open';
 
+/** 内置演示数据集数据源固定 ID（对齐 server/setupDemoData.ts DEMO_DS_ID；一键加载完成后自动选中） */
+export const DEMO_DATA_SOURCE_ID = 'ds_setup_demo';
+
 /** 向导层状态变化（完成/关闭）→ 通知 L3 卡片刷新（SetupWizardHost → SetupStatusCard） */
 export const SETUP_REFRESH_EVENT = 'setup:refresh';
 

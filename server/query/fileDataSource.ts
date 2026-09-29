@@ -57,6 +57,26 @@ export function getFilePhysicalTable(config: unknown): string | null {
   return PHYSICAL_TABLE_RE.test(name) ? name : null;
 }
 
+/**
+ * 读取已登记的物理表名列表（兼容单表 physicalTable 与多表 physicalTables 数组，如内置演示数据集 3 张表）。
+ * 全部经 upl_ 前缀白名单校验；供删除级联逐表清理。
+ */
+export function getFilePhysicalTables(config: unknown): string[] {
+  const list: string[] = [];
+  const single = getFilePhysicalTable(config);
+  if (single) list.push(single);
+  if (config && typeof config === 'object') {
+    const multi = (config as Record<string, unknown>).physicalTables;
+    if (Array.isArray(multi)) {
+      for (const t of multi) {
+        const name = typeof t === 'string' ? t.trim().toLowerCase() : '';
+        if (PHYSICAL_TABLE_RE.test(name) && !list.includes(name)) list.push(name);
+      }
+    }
+  }
+  return list;
+}
+
 export interface ParsedFileData {
   headers: string[];
   rows: unknown[][];

@@ -9,14 +9,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, Compass, RefreshCw } from 'lucide-react';
 import { setupGet } from './setupApi';
 import { SetupStatusIcon, outlineBtn, primaryBtn, type StepLevel } from './setupUi';
-import { countDoneSteps, summarizeReadiness } from './setupLogic';
-import { SETUP_REFRESH_EVENT, SETUP_WIZARD_OPEN_EVENT, type SetupWizardState } from './setupTypes';
+import { countDoneSteps, pendingChecklistItems, summarizeReadiness } from './setupLogic';
+import { SETUP_REFRESH_EVENT, SETUP_WIZARD_OPEN_EVENT, type SetupChecklistItem, type SetupWizardState } from './setupTypes';
 
 export const SetupStatusCard: React.FC = () => {
   const [state, setState] = useState<SetupWizardState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [checkedAt, setCheckedAt] = useState('');
+  /** 体检待处理项（v0.9.86）：checklist 中 todo/warn 持续跟踪（设计 §四 Step④ 注：未处理项在体检卡片列出） */
+  const [pending, setPending] = useState<SetupChecklistItem[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,6 +27,16 @@ export const SetupStatusCard: React.FC = () => {
       const s = await setupGet<SetupWizardState>('/api/setup/state');
       setState(s);
       setCheckedAt(new Date().toLocaleString('zh-CN'));
+      if (s.status === 'completed') {
+        try {
+          const items = await setupGet<SetupChecklistItem[]>('/api/setup/checklist');
+          setPending(pendingChecklistItems(items));
+        } catch {
+          setPending([]);
+        }
+      } else {
+        setPending([]);
+      }
     } catch {
       setError('向导状态读取失败');
     } finally {
@@ -107,6 +119,20 @@ export const SetupStatusCard: React.FC = () => {
           </div>
         ))}
       </div>
+      {pending.length > 0 && (
+        <div className="mt-3.5 rounded-xl border border-amber-500/30 bg-amber-950/20 px-3.5 py-3">
+          <div className="text-xs font-semibold text-amber-200">待处理项 {pending.length}</div>
+          <ul className="mt-1.5 space-y-1">
+            {pending.map((it) => (
+              <li key={it.key} className="text-[11px] leading-relaxed">
+                <span className="text-slate-200">{it.title}</span>
+                <span className="text-slate-400">：{it.detail}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="text-[11px] text-slate-500 mt-1.5">可在向导第④步或系统管理对应面板处理（不影响其他功能使用）</div>
+        </div>
+      )}
     </div>
   );
 };

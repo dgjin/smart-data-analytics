@@ -8,7 +8,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SetupStatusCard } from './SetupStatusCard';
 import { apiFetch } from '../../api/client';
-import { SETUP_WIZARD_OPEN_EVENT, type SetupWizardState } from './setupTypes';
+import { SETUP_WIZARD_OPEN_EVENT, type SetupChecklistItem, type SetupWizardState } from './setupTypes';
 
 vi.mock('../../api/client', () => ({ apiFetch: vi.fn() }));
 
@@ -32,6 +32,15 @@ function makeState(over: Partial<SetupWizardState> = {}): SetupWizardState {
   };
 }
 
+/** 按 URL 分派 mock：/state 与 /checklist（v0.9.86 体检待处理项按需拉取） */
+function mockRoutes(state: SetupWizardState, checklist: SetupChecklistItem[] = []) {
+  mockedApiFetch.mockImplementation(async (url: string) => {
+    const u = String(url);
+    if (u.includes('/api/setup/checklist')) return jsonRes(checklist);
+    return jsonRes(state);
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -42,9 +51,7 @@ afterEach(() => {
 
 describe('SetupStatusCard：L3 入口卡片', () => {
   it('向导未完成：显示进度 N/5，[继续配置] 广播唤起事件', async () => {
-    mockedApiFetch.mockResolvedValue(
-      jsonRes(makeState({ stepResults: { '0': {}, '1': {}, '2': {} } })),
-    );
+    mockRoutes(makeState({ stepResults: { '0': {}, '1': {}, '2': {} } }));
     const onOpen = vi.fn();
     window.addEventListener(SETUP_WIZARD_OPEN_EVENT, onOpen);
 
@@ -57,14 +64,12 @@ describe('SetupStatusCard：L3 入口卡片', () => {
   });
 
   it('向导已完成：转为系统体检（就绪判定 + 重新检测再拉取）', async () => {
-    mockedApiFetch.mockResolvedValue(
-      jsonRes(
-        makeState({
-          status: 'completed',
-          stepResults: { '1': { llm: { ok: true } } },
-          summary: { datasources: 1, tables: 10, chunks: 120, examples: 8 },
-        }),
-      ),
+    mockRoutes(
+      makeState({
+        status: 'completed',
+        stepResults: { '1': { llm: { ok: true } } },
+        summary: { datasources: 1, tables: 10, chunks: 120, examples: 8 },
+      }),
     );
 
     render(<SetupStatusCard />);
@@ -75,6 +80,11 @@ describe('SetupStatusCard：L3 入口卡片', () => {
     expect(screen.getByText('知识向量化')).toBeTruthy();
     expect(screen.getByText('样例库')).toBeTruthy();
     expect(screen.getByText('已接入 1 个')).toBeTruthy();
+    // 无待处理项（checklist 为空）→ 不渲染琥珀区块
+    await waitFor(() =>
+      expect(mockedApiFetch.mock.calls.some(([url]) => String(url).includes('/api/setup/checklist'))).toBe(true),
+    );
+    expect(screen.queryByText(/待处理项/)).toBeNull();
 
     // 重新检测 → 再次请求 /state
     const callsBefore = mockedApiFetch.mock.calls.length;
@@ -87,5 +97,40 @@ describe('SetupStatusCard：L3 入口卡片', () => {
     const { container } = render(<SetupStatusCard />);
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalled());
     await waitFor(() => expect(container.textContent).toBe(''));
+  });
+
+  it('系统体检：待处理项（todo / warn）在卡片列出，done 项不显示（v0.9.86）', async () => {
+    mockRoutes(
+      makeState({
+        status: 'completed',
+        stepResults: { '1': { llm: { ok: true } } },
+        summary: { datasources: 1, tables: 10, chunks: 120, examples: 8 },
+      }),
+      [
+        { key: 'rules', title: '铁律配置', detail: '尚未配置业务铁律', status: 'todo' },
+        { key: 'thresholds', title: '预警阈值', detail: '仍在使用默认阈值', status: 'warn' },
+        { key: 'examples', title: '样例库', detail: '已种子 8 条', status: 'done' },
+      ],
+    );
+
+    render(<SetupStatusCard />);
+    await waitFor(() => expect(screen.getByText('待处理项 2')).toBeTruthy());
+    expect(screen.getByText('铁律配置')).toBeTruthy();
+    expect(screen.getByText('预警阈值')).toBeTruthy();
+    // done 项（含 detail）不进入待处理区块（「样例库」为体检网格固定标签，改用 detail 判定）
+    expect(screen.queryByText(/已种子 8 条/)).toBeNull();
+  });
+
+  it('系统体检：清单全为 done 时不渲染待处理区块', async () => {
+    mockRoutes(makeState({ status: 'completed', stepResults: { '1': { llm: { ok: true } } } }), [
+      { key: 'rules', title: '铁律配置', detail: '已配置', status: 'done' },
+    ]);
+
+    render(<SetupStatusCard />);
+    await waitFor(() => expect(screen.getByText('系统体检')).toBeTruthy());
+    await waitFor(() =>
+      expect(mockedApiFetch.mock.calls.some(([url]) => String(url).includes('/api/setup/checklist'))).toBe(true),
+    );
+    expect(screen.queryByText(/待处理项/)).toBeNull();
   });
 });

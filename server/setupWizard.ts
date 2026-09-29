@@ -12,7 +12,7 @@ import { getErrorMessage } from './infra/errorUtils';
 import { buildDefaultProbes, runReadiness, type ReadinessReport } from './infra/health';
 import { callLLMText, llmEngineInfo, type LlmEngineInfo } from './llm/llmClient';
 import { callEmbedding, currentEmbedModelId } from './llm/llmEmbedding';
-import { INITIAL_DATA_SOURCES } from './seedData';
+import { isDemoDataSetLoaded } from './setupDemoData';
 
 export type WizardStatus = 'pending' | 'in_progress' | 'completed';
 
@@ -243,13 +243,13 @@ export interface EnvSummary {
 /** 环境汇总（GET /state 用）：readiness 探针 + 引擎配置态 + 数据源统计；轻量，不做真实 LLM/embedding 调用 */
 export async function collectEnvSummary(): Promise<EnvSummary> {
   const pool = getPool();
-  const demoIds = INITIAL_DATA_SOURCES.map((d) => d.id);
-  const [[dsRows], [demoRows], health] = await Promise.all([
+  const [[dsRows], health, demoLoaded] = await Promise.all([
     pool.query<mysql.RowDataPacket[]>(
       "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'connected' THEN 1 ELSE 0 END) AS connected FROM data_sources",
     ),
-    pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM data_sources WHERE id IN (?)', [demoIds]),
     runReadiness(buildDefaultProbes()),
+    // v0.9.86：「内置演示数据」以一键加载产物（ds_setup_demo）为准，供 Step① 检测项与 Step③ 快速体验引导联动
+    isDemoDataSetLoaded(),
   ]);
   return {
     llm: llmEngineInfo(),
@@ -257,7 +257,7 @@ export async function collectEnvSummary(): Promise<EnvSummary> {
     datasources: {
       total: Number(dsRows[0]?.total) || 0,
       connected: Number(dsRows[0]?.connected) || 0,
-      demoLoaded: Number(demoRows[0]?.cnt) > 0,
+      demoLoaded,
     },
     health,
   };

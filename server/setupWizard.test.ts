@@ -22,7 +22,8 @@ vi.mock('./llm/llmEmbedding', () => ({
   currentEmbedModelId: () => 'bge-m3',
   callEmbedding: (...args: unknown[]) => callEmbeddingMock(...args),
 }));
-vi.mock('./seedData', () => ({ INITIAL_DATA_SOURCES: [{ id: 'ds_demo1' }, { id: 'ds_demo2' }] }));
+const isDemoLoadedMock = vi.fn();
+vi.mock('./setupDemoData', () => ({ isDemoDataSetLoaded: () => isDemoLoadedMock() }));
 
 import {
   buildChecklist,
@@ -62,6 +63,7 @@ beforeEach(() => {
   querySpy.mockReset();
   callLLMTextMock.mockReset();
   callEmbeddingMock.mockReset();
+  isDemoLoadedMock.mockReset();
 });
 
 describe('getWizardState：单行状态读取', () => {
@@ -151,14 +153,20 @@ describe('collectEnvSummary：环境汇总（GET /state env 字段）', () => {
   it('聚合 LLM/Embedding/数据源统计/健康探测', async () => {
     mockPool((sql) => {
       if (sql.includes('AS total')) return [[{ total: 5, connected: 3 }]];
-      if (sql.includes('WHERE id IN')) return [[{ cnt: 2 }]];
       return undefined;
     });
+    isDemoLoadedMock.mockResolvedValue(true);
     const env = await collectEnvSummary();
     expect(env.llm).toMatchObject({ engine: 'ollama', model: 'qwen3:8b' });
     expect(env.embedding.model).toBe('bge-m3');
     expect(env.datasources).toEqual({ total: 5, connected: 3, demoLoaded: true });
     expect(env.health.ok).toBe(true);
+  });
+
+  it('演示数据集未加载 → demoLoaded=false（Step① 信息态引导）', async () => {
+    mockPool((sql) => (sql.includes('AS total') ? [[{ total: 0, connected: 0 }]] : undefined));
+    isDemoLoadedMock.mockResolvedValue(false);
+    expect((await collectEnvSummary()).datasources.demoLoaded).toBe(false);
   });
 });
 

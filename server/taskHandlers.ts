@@ -22,6 +22,7 @@ import type { UserRole } from './auth/auth';
 import { executeAutoConfig, type AutoConfigReport } from './datasource/autoConfig';
 import { seedSchemaFewShotExamples, syncKnowledgeEntriesToRag, syncSchemaMetadataToRag } from './knowledge/autoKnowledgeSync';
 import { getPipelineSnapshot, probeEmbedding, savePipelineSnapshot, type PipelineSnapshot, type PipelineSubtask } from './setupWizard';
+import { loadDemoDataSet } from './setupDemoData';
 import { getErrorMessage } from './infra/errorUtils';
 import { logger } from './infra/logger';
 import type { SchemaTable } from './query/schemaTypes';
@@ -465,6 +466,21 @@ async function runSetupPipeline(payload: Record<string, unknown>, reportProgress
   };
 }
 
+/**
+ * v0.9.86 向导 Phase 2：内置演示数据集一键加载任务（routes/setup POST /demo-data 提交）。
+ * 建演示表/确定性样本/注册数据源/治理配置/向量化均在 loadDemoDataSet 内（复用文件数据源白名单与接入自动化闭环）；
+ * 进度经 reportProgress 续写 async_tasks.progress 供前端轮询展示。
+ */
+async function runSetupDemoData(payload: Record<string, unknown>, reportProgress: (t: string) => Promise<void>): Promise<unknown> {
+  const user = payload.user as TaskUserSnapshot;
+  const startedAt = Date.now();
+  const result = await loadDemoDataSet(user?.username || '', reportProgress);
+  logger.info(
+    `[SetupDemo] 演示数据集加载完成：${result.tables} 表/${result.rows} 行，向量块 ${result.vectorChunks}，样例 ${result.fewShotSeeded}，耗时 ${Date.now() - startedAt}ms`
+  );
+  return result;
+}
+
 /** 注册全部内置处理器（server 启动时调用一次）；队列侧 payload 为 JSON.parse 产物，边界处收窄为对象 */
 export function registerBuiltinTaskHandlers(): void {
   registerTaskHandler('report_generate', (payload, ctx) => runReportGenerate((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
@@ -472,4 +488,5 @@ export function registerBuiltinTaskHandlers(): void {
   registerTaskHandler('report_export_pdf', (payload, ctx) => runExportPdf((payload ?? {}) as Record<string, unknown>, ctx.reportProgress, ctx.taskId));
   registerTaskHandler('flex_query', (payload, ctx) => runFlexQuery((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
   registerTaskHandler('setup_pipeline', (payload, ctx) => runSetupPipeline((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
+  registerTaskHandler('setup_demo_data', (payload, ctx) => runSetupDemoData((payload ?? {}) as Record<string, unknown>, ctx.reportProgress));
 }

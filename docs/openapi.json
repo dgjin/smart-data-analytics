@@ -6571,7 +6571,7 @@
           "Setup"
         ],
         "operationId": "getSetupPipeline",
-        "summary": "首启初始化向导：流水线进度（async_tasks 状态 + 子任务明细 subtasks[{key,label,state,counters,error,ms}]；前端 2s 轮询）",
+        "summary": "首启初始化向导：流水线/演示数据任务进度（async_tasks 状态 + 子任务明细 subtasks[{key,label,state,counters,error,ms}]；兼容 setup_demo_data 类型任务，前端 2s 轮询）",
         "responses": {
           "200": {
             "description": "{taskId, status, progress, error, subtasks[], result?}"
@@ -6649,6 +6649,29 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/setup/demo-data": {
+      "post": {
+        "tags": [
+          "Setup"
+        ],
+        "operationId": "loadSetupDemoData",
+        "summary": "首启初始化向导：一键加载内置演示数据集（Phase 2；应用库建 3 张演示表 + 确定性样本 + 注册 ds_setup_demo + 治理配置 + 向量化，幂等可重复加载；进度经 /api/setup/pipeline/{taskId} 轮询）",
+        "responses": {
+          "200": {
+            "description": "{taskId}"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "演示数据加载任务执行中（CONFLICT，含在途 taskId）"
+          },
+          "429": {
+            "description": "在途任务过多（RATE_LIMITED）"
           }
         }
       }
