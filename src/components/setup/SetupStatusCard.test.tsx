@@ -133,4 +133,18 @@ describe('SetupStatusCard：L3 入口卡片', () => {
     );
     expect(screen.queryByText(/待处理项/)).toBeNull();
   });
+
+  it('系统体检：提供「打开初始化向导」人工入口，点击广播唤起事件（v0.9.87）', async () => {
+    mockRoutes(makeState({ status: 'completed', stepResults: { '1': { llm: { ok: true } } } }));
+    const onOpen = vi.fn();
+    window.addEventListener(SETUP_WIZARD_OPEN_EVENT, onOpen);
+
+    render(<SetupStatusCard />);
+    await waitFor(() => expect(screen.getByText('系统体检')).toBeTruthy());
+    expect(screen.getByText('打开初始化向导')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('打开初始化向导'));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    window.removeEventListener(SETUP_WIZARD_OPEN_EVENT, onOpen);
+  });
 });

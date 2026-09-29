@@ -3,6 +3,8 @@
  * - 向导未完成：「首启初始化向导」卡片（进度 N/5 + 说明 + [继续配置]）
  *   —— 经 window 事件 SETUP_WIZARD_OPEN_EVENT 唤起 SetupWizardHost 托管的 L1 覆盖层（跨组件解耦）；
  * - 向导已完成：「系统体检」卡片（最近检查时间 + 就绪判定三态 + [重新检测]，不重复执行初始化流水线）；
+ * - v0.9.87 人工入口：[打开初始化向导] —— 完成后仍可随时重开向导（回看快照 / 重跑任意步骤），
+ *   与未完成态 [继续配置] 共用 SETUP_WIZARD_OPEN_EVENT；
  * - 向导层完成/关闭会广播 SETUP_REFRESH_EVENT，卡片据此刷新（当前页内完成也能即时同步）。
  */
 import React, { useCallback, useEffect, useState } from 'react';
@@ -103,10 +105,21 @@ export const SetupStatusCard: React.FC = () => {
             </div>
           </div>
         </div>
-        <button type="button" className={`${outlineBtn} shrink-0`} onClick={() => void load()} disabled={loading}>
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          重新检测
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            className={`${primaryBtn} shrink-0`}
+            title="随时重开向导：回看各步结果快照，或重跑环境自检 / 模型探测 / 数据准备"
+            onClick={() => window.dispatchEvent(new CustomEvent(SETUP_WIZARD_OPEN_EVENT))}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            打开初始化向导
+          </button>
+          <button type="button" className={`${outlineBtn} shrink-0`} onClick={() => void load()} disabled={loading}>
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            重新检测
+          </button>
+        </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3.5">
         {rows.map((r) => (

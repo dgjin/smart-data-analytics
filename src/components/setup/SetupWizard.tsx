@@ -138,6 +138,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ initialState, onLater,
             <Compass className="w-5 h-5 text-indigo-400 shrink-0" />
             <span className="text-base font-bold text-slate-100">首启初始化向导</span>
             <span className="text-xs text-slate-400 tabular-nums">{doneCount}/5</span>
+            {state.status === 'completed' && (
+              <span
+                title="向导已完成：可点左侧步骤回看快照或重跑（环境自检 / 模型探测 / 数据准备 / 待办更新），不影响系统使用"
+                className="text-[10px] px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-950/40 text-emerald-200 font-semibold whitespace-nowrap shrink-0"
+              >
+                已完成
+              </span>
+            )}
             {state.updatedAt && (
               <span className="text-xs text-slate-500 truncate hidden sm:inline">最近更新 {new Date(state.updatedAt).toLocaleString('zh-CN')}</span>
             )}

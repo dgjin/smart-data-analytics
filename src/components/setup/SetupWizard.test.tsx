@@ -135,6 +135,30 @@ describe('SetupWizard：断点续做与导航', () => {
     // 前进到 Step③
     await waitFor(() => expect(screen.getByText('开始执行')).toBeTruthy());
   });
+
+  it('向导已完成重开（v0.9.87）：顶栏显示「已完成」标识，初始定位到完成页且各步可回看', async () => {
+    const state = makeState({
+      status: 'completed',
+      completedAt: '2026-09-29T10:00:00Z',
+      stepResults: {
+        '0': { llm: { ok: true }, embedding: { ok: true } },
+        '1': { llm: { ok: true } },
+        '2': { dataSourceId: 'ds1' },
+        '3': { skipped: true },
+        '4': { done: true },
+      },
+      summary: { datasources: 1, tables: 10, chunks: 120, examples: 8 },
+    });
+    mockRoutes(state);
+    renderWizard(state);
+
+    // 初始定位到 Step⑤ 完成页 + 顶栏「已完成」标识（人工重开上下文）
+    await waitFor(() => expect(screen.getByText('本次初始化成果')).toBeTruthy());
+    expect(screen.getByText('已完成')).toBeTruthy();
+    // 步骤轨全部可点：已完成状态下可回看 / 重跑任意步骤
+    const step1 = screen.getByText(/1\. 环境自检/).closest('button') as HTMLButtonElement;
+    expect(step1.disabled).toBe(false);
+  });
 });
 
 describe('SetupWizardHost：L1 自动弹出与 L2 横幅', () => {

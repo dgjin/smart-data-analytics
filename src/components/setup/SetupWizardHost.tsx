@@ -3,6 +3,7 @@
  * - 加载 GET /api/setup/state → 向导未完成时 L1 自动弹出（每浏览器会话一次）→ 关闭后转 L2 常驻横幅；
  * - L2 横幅：进度 N/5 + 流水线子任务进度（5s 轮询）+ [继续配置] + [7 天不再提醒]（POST /skip）；
  * - 完成回调：关闭向导 + 刷新数据源清单 + 可选跳转问数页；离线横幅同时显示时自动下移避让。
+ * - v0.9.87：外部入口（含体检卡片 [打开初始化向导]）唤起时同步拉取最新状态，保证重开看到最新快照。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
@@ -65,12 +66,22 @@ export const SetupWizardHost: React.FC = () => {
   const bannerVisible = !!state && isWizardActive(state) && !open;
   const pipelineTaskId = state?.pipelineTaskId || null;
 
-  // L3 卡片等外部入口：window 事件唤起 L1 覆盖层
+  /** 拉取最新向导状态（外部入口打开前 / 关闭后均刷新，保证快照不过期） */
+  const refreshHostState = useCallback(() => {
+    setupGet<SetupWizardState>('/api/setup/state')
+      .then(setState)
+      .catch(() => {});
+  }, []);
+
+  // L3 卡片等外部入口（含 v0.9.87 体检卡片 [打开初始化向导]）：唤起 L1 覆盖层并刷新状态
   useEffect(() => {
-    const handler = () => setOpen(true);
+    const handler = () => {
+      setOpen(true);
+      refreshHostState();
+    };
     window.addEventListener(SETUP_WIZARD_OPEN_EVENT, handler);
     return () => window.removeEventListener(SETUP_WIZARD_OPEN_EVENT, handler);
-  }, []);
+  }, [refreshHostState]);
 
   // L2 横幅流水线进度（5s 轮询；终态停止）
   useEffect(() => {
@@ -112,11 +123,9 @@ export const SetupWizardHost: React.FC = () => {
   /** 向导关闭（稍后配置）：刷新一次状态供横幅显示最新进度 */
   const closeWizard = useCallback(() => {
     setOpen(false);
-    setupGet<SetupWizardState>('/api/setup/state')
-      .then(setState)
-      .catch(() => {});
+    refreshHostState();
     window.dispatchEvent(new Event(SETUP_REFRESH_EVENT));
-  }, []);
+  }, [refreshHostState]);
 
   const handleCompleted = useCallback(
     (gotoQuery: boolean) => {
