@@ -21,6 +21,8 @@ const ACCENT_ACTIVE: Record<SectionTabAccent, string> = {
 /**
  * 系统管理分类内的顶部 Tab 分类条（v0.9.57 起多面板分类统一使用：
  * 规则治理 / 质量监控 / 权限审批 / AI 审核，accent 跟随左栏分类色系）。
+ * 单行展示：宽度不足时横向滚动（不换行成多行、按钮文字不折行），
+ * 避免「业务知识库」等较宽标签在窄窗口下被挤成第二行。
  */
 export function SectionTabs<T extends string>({
   tabs,
@@ -34,7 +36,7 @@ export function SectionTabs<T extends string>({
   accent: SectionTabAccent;
 }) {
   return (
-    <div className="flex items-center gap-2 flex-wrap border-b border-slate-800 pb-3">
+    <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-800 pb-3">
       {tabs.map((t) => {
         const isActive = active === t.id;
         const Icon = t.icon;
@@ -42,13 +44,13 @@ export function SectionTabs<T extends string>({
           <button
             key={t.id}
             onClick={() => onChange(t.id)}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all ${
               isActive
                 ? `text-white ${ACCENT_ACTIVE[accent]}`
                 : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
             }`}
           >
-            <Icon className={`w-4 h-4 ${isActive ? '' : t.color}`} />
+            <Icon className={`w-4 h-4 shrink-0 ${isActive ? '' : t.color}`} />
             <span>{t.label}</span>
           </button>
         );
