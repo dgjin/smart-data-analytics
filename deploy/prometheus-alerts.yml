@@ -103,6 +103,18 @@ groups:
           summary: "磁盘使用率超过 85%"
           description: "挂载点 {{ $labels.mountpoint }} 可用空间不足 15%，关注 Prometheus 时序库与 MySQL 数据增长。"
 
+  # v0.9.93：自动运维事件流（ops_events 表归集的 CRITICAL/ERROR 事件出现即提示；
+  # 明细与 ACK/RESOLVED 处置闭环见 GET /api/ops/events；WARN 级（如漂移）不触发本告警）
+  - name: nl2sql-ops-events
+    rules:
+      - alert: OpsEventHighSeverity
+        expr: increase(ops_events_recorded_total{severity=~"CRITICAL|ERROR"}[10m]) > 0
+        for: 0m
+        labels: { severity: warning, service: nl2sql }
+        annotations:
+          summary: "近 10 分钟出现高严重度运维事件（CRITICAL/ERROR）"
+          description: "新增 {{ $value | humanize }} 条（severity={{ $labels.severity }}, category={{ $labels.category }}）；拉取 /api/ops/events?status=NEW 查看并处置。"
+
   # P2：监控栈自监控（Prometheus/Alertmanager 自身的健康）
   - name: monitoring-self
     rules:

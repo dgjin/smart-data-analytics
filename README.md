@@ -59,6 +59,7 @@
 - **用户管理**：账号增删改查、启停、重置密码（首登强制改密）；用户「部门」从组织架构树中选取，节点名即部门文本，改名自动同步用户与数据源授权清单
 - **组织架构**（v0.9.70）：总部 → 机构 → 部门 → 团队四级组织树，支持添加下级 / 重命名 / 同级排序 / 删除（带下级与用户归属双重删除保护）；节点数据标识按层级路径自动编号并支持一键补全，变更写入审计日志
 - **八层纵深防御**：输入防护（截断+注入检测）→ 鉴权 → 限流（速率+配额+并发槽位）→ Schema 白名单 → 敏感过滤 → 只读 SQL 执行 → 审计落账 → 可观测日志
+- **结构化日志与自动运维事件流**（v0.9.93）：运行日志 JSONL 结构化（时间戳 / 级别 / 模块 / 链路字段，TTY 自适应保持人读）；requestId / 用户 / 任务链路贯穿（AsyncLocalStorage）；五类异常（问数失败 / 后台任务 / 巡检 / 知识漂移 / 进程崩溃）自动归集为运维事件（15 分钟窗口去重 + NEW→ACK→RESOLVED 状态机 + 流转审计）并纳入 Prometheus 指标与告警；运维 API（`/api/ops/events` 列表 / 摘要 / 受理 / 解决 + `/api/ops/logs` 日志尾读）支持 `OPS_API_TOKEN` 机器通道（Bearer），供自动运维智能体对接；启动脚本日志归档轮转（保留 5 份）+ 容器日志上限 10MB×5
 - **密钥保护**：数据源凭据加密存储；生产环境缺失 `JWT_SECRET` 拒绝启动
 
 ## 技术栈
@@ -69,7 +70,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
-| 测试 | Vitest（145 文件 / 2077 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
+| 测试 | Vitest（149 文件 / 2122 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
 
 ## 快速开始
 
@@ -167,6 +168,7 @@ docker run -d -p 3000:3000 \
 | `SELF_CORRECT_CANDIDATES` | SQL 自纠错候选数（1-3，显式设置优先于分档） | 分档：复杂 3 / 简单 1 |
 | `EXPECTED_CONCURRENT_USERS` | 预期并发用户数（连接池容量公式输入） | 20 |
 | `DS_POOL_MAX` / `APP_POOL_MAX` | 数据源池 / 应用库池上限（显式配置优先于公式） | 公式推导（5 / 10） |
+| `LOG_FILE` / `LOG_FORMAT` / `OPS_API_TOKEN` | v0.9.93 运行日志落盘路径（配合启动脚本重定向 stdout/stderr，供 `/api/ops/logs` 尾读）/ 日志格式（json\|pretty，未设按 TTY 自适应）/ 运维 API 机器令牌（供自动运维智能体 Bearer 直连，不设则仅 ADMIN JWT 可用） | — |
 
 > v0.9.61 起，「系统管理 → 系统配置」面板可在线修改以上多数参数并**即时生效、无需重启**（面板保存值优先于 .env.local 且重启后保持；输入框留空=该项跟随 .env.local / 默认值）；每项配置显示「运行时」实际生效值供对账。例外：`MYSQL_*` 连接参数属于启动自举配置，不参与在线修改，需改 .env.local 并重启（面板仅登记）。
 
@@ -214,7 +216,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（145 文件 / 2077 用例）
+npm test             # Vitest（149 文件 / 2122 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

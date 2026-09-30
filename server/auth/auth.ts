@@ -3,12 +3,13 @@
  * 中间件在验证 token 后回查 users 表，确保禁用/角色变更立即生效。
  */
 import type express from 'express';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'crypto';
 import jwt from 'jsonwebtoken';
 import type mysql from 'mysql2/promise';
 import { getPool } from '../infra/db';
 import { setLlmUserContext } from '../llm/llmClient';
 import { logger } from '../infra/logger';
+import { updateLogContext } from '../infra/asyncContext';
 
 export type UserRole = 'ADMIN' | 'ANALYST' | 'VIEWER';
 
@@ -101,6 +102,8 @@ export async function authMiddleware(
     };
     // LLM 用量按用户统计：鉴权后注入请求级用户上下文（本次请求异步链内的 LLM 埋点均携带）
     setLlmUserContext(user.id, user.username);
+    // v0.9.93 日志链路：本轮请求异步链内的 logger 输出自动携带 userId/username 结构化字段
+    updateLogContext({ userId: user.id, username: user.username });
     // P0-1 服务端强制改密：首登/被重置密码的用户，改密前只放行 /api/auth/*（登录/改密/当前用户）
     if (user.must_change_password && !req.originalUrl.startsWith('/api/auth/')) {
       return res.status(403).json({ code: 'PASSWORD_CHANGE_REQUIRED', error: '首次登录或密码已被重置，请先修改密码' });
@@ -123,4 +126,38 @@ export function requireRole(...roles: UserRole[]) {
     }
     next();
   };
+}
+
+/** 定长摘要后恒时比较：消除明文比较的计时侧信道（与 monitoring.tokensMatch 同策略） */
+function tokensMatch(provided: string, expected: string): boolean {
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * v0.9.93 自动运维 API 访问（/api/ops/* 事件流与日志查询）双通道：
+ * ① 机器通道：OPS_API_TOKEN 环境变量（Bearer 恒时比较）——自动运维智能体直接调用，
+ *    注入系统身份（id=0/ops-agent），运维动作经 writeAudit 归属可审计；
+ * ② 人工通道：常规 JWT + ADMIN 角色（前端管理面板复用同一批端点）。
+ * 未配置 OPS_API_TOKEN 时仅 JWT+ADMIN 可用（fail-safe，不因缺配置开放访问）。
+ */
+export function requireOpsAccess(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const expected = process.env.OPS_API_TOKEN;
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (expected && token && tokensMatch(token, expected)) {
+    req.user = { id: 0, username: 'ops-agent', displayName: '自动运维智能体', role: 'ADMIN' };
+    return next();
+  }
+  return authMiddleware(req, res, () => {
+    if (req.user?.role !== 'ADMIN') {
+      return res.status(403).json({ error: '没有权限执行此操作' });
+    }
+    next();
+  });
 }

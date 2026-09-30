@@ -134,8 +134,16 @@ if lsof -ti :3000 >/dev/null 2>&1; then
   sleep 1
 fi
 
+# v0.9.93 日志治理：启动前归档旧日志（保留最近 5 份，按时间滚动），追加写防历史丢失；
+# 导出 LOG_FILE 给应用——/api/ops/logs（自动运维智能体）尾读该文件，与重定向目标同一路径
+export LOG_FILE
+if [ -f "${LOG_FILE}" ]; then
+  mv "${LOG_FILE}" "${LOG_FILE%.log}-$(date +%Y%m%d-%H%M%S).log"
+  ls -t /tmp/app_server-*.log 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+fi
+
 say "启动应用服务（日志：${LOG_FILE}）..."
-nohup npx tsx server.ts > "${LOG_FILE}" 2>&1 &
+nohup npx tsx server.ts >> "${LOG_FILE}" 2>&1 &
 
 # 就绪判定升级为健康端点（200 = 路由挂载完成可正常服务）
 if wait_http "${APP_URL}/api/health" 45 "应用服务（:3000）"; then

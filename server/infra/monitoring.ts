@@ -134,6 +134,22 @@ export function observeSqlExec(durationMs: number, ok: boolean): void {
   } catch { /* 静默 */ }
 }
 
+// ---------- 自动运维事件（埋点：opsEvents.recordOpsEvent 单点） ----------
+
+export const opsEventsRecorded = new client.Counter({
+  name: 'ops_events_recorded_total',
+  help: '自动运维事件记录数（含同键去重合并；明细见 /api/ops/events）',
+  labelNames: ['severity', 'category'],
+  registers: [metricsRegister],
+});
+
+/** 运维事件旁路（fail-open，不影响事件落库） */
+export function observeOpsEvent(severity: string, category: string): void {
+  try {
+    opsEventsRecorded.inc({ severity, category });
+  } catch { /* 静默 */ }
+}
+
 // ---------- /metrics 端点（不走 JWT；可选 METRICS_TOKEN 保护） ----------
 
 /** 定长摘要后恒时比较：消除明文比较的计时侧信道（摘要后长度恒定，timingSafeEqual 不会因长度差异抛错） */

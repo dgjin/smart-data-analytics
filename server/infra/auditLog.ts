@@ -6,6 +6,7 @@
 import { getPool } from './db';
 import { observeAudit } from './monitoring';
 import { logger } from './logger';
+import { recordOpsEvent } from './opsEvents';
 
 export type AuditStatus =
   | 'SUCCESS'
@@ -37,6 +38,23 @@ export interface AuditEntry {
 
 export function writeAudit(entry: AuditEntry): void {
   observeAudit(entry); // Prometheus 旁路埋点（fail-open，不影响审计落库）
+  // v0.9.93 自动运维：ERROR 终态归集为运维事件（同端点 15 分钟内合并计数，供 /api/ops/events 拉取）；
+  // DENIED_*/FALLBACK 等业务态不进事件流（前者是规则拒绝非故障，后者由 FALLBACK 率指标监察）
+  if (entry.status === 'ERROR') {
+    recordOpsEvent({
+      source: 'audit',
+      category: 'NL2SQL',
+      severity: 'ERROR',
+      message: `${entry.endpoint} 链路错误：${entry.detail || entry.question || '未知错误'}`,
+      entityType: 'endpoint',
+      entityId: entry.endpoint,
+      detail: {
+        dataSourceId: entry.dataSourceId || '',
+        question: (entry.question || '').slice(0, 200),
+        durationMs: entry.durationMs,
+      },
+    });
+  }
   getPool()
     .query(
       `INSERT INTO query_audit_log

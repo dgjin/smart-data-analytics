@@ -450,6 +450,301 @@
         }
       }
     },
+    "/api/ops/events": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "listOpsEvents",
+        "summary": "v0.9.93 自动运维事件列表（游标分页；OPS_API_TOKEN 或 ADMIN JWT）",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "ACK",
+                "RESOLVED"
+              ]
+            },
+            "description": "状态过滤（默认全部）"
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CRITICAL",
+                "ERROR",
+                "WARN",
+                "INFO"
+              ]
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "语义分类（NL2SQL/TASK/PATROL/DRIFT/PROCESS 等）"
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "audit",
+                "task",
+                "patrol",
+                "drift",
+                "fatal"
+              ]
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "起始时间（YYYY-MM-DD[ HH:MM:SS]）"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "截止时间（YYYY-MM-DD[ HH:MM:SS]）"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "游标（上一页最后一条 id，倒序翻页）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "事件列表（events 数组按 id 倒序，含 nextCursor）"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/events/summary": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "getOpsEventsSummary",
+        "summary": "v0.9.93 运维事件态势摘要（状态计数 + 近 24h 分类分布）",
+        "responses": {
+          "200": {
+            "description": "byStatus（各状态计数）与 last24h（按 category/severity 聚合）"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/events/{id}/ack": {
+      "post": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "ackOpsEvent",
+        "summary": "v0.9.93 受理运维事件（NEW → ACK；幂等）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "事件 ID"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "description": "处置备注（写入审计留痕，最长 200 字）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "受理成功（already=true 表示此前已处理，幂等返回现态）"
+          },
+          "404": {
+            "description": "事件不存在"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/events/{id}/resolve": {
+      "post": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "resolveOpsEvent",
+        "summary": "v0.9.93 处置关闭运维事件（NEW/ACK → RESOLVED；幂等）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "事件 ID"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "description": "处置摘要（写入审计留痕，最长 200 字）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "关闭成功（already=true 表示此前已处理，幂等返回现态）"
+          },
+          "404": {
+            "description": "事件不存在"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/logs": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "getOpsLogs",
+        "summary": "v0.9.93 服务日志尾读（JSONL 结构化日志；文件取 LOG_FILE 环境变量）",
+        "parameters": [
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "debug",
+                "info",
+                "warn",
+                "error"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "关键字（子串匹配原始行）"
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "按请求链路 ID 过滤"
+          },
+          {
+            "name": "taskId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "按异步任务 ID 过滤"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "maxBytes",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 2097152,
+              "minimum": 65536,
+              "maximum": 16777216
+            },
+            "description": "尾读窗口字节数（默认后 2MB）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "日志行数组（JSON 对象或 { raw }；正序，最新在底部）"
+          },
+          "404": {
+            "description": "日志文件不存在或不可读"
+          },
+          "501": {
+            "description": "未配置 LOG_FILE 环境变量"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [

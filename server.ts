@@ -83,6 +83,9 @@ import { ensurePatrolTables, startPatrolScheduler } from './server/anomalyPatrol
 import { startFlexSubscriptionScheduler } from './server/flexSubscriptions';
 import { getErrorMessage } from './server/infra/errorUtils';
 import { logger } from './server/infra/logger';
+import { recordOpsEvent } from './server/infra/opsEvents';
+// v0.9.93 自动运维 API（事件流查询/确认 + 服务日志尾读，见 server/routes/opsEvents.ts）
+import opsEventsRoutes from './server/routes/opsEvents';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -93,11 +96,30 @@ import { logger } from './server/infra/logger';
 // 进程级异常兜底：Express 4 不会自动接管 async 路由的 Promise rejection（请求会挂起并触发
 // unhandledRejection，Node 15+ 默认直接崩溃退出）。这里记录日志而非崩溃，
 // 保证单次链路异常不拖垮整个服务；具体路由已在各自 try/catch 中补齐响应。
+// v0.9.93 自动运维：两类致命异常同时归集为 CRITICAL 事件（/api/ops/events），
+// 供智能体感知并决策（如判断持续崩溃后重启服务）——注意此处刻意不进程自杀：
+// 本地 start.sh 无守护进程，退出即服务彻底死亡；是否重启交由运维策略决策。
 process.on('unhandledRejection', (reason) => {
   logger.error('[Fatal] unhandledRejection:', reason);
+  recordOpsEvent({
+    source: 'fatal',
+    category: 'PROCESS',
+    severity: 'CRITICAL',
+    message: `unhandledRejection: ${getErrorMessage(reason)}`,
+    entityType: 'process',
+    entityId: String(process.pid),
+  });
 });
 process.on('uncaughtException', (err) => {
   logger.error('[Fatal] uncaughtException:', err);
+  recordOpsEvent({
+    source: 'fatal',
+    category: 'PROCESS',
+    severity: 'CRITICAL',
+    message: `uncaughtException: ${getErrorMessage(err)}`,
+    entityType: 'process',
+    entityId: String(process.pid),
+  });
 });
 
 async function startServer() {
@@ -320,6 +342,8 @@ async function startServer() {
   app.use('/api/lineage', lineageRoutes);
   // P3-3 知识库漂移检测（见 server/routes/opsDrift.ts）
   app.use('/api/ops', opsDriftRoutes);
+  // v0.9.93 自动运维 API：事件流查询/确认 + 服务日志尾读（见 server/routes/opsEvents.ts）
+  app.use('/api/ops', opsEventsRoutes);
   // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）
   app.use('/api/access-requests', accessRequestRoutes);
   // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）

@@ -29,6 +29,14 @@ services:
       REDIS_URL: redis://redis:6379
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
+      # v0.9.93 日志治理：限制 json-file 驱动占用（应用 JSONL 输出随问数增长，防无限堆积）。
+      # 容器场景日志检索走 `docker logs` / Loki 采集（stdout 出口）；
+      # /api/ops/logs 尾读用于裸机 start.sh 场景（LOG_FILE 由该脚本注入，此处不配置以免读取不存在的文件）
+    logging: &app-logging
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
     depends_on:
       - redis
 

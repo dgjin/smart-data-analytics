@@ -14,6 +14,7 @@ import { getPool } from './infra/db';
 import { executeSafeSql } from './query/sqlExecutor';
 import { logger } from './infra/logger';
 import { getErrorMessage } from './infra/errorUtils';
+import { recordOpsEvent } from './infra/opsEvents';
 
 /** 标识符安全校验（表/列名来自名单配置，拼入 SQL 前必须过此校验） */
 export const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -213,6 +214,16 @@ export async function scanDataSource(dataSourceId: string): Promise<ScanSummary>
         [id, w.data_source_id, w.table_name, w.column_name, JSON.stringify(diff.added), JSON.stringify(diff.removed)]
       );
       summary.newEvents += 1;
+      // v0.9.93 自动运维：漂移事件归集（同源同列 15 分钟内合并计数；管理端提醒「知识文档可能过时」）
+      recordOpsEvent({
+        source: 'drift',
+        category: 'DRIFT',
+        severity: 'WARN',
+        message: `知识库漂移：${w.data_source_id} ${w.table_name}.${w.column_name}（新增 ${diff.added.length} / 移除 ${diff.removed.length} 个取值）`,
+        entityType: 'drift_column',
+        entityId: `${w.data_source_id}:${w.table_name}.${w.column_name}`,
+        detail: { added: diff.added.slice(0, 20), removed: diff.removed.slice(0, 20) },
+      });
     }
   } catch (err) {
     summary.error = getErrorMessage(err) || String(err);

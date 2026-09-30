@@ -17,6 +17,7 @@ import { scanReportForAnomalies } from '../src/utils/anomalyDetector';
 import { scanReportAnomalies } from './report/anomalyScan';
 import type { AnomalyItem, SavedReport } from '../src/types/analytics';
 import { getErrorMessage } from './infra/errorUtils';
+import { recordOpsEvent } from './infra/opsEvents';
 
 export type PatrolStatus = 'ACTIVE' | 'PAUSED';
 /** 单次巡检终态：ANOMALY=发现异常 / CLEAN=无异常 / NO_DATA=无可扫描报表 / ERROR=执行失败 */
@@ -386,6 +387,15 @@ export async function runDuePatrols(pool?: mysql.Pool): Promise<number> {
       logger.info(`[Patrol] ${row.patrol_id} 巡检完成（${out.status}，异常 ${out.anomalyCount} 项）`);
     } catch (err) {
       logger.warn(`[Patrol] ${row.patrol_id} 巡检执行失败:`, getErrorMessage(err));
+      // v0.9.93 自动运维：巡检执行失败归集为运维事件（巡检发现业务异常不在此列——那是巡检结果，非系统故障）
+      recordOpsEvent({
+        source: 'patrol',
+        category: 'PATROL',
+        severity: 'ERROR',
+        message: `巡检执行失败（${row.patrol_id}）：${getErrorMessage(err)}`,
+        entityType: 'patrol',
+        entityId: row.patrol_id,
+      });
     }
   }
   return claimed.length;

@@ -18,6 +18,8 @@ import type mysql from 'mysql2/promise';
 import { getPool } from './db';
 import { logger } from './logger';
 import { getErrorMessage } from './errorUtils';
+import { runWithLogContext } from './asyncContext';
+import { recordOpsEvent } from './opsEvents';
 
 export type TaskType = 'report_generate' | 'report_generate_from_query' | 'report_export_pdf' | 'flex_query' | 'setup_pipeline' | 'setup_demo_data';
 export type TaskStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
@@ -294,12 +296,26 @@ async function runOneTask(task: { id: string; type: TaskType; payload: unknown }
     timeoutTimer = setTimeout(() => reject(new Error('任务执行超时')), taskExecTimeoutMs());
   });
   try {
-    const result = await Promise.race([handler(task.payload, { taskId: task.id, reportProgress }), timeoutPromise]);
+    // v0.9.93 日志链路：任务执行期间 logger 输出自动携带 taskId/taskType 结构化字段
+    const result = await runWithLogContext({ taskId: task.id, taskType: task.type }, () =>
+      Promise.race([handler(task.payload, { taskId: task.id, reportProgress }), timeoutPromise])
+    );
     await completeTask(task.id, result);
     logger.info(`[TaskQueue] ${task.type} ${task.id} 完成`);
   } catch (err) {
     await failTask(task.id, getErrorMessage(err) || String(err));
     logger.warn(`[TaskQueue] ${task.type} ${task.id} 失败:`, getErrorMessage(err));
+    // v0.9.93 自动运维：任务失败归集为运维事件（同任务 15 分钟内多次失败合并计数）
+    recordOpsEvent({
+      source: 'task',
+      category: 'TASK',
+      severity: 'ERROR',
+      message: `异步任务失败（${task.type}）：${getErrorMessage(err)}`,
+      entityType: 'task',
+      entityId: task.id,
+      detail: { taskType: task.type },
+      traceId: task.id,
+    });
   } finally {
     clearInterval(hbTimer);
     if (timeoutTimer) clearTimeout(timeoutTimer);

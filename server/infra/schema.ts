@@ -651,4 +651,31 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.93 自动运维事件流：审计异常终态/任务失败/巡检失败/漂移/致命异常统一归集，
+  // 供自动运维智能体拉取（/api/ops/events）→ ACK → 动作 → RESOLVED 闭环。
+  // event_key + status + last_seen_at 支撑 15 分钟窗口去重合并（dedup_count 反映频次）。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ops_events (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      event_key VARCHAR(160) NOT NULL DEFAULT '',
+      severity VARCHAR(10) NOT NULL,
+      source VARCHAR(16) NOT NULL,
+      category VARCHAR(24) NOT NULL DEFAULT 'SYSTEM',
+      entity_type VARCHAR(32) NOT NULL DEFAULT '',
+      entity_id VARCHAR(128) NOT NULL DEFAULT '',
+      message VARCHAR(500) NOT NULL DEFAULT '',
+      detail JSON NULL,
+      trace_id VARCHAR(64) NOT NULL DEFAULT '',
+      status VARCHAR(10) NOT NULL DEFAULT 'NEW',
+      dedup_count INT NOT NULL DEFAULT 1,
+      handled_by VARCHAR(64) NOT NULL DEFAULT '',
+      handled_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ops_events_status_created (status, created_at),
+      INDEX idx_ops_events_dedup (event_key, status, last_seen_at),
+      INDEX idx_ops_events_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }
