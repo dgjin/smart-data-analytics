@@ -29,6 +29,7 @@ import {
   Server,
   Network,
   Siren,
+  Stethoscope,
   X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
@@ -53,7 +54,7 @@ import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
 // v0.9.94 运维事件面板：自动运维事件流（智能体拉取/处置与人工共用同一 API）
 import { OpsEventsPanel } from './OpsEventsPanel';
-// v0.9.85 首启初始化向导 · L3 常驻入口卡片（未完成=向导入口 / 已完成=系统体检）
+// v0.9.85 首启初始化向导 · L3 卡片（未完成=向导入口 / 已完成=系统体检）；v0.9.95 起作为「系统体检」分类内容
 import { SetupStatusCard } from '../setup/SetupStatusCard';
 // v0.9.56 规则治理整合：业务知识库与 SQL 样例库由「数据源与 Schema」迁入
 import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
@@ -82,13 +83,14 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（9 项，左栏导航切换） */
+/** 系统管理分类（10 项，左栏导航切换） */
 type AdminSection =
   | 'users'
   | 'org-structure'
   | 'permission-approval'
   | 'rule-governance'
   | 'ai-audit'
+  | 'system-check'
   | 'quality-monitoring'
   | 'patrol'
   | 'ops-events'
@@ -122,6 +124,8 @@ const SECTION_GROUPS: {
     items: [
       { id: 'rule-governance', label: '规则治理', icon: BookMarked, color: 'text-cyan-400', bar: 'bg-cyan-500' },
       { id: 'ai-audit', label: 'AI 审核', icon: Search, color: 'text-rose-400', bar: 'bg-rose-500' },
+      // v0.9.95 系统体检：原内容区顶部常驻卡片独立为菜单项（emerald 与体检卡配色一致）
+      { id: 'system-check', label: '系统体检', icon: Stethoscope, color: 'text-emerald-400', bar: 'bg-emerald-500' },
     ],
   },
   {
@@ -183,7 +187,7 @@ export const AdminPanel: React.FC = () => {
   // 组织架构树：组织架构面板与用户「组织归属」选择器共用同一份节点数据
   const { units: orgUnits, loading: orgUnitsLoading, refresh: refreshOrgUnits } = useOrgUnits();
 
-  // 左栏分类切换：8 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
+  // 左栏分类切换：10 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
   const [section, setSection] = useState<AdminSection>('users');
   // 规则治理分类内顶部 Tab（v0.9.56）：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色
   const [ruleTab, setRuleTab] = useState<RuleGovernanceTab>('metrics');
@@ -422,9 +426,6 @@ export const AdminPanel: React.FC = () => {
 
         {/* 右栏内容区（独立滚动，切换分类自动回顶） */}
         <div ref={contentRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* v0.9.85 首启初始化向导 L3 入口：未完成显示引导卡片，已完成转为系统体检 */}
-          <SetupStatusCard />
-
           {/* Notice */}
           {notice && (
             <div className={`p-4 rounded-xl border ${
@@ -776,6 +777,9 @@ export const AdminPanel: React.FC = () => {
 
       {/* ============ 区块八：运维事件（v0.9.94 自动运维事件流：智能体与人工共用同一处置通道） ============ */}
       {section === 'ops-events' && <OpsEventsPanel />}
+
+{/* ============ 区块九：系统体检（v0.9.95 独立菜单项：原内容区顶部常驻卡片迁入「治理与审核」组） ============ */}
+      {section === 'system-check' && <SetupStatusCard />}
         </div>
       </div>
 
