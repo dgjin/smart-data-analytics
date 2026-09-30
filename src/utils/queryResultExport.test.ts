@@ -1,6 +1,7 @@
 /**
  * v0.9.82 问数结果导出前端工具测试：载荷组装（中文表头/明细投影与截断/KPI 格式化）、
  * Content-Disposition 文件名解析、导出动作成功/失败分支（mock apiFetch 与图表截图）。
+ * v0.9.92 补充下载兜底契约：成功返回 downloadUrl/filename 且工具层不 revoke（由调用方释放）。
 * @vitest-environment jsdom
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -163,6 +164,10 @@ describe('exportQueryResult', () => {
 
     expect(outcome.ok).toBe(true);
     expect(outcome.message).toContain('PDF 已导出');
+    // v0.9.92 下载兜底契约：返回 downloadUrl/filename 供 UI「保存文件」手动保存；工具层不 revoke
+    expect(outcome.downloadUrl).toBe('blob:mock');
+    expect(outcome.filename).toBe('问数结果.pdf');
+    expect((URL as unknown as { revokeObjectURL: ReturnType<typeof vi.fn> }).revokeObjectURL).not.toHaveBeenCalled();
     expect(mocks.captureElementPng).toHaveBeenCalledWith(root.firstElementChild, '#0f172a');
     const [path, init] = mocks.apiFetch.mock.calls[0];
     expect(path).toBe('/api/export/query-doc');

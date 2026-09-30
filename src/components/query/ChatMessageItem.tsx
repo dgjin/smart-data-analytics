@@ -22,6 +22,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   User,
+  X,
   XCircle,
   Zap,
 } from 'lucide-react';
@@ -140,17 +141,26 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
     };
   }, [resultFull]);
 
-  // v0.9.82 问数结果文档导出：按钮禁用态防重复提交；结果行内提示 4s 自动消退
+  // v0.9.82 问数结果文档导出：按钮禁用态防重复提交
+  // v0.9.92 下载兜底：成功提示常驻（浏览器可能静默拦截连续自动下载，需保留「保存文件」入口）；
+  // 失败提示 5s 自动消退；blob URL 由 lastDownloadUrlRef 持有，下次导出/组件卸载时释放
   const rootRef = useRef<HTMLDivElement>(null);
+  const lastDownloadUrlRef = useRef<string | null>(null);
   const [exporting, setExporting] = useState<QueryExportFormat | null>(null);
-  const [exportNotice, setExportNotice] = useState<{ ok: boolean; message: string } | null>(null);
+  const [exportNotice, setExportNotice] = useState<{ ok: boolean; message: string; downloadUrl?: string; filename?: string } | null>(null);
   const dsName = useAnalyticsStore((s) => s.dataSources.find((d) => d.id === s.activeDataSourceId)?.name || '');
   const dsId = useAnalyticsStore((s) => s.activeDataSourceId);
   useEffect(() => {
-    if (!exportNotice) return;
-    const timer = setTimeout(() => setExportNotice(null), 4000);
+    if (!exportNotice || exportNotice.ok) return;
+    const timer = setTimeout(() => setExportNotice(null), 5000);
     return () => clearTimeout(timer);
   }, [exportNotice]);
+  useEffect(
+    () => () => {
+      if (lastDownloadUrlRef.current) URL.revokeObjectURL(lastDownloadUrlRef.current);
+    },
+    [],
+  );
 
   /** v0.9.82 导出问数结果文档：截图本条消息的图表 → 服务端生成 PDF/Word/MD → 浏览器下载 */
   const handleExportResult = async (format: QueryExportFormat) => {
@@ -158,6 +168,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
     if (!qr || exporting) return;
     setExporting(format);
     setExportNotice(null);
+    // 释放上一次导出遗留的 blob URL
+    if (lastDownloadUrlRef.current) {
+      URL.revokeObjectURL(lastDownloadUrlRef.current);
+      lastDownloadUrlRef.current = null;
+    }
     const outcome = await exportQueryResult({
       format,
       title: msg.question || '分析结果',
@@ -168,7 +183,8 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
       rootEl: rootRef.current,
     });
     setExporting(null);
-    setExportNotice({ ok: outcome.ok, message: outcome.message });
+    lastDownloadUrlRef.current = outcome.downloadUrl || null;
+    setExportNotice({ ok: outcome.ok, message: outcome.message, downloadUrl: outcome.downloadUrl, filename: outcome.filename });
   };
 
   /** 结果区主体（KPI/洞察/图表/明细）：普通与全屏两态复用同一份 JSX，full 时图表加高、明细分页放大 */
@@ -741,47 +757,76 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
         )}
 
         {/* Query Result Analysis Dashboard Block（v0.9.38：头部工具条含全屏入口，主体两态复用 renderResultBody；
-            v0.9.82：工具条新增 PDF/Word/MD 文档导出） */}
+            v0.9.82：工具条新增 PDF/Word/MD 文档导出；
+            v0.9.92：导出按钮组加分组外壳强化辨识度 + 成功提示升级为常驻提示条（含「保存文件」手动兜底）） */}
         {msg.queryResult && (
           <div className="space-y-4 pt-2 border-t border-slate-800">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-[11px] text-slate-400 shrink-0">
                 分析结果 · 共 {msg.queryResult.totalCount} 行
               </span>
-              <div className="flex items-center space-x-1.5 flex-wrap justify-end">
-                <span className="flex items-center space-x-1 text-[11px] text-slate-400">
-                  <Download className="w-3 h-3" />
-                  <span>导出</span>
-                </span>
-                {QUERY_EXPORT_FORMATS.map(({ format, label }) => (
-                  <button
-                    key={format}
-                    onClick={() => handleExportResult(format)}
-                    disabled={exporting !== null}
-                    title={`导出为 ${label} 文档（含 AI 解读、KPI、SQL、图表与明细数据，带溯源水印）`}
-                    className="flex items-center space-x-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-cyan-300 text-[11px] font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {exporting === format && <Loader2 className="w-3 h-3 animate-spin" />}
-                    <span>{exporting === format ? '导出中' : label}</span>
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                {/* v0.9.92：导出按钮组独立分组外壳——亮底按钮 + 青色悬停，与全屏入口形成清晰的两组操作 */}
+                <div className="flex items-center gap-1 rounded-lg border border-slate-600/50 bg-slate-800/60 pl-2 pr-1 py-1">
+                  <span className="flex items-center gap-1 text-[11px] font-medium text-slate-200 shrink-0">
+                    <Download className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>导出</span>
+                  </span>
+                  {QUERY_EXPORT_FORMATS.map(({ format, label }) => (
+                    <button
+                      key={format}
+                      onClick={() => handleExportResult(format)}
+                      disabled={exporting !== null}
+                      title={`导出为 ${label} 文档（含 AI 解读、KPI、SQL、图表与明细数据，带溯源水印）`}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-slate-700/80 hover:bg-cyan-500/20 border border-slate-600/70 hover:border-cyan-500/50 text-slate-100 hover:text-cyan-200 text-[11px] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {exporting === format && <Loader2 className="w-3 h-3 animate-spin" />}
+                      <span>{exporting === format ? '导出中' : label}</span>
+                    </button>
+                  ))}
+                </div>
                 {/* v0.9.91：全屏入口改用青色强调样式，与中性色导出按钮组一眼区分（此前与导出按钮同款灰底、不易发现） */}
                 <button
                   onClick={() => setResultFull(true)}
                   title="全屏查看，图表与明细数据完整呈现（Esc 退出）"
-                  className="flex items-center space-x-1 px-2 py-1 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-[11px] font-medium transition-colors"
+                  className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-[11px] font-medium transition-colors"
                 >
                   <Maximize2 className="w-3 h-3" />
                   <span>全屏</span>
                 </button>
               </div>
             </div>
+            {/* v0.9.92 导出结果提示条：成功常驻——浏览器可能静默拦截连续自动下载，
+                「保存文件」按钮（用户手势）为必放行的兜底入口；失败 5s 自动消退；均可手动关闭 */}
             {exportNotice && (
               <div
                 role="status"
-                className={`text-[11px] ${exportNotice.ok ? 'text-emerald-400' : 'text-rose-400'}`}
+                className={`flex items-center gap-2 flex-wrap rounded-lg border px-2.5 py-1.5 text-[11px] ${
+                  exportNotice.ok
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                    : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                }`}
               >
-                {exportNotice.message}
+                {exportNotice.ok ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 shrink-0" />}
+                <span className="min-w-0">{exportNotice.message}</span>
+                {exportNotice.downloadUrl && (
+                  <a
+                    href={exportNotice.downloadUrl}
+                    download={exportNotice.filename}
+                    title="浏览器未自动下载？点击此处手动保存"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 font-semibold transition-colors shrink-0"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>保存文件</span>
+                  </a>
+                )}
+                <button
+                  onClick={() => setExportNotice(null)}
+                  title="关闭提示"
+                  className="ml-auto p-0.5 rounded text-current opacity-60 hover:opacity-100 hover:bg-white/10 transition-colors shrink-0"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
             )}
             {renderResultBody(false)}

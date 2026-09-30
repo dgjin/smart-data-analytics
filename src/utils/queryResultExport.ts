@@ -4,6 +4,10 @@
  * 链路：前端截图图表（domSnapshot）→ buildQueryExportPayload 组装载荷 →
  * POST /api/export/query-doc（服务端归一化截断 + 注入导出人水印 + 审计）→ blob 下载。
  * 文档定位「分析摘要」：明细前 100 行 / 前 12 列；完整数据请走「导出 CSV」通道（带下载审批保护）。
+ *
+ * v0.9.92 下载兜底：浏览器对同一页面会话内连续的非用户手势自动下载（a.click() 触发）会静默
+ * 拦截（首个文件正常、后续无感知丢失，UI 仍提示成功）→ 成功结果额外返回 downloadUrl/filename，
+ * 由调用方渲染「保存文件」按钮手动兜底（用户点击属真实手势，下载必放行）。
  */
 import { apiFetch } from '../api/client';
 import { QueryResultData } from '../types/analytics';
@@ -26,6 +30,10 @@ const MAX_EXPORT_COLUMNS = 12;
 export interface QueryExportOutcome {
   ok: boolean;
   message: string;
+  /** 成功时返回的 blob 下载地址（不自动释放）：浏览器拦截连续自动下载时供 UI「保存文件」手动兜底 */
+  downloadUrl?: string;
+  /** 成功时的最终文件名（服务端 Content-Disposition 优先，缺失时用本地兜底命名） */
+  filename?: string;
 }
 
 /** KPI 数值格式化：对齐 KPIStats 展示规则（整数千分位 / 非整数两位小数 / 字符串原样） */
@@ -155,9 +163,10 @@ export async function exportQueryResult(opts: ExportQueryResultOptions): Promise
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // 不在此处 revoke（v0.9.92）：保留 blob URL 供 UI「保存文件」手动兜底，
+    // 由调用方在下次导出或组件卸载时释放，避免内存泄漏
     const label = QUERY_EXPORT_FORMATS.find((f) => f.format === format)?.label || format.toUpperCase();
-    return { ok: true, message: `${label} 已导出（${formatBytes(blob.size)}，含溯源水印）` };
+    return { ok: true, message: `${label} 已导出（${formatBytes(blob.size)}，含溯源水印）`, downloadUrl: url, filename };
   } catch (err) {
     return { ok: false, message: getErrorMessage(err) || '导出失败' };
   }
