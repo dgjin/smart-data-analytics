@@ -1,0 +1,11 @@
+# Grafana 数据源自动配置：Loki（v0.9.94 可选日志采集栈）
+# 说明：仅当 docker-compose.monitoring.yml 以 --profile loki 启动时该数据源可达；
+# 未启用时数据源在 Grafana 中显示不可用（不影响 Prometheus 面板使用），启用后自动可用。
+apiVersion: 1
+datasources:
+  - name: Loki
+    uid: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false

@@ -24,7 +24,7 @@ router.use(requireOpsAccess);
 
 const VALID_STATUS = new Set(['NEW', 'ACK', 'RESOLVED']);
 const VALID_SEVERITY = new Set(['CRITICAL', 'ERROR', 'WARN', 'INFO']);
-const VALID_SOURCE = new Set(['audit', 'task', 'patrol', 'drift', 'fatal']);
+const VALID_SOURCE = new Set(['audit', 'task', 'patrol', 'drift', 'fatal', 'client']);
 /** 时间过滤白名单格式（原样传 DB，避免非法输入） */
 const TIME_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
 
@@ -141,11 +141,16 @@ async function transitionEvent(
   return { ok: true, status: toStatus };
 }
 
+/**
+ * 动作留痕：v0.9.94 起按操作通道归属审计域——智能体（OPS_API_TOKEN，requireOpsAccess
+ * 注入 id=0）的 ack/resolve 记 endpoint=ops_agent，与人工管理面板操作（endpoint=admin）
+ * 可区分检索；这是「发现→决策→执行→验证」证据链中执行环节的落账点。
+ */
 function auditTransition(action: string, id: number, who: string, note: string, userId: number): void {
   writeAudit({
     userId,
     username: who,
-    endpoint: 'admin',
+    endpoint: userId === 0 ? 'ops_agent' : 'admin',
     status: 'SUCCESS',
     detail: `运维事件 #${id} ${action}${note ? `：${note}` : ''}`,
   });

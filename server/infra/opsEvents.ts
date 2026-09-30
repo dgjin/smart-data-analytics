@@ -1,7 +1,8 @@
 /**
  * v0.9.93 自动运维事件流（自动运维智能体接入 P1-6）：
  * 把系统内已有业务语义的异常信号统一归集为 ops_events 行——审计异常终态（ERROR）/
- * 异步任务失败 / 巡检执行失败 / 知识库漂移 / 进程级致命异常（CRITICAL）。
+ * 异步任务失败 / 巡检执行失败 / 知识库漂移 / 进程级致命异常（CRITICAL）/
+ * 前端错误回流（v0.9.94，source=client，见 routes/clientErrors.ts）。
  * 自动运维智能体经 GET /api/ops/events 拉取 → POST ack → 执行动作 → POST resolve
  * 形成「发现-处置-留痕」闭环；运维动作同时写 query_audit_log 审计。
  *
@@ -18,7 +19,7 @@ import { getLogContext } from './asyncContext';
 import { observeOpsEvent } from './monitoring';
 
 export type OpsEventSeverity = 'CRITICAL' | 'ERROR' | 'WARN' | 'INFO';
-export type OpsEventSource = 'audit' | 'task' | 'patrol' | 'drift' | 'fatal';
+export type OpsEventSource = 'audit' | 'task' | 'patrol' | 'drift' | 'fatal' | 'client';
 export type OpsEventStatus = 'NEW' | 'ACK' | 'RESOLVED';
 
 export interface OpsEventInput {

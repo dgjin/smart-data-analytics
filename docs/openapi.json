@@ -233,6 +233,75 @@
         }
       }
     },
+    "/api/ops/client-errors": {
+      "post": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "reportClientError",
+        "summary": "v0.9.94 前端错误上报（匿名可报；IP 限流 20 次/分钟；归集为 source=client 运维事件）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "错误消息（截断 500）"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "出错页面 URL（缺省实体兜底取 pathname，截断 500）"
+                  },
+                  "page": {
+                    "type": "string",
+                    "description": "页面标识（如当前功能 Tab；作为事件去重实体，优先于 url 截断 128）"
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "出错脚本文件（截断 300）"
+                  },
+                  "lineno": {
+                    "type": "integer"
+                  },
+                  "colno": {
+                    "type": "integer"
+                  },
+                  "stack": {
+                    "type": "string",
+                    "description": "错误栈（截断 2000）"
+                  },
+                  "userAgent": {
+                    "type": "string",
+                    "description": "浏览器 UA（截断 300）"
+                  },
+                  "version": {
+                    "type": "string",
+                    "description": "前端版本标识（截断 40）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已受理（事件归集为异步 fail-open，响应不代表已入库）"
+          },
+          "400": {
+            "description": "message 缺失"
+          },
+          "429": {
+            "description": "上报过于频繁（每 IP 20 次/分钟）"
+          }
+        }
+      }
+    },
     "/api/ops/metrics": {
       "get": {
         "tags": [
@@ -502,7 +571,8 @@
                 "task",
                 "patrol",
                 "drift",
-                "fatal"
+                "fatal",
+                "client"
               ]
             }
           },

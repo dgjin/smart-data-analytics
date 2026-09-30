@@ -28,6 +28,7 @@ import {
   Scale,
   Server,
   Network,
+  Siren,
   X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
@@ -50,6 +51,8 @@ import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
 import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
+// v0.9.94 运维事件面板：自动运维事件流（智能体拉取/处置与人工共用同一 API）
+import { OpsEventsPanel } from './OpsEventsPanel';
 // v0.9.85 首启初始化向导 · L3 常驻入口卡片（未完成=向导入口 / 已完成=系统体检）
 import { SetupStatusCard } from '../setup/SetupStatusCard';
 // v0.9.56 规则治理整合：业务知识库与 SQL 样例库由「数据源与 Schema」迁入
@@ -79,7 +82,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（8 项，左栏导航切换） */
+/** 系统管理分类（9 项，左栏导航切换） */
 type AdminSection =
   | 'users'
   | 'org-structure'
@@ -88,6 +91,7 @@ type AdminSection =
   | 'ai-audit'
   | 'quality-monitoring'
   | 'patrol'
+  | 'ops-events'
   | 'system-config';
 
 /** 左栏分类导航：三域分组容器化；color/bar 为选中态图标色与左侧色条（分类色系沿用既有编码，巡检用 orange）；
@@ -128,6 +132,7 @@ const SECTION_GROUPS: {
     items: [
       { id: 'quality-monitoring', label: '质量监控', icon: Gauge, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       { id: 'patrol', label: '异常巡检', icon: Radar, color: 'text-orange-400', bar: 'bg-orange-500' },
+      { id: 'ops-events', label: '运维事件', icon: Siren, color: 'text-rose-400', bar: 'bg-rose-500' },
       { id: 'system-config', label: '系统配置', icon: Settings, color: 'text-slate-300', bar: 'bg-slate-500' },
     ],
   },
@@ -768,6 +773,9 @@ export const AdminPanel: React.FC = () => {
 
       {/* ============ 区块七：异常巡检（v0.9.52 起为巡检唯一入口，由 PatrolPanel 承载） ============ */}
       {section === 'patrol' && <PatrolPanel />}
+
+      {/* ============ 区块八：运维事件（v0.9.94 自动运维事件流：智能体与人工共用同一处置通道） ============ */}
+      {section === 'ops-events' && <OpsEventsPanel />}
         </div>
       </div>
 

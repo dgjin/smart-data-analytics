@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.9.93",
+  "version": "0.9.94",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -17,6 +17,7 @@
     "docs:check": "node scripts/checkOpenapi.mjs",
     "state:check": "tsx scripts/check-stateless.ts",
     "metrics:reconcile": "tsx scripts/reconcile-metrics.ts",
+    "logs:reconcile": "tsx scripts/reconcile-logs.ts",
     "eval": "tsx server/eval/runEval.ts",
     "eval:seed": "tsx server/eval/seedEvalDatasource.ts",
     "eval:retrieval": "tsx server/eval/retrievalRunner.ts",

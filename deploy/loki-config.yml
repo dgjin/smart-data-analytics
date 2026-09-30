@@ -1,0 +1,52 @@
+# Loki 单机配置（v0.9.94 可选日志采集栈，profile=loki 时启用）
+# 定位：应用结构化日志（JSONL）的集中查询/聚合层——与本地文件兜底（start.sh 保留策略）双轨并存；
+# 默认不启动（compose profile），启用方式：docker-compose -f docker-compose.monitoring.yml --profile loki up -d
+# 说明：
+# - 单进程模式（目标开发/单机环境）：filesystem 存储 + inmemory ring，无需外部对象存储；
+# - 保留期 7 天（与本地归档 LOG_KEEP_DAYS 默认 14 天形成「近期可查 + 长期兜底」分层）；
+# - 采集端 promtail 只做纯收集（不解析 JSON）——LogQL 查询时用 | json 按需解析，
+#   避免 pipeline 出错丢行；查询入口为 Grafana「Loki」数据源（已随 provisioning 提供）。
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# 保留期与压缩：超过 7 天的日志由 compactor 清理（查询聚焦近期；更早历史查本地归档文件）
+limits_config:
+  retention_period: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules

@@ -20,15 +20,51 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # 【BEGIN-OPS-AGENT】（v0.9.94）自动运维智能体旁路：业务告警复制推送至 OPS_AGENT_WEBHOOK_URL
+    # （智能体侧承接端；与其拉取的 /api/ops/events 双通道互备——推送用于实时感知，拉取用于兜底恢复）。
+    # continue: true —— 告警继续流向下方主通道（webhook），旁路仅复制不替代；
+    # aiops_demo != "true" 排除演示告警，避免污染本系统智能体。
+    # 未配置 OPS_AGENT_WEBHOOK_URL 时由 entrypoint.sh 删除本段与 receivers 中的同标记段。
+    - matchers: ['severity =~ "critical|warning"', 'aiops_demo != "true"']
+      receiver: ops-agent
+      continue: true
+    # 【END-OPS-AGENT】
+
+    # 【AIOps Agent 接入点】带 aiops_demo="true" 标签的告警转发至本地自动修复智能体（WP1 感知层）。
+    # 置于 critical 子路由之前以保证优先匹配（演示告警可带 critical 标签，须拦截其落入下方 critical 子路由）；
+    # 接入服务：AIOps Agent 工作区 aiops-agent/alert_webhook.py（默认端口 8099）。
+    - matchers: ['aiops_demo = "true"']
+      receiver: aiops-agent
+      group_wait: 5s
+      repeat_interval: 1h
+
     # critical 告警更频繁提醒
     - matchers: ['severity = critical']
       repeat_interval: 1h
+
+    # 兜底主通道（v0.9.94）：显式保留 webhook 接收——上面旁路带 continue 时 Alertmanager 语义为
+    # 「任一 continue 子路由命中后父 receiver 不再自动接收」，非 critical 告警同样须送达主通道。
+    - matchers: ['alertname =~ ".+"']
 
 receivers:
   - name: webhook
     webhook_configs:
       - url: '__ALERT_WEBHOOK_URL__'
         send_resolved: true
+
+  # 【BEGIN-OPS-AGENT】（v0.9.94）自动运维智能体推送通道（地址由 entrypoint.sh 渲染）；
+  # 未配置 OPS_AGENT_WEBHOOK_URL 时随 routes 中的同标记段一并删除
+  - name: ops-agent
+    webhook_configs:
+      - url: '__OPS_AGENT_WEBHOOK_URL__'
+        send_resolved: false
+  # 【END-OPS-AGENT】
+
+  # 【AIOps Agent 接入点】本地告警接入服务（aiops-agent/alert_webhook.py，默认 8099）
+  - name: aiops-agent
+    webhook_configs:
+      - url: 'http://host.docker.internal:8099/webhook'
+        send_resolved: false
 
   # - name: email
   #   email_configs:

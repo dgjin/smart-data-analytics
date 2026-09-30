@@ -2,6 +2,9 @@
 # 用法：
 #   docker compose -f docker-compose.monitoring.yml up -d
 #   Prometheus: http://localhost:9090    Grafana: http://localhost:3100（admin / ${GRAFANA_ADMIN_PASSWORD:-admin}）
+# 可选日志采集栈（v0.9.94，默认不启动）：追加 --profile loki，启用 Loki + Promtail
+#   docker compose -f docker-compose.monitoring.yml --profile loki up -d
+#   Loki 查询 UI: http://localhost:3200    Grafana 数据源「Loki」自动可用
 # 说明：
 # - 本栈只编排监控组件；应用/MySQL/Redis/Ollama 使用既有实例，容器内经 host.docker.internal 回宿主机；
 # - 应用侧需先启动（npm run dev / node dist/server.cjs），/metrics 端点方可抓取；
@@ -37,6 +40,8 @@ services:
     environment:
       # 通知 Webhook 地址：企业微信/钉钉网关或自研接收端；未设置时指向弃包端口（静默黑洞，仅 UI 可见）
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-http://127.0.0.1:9/blackhole}
+      # 自动运维智能体旁路推送地址（v0.9.94）：智能体的告警接收端点；未设置时该旁路不启用（配置段自动裁剪）
+      OPS_AGENT_WEBHOOK_URL: ${OPS_AGENT_WEBHOOK_URL:-}
     ports:
       - '9093:9093'
     volumes:
@@ -94,7 +99,40 @@ services:
       - '9104:9104'
     restart: unless-stopped
 
+  # ===== 可选日志采集栈（v0.9.94，profile=loki；默认不启动） =====
+  # 定位：应用 JSONL 日志的集中查询层（Grafana 数据源「Loki」），与本地文件兜底双轨并存。
+  # 宿主日志目录经 LOG_DIR 指定（默认 ./logs，与 start.sh 的 LOG_FILE 一致），只读挂载给 promtail。
+  # 注意：路径须在 Docker VM 共享范围内（colima 仅共享 $HOME）——项目 logs/ 满足；勿指向 macOS /tmp。
+  loki:
+    image: grafana/loki:3.1.1
+    profiles: ['loki']
+    command:
+      - '-config.file=/etc/loki/loki-config.yml'
+    ports:
+      # 宿主 3200（3100 已被 Grafana 占用）；Grafana 经容器网络 http://loki:3100 访问
+      - '3200:3100'
+    volumes:
+      - ./deploy/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    profiles: ['loki']
+    command:
+      - '-config.file=/etc/promtail/promtail-config.yml'
+    volumes:
+      - ./deploy/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - promtail-positions:/promtail
+      # 宿主日志目录（LOG_DIR，默认项目 logs/）→ 容器内 /var/log/nl2sql（与 promtail __path__ 对齐）
+      - ${LOG_DIR:-./logs}:/var/log/nl2sql:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
 volumes:
   prometheus-data:
   grafana-data:
   alertmanager-data:
+  loki-data:
+  promtail-positions:

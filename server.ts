@@ -86,6 +86,8 @@ import { logger } from './server/infra/logger';
 import { recordOpsEvent } from './server/infra/opsEvents';
 // v0.9.93 自动运维 API（事件流查询/确认 + 服务日志尾读，见 server/routes/opsEvents.ts）
 import opsEventsRoutes from './server/routes/opsEvents';
+// v0.9.94 前端错误上报（匿名可报，见 server/routes/clientErrors.ts）
+import clientErrorsRoutes from './server/routes/clientErrors';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -336,6 +338,9 @@ async function startServer() {
   // v0.9.24 决策看板固化图表 / 灵活查询固定报表与历史（见 server/routes/dashboardWidgets.ts、flexQueries.ts）
   app.use('/api/dashboard-widgets', dashboardWidgetRoutes);
   app.use('/api/flex-queries', flexQueryRoutes);
+  // v0.9.94 前端错误上报（日志评估 P2-12，见 server/routes/clientErrors.ts）：
+  // 匿名可报，必须先于下方 /api/ops 系列 router 挂载——后者的 router.use 鉴权会拦截陌生子路径
+  app.use('/api/ops/client-errors', clientErrorsRoutes);
   // P0-4 在线准确率度量看板（见 server/routes/opsMetrics.ts）
   app.use('/api/ops', opsMetricsRoutes);
   // P0 血缘管理优化：数据血缘图（见 server/routes/lineage.ts）

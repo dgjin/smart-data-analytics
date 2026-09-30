@@ -11,7 +11,9 @@ cd "$(dirname "$0")"
 # 双击 .command 时 PATH 精简，补齐 node/mysql/redis/ollama 常见安装位置
 export PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 
-LOG_FILE="/tmp/app_server.log"
+# 日志固定落项目 logs/（勿改回 /tmp：macOS 的 /tmp 不在 colima 等 Docker VM 共享目录内，
+# Loki/promtail 采集挂载不到；且系统会清理 /tmp 超龄文件，破坏归档保留策略）
+LOG_FILE="$PWD/logs/app_server.log"
 APP_URL="http://localhost:3000"
 
 say()  { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -134,12 +136,20 @@ if lsof -ti :3000 >/dev/null 2>&1; then
   sleep 1
 fi
 
-# v0.9.93 日志治理：启动前归档旧日志（保留最近 5 份，按时间滚动），追加写防历史丢失；
+# v0.9.93 日志治理 / v0.9.94 保留策略参数化：启动前归档旧日志，追加写防历史丢失；
+# 保留策略双条件（.env.local 可调）：最近 LOG_KEEP_MIN 份（默认 5）永远保留不作年龄清理，
+# 其余归档超过 LOG_KEEP_DAYS 天（默认 14）删除——防长期运行磁盘写满（磁盘水位另有 Prometheus 告警）；
 # 导出 LOG_FILE 给应用——/api/ops/logs（自动运维智能体）尾读该文件，与重定向目标同一路径
 export LOG_FILE
+mkdir -p "$(dirname "${LOG_FILE}")"
 if [ -f "${LOG_FILE}" ]; then
   mv "${LOG_FILE}" "${LOG_FILE%.log}-$(date +%Y%m%d-%H%M%S).log"
-  ls -t /tmp/app_server-*.log 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+  LOG_KEEP_MIN=$(env_get LOG_KEEP_MIN);   case "$LOG_KEEP_MIN"  in ''|*[!0-9]*) LOG_KEEP_MIN=5   ;; esac
+  LOG_KEEP_DAYS=$(env_get LOG_KEEP_DAYS); case "$LOG_KEEP_DAYS" in ''|*[!0-9]*) LOG_KEEP_DAYS=14 ;; esac
+  ls -t "${LOG_FILE%.log}"-*.log 2>/dev/null | tail -n +$((LOG_KEEP_MIN + 1)) | while IFS= read -r f; do
+    find "$f" -mtime +"${LOG_KEEP_DAYS}" -delete 2>/dev/null || true
+  done
+  say "日志保留策略：最近 ${LOG_KEEP_MIN} 份保底，超 ${LOG_KEEP_DAYS} 天归档清理"
 fi
 
 say "启动应用服务（日志：${LOG_FILE}）..."

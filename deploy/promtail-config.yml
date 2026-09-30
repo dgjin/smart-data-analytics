@@ -1,0 +1,26 @@
+# Promtail 采集配置（v0.9.94 可选日志采集栈，profile=loki 时启用）
+# 定位：把应用日志文件（start.sh 重定向的项目 logs/app_server.log）增量推送到 Loki；
+# 采集策略：
+# - __path__ 匹配活跃日志 + 轮转归档（app_server*.log）——重启后归档日志同样可查，无查询盲区；
+#   注意：start.sh 以 mv 方式轮转，归档文件首次被发现时会被补采一次（与已采内容重复），
+#   查询端可用 LogQL `dedup` / 按 ts 排序去重，属已知取舍（换取「归档全量可查」）；
+# - 纯收集不做 JSON pipeline（字段解析交给查询端 | json），规避 pipeline 出错丢行；
+# - positions 持久化在卷内：容器重启不重采已读部分。
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /promtail/positions.yml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: nl2sql-app
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nl2sql-app
+          __path__: /var/log/nl2sql/app_server*.log
