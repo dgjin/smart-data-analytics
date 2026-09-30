@@ -765,10 +765,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                     <span>{exporting === format ? '导出中' : label}</span>
                   </button>
                 ))}
+                {/* v0.9.91：全屏入口改用青色强调样式，与中性色导出按钮组一眼区分（此前与导出按钮同款灰底、不易发现） */}
                 <button
                   onClick={() => setResultFull(true)}
                   title="全屏查看，图表与明细数据完整呈现（Esc 退出）"
-                  className="flex items-center space-x-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-cyan-300 text-[11px] font-medium transition-colors"
+                  className="flex items-center space-x-1 px-2 py-1 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/40 text-cyan-300 text-[11px] font-medium transition-colors"
                 >
                   <Maximize2 className="w-3 h-3" />
                   <span>全屏</span>
