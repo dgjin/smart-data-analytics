@@ -7,8 +7,10 @@
  *   内存模式单机回退；独立限额，错误爆发不挤占全局 RATE_LIMIT_MAX 桶）+ 字段全量截断。
  * - 事件归集：recordOpsEvent（source=client / category=FRONTEND / severity=ERROR），
  *   同页面同键错误 15 分钟窗口自动合并（dedup_count 计次），不灌表不刷屏。
- * - 日志降噪：上报明细落 logger.debug（默认 info 阈值不落盘；LOG_LEVEL=debug 可诊断），
- *   防止前端错误风暴刷满服务日志——事件表才是主通道。
+ * - 日志落盘（v0.9.96 修订）：上报摘要改走 logger.warn（stderr → app_server.log →
+ *   ship_app_logs → Loki），使前端异常进入自动运维智能体 triage 证据链——此前 debug
+ *   不落盘导致白屏类故障证据缺失、根因置信度恒低于闸门 1 阈值被转人工；
+ *   防噪仍由双端限流 + 15 分钟事件合并兜底。
  * - 一切异常 fail-open：限流/归集失败绝不影响前端（上报本身是旁路数据，丢失无害）。
  */
 import { Router } from 'express';
@@ -70,7 +72,7 @@ router.post('/', async (req, res) => {
       version: truncate(body.version, 40),
     },
   });
-  logger.debug(`[ClientError] ${message}${page ? ` @ ${page}` : ''}`);
+  logger.warn(`[ClientError] ${message}${page ? ` @ ${page}` : ''}`);
   return res.json({ success: true });
 });
 
