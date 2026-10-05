@@ -28,10 +28,13 @@ registerServiceWorker();
 // 为无 URL 路由 SPA 提供事件去重实体的页面区隔度）
 initClientErrorReporting({ getPage: () => useAnalyticsStore.getState().activeTab });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </StrictMode>,
-);
+const rootEl = document.getElementById('root');
+if (rootEl) {
+  createRoot(rootEl).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+}
