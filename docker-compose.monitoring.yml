@@ -26,6 +26,7 @@ services:
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./deploy/aiops-demo-rules.yml:/etc/prometheus/aiops-demo-rules.yml:ro
       - prometheus-data:/prometheus
     depends_on:
       - alertmanager

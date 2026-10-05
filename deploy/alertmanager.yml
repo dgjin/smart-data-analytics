@@ -31,12 +31,20 @@ route:
     # 【END-OPS-AGENT】
 
     # 【AIOps Agent 接入点】带 aiops_demo="true" 标签的告警转发至本地自动修复智能体（WP1 感知层）。
-    # 置于 critical 子路由之前以保证优先匹配（演示告警可带 critical 标签，须拦截其落入下方 critical 子路由）；
+    # 置于 critical 子路由之前以保证优先匹配；continue: true —— 复制而非替代：
+    # 告警在进 AIOps 自动修复的同时继续流向下方主通道（webhook），保留常规通知路径
+    # （2026-10 接入 prometheus-alerts 业务规则时由「拦截」调整为「复制」）。
+    # repeat_interval: 5m —— 机制说明（2026-10-04 实测）：Alertmanager 对「内容未变化」的告警组
+    # 仅在 repeat_interval 到期后才重发，且同一 labelset「恢复后再次故障」不被视为内容变化
+    # （startsAt 刷新不计入内容哈希）；间隔过长（原 1h）会把二次故障延迟到下一周期才被感知。
+    # 5m 重发由 AIOps 侧幂等层吸收：alert_id = fingerprint+startsAt（同周期重复投递 → duplicates
+    # 去重；新周期 startsAt 刷新 → 正常发起新 workflow），resolved 不发送（send_resolved: false）。
     # 接入服务：AIOps Agent 工作区 aiops-agent/alert_webhook.py（默认端口 8099）。
     - matchers: ['aiops_demo = "true"']
       receiver: aiops-agent
       group_wait: 5s
-      repeat_interval: 1h
+      repeat_interval: 5m
+      continue: true
 
     # critical 告警更频繁提醒
     - matchers: ['severity = critical']

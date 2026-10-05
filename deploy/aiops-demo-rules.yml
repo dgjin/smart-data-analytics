@@ -1,0 +1,58 @@
+# AIOps Agent 告警规则集 v1（WP1 交付物）
+# 接入状态（2026-10-04）：已挂载生效——
+#   - docker-compose.monitoring.yml prometheus.volumes 挂载本文件
+#   - deploy/prometheus.yml rule_files 加载 /etc/prometheus/aiops-demo-rules.yml
+# 本文件 4 条 + deploy/prometheus-alerts.yml 业务规则（已加 aiops_demo="true"）经
+# Alertmanager 子路由转发至 AIOps 告警接入服务（aiops-agent/alert_webhook.py:8099），
+# 自动发起修复流程（工作流侧幂等 + 三闸门防护）。
+# 规则设计对齐实施计划 WP1：阈值 + 环比基线；分组与抑制沿用该栈既有配置
+# （route.group_by: [alertname, service] + inhibit_rules 防告警风暴）。
+# 语法校验：docker exec nl2sql-monitoring-prometheus-1 promtool check rules /etc/prometheus/aiops-demo-rules.yml
+
+groups:
+  - name: aiops-demo-infra
+    rules:
+      # 主机 CPU 高水位（阈值：>85% 持续 1 分钟）
+      - alert: NodeCpuUsageHigh
+        expr: 100 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100 > 85
+        for: 1m
+        labels: { severity: critical, service: node, aiops_demo: "true" }
+        annotations:
+          summary: "主机 CPU 使用率超过 85%"
+          description: "实例 {{ $labels.instance }} 近 5 分钟 CPU 使用率 {{ printf \"%.1f\" $value }}%，持续 1 分钟以上，可能影响其上全部服务。"
+
+      # MySQL 可用连接数逼近耗尽（阈值：剩余 <20）
+      - alert: MysqlConnectionsNearLimit
+        expr: mysql_global_variables_max_connections - mysql_global_status_threads_connected < 20
+        for: 2m
+        labels: { severity: critical, service: mysql, aiops_demo: "true" }
+        annotations:
+          summary: "MySQL 可用连接数不足 20"
+          description: "当前已用连接 {{ $labels.instance }} 逼近 max_connections 上限，新请求可能被拒绝，需排查连接泄漏或调大上限。"
+
+      # Redis 内存使用率过高（阈值：>85%；未配置 maxmemory 时该序列被门槛过滤，不误报）
+      - alert: RedisMemoryUsageHigh
+        expr: |
+          (redis_memory_used_bytes / redis_memory_max_bytes > 0.85)
+            and redis_memory_max_bytes > 0
+        for: 2m
+        labels: { severity: warning, service: redis, aiops_demo: "true" }
+        annotations:
+          summary: "Redis 内存使用率超过 85%"
+          description: "缓存层内存接近 maxmemory 上限，继续增长将触发逐出（eviction）导致命中率下降。"
+
+  - name: aiops-demo-business
+    rules:
+      # 问数错误率环比突增（环比基线：与 1 小时前同窗口比较，突增 3 倍以上且绝对量有流量门槛）
+      - alert: Nl2sqlErrorRateSpike
+        expr: |
+          (
+            sum(rate(nl2sql_requests_total{status="ERROR"}[5m]))
+              > 3 * sum(rate(nl2sql_requests_total{status="ERROR"}[5m] offset 1h))
+          )
+          and sum(rate(nl2sql_requests_total{status="ERROR"}[5m])) > 0.001
+        for: 2m
+        labels: { severity: critical, service: nl2sql, aiops_demo: "true" }
+        annotations:
+          summary: "问数错误率环比突增 3 倍以上"
+          description: "近 5 分钟 ERROR 速率较 1 小时前基线突增，常见于 LLM 引擎异常或数据源故障，优先检查依赖可用性。"

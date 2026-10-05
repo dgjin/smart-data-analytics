@@ -9,7 +9,7 @@ groups:
       - alert: Nl2sqlAppDown
         expr: up{job="nl2sql-app"} == 0
         for: 1m
-        labels: { severity: critical, service: nl2sql }
+        labels: { severity: critical, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "问数应用实例不可达"
           description: "实例 {{ $labels.instance }} 已连续 1 分钟无法抓取 /metrics，服务可能已宕机。"
@@ -18,7 +18,7 @@ groups:
       - alert: MySQLDown
         expr: up{job="mysql"} == 0
         for: 1m
-        labels: { severity: critical, service: mysql }
+        labels: { severity: critical, service: mysql, aiops_demo: "true" }
         annotations:
           summary: "MySQL exporter 不可达或 MySQL 宕机"
           description: "mysql-exporter 已连续 1 分钟抓取失败，系统元数据库可能不可用（登录/审计/缓存索引均受影响）。"
@@ -27,7 +27,7 @@ groups:
       - alert: RedisDown
         expr: up{job="redis"} == 0
         for: 2m
-        labels: { severity: warning, service: redis }
+        labels: { severity: warning, service: redis, aiops_demo: "true" }
         annotations:
           summary: "Redis 缓存层不可达"
           description: "redis-exporter 已连续 2 分钟抓取失败；应用将回退进程内缓存（多实例语义缓存/限流共享状态失效）。"
@@ -40,7 +40,7 @@ groups:
           sum(rate(nl2sql_requests_total{status=~"SUCCESS|CACHE"}[5m]))
             / sum(rate(nl2sql_requests_total{endpoint="query"}[5m])) < 0.85
         for: 5m
-        labels: { severity: critical, service: nl2sql }
+        labels: { severity: critical, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "问数成功率低于 85%"
           description: "近 5 分钟成功率 {{ $value | humanizePercentage }}，请检查 LLM 引擎与数据源可用性。"
@@ -51,7 +51,7 @@ groups:
           histogram_quantile(0.95,
             sum(rate(nl2sql_duration_seconds_bucket{status=~"SUCCESS|FALLBACK"}[10m])) by (le)) > 180
         for: 10m
-        labels: { severity: warning, service: nl2sql }
+        labels: { severity: warning, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "问数端到端 P95 时延超过 180s"
           description: "近 10 分钟 P95 = {{ $value }}s，检查 LLM 模型负载（llm_call_duration）与 SQL 执行耗时（sql_execute_duration）占比定位瓶颈。"
@@ -65,7 +65,7 @@ groups:
           )
           and sum(rate(nl2sql_requests_total{endpoint="query"}[1h])) > 0.005
         for: 1h
-        labels: { severity: warning, service: nl2sql }
+        labels: { severity: warning, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "查询缓存命中率低于 15%（有流量前提下）"
           description: "近 1 小时命中率 {{ $value | humanizePercentage }}；检查数据源变更后失效联动（invalidateQueryCache）与 QUERY_CACHE_TTL_MINUTES 配置。"
@@ -76,7 +76,7 @@ groups:
           sum(rate(nl2sql_requests_total{status="FALLBACK"}[30m]))
             / sum(rate(nl2sql_requests_total{endpoint="query"}[30m])) > 0.15
         for: 30m
-        labels: { severity: warning, service: nl2sql }
+        labels: { severity: warning, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "问数 FALLBACK 降级率超过 15%"
           description: "近 30 分钟降级率 {{ $value | humanizePercentage }}（基线 7.9%），多为 SQL 生成/执行反复失败，检查 LLM 输出质量与数据源 schema 同步状态。"
@@ -87,7 +87,7 @@ groups:
       - alert: AppMemoryHigh
         expr: process_resident_memory_bytes{job="nl2sql-app"} > 1.5 * 1024 * 1024 * 1024
         for: 15m
-        labels: { severity: warning, service: nl2sql }
+        labels: { severity: warning, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "应用进程常驻内存超过 1.5GiB"
           description: "实例 {{ $labels.instance }} 内存 {{ $value | humanize1024 }}B 持续 15 分钟，疑似泄漏（关注 embedding 缓存/审计缓冲）。"
@@ -98,7 +98,7 @@ groups:
           1 - (node_filesystem_avail_bytes{mountpoint=~"/|/host", fstype!~"tmpfs|overlay|devfs|map.*"}
                  / node_filesystem_size_bytes{mountpoint=~"/|/host", fstype!~"tmpfs|overlay|devfs|map.*"}) > 0.85
         for: 10m
-        labels: { severity: warning, service: infra }
+        labels: { severity: warning, service: infra, aiops_demo: "true" }
         annotations:
           summary: "磁盘使用率超过 85%"
           description: "挂载点 {{ $labels.mountpoint }} 可用空间不足 15%，关注 Prometheus 时序库与 MySQL 数据增长。"
@@ -110,7 +110,7 @@ groups:
       - alert: OpsEventHighSeverity
         expr: increase(ops_events_recorded_total{severity=~"CRITICAL|ERROR"}[10m]) > 0
         for: 0m
-        labels: { severity: warning, service: nl2sql }
+        labels: { severity: warning, service: nl2sql, aiops_demo: "true" }
         annotations:
           summary: "近 10 分钟出现高严重度运维事件（CRITICAL/ERROR）"
           description: "新增 {{ $value | humanize }} 条（severity={{ $labels.severity }}, category={{ $labels.category }}）；拉取 /api/ops/events?status=NEW 查看并处置。"

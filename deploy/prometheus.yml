@@ -7,6 +7,7 @@ global:
 # P1：告警规则加载 + Alertmanager 通知
 rule_files:
   - /etc/prometheus/alerts.yml
+  - /etc/prometheus/aiops-demo-rules.yml
 
 alerting:
   alertmanagers:
