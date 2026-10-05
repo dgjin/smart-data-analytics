@@ -246,6 +246,21 @@ async function startServer() {
 
   logger.info(`[AI Engine] ${llmEngineLabel()}`);
 
+  // AIOps Manifest v1.0 标准接口（匿名可读）：供 AIOps 平台探测接入（探测/巡检/日志/索引全链路自动适配）
+  // 规范见 AIOps 仓库《被监控系统标准接口改造方案.md》；字段须与 logs/、/api/health 的事实保持一致
+  const AIOPS_MANIFEST = {
+    spec_version: '1.0',
+    service: 'nl2sql', // 与 Loki 标签 / 告警 / AIOps 清单一致
+    name: '智能问数据分析系统',
+    probe_keyword: '<div id="root"', // 根页面挂载点：兼作白屏判据与修复后金丝雀验证契约
+    health_path: '/',
+    metrics_path: '/metrics', // 已启用 METRICS_TOKEN 时外部匿名访问会 401（当前未启用）
+    log_path: '/Users/dgjin/dgjinapp/智能问数据分析系统/logs/app_server*.log',
+    protected_paths: ['server/auth/**'], // 预留声明：当前 AIOps 版本仅校验格式，未接入消费（现行机制为策略文件全局目录）
+    test_command: 'npm test', // 信息性（vitest run）
+  };
+  app.get('/.well-known/aiops.json', (_req, res) => { res.json(AIOPS_MANIFEST); });
+
   // 1. API Endpoint: Health check (public)
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
