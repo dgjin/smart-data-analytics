@@ -22,3 +22,6 @@ backups/
 
 # Qoder Quest 长任务执行记录（单文件最大 130MB，超出 GitHub 100MB 限制，仅本地留存）
 docs/project-memory/transcript/*.session.execution.jsonl
+
+# 运行日志目录（应用/脚本本地产物，不入库）
+logs/
