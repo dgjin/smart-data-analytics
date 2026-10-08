@@ -454,6 +454,11 @@ table.tbl tr:nth-child(even) td { background: rgba(22, 35, 58, 0.028); }
 .slide.is-active .anim-stagger-list > *:nth-child(4) { animation: pptFadeUp 0.5s 0.38s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
 .slide.is-active .anim-stagger-list > *:nth-child(5) { animation: pptFadeUp 0.5s 0.49s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
 .slide.is-active .anim-stagger-list > *:nth-child(6) { animation: pptFadeUp 0.5s 0.60s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.slide.is-active .anim-stagger-list > *:nth-child(7) { animation: pptFadeUp 0.5s 0.71s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.slide.is-active .anim-stagger-list > *:nth-child(8) { animation: pptFadeUp 0.5s 0.82s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.slide.is-active .anim-stagger-list > *:nth-child(9) { animation: pptFadeUp 0.5s 0.93s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.slide.is-active .anim-stagger-list > *:nth-child(10) { animation: pptFadeUp 0.5s 1.04s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
+.slide.is-active .anim-stagger-list > *:nth-child(11) { animation: pptFadeUp 0.5s 1.15s cubic-bezier(0.2, 0.7, 0.3, 1) forwards; }
 
 /* ============ 演讲者备注（默认隐藏，N 抽屉 / S 弹窗显示） ============ */
 .notes { display: none; }
