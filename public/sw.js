@@ -4,15 +4,18 @@
  * 缓存策略（三线分流）：
  * 1) 导航请求（mode === 'navigate'）：网络优先——在线永远拿到最新 index.html，
  *    离线回退缓存的壳（以 '/' 为键），再无则返回内置离线页；
- * 2) 同源 GET 静态资源（/assets/* hash 产物、图标等）：缓存优先，未命中请求网络并回填；
+ * 2) 同源 GET 静态资源（/assets/*、dev 模块 /src/*、图标等）：网络优先，成功后回填缓存；
+ *    离线回退缓存。不能用缓存优先：无 hash 路径（dev 模块、图标）会被钉在旧版本，
+ *    导致源码/图标更新后页面仍显示旧内容；
  * 3) /api/** 与其他非 GET / 跨域请求：一律直通（NetworkOnly）——业务数据与鉴权
  *    token 绝不写入 CacheStorage（含 SSE 流式问数）。
  *
  * 更新机制：本文件由服务端以 Cache-Control: no-cache 提供；页面每次加载触发
- * registration.update() 探测。导航网络优先 + activate 清理旧缓存，保证新版本
- * 部署后用户刷新一次即生效（CACHE 名中的版本号仅用于缓存清理命名）。
+ * registration.update() 探测。导航与静态资源均网络优先 + activate 清理旧缓存，
+ * 保证新版本部署后用户刷新一次即生效（CACHE 名中的版本号仅用于缓存清理命名，
+ * 策略变更时递增以触发 SW 更新与全量旧缓存清理）。
  */
-const CACHE = 'nl2sql-app-v1';
+const CACHE = 'nl2sql-app-v2';
 const PRECACHE = [
   '/',
   '/manifest.webmanifest',
@@ -112,20 +115,24 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 同源 GET 静态资源：缓存优先（Vite 产物为 hash 文件名，缓存天然安全）
+  // 同源 GET 静态资源：网络优先，离线回退缓存（在线永远最新；离线兜底不退化）
   event.respondWith((async () => {
-    const cached = await caches.match(request);
-    if (cached) return cached;
-    const response = await fetch(request);
-    // 先完成回填再返回：await 保证写入，失败不影响本次响应
-    if (response.ok) {
-      try {
-        const cache = await caches.open(CACHE);
-        await cache.put(request, response.clone());
-      } catch {
-        /* 缓存写入失败不影响本次响应 */
+    try {
+      const response = await fetch(request);
+      // 先完成回填再返回：await 保证写入，失败不影响本次响应
+      if (response.ok) {
+        try {
+          const cache = await caches.open(CACHE);
+          await cache.put(request, response.clone());
+        } catch {
+          /* 缓存写入失败不影响本次响应 */
+        }
       }
+      return response;
+    } catch {
+      const cached = await caches.match(request);
+      if (cached) return cached;
+      return Response.error();
     }
-    return response;
   })());
 });

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerServiceWorker, shouldRegisterServiceWorker } from './register';
 
 /** 注入/移除 navigator.serviceWorker（jsdom 不实现 ServiceWorker API） */
-function stubServiceWorker(value: { register?: unknown } | undefined): void {
+function stubServiceWorker(value: { register?: unknown; getRegistrations?: unknown } | undefined): void {
   if (value === undefined) {
     Reflect.deleteProperty(navigator, 'serviceWorker');
   } else {
@@ -17,6 +17,7 @@ function stubServiceWorker(value: { register?: unknown } | undefined): void {
 afterEach(() => {
   stubServiceWorker(undefined);
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('shouldRegisterServiceWorker', () => {
@@ -42,6 +43,32 @@ describe('registerServiceWorker', () => {
     registerServiceWorker(false);
     expect(addSpy).not.toHaveBeenCalled();
     expect(register).not.toHaveBeenCalled();
+  });
+
+  it('非生产环境自愈：注销遗留 SW 注册并清空 CacheStorage', async () => {
+    const unregister = vi.fn().mockResolvedValue(true);
+    const getRegistrations = vi.fn().mockResolvedValue([{ unregister }, { unregister }]);
+    const cachesStub = {
+      keys: vi.fn().mockResolvedValue(['nl2sql-app-v1']),
+      delete: vi.fn().mockResolvedValue(true),
+    };
+    vi.stubGlobal('caches', cachesStub);
+    stubServiceWorker({ register: vi.fn(), getRegistrations });
+
+    registerServiceWorker(false);
+
+    await vi.waitFor(() => {
+      expect(getRegistrations).toHaveBeenCalled();
+      expect(unregister).toHaveBeenCalledTimes(2);
+    });
+    await vi.waitFor(() => {
+      expect(cachesStub.delete).toHaveBeenCalledWith('nl2sql-app-v1');
+    });
+  });
+
+  it('非生产环境无注册管理 API / 清理失败时静默（不抛错、不影响启动）', () => {
+    stubServiceWorker({ register: vi.fn() });
+    expect(() => registerServiceWorker(false)).not.toThrow();
   });
 
   it('生产环境在 load 后以根路径 scope 注册 /sw.js 并探测一次更新', async () => {
