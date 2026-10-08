@@ -221,13 +221,14 @@ export const Header: React.FC = () => {
         {/* PWA：安装为桌面应用（Chrome 触发 beforeinstallprompt 且未安装时显示） */}
         <InstallAppButton />
 
-        {/* v0.9.98 需求收集与意见反馈：提交需求/建议/缺陷，跟踪评估与基线状态 */}
+        {/* v0.9.99 需求收集与意见反馈：顶部链接入口（图标 + 文字，提交需求/建议/缺陷，跟踪评估与基线状态） */}
         <button
           onClick={() => setFeedbackOpen(true)}
-          title="需求收集与意见反馈"
-          className="p-2 shrink-0 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+          title="需求收集与意见反馈：提交需求 / 建议 / 缺陷，跟踪评估与基线状态"
+          className="flex items-center shrink-0 space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition-colors"
         >
-          <MessageSquarePlus className="w-4 h-4" />
+          <MessageSquarePlus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">需求反馈</span>
         </button>
 
         {/* 帮助：打开用户使用指南 */}

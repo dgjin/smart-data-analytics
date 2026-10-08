@@ -1,7 +1,7 @@
 {
   "name": "smart-data-analytics",
   "private": true,
-  "version": "0.9.98",
+  "version": "0.9.99",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
