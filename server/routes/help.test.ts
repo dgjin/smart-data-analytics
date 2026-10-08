@@ -1,7 +1,8 @@
 /**
- * help 路由契约测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充 GET /search）：
+ * help 路由契约测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充 GET /search；v0.9.100 补充 GET /diagrams）：
  * 鉴权守卫（登录即可用，不限角色）+ 参数校验（400）+ 成功透传（含历史清洗）+ 业务异常兜底（502）；
- * 同时覆盖既有 GET /manual、GET /changelog 的透传与 404 分支，以及 GET /search 的参数校验与命中/缺失分支。
+ * 同时覆盖既有 GET /manual、GET /changelog 的透传与 404 分支，GET /search 的参数校验与命中/缺失分支，
+ * 以及 GET /diagrams 的透传 / 单图缺失仍 200 / 全缺 404 分支。
  * 文档读取（helpDocs）与问答业务（helpAsk.answerHelpQuestion）mock，仅验证 HTTP 契约。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -14,10 +15,11 @@ vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: unknown[]) =>
 vi.mock('../infra/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 /** 文档读取桩（不读真实文件，404 分支可控） */
-const docs = vi.hoisted(() => ({ readManual: vi.fn(), readDoc: vi.fn() }));
+const docs = vi.hoisted(() => ({ readManual: vi.fn(), readDoc: vi.fn(), readDiagrams: vi.fn() }));
 vi.mock('../help/helpDocs', () => ({
   readManual: docs.readManual,
   readDoc: docs.readDoc,
+  readDiagrams: docs.readDiagrams,
   candidatePaths: () => ['/nonexistent/用户使用指南.md'],
   candidatePathsFor: () => ['/nonexistent/更新日志.md'],
   CHANGELOG_FILENAME: '更新日志.md',
@@ -48,6 +50,7 @@ beforeEach(() => {
   querySpy.mockImplementation(dbStub([viewerAuth]));
   docs.readManual.mockReset();
   docs.readDoc.mockReset();
+  docs.readDiagrams.mockReset();
   h.answerHelpQuestion.mockReset();
 });
 
@@ -93,6 +96,44 @@ describe('GET /manual 与 /changelog：文档透传与缺失分支', () => {
     docs.readDoc.mockReturnValue(null);
     res = await request(app).get('/api/help/changelog').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /diagrams：架构图契约（v0.9.100）', () => {
+  const item = (over: Record<string, unknown> = {}) => ({
+    id: 'derivation',
+    title: '智能问数推导过程图',
+    description: '推导链路',
+    filename: '智能问数推导过程图.svg',
+    available: true,
+    svg: '<svg></svg>',
+    updatedAt: '2026-10-09T00:00:00.000Z',
+    ...over,
+  });
+
+  it('三图透传 → 200（单图缺失仍 200，不断链）', async () => {
+    docs.readDiagrams.mockReturnValue([
+      item(),
+      item({ id: 'func-flow', title: '系统功能流程图', available: false, svg: null, updatedAt: null }),
+    ]);
+    const res = await request(app).get('/api/help/diagrams').set('Authorization', `Bearer ${VIEWER_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.diagrams).toHaveLength(2);
+    expect(res.body.diagrams[0]).toMatchObject({ id: 'derivation', available: true, svg: '<svg></svg>' });
+    expect(res.body.diagrams[1]).toMatchObject({ id: 'func-flow', available: false, svg: null });
+  });
+
+  it('三图全缺 → 404 提示文案', async () => {
+    docs.readDiagrams.mockReturnValue([item({ available: false, svg: null, updatedAt: null })]);
+    const res = await request(app).get('/api/help/diagrams').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('架构图文件不存在，请联系管理员');
+  });
+
+  it('未登录 → 401，不读取图文件', async () => {
+    const res = await request(app).get('/api/help/diagrams');
+    expect(res.status).toBe(401);
+    expect(docs.readDiagrams).not.toHaveBeenCalled();
   });
 });
 

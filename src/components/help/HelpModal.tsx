@@ -13,11 +13,15 @@
  * - MarkdownView 以 memo 渲染，输入搜索词时跳过文档重解析。
  * 「智能问答」（v0.9.88）：基于帮助文档章节检索 + LLM 快速回答使用问题（POST /api/help/ask），
  * 支持多轮追问，回答附命中章节作为参考来源。
+ * 「架构图」（v0.9.100）：新增「架构图」页签，经 GET /api/help/diagrams 实时读取
+ * docs/diagrams/ 下三张核心图（智能问数推导过程图 / 系统功能流程图 / 完整系统架构图），
+ * 卡片预览（限高渐隐）+ 点击全屏放大；SVG 经 data URL 渲染（img 内为独立文档上下文，
+ * 图内 <style>/id 与页面样式互不影响）。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send, Search, ChevronDown } from 'lucide-react';
+import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send, Search, ChevronDown, Network, Maximize2 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
 import { splitDocForAccordion } from '../../utils/markdownAccordion';
@@ -488,16 +492,28 @@ const AskPanel: React.FC = () => {
 
 // ---------- 帮助弹窗 ----------
 
-type HelpTab = 'manual' | 'changelog' | 'ask';
+type HelpTab = 'manual' | 'changelog' | 'diagrams' | 'ask';
 
 const TAB_META: Record<HelpTab, { title: string; endpoint?: string; icon: typeof BookOpen }> = {
   manual: { title: '使用指南', endpoint: '/api/help/manual', icon: BookOpen },
   changelog: { title: '更新日志', endpoint: '/api/help/changelog', icon: History },
+  diagrams: { title: '架构图', icon: Network },
   ask: { title: '智能问答', icon: Sparkles },
 };
 
 interface DocContent {
   markdown: string;
+  updatedAt: string | null;
+}
+
+/** 架构图条目（GET /api/help/diagrams 返回；单图缺失时 available=false，仅全缺才 404，v0.9.100） */
+interface DiagramItem {
+  id: string;
+  title: string;
+  description: string;
+  filename: string;
+  available: boolean;
+  svg: string | null;
   updatedAt: string | null;
 }
 
@@ -523,6 +539,19 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   // v0.9.90：文档滚动位置暂存（进入搜索前保存；用户清空搜索后在绘制前恢复，避免跳回顶部）
   const savedScrollRef = useRef(0);
   const restoreScrollRef = useRef(false);
+  // v0.9.100：架构图页签（GET /api/help/diagrams，卡片预览 + 点击全屏放大）
+  const [diagrams, setDiagrams] = useState<DiagramItem[] | null>(null);
+  const [diagramsLoading, setDiagramsLoading] = useState(false);
+  const [diagramsError, setDiagramsError] = useState<string | null>(null);
+  const [zoomDiagram, setZoomDiagram] = useState<DiagramItem | null>(null);
+  // SVG 经 data URL 渲染（img 内为独立文档上下文，图内 <style>/id 与页面样式互不影响，也无需管理 Blob 生命周期）
+  const diagramUrls = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of diagrams ?? []) {
+      if (d.svg) map.set(d.id, `data:image/svg+xml;charset=utf-8,${encodeURIComponent(d.svg)}`);
+    }
+    return map;
+  }, [diagrams]);
 
   const load = async (target: HelpTab, force = false) => {
     const endpoint = TAB_META[target].endpoint;
@@ -555,15 +584,36 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
   };
 
+  /** 加载三张核心图（v0.9.100；图内容较大按需懒加载，切换回页签命中缓存不重复请求） */
+  const loadDiagrams = async (force = false) => {
+    if (!force && diagrams) return;
+    setDiagramsLoading(true);
+    setDiagramsError(null);
+    try {
+      const res = await apiFetch('/api/help/diagrams');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '加载架构图失败');
+      setDiagrams(Array.isArray(data.diagrams) ? data.diagrams : []);
+    } catch (err) {
+      setDiagramsError(getErrorMessage(err) || '加载架构图失败');
+    } finally {
+      setDiagramsLoading(false);
+    }
+  };
+
   useEffect(() => {
     load('manual');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Esc：搜索词非空时先清空搜索，否则关闭弹窗
+  // Esc：全屏图打开时先关图，其次搜索词非空清空搜索，否则关闭弹窗
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      if (zoomDiagram) {
+        setZoomDiagram(null);
+        return;
+      }
       if (query.trim()) {
         clearSearch(true);
         return;
@@ -573,7 +623,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, onClose]);
+  }, [query, onClose, zoomDiagram]);
 
   // 搜索防抖：输入停顿 250ms 后请求；序号机制丢弃过期响应，避免旧结果覆盖新结果
   useEffect(() => {
@@ -644,7 +694,8 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setTab(t);
     setError(null);
     clearSearch(); // 切换页签回到文档视图
-    if (t !== 'ask') void load(t);
+    if (t === 'diagrams') void loadDiagrams();
+    else if (t !== 'ask') void load(t);
   };
 
   const toggleDrawer = (t: HelpTab, title: string) => {
@@ -713,22 +764,24 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <p className="text-[11px] text-slate-500">
                   {tab === 'ask'
                     ? '由 AI 基于使用指南与更新日志实时作答'
-                    : searchActive
-                      ? '跨「使用指南 / 更新日志」搜索章节'
-                      : current?.updatedAt
-                        ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}`
-                        : '实时读取最新文档'}
+                    : tab === 'diagrams'
+                      ? '推导过程 / 功能流程 / 系统架构，点击图片放大查看'
+                      : searchActive
+                        ? '跨「使用指南 / 更新日志」搜索章节'
+                        : current?.updatedAt
+                          ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}`
+                          : '实时读取最新文档'}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-1.5">
               {tab !== 'ask' && (
                 <button
-                  onClick={() => load(tab, true)}
+                  onClick={() => (tab === 'diagrams' ? void loadDiagrams(true) : void load(tab, true))}
                   title="重新加载"
                   className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${(tab === 'diagrams' ? diagramsLoading : loading) ? 'animate-spin' : ''}`} />
                 </button>
               )}
               <button
@@ -764,7 +817,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 );
               })}
             </div>
-            {tab !== 'ask' && (
+            {(tab === 'manual' || tab === 'changelog') && (
               <div className="relative mb-0.5">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
                 <input
@@ -794,8 +847,72 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
         {/* 内容：智能问答自带滚动区与固定输入栏；文档页签为「模块抽屉」滚动区；搜索词非空时显示结果列表 */}
         {tab === 'ask' && <AskPanel />}
+        {/* 架构图视图（v0.9.100）：三张核心图卡片预览（限高渐隐）+ 点击进入全屏放大 */}
+        {tab === 'diagrams' && (
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {diagramsLoading && !diagrams && (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                <RefreshCw className="w-6 h-6 animate-spin mb-3" />
+                <p className="text-xs">正在加载架构图…</p>
+              </div>
+            )}
+            {diagramsError && (
+              <div className="flex flex-col items-center justify-center py-16 text-rose-400">
+                <FileText className="w-6 h-6 mb-3" />
+                <p className="text-xs">{diagramsError}</p>
+                <button
+                  onClick={() => void loadDiagrams(true)}
+                  className="mt-3 px-3 py-1.5 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                >
+                  重试
+                </button>
+              </div>
+            )}
+            {!diagramsError && !!diagrams?.length && (
+              <div className="space-y-5">
+                {diagrams.map((d) => {
+                  const url = diagramUrls.get(d.id);
+                  return (
+                    <div key={d.id} className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+                      <div className="flex items-center justify-between gap-3 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-200">{d.title}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-500">{d.description}</p>
+                        </div>
+                        {url && (
+                          <button
+                            onClick={() => setZoomDiagram(d)}
+                            className="flex items-center space-x-1 px-2.5 py-1.5 text-[11px] rounded-lg border border-slate-700 text-slate-300 hover:border-cyan-600/60 hover:text-cyan-300 transition-colors shrink-0"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            <span>放大查看</span>
+                          </button>
+                        )}
+                      </div>
+                      {url ? (
+                        <button
+                          type="button"
+                          onClick={() => setZoomDiagram(d)}
+                          title="点击放大查看"
+                          className="relative block w-full max-h-72 overflow-hidden cursor-zoom-in border-t border-slate-800 bg-white"
+                        >
+                          <img src={url} alt={d.title} className="w-full h-auto" />
+                          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-slate-900/60 to-transparent" />
+                        </button>
+                      ) : (
+                        <p className="px-4 py-6 text-center text-[11px] text-slate-500 border-t border-slate-800">
+                          图文件缺失（docs/diagrams/{d.filename}），请重新生成后点击右上角刷新
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         {/* 文档视图：搜索时仅隐藏不卸载（保留 DOM 与滚动位置），清空搜索后原样恢复展示（v0.9.90） */}
-        {tab !== 'ask' && (
+        {(tab === 'manual' || tab === 'changelog') && (
           <div ref={scrollRef} className={`flex-1 overflow-y-auto px-6 py-5 ${searchActive ? 'hidden' : ''}`}>
             {loading && !current && (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
@@ -852,7 +969,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
         )}
         {/* 搜索结果视图：加载中保留上次结果（stale-while-revalidate），避免结果与加载态反复替换闪烁（v0.9.90） */}
-        {tab !== 'ask' && searchActive && (
+        {(tab === 'manual' || tab === 'changelog') && searchActive && (
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {!searchError && (searchResults === null || (searchLoading && searchResults.length === 0)) && (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
@@ -916,13 +1033,15 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         {/* 底部 */}
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
           <span>
-            {searchActive
-              ? '搜索范围：使用指南 + 更新日志，点击结果跳转对应模块'
-              : tab === 'manual'
-                ? '面向使用者的操作指南，随功能更新同步维护'
-                : tab === 'changelog'
-                  ? '按版本记录主要更新内容，供备查'
-                  : 'AI 回答基于帮助文档节选，仅供参考'}
+            {tab === 'diagrams'
+              ? '实时读取 docs/diagrams 图产物，点击图片或「放大查看」进入全屏'
+              : searchActive
+                ? '搜索范围：使用指南 + 更新日志，点击结果跳转对应模块'
+                : tab === 'manual'
+                  ? '面向使用者的操作指南，随功能更新同步维护'
+                  : tab === 'changelog'
+                    ? '按版本记录主要更新内容，供备查'
+                    : 'AI 回答基于帮助文档节选，仅供参考'}
           </span>
           <button
             onClick={onClose}
@@ -932,6 +1051,36 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </button>
         </div>
       </div>
+
+      {/* 全屏放大（v0.9.100）：z-[60] 盖住弹窗；点击任意处或 Esc 关闭（stopPropagation 防冒泡触发弹窗根容器 onClose） */}
+      {zoomDiagram && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 flex flex-col cursor-zoom-out"
+          onClick={(e) => {
+            e.stopPropagation();
+            setZoomDiagram(null);
+          }}
+        >
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/70 bg-slate-900/80">
+            <p className="text-sm font-semibold text-slate-100">{zoomDiagram.title}</p>
+            <button
+              onClick={() => setZoomDiagram(null)}
+              title="关闭（Esc）"
+              className="p-2 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-6">
+            <img
+              src={diagramUrls.get(zoomDiagram.id)}
+              alt={zoomDiagram.title}
+              draggable={false}
+              className="mx-auto w-[1080px] max-w-none h-auto rounded-lg shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -3,6 +3,7 @@
  * - GET /manual：用户使用指南（面向终端用户回答「系统怎么用」），缺失时回退《系统功能说明书》；
  * - GET /changelog：更新日志（按版本记录主要更新内容，供用户备查，v0.9.36）；
  * - GET /search：帮助中心关键词搜索（v0.9.89）——?q= 跨「使用指南 / 更新日志」检索章节，纯本地计算；
+ * - GET /diagrams：帮助中心「架构图」页签（v0.9.100）——三张核心图（推导过程 / 功能流程 / 系统架构）的元数据与 SVG 内容；
  * - POST /ask：帮助中心「智能问答」（v0.9.88）——基于帮助文档章节检索 + LLM 快速作答。
  * 文档读取与检索/问答业务分别下沉到 server/help/helpDocs.ts / helpSearch.ts / helpAsk.ts，
  * 与既有路由惯例一致：路由层仅做参数校验、限流与鉴权装配。
@@ -13,7 +14,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { ERROR_CODES } from '../infra/errorCodes';
 import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
-import { CHANGELOG_FILENAME, candidatePathsFor, readDoc, readManual } from '../help/helpDocs';
+import { CHANGELOG_FILENAME, candidatePathsFor, readDiagrams, readDoc, readManual } from '../help/helpDocs';
 import { MAX_QUESTION_CHARS, answerHelpQuestion, normalizeHelpHistory } from '../help/helpAsk';
 import { MAX_SEARCH_CHARS, searchHelpDocs } from '../help/helpSearch';
 
@@ -57,6 +58,16 @@ router.get('/search', authMiddleware, (req, res) => {
     return res.status(404).json({ error: '帮助文档缺失，请联系管理员' });
   }
   return res.json({ results: searchHelpDocs(sources, q) });
+});
+
+// GET /api/help/diagrams —— 帮助中心「架构图」页签（v0.9.100）：返回三张核心图的元数据与 SVG 内容
+// 实时读取 docs/diagrams/ 下 gen_derivation / gen_func_flow / gen_arch 生成的 SVG（单一事实源），登录用户即可用
+router.get('/diagrams', authMiddleware, (_req, res) => {
+  const diagrams = readDiagrams();
+  if (diagrams.every((d) => !d.available)) {
+    return res.status(404).json({ error: '架构图文件不存在，请联系管理员' });
+  }
+  return res.json({ diagrams });
 });
 
 // POST /api/help/ask —— 帮助中心「智能问答」（v0.9.88）：{question, history?} → {answer, sections}

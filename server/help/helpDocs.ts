@@ -1,8 +1,9 @@
 /**
  * 帮助文档读取（文档定位与读取的唯一入口，v0.9.88 自 routes/help.ts 迁出）：
  * - 用户使用指南（面向终端用户回答「系统怎么用」），缺失时回退《系统功能说明书》；
- * - 更新日志（按版本记录主要更新内容，供用户备查）。
- * GET 文档端点与帮助中心「智能问答」（POST /api/help/ask）共用本模块。
+ * - 更新日志（按版本记录主要更新内容，供用户备查）；
+ * - 架构图（v0.9.100 帮助中心「架构图」页签：docs/diagrams/ 下 gen_*.py 生成的 SVG 产物，单一事实源）。
+ * GET 文档/架构图端点与帮助中心「智能问答」（POST /api/help/ask）共用本模块。
  * 兼容两种运行形态：
  * - 开发（tsx server.ts）：__dirname 为项目根/server/help
  * - 打包（node dist/server.cjs）：__dirname 为 dist/，文档经 process.cwd() 兜底定位
@@ -53,4 +54,64 @@ export function readDoc(paths: string[]): { markdown: string; updatedAt: string 
 
 export function readManual(): { markdown: string; updatedAt: string } | null {
   return readDoc(candidatePaths());
+}
+
+// ---------- 架构图（v0.9.100 帮助中心「架构图」页签） ----------
+
+export interface DiagramSpec {
+  id: string;
+  title: string;
+  description: string;
+  filename: string;
+}
+
+/** 帮助中心「架构图」页签展示的三张核心图（docs/diagrams/ 产物为单一事实源，重新生成后帮助内自动跟随） */
+export const DIAGRAM_SPECS: DiagramSpec[] = [
+  {
+    id: 'derivation',
+    title: '智能问数推导过程图',
+    description: '从自然语言提问、语义理解与 SQL 生成到结果解读的完整推导链路',
+    filename: '智能问数推导过程图.svg',
+  },
+  {
+    id: 'func-flow',
+    title: '系统功能流程图',
+    description: '数据接入、问数分析、报表导出与系统管理的功能全流程',
+    filename: '系统功能流程图.svg',
+  },
+  {
+    id: 'architecture',
+    title: '完整系统架构图',
+    description: '前端应用、Express 服务、数据层、LLM 引擎与自动运维的整体架构',
+    filename: '完整系统架构图.svg',
+  },
+];
+
+/** 图文件候选路径：docs/diagrams/（与帮助文档同款双环境回退策略） */
+export function diagramCandidatePaths(name: string): string[] {
+  return [
+    path.join(__dirname, '..', '..', 'docs', 'diagrams', name),
+    path.join(__dirname, '..', '..', '..', 'docs', 'diagrams', name),
+    path.join(process.cwd(), 'docs', 'diagrams', name),
+  ];
+}
+
+export interface DiagramItem extends DiagramSpec {
+  /** 产物是否存在（false 时前端按单图降级展示，仅全缺才 404） */
+  available: boolean;
+  svg: string | null;
+  updatedAt: string | null;
+}
+
+/** 读取三张核心图的 SVG 内容（复用 readDoc 的缺失容忍：单图失败标记 available=false，不抛错） */
+export function readDiagrams(): DiagramItem[] {
+  return DIAGRAM_SPECS.map((spec) => {
+    const doc = readDoc(diagramCandidatePaths(spec.filename));
+    return {
+      ...spec,
+      available: doc !== null,
+      svg: doc?.markdown ?? null,
+      updatedAt: doc?.updatedAt ?? null,
+    };
+  });
 }

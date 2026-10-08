@@ -3239,6 +3239,24 @@
         }
       }
     },
+    "/api/help/diagrams": {
+      "get": {
+        "tags": [
+          "Help"
+        ],
+        "operationId": "getHelpDiagrams",
+        "summary": "帮助中心「架构图」页签（三张核心图元数据与 SVG 内容，实时读取 docs/diagrams 产物）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "三张图（智能问数推导过程图 / 系统功能流程图 / 完整系统架构图）的元数据与 SVG 内容"
+          },
+          "404": {
+            "description": "架构图文件不存在"
+          }
+        }
+      }
+    },
     "/api/help/ask": {
       "post": {
         "tags": [
