@@ -14,6 +14,7 @@ import {
   Lock,
   Coins,
   X,
+  MessageSquarePlus,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -22,6 +23,8 @@ import { apiFetch } from '../api/client';
 import { UserRole } from '../types/analytics';
 import { getUITheme, toggleUITheme, UI_THEME_EVENT, UIThemeMode } from '../utils/uiTheme';
 import { HelpModal } from './help/HelpModal';
+// v0.9.98 需求收集与意见反馈入口弹窗
+import { FeedbackModal } from './feedback/FeedbackModal';
 import { InstallAppButton } from './InstallAppButton';
 import { getErrorMessage } from '../utils/errorUtils';
 
@@ -52,6 +55,9 @@ export const Header: React.FC = () => {
 
   // 帮助弹窗开关
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // v0.9.98 需求收集与意见反馈弹窗开关
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // P2-11 权限申请：无权访问的数据源列表 + 申请弹窗
   const deniedSources = dataSources.filter((ds) => ds.accessDenied);
@@ -215,6 +221,15 @@ export const Header: React.FC = () => {
         {/* PWA：安装为桌面应用（Chrome 触发 beforeinstallprompt 且未安装时显示） */}
         <InstallAppButton />
 
+        {/* v0.9.98 需求收集与意见反馈：提交需求/建议/缺陷，跟踪评估与基线状态 */}
+        <button
+          onClick={() => setFeedbackOpen(true)}
+          title="需求收集与意见反馈"
+          className="p-2 shrink-0 rounded-lg text-slate-400 hover:text-cyan-300 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+        >
+          <MessageSquarePlus className="w-4 h-4" />
+        </button>
+
         {/* 帮助：打开用户使用指南 */}
         <button
           onClick={() => setHelpOpen(true)}
@@ -253,6 +268,9 @@ export const Header: React.FC = () => {
 
       {/* 帮助弹窗 */}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+
+      {/* v0.9.98 需求收集与意见反馈弹窗 */}
+      {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
 
       {/* P2-11 权限申请弹窗 */}
       {requestOpen && (

@@ -88,6 +88,8 @@ import { recordOpsEvent } from './server/infra/opsEvents';
 import opsEventsRoutes from './server/routes/opsEvents';
 // v0.9.94 前端错误上报（匿名可报，见 server/routes/clientErrors.ts）
 import clientErrorsRoutes from './server/routes/clientErrors';
+// v0.9.98 需求收集与意见反馈（提交/评估/基线 + 标准导出接口，见 server/routes/requirements.ts）
+import requirementsRoutes from './server/routes/requirements';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -258,8 +260,56 @@ async function startServer() {
     log_path: '/Users/dgjin/dgjinapp/智能问数据分析系统/logs/app_server*.log',
     protected_paths: ['server/auth/**'], // 预留声明：当前 AIOps 版本仅校验格式，未接入消费（现行机制为策略文件全局目录）
     test_command: 'npm test', // 信息性（vitest run）
+    requirements_path: '/api/requirements/export', // v0.9.98 需求基线标准接口（能力自描述见 /.well-known/requirements.json）
   };
   app.get('/.well-known/aiops.json', (_req, res) => { res.json(AIOPS_MANIFEST); });
+
+  // v0.9.98 需求收集与反馈基线标准接口（匿名可读，自描述）：供 AIOps 平台发现能力后，
+  // 经 export_path（requireOpsAccess 双通道鉴权）拉取「已由管理员评估并纳入基线」的需求做主动分析。
+  // 应答保持轻量（< 2KB）；字段语义与 server/routes/requirements.ts 的实现保持一致。
+  const REQUIREMENTS_CAPABILITY = {
+    spec_version: '1.0',
+    service: 'nl2sql',
+    name: '智能问数据分析系统',
+    title: '需求收集与反馈基线标准接口',
+    description:
+      '用户提交需求/意见 → 管理员评估分析 → 纳入基线管理；已纳入基线的条目经导出端点提供给 AIOps 平台主动分析。',
+    export_path: '/api/requirements/export',
+    auth: {
+      type: 'bearer',
+      env: 'OPS_API_TOKEN',
+      header: 'Authorization: Bearer <OPS_API_TOKEN>',
+      note: 'OPS_API_TOKEN 未配置时该端点仅接受 ADMIN JWT（管理面板复用同端点）。',
+    },
+    query: {
+      status: 'BASELINED（默认）| PENDING | REJECTED | ALL',
+      kind: 'REQUIREMENT | SUGGESTION | BUG | OTHER（可选过滤）',
+      since: '增量游标：按 updated_at >= since 过滤，格式 YYYY-MM-DD[ HH:MM[:SS]]',
+      limit: '1-500，默认 200',
+    },
+    status_flow: {
+      PENDING: '待评估（用户已提交，等待管理员评估分析）',
+      BASELINED: '已纳入基线（附 priority / baselineVersion / assessment）',
+      REJECTED: '不予采纳（附 assessment 说明）',
+    },
+    entry_fields: {
+      id: 'number 条目编号',
+      kind: 'REQUIREMENT | SUGGESTION | BUG | OTHER',
+      title: 'string 标题',
+      content: 'string 内容描述',
+      status: 'PENDING | BASELINED | REJECTED',
+      priority: 'P0 | P1 | P2 | P3（仅纳入基线后有值）',
+      baselineVersion: 'string 基线版本（可空）',
+      assessment: 'string 管理员评估分析意见',
+      submitter: 'string 提交人',
+      department: 'string 部门',
+      reviewer: 'string 评估人',
+      reviewedAt: 'ISO8601 | null 评估时间',
+      createdAt: 'ISO8601 提交时间',
+      updatedAt: 'ISO8601 最近变更时间（增量拉取依据）',
+    },
+  };
+  app.get('/.well-known/requirements.json', (_req, res) => { res.json(REQUIREMENTS_CAPABILITY); });
 
   // 1. API Endpoint: Health check (public)
   app.get('/api/health', (_req, res) => {
@@ -366,6 +416,8 @@ async function startServer() {
   app.use('/api/ops', opsEventsRoutes);
   // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）
   app.use('/api/access-requests', accessRequestRoutes);
+  // v0.9.98 需求收集与意见反馈（提交 → 管理员评估 → 基线管理 → 标准导出供 AIOps 主动分析）
+  app.use('/api/requirements', requirementsRoutes);
   // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）
   app.use('/api/export', exportRoutes);
   // v0.9.2 异步任务查询/下载（见 server/routes/tasks.ts）

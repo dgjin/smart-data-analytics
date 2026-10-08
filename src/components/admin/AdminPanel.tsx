@@ -31,6 +31,7 @@ import {
   Siren,
   Stethoscope,
   X,
+  Lightbulb,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -39,6 +40,8 @@ import { UserRole } from '../../types/analytics';
 import { useOrgUnits } from '../../hooks/useOrgUnits';
 import { OrgUnitPicker } from '../common/OrgUnitPicker';
 import { OrgStructurePanel } from './OrgStructurePanel';
+// v0.9.98 需求收集与意见反馈管理面板（评估分析 / 基线管理）
+import { FeedbackPanel } from './FeedbackPanel';
 import { LlmUsagePanel } from './LlmUsagePanel';
 import { OpsMetricsPanel } from './OpsMetricsPanel';
 import { DriftAlertPanel } from './DriftAlertPanel';
@@ -83,7 +86,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（10 项，左栏导航切换） */
+/** 系统管理分类（11 项，左栏导航切换） */
 type AdminSection =
   | 'users'
   | 'org-structure'
@@ -91,6 +94,7 @@ type AdminSection =
   | 'rule-governance'
   | 'ai-audit'
   | 'system-check'
+  | 'feedback'
   | 'quality-monitoring'
   | 'patrol'
   | 'ops-events'
@@ -126,6 +130,8 @@ const SECTION_GROUPS: {
       { id: 'ai-audit', label: 'AI 审核', icon: Search, color: 'text-rose-400', bar: 'bg-rose-500' },
       // v0.9.95 系统体检：原内容区顶部常驻卡片独立为菜单项（emerald 与体检卡配色一致）
       { id: 'system-check', label: '系统体检', icon: Stethoscope, color: 'text-emerald-400', bar: 'bg-emerald-500' },
+      // v0.9.98 需求反馈：需求/意见收集 → 管理员评估 → 基线管理（标准接口供 AIOps 主动分析）
+      { id: 'feedback', label: '需求反馈', icon: Lightbulb, color: 'text-amber-400', bar: 'bg-amber-500' },
     ],
   },
   {
@@ -768,7 +774,10 @@ export const AdminPanel: React.FC = () => {
           {auditTab === 'dlp' && <DlpDownloadPanel />}
         </div>
       )}
-      
+
+      {/* ============ 区块：需求反馈（v0.9.98：收集 → 评估分析 → 基线管理 → 标准接口供 AIOps 主动分析） ============ */}
+      {section === 'feedback' && <FeedbackPanel />}
+
       {/* ============ 区块六：系统配置 (环境配置 + 系统设置) ============ */}
       {section === 'system-config' && <EnvironmentConfigPanel />}
 

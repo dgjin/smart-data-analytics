@@ -678,4 +678,30 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.98 需求收集与意见反馈：用户提交需求/建议/缺陷（kind）→ 管理员评估分析
+  // （assessment/priority）→ 纳入基线管理（status=BASELINED + baseline_version），
+  // 再经标准接口 /api/requirements/export 提供给 AIOps 平台主动分析（见 routes/requirements.ts）。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS feedback_entries (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL DEFAULT 'REQUIREMENT',
+      title VARCHAR(200) NOT NULL,
+      content TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+      priority VARCHAR(10) NOT NULL DEFAULT '',
+      baseline_version VARCHAR(50) NOT NULL DEFAULT '',
+      assessment TEXT,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL,
+      department VARCHAR(100) NOT NULL DEFAULT '',
+      reviewer VARCHAR(50) NOT NULL DEFAULT '',
+      reviewed_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_feedback_status (status),
+      INDEX idx_feedback_user (user_id),
+      INDEX idx_feedback_updated (updated_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }

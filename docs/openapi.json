@@ -100,6 +100,10 @@
     {
       "name": "Setup",
       "description": "v0.9.84 首启初始化向导（状态/探测/流水线/待办清单，仅 ADMIN）"
+    },
+    {
+      "name": "Requirements",
+      "description": "需求收集与意见反馈（提交/评估/基线管理）+ 标准导出接口（供 AIOps 平台主动分析）"
     }
   ],
   "x-legacy-aliases": [
@@ -1101,394 +1105,394 @@
         }
       }
     },
-      "/api/admin/org-units": {
-        "get": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "listOrgUnits",
-          "summary": "组织架构节点列表（仅 ADMIN）",
-          "description": "总部→机构→部门→团队四级树的扁平节点列表，含绑定用户数与下级数（删除保护提示用）。",
-          "responses": {
-            "200": {
-              "description": "扁平节点列表"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
+    "/api/admin/org-units": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "listOrgUnits",
+        "summary": "组织架构节点列表（仅 ADMIN）",
+        "description": "总部→机构→部门→团队四级树的扁平节点列表，含绑定用户数与下级数（删除保护提示用）。",
+        "responses": {
+          "200": {
+            "description": "扁平节点列表"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "createOrgUnit",
+        "summary": "新增组织节点（仅 ADMIN）",
+        "description": "层级强校验：机构挂总部、部门挂机构、团队挂部门；dataCode 缺省时按层级路径自动编号。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "parentId",
+                  "level",
+                  "name"
+                ],
+                "properties": {
+                  "parentId": {
+                    "type": "integer",
+                    "description": "上级节点 ID"
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "BRANCH",
+                      "DEPT",
+                      "TEAM"
+                    ],
+                    "description": "总部为内置根节点，不可新增"
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "节点名（同时是用户「部门」文本）"
+                  },
+                  "dataCode": {
+                    "type": "string",
+                    "description": "业务数据中的取值；缺省自动编号"
+                  }
+                }
+              }
             }
           }
         },
-        "post": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "createOrgUnit",
-          "summary": "新增组织节点（仅 ADMIN）",
-          "description": "层级强校验：机构挂总部、部门挂机构、团队挂部门；dataCode 缺省时按层级路径自动编号。",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "parentId",
-                    "level",
-                    "name"
-                  ],
-                  "properties": {
-                    "parentId": {
-                      "type": "integer",
-                      "description": "上级节点 ID"
-                    },
-                    "level": {
-                      "type": "string",
-                      "enum": [
-                        "BRANCH",
-                        "DEPT",
-                        "TEAM"
-                      ],
-                      "description": "总部为内置根节点，不可新增"
-                    },
-                    "name": {
-                      "type": "string",
-                      "description": "节点名（同时是用户「部门」文本）"
-                    },
-                    "dataCode": {
-                      "type": "string",
-                      "description": "业务数据中的取值；缺省自动编号"
-                    }
+        "responses": {
+          "201": {
+            "description": "创建成功"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "同级下已存在同名节点"
+          }
+        }
+      }
+    },
+    "/api/admin/org-units/auto-code": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "autoCodeOrgUnits",
+        "summary": "补全组织节点数据标识（仅 ADMIN）",
+        "description": "为未配置 dataCode 的节点按层级路径批量生成编号（总部除外），自上而下逐层生成。",
+        "responses": {
+          "200": {
+            "description": "补全完成，返回生成数量与明细"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/org-units/{id}": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "updateOrgUnit",
+        "summary": "更新组织节点（仅 ADMIN）",
+        "description": "改名会同步已归属用户的部门文本与数据源授权清单中的同名部门，避免授权被静默失效。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "dataCode": {
+                    "type": "string"
                   }
                 }
               }
-            }
-          },
-          "responses": {
-            "201": {
-              "description": "创建成功"
-            },
-            "400": {
-              "$ref": "#/components/responses/BadRequest"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            },
-            "409": {
-              "description": "同级下已存在同名节点"
-            }
-          }
-        }
-      },
-      "/api/admin/org-units/auto-code": {
-        "post": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "autoCodeOrgUnits",
-          "summary": "补全组织节点数据标识（仅 ADMIN）",
-          "description": "为未配置 dataCode 的节点按层级路径批量生成编号（总部除外），自上而下逐层生成。",
-          "responses": {
-            "200": {
-              "description": "补全完成，返回生成数量与明细"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            }
-          }
-        }
-      },
-      "/api/admin/org-units/{id}": {
-        "put": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "updateOrgUnit",
-          "summary": "更新组织节点（仅 ADMIN）",
-          "description": "改名会同步已归属用户的部门文本与数据源授权清单中的同名部门，避免授权被静默失效。",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "name": {
-                      "type": "string"
-                    },
-                    "dataCode": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "responses": {
-            "200": {
-              "description": "更新成功，返回同步的用户数与数据源数"
-            },
-            "400": {
-              "$ref": "#/components/responses/BadRequest"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            },
-            "404": {
-              "description": "组织节点不存在"
-            },
-            "409": {
-              "description": "同级下已存在同名节点"
             }
           }
         },
-        "delete": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "deleteOrgUnit",
-          "summary": "删除组织节点（仅 ADMIN）",
-          "description": "总部不可删；存在下级节点或仍有用户归属时拒绝。",
-          "responses": {
-            "200": {
-              "description": "删除成功"
-            },
-            "400": {
-              "$ref": "#/components/responses/BadRequest"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            },
-            "404": {
-              "description": "组织节点不存在"
-            },
-            "409": {
-              "description": "存在下级节点或仍有用户归属该节点"
-            }
+        "responses": {
+          "200": {
+            "description": "更新成功，返回同步的用户数与数据源数"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "组织节点不存在"
+          },
+          "409": {
+            "description": "同级下已存在同名节点"
           }
         }
       },
-      "/api/admin/org-units/{id}/move": {
-        "post": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "moveOrgUnit",
-          "summary": "同级上移/下移组织节点（仅 ADMIN）",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "direction"
-                  ],
-                  "properties": {
-                    "direction": {
-                      "type": "string",
-                      "enum": [
-                        "up",
-                        "down"
-                      ]
-                    }
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "deleteOrgUnit",
+        "summary": "删除组织节点（仅 ADMIN）",
+        "description": "总部不可删；存在下级节点或仍有用户归属时拒绝。",
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "组织节点不存在"
+          },
+          "409": {
+            "description": "存在下级节点或仍有用户归属该节点"
+          }
+        }
+      }
+    },
+    "/api/admin/org-units/{id}/move": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "moveOrgUnit",
+        "summary": "同级上移/下移组织节点（仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "direction"
+                ],
+                "properties": {
+                  "direction": {
+                    "type": "string",
+                    "enum": [
+                      "up",
+                      "down"
+                    ]
                   }
                 }
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "排序成功，返回重排后的同级节点 ID 顺序"
           },
-          "responses": {
-            "200": {
-              "description": "排序成功，返回重排后的同级节点 ID 顺序"
-            },
-            "400": {
-              "$ref": "#/components/responses/BadRequest"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            },
-            "404": {
-              "description": "组织节点不存在"
-            }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "组织节点不存在"
           }
         }
-      },
-      "/api/admin/fallback-approval": {
-        "get": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "listFallbackSamples",
-          "summary": "Fallback 困难样本待审列表（仅 ADMIN）",
-          "responses": {
-            "200": {
-              "description": "按优先级排序的待审样本"
-            },
-            "401": {
-              "$ref": "#/components/responses/Unauthorized"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            }
+      }
+    },
+    "/api/admin/fallback-approval": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "listFallbackSamples",
+        "summary": "Fallback 困难样本待审列表（仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "按优先级排序的待审样本"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
-      },
-      "/api/admin/fallback-approval/batch": {
-        "post": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "batchReviewFallbackSamples",
-          "summary": "批量审核 Fallback 样本（仅 ADMIN）",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "ids",
-                    "action"
-                  ],
-                  "properties": {
-                    "ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "action": {
-                      "type": "string",
-                      "enum": [
-                        "approve",
-                        "reject"
-                      ]
+      }
+    },
+    "/api/admin/fallback-approval/batch": {
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "batchReviewFallbackSamples",
+        "summary": "批量审核 Fallback 样本（仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ids",
+                  "action"
+                ],
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
                     }
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "reject"
+                    ]
                   }
                 }
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "审核完成"
           },
-          "responses": {
-            "200": {
-              "description": "审核完成"
-            },
-            "400": {
-              "$ref": "#/components/responses/BadRequest"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
-      },
-      "/api/admin/fallback-approval/{id}/review": {
-        "put": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "reviewFallbackSample",
-          "summary": "审核单条 Fallback 样本（仅 ADMIN）",
-          "requestBody": {
-            "required": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "status"
-                  ],
-                  "properties": {
-                    "expected_sql": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "APPROVED",
-                        "REJECTED"
-                      ]
-                    }
+      }
+    },
+    "/api/admin/fallback-approval/{id}/review": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "reviewFallbackSample",
+        "summary": "审核单条 Fallback 样本（仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "expected_sql": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "APPROVED",
+                      "REJECTED"
+                    ]
                   }
                 }
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "审核完成"
           },
-          "responses": {
-            "200": {
-              "description": "审核完成"
-            },
-            "400": {
-              "$ref": "#/components/responses/BadRequest"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            },
-            "404": {
-              "description": "样本不存在"
-            }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "样本不存在"
           }
         }
-      },
-      "/api/admin/ab-test/stats": {
-        "get": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "getAbTestStats",
-          "summary": "Fallback A/B 实验统计（仅 ADMIN）",
-          "responses": {
-            "200": {
-              "description": "A/B 分组统计指标"
-            },
-            "401": {
-              "$ref": "#/components/responses/Unauthorized"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            }
+      }
+    },
+    "/api/admin/ab-test/stats": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "getAbTestStats",
+        "summary": "Fallback A/B 实验统计（仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "A/B 分组统计指标"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
-      },
-      "/api/admin/ab-test/records": {
-        "get": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "listAbTestRecords",
-          "summary": "Fallback A/B 实验明细记录（仅 ADMIN）",
-          "responses": {
-            "200": {
-              "description": "实验记录列表"
-            },
-            "401": {
-              "$ref": "#/components/responses/Unauthorized"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            }
+      }
+    },
+    "/api/admin/ab-test/records": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "listAbTestRecords",
+        "summary": "Fallback A/B 实验明细记录（仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "实验记录列表"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
-      },
-      "/api/admin/ab-test/overview": {
-        "get": {
-          "tags": [
-            "Admin"
-          ],
-          "operationId": "getAbTestOverview",
-          "summary": "Fallback A/B 实验总览（仅 ADMIN）",
-          "responses": {
-            "200": {
-              "description": "实验总览指标"
-            },
-            "401": {
-              "$ref": "#/components/responses/Unauthorized"
-            },
-            "403": {
-              "$ref": "#/components/responses/Forbidden"
-            }
+      }
+    },
+    "/api/admin/ab-test/overview": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "operationId": "getAbTestOverview",
+        "summary": "Fallback A/B 实验总览（仅 ADMIN）",
+        "responses": {
+          "200": {
+            "description": "实验总览指标"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
-      },
+      }
+    },
     "/api/datasources": {
       "get": {
         "tags": [
@@ -7126,6 +7130,257 @@
           },
           "429": {
             "description": "在途任务过多（RATE_LIMITED）"
+          }
+        }
+      }
+    },
+    "/api/requirements": {
+      "post": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "createRequirement",
+        "summary": "提交需求/意见反馈（登录用户，任意角色）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "title",
+                  "content"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "description": "类型：REQUIREMENT 需求（默认）/ SUGGESTION 建议 / BUG 缺陷 / OTHER 其他"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "标题（截断 200）"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "内容描述（截断 5000）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "已提交"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "listRequirements",
+        "summary": "全部需求反馈（仅 ADMIN；?status=PENDING|BASELINED|REJECTED&kind= 过滤）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/requirements/mine": {
+      "get": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "listMyRequirements",
+        "summary": "我的需求反馈列表",
+        "responses": {
+          "200": {
+            "description": "成功"
+          }
+        }
+      }
+    },
+    "/api/requirements/summary": {
+      "get": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "requirementsSummary",
+        "summary": "统计摘要（仅 ADMIN：按状态/类型/基线优先级计数）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/requirements/{id}/review": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "条目 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "reviewRequirement",
+        "summary": "评估分析（仅 ADMIN）：纳入基线 / 不予采纳 / 退回待评估",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "description": "BASELINE 纳入基线 / REJECT 不予采纳 / PENDING 退回待评估"
+                  },
+                  "priority": {
+                    "type": "string",
+                    "description": "P0-P3（纳入基线时可选，默认 P2）"
+                  },
+                  "baselineVersion": {
+                    "type": "string",
+                    "description": "基线版本（可空）"
+                  },
+                  "assessment": {
+                    "type": "string",
+                    "description": "评估分析意见（纳入基线时必填）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/requirements/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "description": "条目 ID",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "deleteRequirement",
+        "summary": "删除条目（仅 ADMIN，审计留痕）",
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "NotFound": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/requirements/export": {
+      "get": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "exportRequirements",
+        "summary": "标准导出接口（AIOps 主动分析）：默认仅导出已纳入基线的条目；鉴权 OPS_API_TOKEN 或 ADMIN JWT",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "BASELINED（默认）/ PENDING / REJECTED / ALL",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "description": "类型过滤（可选）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "增量游标（updated_at >= since，YYYY-MM-DD[ HH:MM[:SS]]）",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "1-500，默认 200",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
       }
