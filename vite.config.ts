@@ -29,8 +29,10 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       // 开发服务器配置 - 允许 CSP
+      // font-src 放行 data: 以加载帮助中心架构图内嵌的 base64 字体；
+      // img-src 放行 blob: 与 server.ts 开发态 CSP 对齐（srcdoc iframe 继承本 CSP，v0.9.101）
       headers: {
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:;",
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:;",
       },
     },
     // vitest 排除 Playwright E2E 用例（由 npm run test:e2e 单独运行）；

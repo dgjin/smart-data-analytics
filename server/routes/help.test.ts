@@ -1,5 +1,6 @@
 /**
- * help 路由契约测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充 GET /search；v0.9.100 补充 GET /diagrams）：
+ * help 路由契约测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充 GET /search；v0.9.100 补充 GET /diagrams；
+ * v0.9.101 起 /diagrams 透传交互式 HTML 视图器，字段由 svg 更名为 html）：
  * 鉴权守卫（登录即可用，不限角色）+ 参数校验（400）+ 成功透传（含历史清洗）+ 业务异常兜底（502）；
  * 同时覆盖既有 GET /manual、GET /changelog 的透传与 404 分支，GET /search 的参数校验与命中/缺失分支，
  * 以及 GET /diagrams 的透传 / 单图缺失仍 200 / 全缺 404 分支。
@@ -99,14 +100,14 @@ describe('GET /manual 与 /changelog：文档透传与缺失分支', () => {
   });
 });
 
-describe('GET /diagrams：架构图契约（v0.9.100）', () => {
+describe('GET /diagrams：架构图契约（v0.9.100；v0.9.101 透传 html）', () => {
   const item = (over: Record<string, unknown> = {}) => ({
     id: 'derivation',
     title: '智能问数推导过程图',
     description: '推导链路',
-    filename: '智能问数推导过程图.svg',
+    filename: '智能问数推导过程图.html',
     available: true,
-    svg: '<svg></svg>',
+    html: '<html data-embed="true"></html>',
     updatedAt: '2026-10-09T00:00:00.000Z',
     ...over,
   });
@@ -114,17 +115,17 @@ describe('GET /diagrams：架构图契约（v0.9.100）', () => {
   it('三图透传 → 200（单图缺失仍 200，不断链）', async () => {
     docs.readDiagrams.mockReturnValue([
       item(),
-      item({ id: 'func-flow', title: '系统功能流程图', available: false, svg: null, updatedAt: null }),
+      item({ id: 'func-flow', title: '系统功能流程图', available: false, html: null, updatedAt: null }),
     ]);
     const res = await request(app).get('/api/help/diagrams').set('Authorization', `Bearer ${VIEWER_TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.body.diagrams).toHaveLength(2);
-    expect(res.body.diagrams[0]).toMatchObject({ id: 'derivation', available: true, svg: '<svg></svg>' });
-    expect(res.body.diagrams[1]).toMatchObject({ id: 'func-flow', available: false, svg: null });
+    expect(res.body.diagrams[0]).toMatchObject({ id: 'derivation', available: true, html: '<html data-embed="true"></html>' });
+    expect(res.body.diagrams[1]).toMatchObject({ id: 'func-flow', available: false, html: null });
   });
 
   it('三图全缺 → 404 提示文案', async () => {
-    docs.readDiagrams.mockReturnValue([item({ available: false, svg: null, updatedAt: null })]);
+    docs.readDiagrams.mockReturnValue([item({ available: false, html: null, updatedAt: null })]);
     const res = await request(app).get('/api/help/diagrams').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('架构图文件不存在，请联系管理员');

@@ -213,17 +213,18 @@ async function startServer() {
     res.setHeader('Referrer-Policy', 'no-referrer');
     
     if (isProd) {
-      // 生产环境 CSP - 允许内联脚本和 eval（需要运行时动态注入）
+      // 生产环境 CSP - 允许内联脚本和 eval（需要运行时动态注入）；font-src 放行 data:
+      // 以加载帮助中心架构图内嵌的 base64 字体（srcdoc iframe 继承本 CSP，v0.9.101）
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'"
       );
     } else {
       // 开发环境 CSP - 更宽松，允许 HMR 和内联脚本
       res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*; font-src 'self'; worker-src 'self'; manifest-src 'self';"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss: http://localhost:* http://127.0.0.1:*; font-src 'self' data:; worker-src 'self'; manifest-src 'self';"
       );
     }
     
