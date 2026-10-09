@@ -214,4 +214,17 @@ export async function migrateData(pool: mysql.Pool): Promise<void> {
     logger.info(`[DB] Encrypted stored credential for data source ${row.id}`);
   }
 
+  // v0.9.102 评估历史回填：存量已评估条目（有评估人）若无历史记录，按其当前结论补一条，
+  // 保证升级后每条已评估需求至少有 1 条 revisions；更早的历史无法恢复，以最新结论为准（幂等）
+  await pool.query(`
+    INSERT INTO feedback_entry_revisions (entry_id, action, priority, baseline_version, assessment, reviewer, created_at)
+    SELECT e.id,
+           CASE e.status WHEN 'REJECTED' THEN 'REJECT' ELSE 'BASELINE' END,
+           e.priority, e.baseline_version, COALESCE(e.assessment, ''), e.reviewer,
+           COALESCE(e.reviewed_at, e.updated_at, e.created_at)
+    FROM feedback_entries e
+    WHERE e.reviewer <> '' AND e.status IN ('BASELINED', 'REJECTED')
+      AND NOT EXISTS (SELECT 1 FROM feedback_entry_revisions r WHERE r.entry_id = e.id)
+  `);
+
 }

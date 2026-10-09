@@ -2,12 +2,14 @@
  * v0.9.98 需求收集与意见反馈路由（挂载 /api/requirements）：
  * - POST   /                 提交需求/建议/缺陷（登录用户，任意角色）
  * - GET    /mine             我的提交列表
- * - GET    /                 全部提交（ADMIN，?status=&kind= 过滤）
+ * - GET    /                 全部提交（ADMIN，?status=&kind= 过滤；条目附 revisions 评估历史）
  * - GET    /summary          统计摘要（ADMIN：按状态/类型/基线优先级计数）
- * - POST   /:id/review       ADMIN 评估分析：BASELINE 纳入基线 / REJECT 不予采纳 / PENDING 退回
+ * - POST   /:id/review       ADMIN 评估分析：BASELINE 纳入基线 / REJECT 不予采纳 / PENDING 退回；
+ *                            每次评估（含继续评估）追加一条 feedback_entry_revisions 留痕
  * - DELETE /:id              删除条目（ADMIN，审计留痕）
  * - GET    /export           标准导出接口（requireOpsAccess 双通道：OPS_API_TOKEN 或 ADMIN JWT），
  *                            默认仅导出已纳入基线（status=BASELINED）的条目，供 AIOps 平台主动分析；
+ *                            条目附 revisions（评估历史，升序；替代次评估的新内容经此被 AIOps 获取）；
  *                            接口能力自描述见 GET /.well-known/requirements.json
  */
 import { Router } from 'express';
@@ -31,6 +33,8 @@ const TIME_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
 const MAX_TITLE = 200;
 const MAX_CONTENT = 5000;
 const MAX_ASSESSMENT = 2000;
+/** 导出/列表附带的评估历史条数上限（升序截取最近 N 条，防极端历史撑大响应） */
+const MAX_REVISIONS_PER_ENTRY = 20;
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const n = Number(value);
@@ -56,6 +60,43 @@ function rowToEntry(row: RowDataPacket) {
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
   };
+}
+
+/** DB 行 → 评估历史条目（v0.9.102；「继续评估」的每次结论均留痕） */
+function rowToRevision(row: RowDataPacket) {
+  return {
+    id: Number(row.id),
+    entryId: Number(row.entry_id),
+    action: row.action,
+    priority: row.priority || '',
+    baselineVersion: row.baseline_version || '',
+    assessment: row.assessment || '',
+    reviewer: row.reviewer || '',
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+  };
+}
+
+type RevisionItem = ReturnType<typeof rowToRevision>;
+
+/** 批量加载评估历史并按条目分组（时间升序；超出上限截取最近 N 条） */
+async function loadRevisions(entryIds: number[]): Promise<Map<number, RevisionItem[]>> {
+  const grouped = new Map<number, RevisionItem[]>();
+  if (!entryIds.length) return grouped;
+  const placeholders = entryIds.map(() => '?').join(',');
+  const [rows] = await getPool().query<RowDataPacket[]>(
+    `SELECT * FROM feedback_entry_revisions WHERE entry_id IN (${placeholders}) ORDER BY id ASC`,
+    entryIds
+  );
+  for (const row of rows) {
+    const rev = rowToRevision(row);
+    const list = grouped.get(rev.entryId) || [];
+    list.push(rev);
+    grouped.set(rev.entryId, list);
+  }
+  for (const [entryId, list] of grouped) {
+    if (list.length > MAX_REVISIONS_PER_ENTRY) grouped.set(entryId, list.slice(-MAX_REVISIONS_PER_ENTRY));
+  }
+  return grouped;
 }
 
 // ---------- 用户侧：提交 / 我的列表 ----------
@@ -115,7 +156,13 @@ router.get('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
       `SELECT * FROM feedback_entries ${where} ORDER BY status = 'PENDING' DESC, id DESC LIMIT 500`,
       params
     );
-    return res.json({ success: true, entries: rows.map(rowToEntry) });
+    // v0.9.102 附评估历史（管理面板展开行展示「继续评估」完整时间线）
+    const entries = rows.map(rowToEntry);
+    const revisions = await loadRevisions(entries.map((e) => e.id));
+    return res.json({
+      success: true,
+      entries: entries.map((e) => ({ ...e, revisions: revisions.get(e.id) || [] })),
+    });
   } catch (err) {
     logger.error('[Requirements] 管理列表获取失败:', getErrorMessage(err));
     return res.status(500).json({ error: '列表获取失败' });
@@ -170,13 +217,18 @@ router.post('/:id/review', authMiddleware, requireRole('ADMIN'), async (req, res
 
     const who = req.user!.username;
     let newStatus: string;
+    // 评估历史落库值（与主表 UPDATE 语义一致：非 BASELINE 不携带优先级/基线版本）
+    let revPriority = '';
+    let revVersion = '';
     if (action === 'BASELINE') {
       newStatus = 'BASELINED';
+      revPriority = priority || 'P2';
+      revVersion = baselineVersion;
       await getPool().query(
         `UPDATE feedback_entries
          SET status = 'BASELINED', priority = ?, baseline_version = ?, assessment = ?, reviewer = ?, reviewed_at = NOW()
          WHERE id = ?`,
-        [priority || 'P2', baselineVersion, assessment, who, id]
+        [revPriority, baselineVersion, assessment, who, id]
       );
     } else if (action === 'REJECT') {
       newStatus = 'REJECTED';
@@ -196,6 +248,13 @@ router.post('/:id/review', authMiddleware, requireRole('ADMIN'), async (req, res
         [id]
       );
     }
+
+    // v0.9.102 评估历史留痕：每次评估（含继续评估）追加一条——
+    // 「继续评估」产生的新结论经导出接口 revisions 字段提供给 AIOps 同步分析基线
+    await getPool().query(
+      'INSERT INTO feedback_entry_revisions (entry_id, action, priority, baseline_version, assessment, reviewer) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, action, revPriority, revVersion, assessment, who]
+    );
 
     const actionLabel =
       action === 'BASELINE'
@@ -286,7 +345,9 @@ router.get('/export', requireOpsAccess, async (req, res) => {
       `SELECT * FROM feedback_entries ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`,
       [...params, limit]
     );
+    // v0.9.102 条目附评估历史（升序）：继续评估产生的新内容随条目一并提供给 AIOps
     const entries = rows.map(rowToEntry);
+    const revisions = await loadRevisions(entries.map((e) => e.id));
     return res.json({
       spec_version: '1.0',
       service: 'nl2sql',
@@ -294,7 +355,7 @@ router.get('/export', requireOpsAccess, async (req, res) => {
       exportedAt: new Date().toISOString(),
       filter: { status: status || 'BASELINED', kind: kind || null, since: since || null },
       returned: entries.length,
-      entries,
+      entries: entries.map((e) => ({ ...e, revisions: revisions.get(e.id) || [] })),
     });
   } catch (err) {
     logger.error('[Requirements] 导出失败:', getErrorMessage(err));

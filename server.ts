@@ -293,6 +293,7 @@ async function startServer() {
       BASELINED: '已纳入基线（附 priority / baselineVersion / assessment）',
       REJECTED: '不予采纳（附 assessment 说明）',
     },
+    review_note: '评估完成后仍可继续评估（二次及以后）：主表只存最新结论，每次评估均追加 revisions 记录。',
     entry_fields: {
       id: 'number 条目编号',
       kind: 'REQUIREMENT | SUGGESTION | BUG | OTHER',
@@ -308,6 +309,7 @@ async function startServer() {
       reviewedAt: 'ISO8601 | null 评估时间',
       createdAt: 'ISO8601 提交时间',
       updatedAt: 'ISO8601 最近变更时间（增量拉取依据）',
+      revisions: '评估历史数组（时间升序，每条目至多20条）：每次评估（含继续评估）的 action / priority / baselineVersion / assessment / reviewer / createdAt——继续评估产生的新内容经此获取',
     },
   };
   app.get('/.well-known/requirements.json', (_req, res) => { res.json(REQUIREMENTS_CAPABILITY); });

@@ -704,4 +704,21 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.102 需求反馈评估历史：每次评估（纳入基线 / 不予采纳 / 退回待评估）追加一条留痕。
+  // 主表只存最新结论，「继续评估」产生的新内容沉淀于此——导出接口以 revisions 字段
+  // 提供给 AIOps（同步分析基线用），管理面板展开行展示完整时间线。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS feedback_entry_revisions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      entry_id BIGINT NOT NULL,
+      action VARCHAR(20) NOT NULL,
+      priority VARCHAR(10) NOT NULL DEFAULT '',
+      baseline_version VARCHAR(50) NOT NULL DEFAULT '',
+      assessment TEXT,
+      reviewer VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_feedback_rev_entry (entry_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }

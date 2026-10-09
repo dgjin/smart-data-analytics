@@ -61,7 +61,7 @@
 - **组织架构**（v0.9.70）：总部 → 机构 → 部门 → 团队四级组织树，支持添加下级 / 重命名 / 同级排序 / 删除（带下级与用户归属双重删除保护）；节点数据标识按层级路径自动编号并支持一键补全，变更写入审计日志
 - **八层纵深防御**：输入防护（截断+注入检测）→ 鉴权 → 限流（速率+配额+并发槽位）→ Schema 白名单 → 敏感过滤 → 只读 SQL 执行 → 审计落账 → 可观测日志
 - **结构化日志与自动运维事件流**（v0.9.93，v0.9.94 增强）：运行日志 JSONL 结构化（时间戳 / 级别 / 模块 / 链路字段，TTY 自适应保持人读）；requestId / 用户 / 任务链路贯穿（AsyncLocalStorage）；六类异常（问数失败 / 后台任务 / 巡检 / 知识漂移 / 进程崩溃 / 前端错误回流）自动归集为运维事件（15 分钟窗口去重 + NEW→ACK→RESOLVED 状态机 + 流转审计）并纳入 Prometheus 指标与告警；运维 API（`/api/ops/events` 列表 / 摘要 / 受理 / 解决 + `/api/ops/logs` 日志尾读 + `/api/ops/client-errors` 前端错误上报）支持 `OPS_API_TOKEN` 机器通道（Bearer），供自动运维智能体对接；启动脚本日志归档轮转（保底 5 份 + 超 14 天清理）+ 容器日志上限 10MB×5；v0.9.94 增强——系统管理「运维事件」面板（KPI 态势 + 过滤 + 受理 / 关闭闭环，与智能体共用同一通道）、Alertmanager 告警旁路推送（`OPS_AGENT_WEBHOOK_URL`，与事件流 API 推拉互备）、可选 Loki 日志栈（compose profile）、日志域对账脚本（`npm run logs:reconcile`）、智能体操作审计独立归属（`ops_agent`）
-- **需求收集与意见反馈**（v0.9.98；v0.9.99 入口升级）：Header 顶部「需求反馈」链接入口（图标 + 文字，常显易发现）提交需求 / 建议 / 缺陷 / 其他并跟踪处理进度（待评估 / 已纳入基线 / 未采纳 + 评估意见）；管理面板「治理与审核 › 需求反馈」评估分析（纳入基线必填评估意见 P0-P3 / 不予采纳 / 退回待评估，全部留审计）；已纳入基线条目经 `GET /api/requirements/export` 标准接口供智能运维平台主动拉取分析（`OPS_API_TOKEN` 机器通道，沿用 v0.9.93 双通道鉴权；支持状态 / 类型 / 更新时间增量过滤），`/.well-known/requirements.json` 自描述能力清单 + `aiops.json` Manifest 新增 `requirements_path`
+- **需求收集与意见反馈**（v0.9.98；v0.9.99 入口升级；v0.9.102 继续评估 + 评估历史）：Header 顶部「需求反馈」链接入口（图标 + 文字，常显易发现）提交需求 / 建议 / 缺陷 / 其他并跟踪处理进度（待评估 / 已纳入基线 / 未采纳 + 评估意见）；管理面板「治理与审核 › 需求反馈」评估分析（纳入基线必填评估意见 P0-P3 / 不予采纳 / 退回待评估，全部留审计；v0.9.102 起已评估条目可「继续评估」——弹窗预填上次结论、每次评估追加 `feedback_entry_revisions` 留痕、展开行查看完整评估记录时间线、存量条目升级自动回填）；已纳入基线条目经 `GET /api/requirements/export` 标准接口供智能运维平台主动拉取分析（`OPS_API_TOKEN` 机器通道，沿用 v0.9.93 双通道鉴权；支持状态 / 类型 / 更新时间增量过滤；v0.9.102 响应附 `revisions` 评估历史——继续评估的新内容可被 AIOps 同步获取并重新分析），`/.well-known/requirements.json` 自描述能力清单 + `aiops.json` Manifest 新增 `requirements_path`
 - **密钥保护**：数据源凭据加密存储；生产环境缺失 `JWT_SECRET` 拒绝启动
 
 ## 技术栈
@@ -72,7 +72,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
-| 测试 | Vitest（154 文件 / 2171 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
+| 测试 | Vitest（155 文件 / 2179 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
 
 ## 快速开始
 
@@ -220,7 +220,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（155 文件 / 2178 用例）
+npm test             # Vitest（155 文件 / 2179 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

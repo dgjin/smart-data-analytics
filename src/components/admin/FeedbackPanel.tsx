@@ -24,8 +24,11 @@ import {
   FeedbackKind,
   FeedbackStatus,
   KIND_LABELS,
+  REVIEW_ACTION_CLS,
+  REVIEW_ACTION_LABELS,
   STATUS_META,
   isKind,
+  isReviewAction,
   isStatus,
 } from '../../types/requirements';
 
@@ -61,12 +64,15 @@ const ReviewDialog: React.FC<{
   onClose: () => void;
   onDone: (text: string) => void;
 }> = ({ entry, onClose, onDone }) => {
-  const [action, setAction] = useState<ReviewAction>('BASELINE');
-  const [priority, setPriority] = useState('P2');
-  const [baselineVersion, setBaselineVersion] = useState('');
-  const [assessment, setAssessment] = useState('');
+  // v0.9.102 继续评估：已评估条目预填上次结论（优先级/基线版本/评估意见），
+  // 修改后保存即追加一条新评估记录（历史保留），避免空白表单误覆盖原有结论
+  const [action, setAction] = useState<ReviewAction>(() => (entry.status === 'REJECTED' ? 'REJECT' : 'BASELINE'));
+  const [priority, setPriority] = useState(entry.priority || 'P2');
+  const [baselineVersion, setBaselineVersion] = useState(entry.baselineVersion || '');
+  const [assessment, setAssessment] = useState(entry.assessment || '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const reviewedTimes = entry.revisions?.length || (entry.reviewedAt ? 1 : 0);
 
   const submit = async () => {
     if (submitting) return;
@@ -125,6 +131,13 @@ const ReviewDialog: React.FC<{
               {entry.content}
             </p>
           </div>
+
+          {/* 继续评估提示：已评估条目带回历史结论，保存后追加记录 */}
+          {reviewedTimes > 0 && (
+            <div className="rounded-lg border border-cyan-800/50 bg-cyan-950/30 px-3 py-2 text-[11px] text-cyan-300/90 leading-relaxed">
+              该条目已完成 {reviewedTimes} 次评估，表单已带入上次结论；保存后将追加第 {reviewedTimes + 1} 次评估记录（历史保留，可供智能运维同步获取）。
+            </div>
+          )}
 
           {/* 决策动作 */}
           <div className="space-y-1">
@@ -452,10 +465,10 @@ export const FeedbackPanel: React.FC = () => {
                       <button
                         onClick={() => setReviewTarget(e)}
                         className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg bg-cyan-600/15 text-cyan-300 border border-cyan-700/40 hover:bg-cyan-600/25 text-[11px] font-semibold transition-colors"
-                        title="评估分析"
+                        title={e.reviewedAt ? '继续评估（历史保留，可再次调整结论）' : '评估分析'}
                       >
                         <ClipboardCheck className="w-3.5 h-3.5" />
-                        <span>评估</span>
+                        <span>{e.reviewedAt ? '继续评估' : '评估'}</span>
                       </button>
                       <button
                         onClick={() => void remove(e)}
@@ -479,6 +492,36 @@ export const FeedbackPanel: React.FC = () => {
                         {e.assessment && (
                           <div className="text-[11px] text-slate-400 bg-slate-900/80 border border-slate-800 rounded-lg px-3 py-2 leading-relaxed">
                             评估意见：{e.assessment}
+                          </div>
+                        )}
+                        {/* v0.9.102 评估记录时间线：多次评估（继续评估）的新内容逐条留痕 */}
+                        {e.revisions && e.revisions.length > 1 && (
+                          <div className="space-y-1.5">
+                            <div className="text-[10px] font-medium text-slate-500">
+                              评估记录（{e.revisions.length} 次）
+                            </div>
+                            {e.revisions.map((rev) => (
+                              <div key={rev.id} className="flex items-start gap-2 text-[11px] leading-relaxed">
+                                <span className="shrink-0 text-slate-500 tabular-nums">
+                                  {rev.createdAt ? new Date(rev.createdAt).toLocaleString() : '-'}
+                                </span>
+                                <span
+                                  className={`shrink-0 px-1.5 py-px rounded-full border text-[10px] font-semibold ${
+                                    isReviewAction(rev.action)
+                                      ? REVIEW_ACTION_CLS[rev.action]
+                                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                                  }`}
+                                >
+                                  {isReviewAction(rev.action) ? REVIEW_ACTION_LABELS[rev.action] : rev.action}
+                                </span>
+                                <span className="shrink-0 text-slate-400">{rev.reviewer || '-'}</span>
+                                {rev.priority && <span className="shrink-0 font-semibold text-slate-300">{rev.priority}</span>}
+                                {rev.baselineVersion && (
+                                  <span className="shrink-0 text-emerald-400/80">{rev.baselineVersion}</span>
+                                )}
+                                {rev.assessment && <span className="min-w-0 text-slate-300">{rev.assessment}</span>}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </td>

@@ -1,8 +1,8 @@
 /**
  * v0.9.98 需求收集与意见反馈路由契约测试：
  * 提交校验（kind/title/content）与角色放行 + 管理列表/摘要（ADMIN）+
- * 评估动作（BASELINE 必填评估意见 / REJECT / PENDING 退回）+ 删除留痕 +
- * 标准导出接口（OPS_API_TOKEN 双通道、默认仅基线、since 增量、limit 限幅）。
+ * 评估动作（BASELINE 必填评估意见 / REJECT / PENDING 退回 / 继续评估追加历史）+ 删除留痕 +
+ * 标准导出接口（OPS_API_TOKEN 双通道、默认仅基线、since 增量、limit 限幅、条目附 revisions）。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
@@ -47,6 +47,19 @@ const entryRow = (over: Record<string, unknown> = {}) => ({
   reviewed_at: null,
   created_at: new Date('2026-10-07T02:00:00Z'),
   updated_at: new Date('2026-10-07T02:00:00Z'),
+  ...over,
+});
+
+/** feedback_entry_revisions 行（列名与路由 SELECT 对齐；v0.9.102 评估历史） */
+const revRow = (over: Record<string, unknown> = {}) => ({
+  id: 21,
+  entry_id: 3,
+  action: 'BASELINE',
+  priority: 'P1',
+  baseline_version: 'v0.9.99',
+  assessment: '价值高、成本低，排入下版',
+  reviewer: 'admin',
+  created_at: new Date('2026-10-08T03:00:00Z'),
   ...over,
 });
 
@@ -119,7 +132,12 @@ describe('GET /mine 与管理列表', () => {
     const denied = await request(app).get('/api/requirements').set('Authorization', `Bearer ${VIEWER_TOKEN}`);
     expect(denied.status).toBe(403);
 
-    querySpy.mockImplementation(stub({ match: 'FROM feedback_entries', rows: () => [entryRow()] }));
+    querySpy.mockImplementation(
+      stub(
+        { match: 'FROM feedback_entries', rows: () => [entryRow({ status: 'BASELINED' })] },
+        { match: 'FROM feedback_entry_revisions', rows: () => [revRow()] }
+      )
+    );
     const res = await request(app)
       .get('/api/requirements?status=baselined&kind=requirement')
       .set('Authorization', `Bearer ${ADMIN_TOKEN}`);
@@ -127,6 +145,9 @@ describe('GET /mine 与管理列表', () => {
     const call = querySpy.mock.calls.find((c) => String(c[0]).includes('FROM feedback_entries'));
     expect(String(call![0])).toContain('status = ?');
     expect(String(call![0])).toContain('kind = ?');
+    // v0.9.102 管理列表附带评估历史（展开行时间线）
+    expect(res.body.entries[0].revisions).toHaveLength(1);
+    expect(res.body.entries[0].revisions[0]).toMatchObject({ action: 'BASELINE', reviewer: 'admin' });
   });
 
   it('摘要：按状态/类型/优先级分组计数', async () => {
@@ -170,11 +191,12 @@ describe('POST /:id/review：评估动作', () => {
     expect(res.body.error).toContain('评估分析意见');
   });
 
-  it('BASELINE 成功 → 200 + UPDATE 基线字段 + 审计留痕', async () => {
+  it('BASELINE 成功 → 200 + UPDATE 基线字段 + 评估历史 + 审计留痕', async () => {
     querySpy.mockImplementation(
       stub(
         { match: 'SELECT id, title, status FROM feedback_entries', rows: () => [entryRow()] },
         { match: 'UPDATE feedback_entries', rows: resultSet({ affectedRows: 1 }) },
+        { match: 'INSERT INTO feedback_entry_revisions', rows: resultSet({ insertId: 1 }) },
         auditInsert
       )
     );
@@ -187,14 +209,41 @@ describe('POST /:id/review：评估动作', () => {
     const call = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE feedback_entries'));
     expect(String(call![0])).toContain("status = 'BASELINED'");
     expect((call![1] as unknown[])[0]).toBe('P1');
+    // v0.9.102 评估历史落库（继续评估的新内容供 AIOps 获取）
+    const revCall = querySpy.mock.calls.find((c) => String(c[0]).includes('INSERT INTO feedback_entry_revisions'));
+    expect(revCall).toBeTruthy();
+    expect(revCall![1]).toEqual([3, 'BASELINE', 'P1', 'v0.9.99', '价值高、成本低，排入下版', 'u1']);
     expect(querySpy.mock.calls.some((c) => String(c[0]).includes('INSERT INTO query_audit_log'))).toBe(true);
   });
 
-  it('PENDING 退回清空决策字段', async () => {
+  it('已纳入基线条目可继续评估（二次 BASELINE）→ 追加评估历史且状态保持', async () => {
+    querySpy.mockImplementation(
+      stub(
+        {
+          match: 'SELECT id, title, status FROM feedback_entries',
+          rows: () => [entryRow({ status: 'BASELINED', reviewer: 'admin', reviewed_at: new Date('2026-10-08T02:00:00Z') })],
+        },
+        { match: 'UPDATE feedback_entries', rows: resultSet({ affectedRows: 1 }) },
+        { match: 'INSERT INTO feedback_entry_revisions', rows: resultSet({ insertId: 2 }) },
+        auditInsert
+      )
+    );
+    const res = await request(app)
+      .post('/api/requirements/3/review')
+      .set('Authorization', `Bearer ${ADMIN_TOKEN}`)
+      .send({ action: 'BASELINE', priority: 'P2', assessment: '补充：验收口径已确认' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, status: 'BASELINED' });
+    const revCall = querySpy.mock.calls.find((c) => String(c[0]).includes('INSERT INTO feedback_entry_revisions'));
+    expect(revCall![1]).toEqual([3, 'BASELINE', 'P2', '', '补充：验收口径已确认', 'u1']);
+  });
+
+  it('PENDING 退回清空决策字段（仍记评估历史）', async () => {
     querySpy.mockImplementation(
       stub(
         { match: 'SELECT id, title, status FROM feedback_entries', rows: () => [entryRow({ status: 'BASELINED' })] },
         { match: 'UPDATE feedback_entries', rows: resultSet({ affectedRows: 1 }) },
+        { match: 'INSERT INTO feedback_entry_revisions', rows: resultSet({ insertId: 3 }) },
         auditInsert
       )
     );
@@ -206,6 +255,8 @@ describe('POST /:id/review：评估动作', () => {
     expect(res.body.status).toBe('PENDING');
     const call = querySpy.mock.calls.find((c) => String(c[0]).includes('UPDATE feedback_entries'));
     expect(String(call![0])).toContain("reviewer = ''");
+    const revCall = querySpy.mock.calls.find((c) => String(c[0]).includes('INSERT INTO feedback_entry_revisions'));
+    expect(revCall![1]).toEqual([3, 'PENDING', '', '', '', 'u1']);
   });
 
   it('条目不存在 → 404', async () => {
@@ -239,13 +290,20 @@ describe('GET /export：标准导出接口（AIOps 拉取）', () => {
     expect(res.status).toBe(401);
   });
 
-  it('OPS_API_TOKEN → 200：默认仅基线且不触碰 users 表', async () => {
+  it('OPS_API_TOKEN → 200：默认仅基线且不触碰 users 表，条目附评估历史', async () => {
     process.env.OPS_API_TOKEN = 'req-secret';
     querySpy.mockImplementation(
       dbStub([
         {
           match: 'FROM feedback_entries',
           rows: () => [entryRow({ status: 'BASELINED', priority: 'P1', baseline_version: 'v0.9.98' })],
+        },
+        {
+          match: 'FROM feedback_entry_revisions',
+          rows: () => [
+            revRow(),
+            revRow({ id: 22, assessment: '二次评估：补充验收口径', created_at: new Date('2026-10-09T03:00:00Z') }),
+          ],
         },
       ])
     );
@@ -254,6 +312,12 @@ describe('GET /export：标准导出接口（AIOps 拉取）', () => {
     expect(res.body.spec_version).toBe('1.0');
     expect(res.body.returned).toBe(1);
     expect(res.body.entries[0]).toMatchObject({ status: 'BASELINED', priority: 'P1', baselineVersion: 'v0.9.98' });
+    // v0.9.102 继续评估产生的新内容经 revisions 提供给 AIOps
+    expect(res.body.entries[0].revisions).toHaveLength(2);
+    expect(res.body.entries[0].revisions[1]).toMatchObject({
+      action: 'BASELINE',
+      assessment: '二次评估：补充验收口径',
+    });
     const call = querySpy.mock.calls.find((c) => String(c[0]).includes('FROM feedback_entries'));
     expect(String(call![0])).toContain('status = ?');
     expect((call![1] as unknown[])[0]).toBe('BASELINED');
