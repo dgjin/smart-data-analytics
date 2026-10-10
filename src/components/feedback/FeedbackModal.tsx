@@ -3,7 +3,7 @@
  * 上半区提交需求/建议/缺陷/其他 → 管理员评估分析 → 纳入基线后经标准接口供 AIOps 主动分析；
  * 下半区「我的反馈」展示处理状态（待评估 / 已纳入基线 / 未采纳）与管理员评估意见。
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MessageSquarePlus,
   X,
@@ -12,9 +12,11 @@ import {
   Clock,
   BadgeCheck,
   XCircle,
+  Search,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { matchFieldSearch } from '../../utils/pinyin';
 import {
   FeedbackEntry,
   FeedbackKind,
@@ -41,6 +43,7 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
 
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadMine = useCallback(async () => {
     setLoading(true);
@@ -87,6 +90,13 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
       setSubmitting(false);
     }
   };
+
+  // 「我的反馈」前端过滤：标题/内容（含拼音首字母，如 xq 命中「需求」）；空关键词显示全部
+  const keyword = searchQuery.trim();
+  const filteredEntries = useMemo(
+    () => (keyword ? entries.filter((e) => matchFieldSearch(keyword, e.title, e.content)) : entries),
+    [entries, keyword],
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -174,22 +184,48 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
 
           {/* 我的反馈 */}
           <div className="border-t border-slate-800 pt-3">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
               <span className="text-xs font-bold text-slate-300">我的反馈（{entries.length}）</span>
-              <button
-                onClick={() => void loadMine()}
-                disabled={loading}
-                className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-                <span>刷新</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                  <input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="搜索我的反馈…"
+                    aria-label="搜索我的反馈"
+                    className="w-48 pl-8 pr-7 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      title="清空搜索"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => void loadMine()}
+                  disabled={loading}
+                  className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                  <span>刷新</span>
+                </button>
+              </div>
             </div>
             {entries.length === 0 && !loading && (
               <p className="text-[11px] text-slate-500 py-2">暂无提交记录</p>
             )}
+            {entries.length > 0 && filteredEntries.length === 0 && (
+              <p className="text-[11px] text-slate-500 py-2">
+                未找到与「{keyword}」匹配的反馈，可尝试更短的关键词或清空搜索
+              </p>
+            )}
             <div className="space-y-2">
-              {entries.map((e) => {
+              {filteredEntries.map((e) => {
                 const meta = isStatus(e.status) ? STATUS_META[e.status] : STATUS_META.PENDING;
                 const Icon = STATUS_ICONS[e.status];
                 return (

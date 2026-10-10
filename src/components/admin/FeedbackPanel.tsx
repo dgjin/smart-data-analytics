@@ -1,9 +1,11 @@
 /**
  * v0.9.98 需求反馈管理面板（系统管理「治理与审核 › 需求反馈」）：
  * 统计摘要 + 状态/类型筛选 + 评估分析（纳入基线 / 不予采纳 / 退回待评估）+ 删除；
+ * 录入：管理员可直接录入需求反馈（类型/标题/内容/优先级，必填与格式校验后经
+ * POST /api/requirements 落库，录入成功即刷新列表）；
  * 「已纳入基线」条目经 /api/requirements/export 标准接口提供给 AIOps 平台主动分析。
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Lightbulb,
   RefreshCw,
@@ -13,12 +15,16 @@ import {
   BadgeCheck,
   XCircle,
   ClipboardCheck,
+  FilePlus2,
   Trash2,
   ChevronDown,
   ChevronUp,
+  Search,
+  X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { matchFieldSearch } from '../../utils/pinyin';
 import {
   FeedbackEntry,
   FeedbackKind,
@@ -236,6 +242,145 @@ const ReviewDialog: React.FC<{
   );
 };
 
+// ---------- 录入弹窗（系统管理「需求反馈录入」） ----------
+
+const EntryDialog: React.FC<{
+  onClose: () => void;
+  onDone: (text: string) => void;
+}> = ({ onClose, onDone }) => {
+  const [kind, setKind] = useState<FeedbackKind>('REQUIREMENT');
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [priority, setPriority] = useState('P2');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    if (submitting) return;
+    if (!title.trim()) {
+      setError('请填写标题');
+      return;
+    }
+    if (!content.trim()) {
+      setError('请填写内容描述');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/requirements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, title: title.trim(), content: content.trim(), priority }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '录入失败');
+      onDone(`已录入需求反馈 #${data.id}`);
+    } catch (err) {
+      setError(getErrorMessage(err) || '录入失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-lg mx-4 max-h-[85vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-slate-800">
+          <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2">
+            <FilePlus2 className="w-4 h-4 text-cyan-400" />
+            <span>需求反馈录入</span>
+          </h3>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* 类型 */}
+          <div className="space-y-1">
+            <label className="text-xs text-slate-300 font-medium">类型</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              {(Object.keys(KIND_LABELS) as FeedbackKind[]).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setKind(k)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                    kind === k ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  {KIND_LABELS[k]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 标题（必填） */}
+          <div className="space-y-1">
+            <label className="text-xs text-slate-300 font-medium">
+              标题<span className="text-rose-400"> *</span>
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={200}
+              placeholder="一句话概括需求或意见（200 字以内）"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+            />
+          </div>
+
+          {/* 内容描述（必填） */}
+          <div className="space-y-1">
+            <label className="text-xs text-slate-300 font-medium">
+              内容描述<span className="text-rose-400"> *</span>
+            </label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={4}
+              maxLength={5000}
+              placeholder="请描述场景、期望效果或验收要点，便于后续评估分析"
+              className="w-full resize-none bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+            />
+          </div>
+
+          {/* 优先级 */}
+          <div className="space-y-1">
+            <label className="text-xs text-slate-300 font-medium">优先级</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-600/70"
+            >
+              {PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {error && (
+            <div className="p-2.5 rounded-lg border bg-rose-950/60 border-rose-800/60 text-rose-300 text-[11px]">{error}</div>
+          )}
+        </div>
+        <div className="flex items-center justify-end space-x-2 px-5 py-3 border-t border-slate-800">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700"
+          >
+            取消
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold shadow"
+          >
+            {submitting ? '录入中…' : '确认录入'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ---------- 主面板 ----------
 
 export const FeedbackPanel: React.FC = () => {
@@ -243,10 +388,12 @@ export const FeedbackPanel: React.FC = () => {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('');
   const [kindFilter, setKindFilter] = useState<'' | FeedbackKind>('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [reviewTarget, setReviewTarget] = useState<FeedbackEntry | null>(null);
+  const [entryOpen, setEntryOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
@@ -305,6 +452,16 @@ export const FeedbackPanel: React.FC = () => {
 
   const priorityCount = (p: string) => summary?.byPriority.find((r) => r.priority === p)?.cnt ?? 0;
 
+  // 关键词前端过滤：标题/内容（含拼音首字母，如 xq 命中「需求」）或提交人；空关键词显示全部
+  const keyword = searchQuery.trim();
+  const filteredEntries = useMemo(
+    () =>
+      keyword
+        ? entries.filter((e) => matchFieldSearch(keyword, e.title, e.content) || matchFieldSearch(keyword, e.submitter))
+        : entries,
+    [entries, keyword],
+  );
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
       {/* 头部：标题 + 刷新 */}
@@ -313,14 +470,23 @@ export const FeedbackPanel: React.FC = () => {
           <Lightbulb className="w-4 h-4 text-cyan-400" />
           <span>需求收集与意见反馈（基线条目经标准接口供 AIOps 主动分析）</span>
         </div>
-        <button
-          onClick={() => void loadData()}
-          disabled={isLoading}
-          className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>刷新</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setEntryOpen(true)}
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow transition-colors"
+          >
+            <FilePlus2 className="w-3.5 h-3.5" />
+            <span>录入反馈</span>
+          </button>
+          <button
+            onClick={() => void loadData()}
+            disabled={isLoading}
+            className="flex items-center space-x-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>刷新</span>
+          </button>
+        </div>
       </div>
 
       {/* 统计摘要 */}
@@ -379,18 +545,39 @@ export const FeedbackPanel: React.FC = () => {
             </button>
           ))}
         </div>
-        <select
-          value={kindFilter}
-          onChange={(e) => setKindFilter(e.target.value as '' | FeedbackKind)}
-          className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-600/70"
-        >
-          <option value="">全部类型</option>
-          {(Object.keys(KIND_LABELS) as FeedbackKind[]).map((k) => (
-            <option key={k} value={k}>
-              {KIND_LABELS[k]}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索标题 / 内容 / 提交人…"
+              aria-label="搜索需求反馈"
+              className="w-56 pl-8 pr-7 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                title="清空搜索"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <select
+            value={kindFilter}
+            onChange={(e) => setKindFilter(e.target.value as '' | FeedbackKind)}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-cyan-600/70"
+          >
+            <option value="">全部类型</option>
+            {(Object.keys(KIND_LABELS) as FeedbackKind[]).map((k) => (
+              <option key={k} value={k}>
+                {KIND_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* 列表 */}
@@ -409,14 +596,14 @@ export const FeedbackPanel: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {entries.length === 0 && !isLoading && (
+            {filteredEntries.length === 0 && !isLoading && (
               <tr>
                 <td colSpan={8} className="px-5 py-8 text-center text-slate-500">
-                  暂无条目
+                  {keyword ? `未找到与「${keyword}」匹配的条目，可尝试更短的关键词或清空搜索` : '暂无条目'}
                 </td>
               </tr>
             )}
-            {entries.map((e) => {
+            {filteredEntries.map((e) => {
               const meta = isStatus(e.status) ? STATUS_META[e.status] : STATUS_META.PENDING;
               const Icon = STATUS_ICONS[e.status] || Clock;
               const expanded = expandedId === e.id;
@@ -541,6 +728,18 @@ export const FeedbackPanel: React.FC = () => {
           onClose={() => setReviewTarget(null)}
           onDone={(text) => {
             setReviewTarget(null);
+            showNotice('success', text);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* 录入弹窗 */}
+      {entryOpen && (
+        <EntryDialog
+          onClose={() => setEntryOpen(false)}
+          onDone={(text) => {
+            setEntryOpen(false);
             showNotice('success', text);
             void loadData();
           }}

@@ -1,6 +1,7 @@
 /**
  * v0.9.98 需求收集与意见反馈路由（挂载 /api/requirements）：
- * - POST   /                 提交需求/建议/缺陷（登录用户，任意角色）
+ * - POST   /                 提交需求/建议/缺陷（登录用户，任意角色；系统管理「需求反馈录入」
+ *                            复用本接口，body 支持可选 priority P0-P3，随提交一并入库）
  * - GET    /mine             我的提交列表
  * - GET    /                 全部提交（ADMIN，?status=&kind= 过滤；条目附 revisions 评估历史）
  * - GET    /summary          统计摘要（ADMIN：按状态/类型/基线优先级计数）
@@ -101,23 +102,27 @@ async function loadRevisions(entryIds: number[]): Promise<Map<number, RevisionIt
 
 // ---------- 用户侧：提交 / 我的列表 ----------
 
-// POST /api/requirements { kind?, title, content }（登录用户均可提交）
+// POST /api/requirements { kind?, title, content, priority? }（登录用户均可提交）
 router.post('/', authMiddleware, rateLimiter, async (req, res) => {
   const user = req.user!;
   const kind = String(req.body?.kind || 'REQUIREMENT').trim().toUpperCase();
   const title = String(req.body?.title || '').trim().slice(0, MAX_TITLE);
   const content = String(req.body?.content || '').trim().slice(0, MAX_CONTENT);
+  const priority = String(req.body?.priority || '').trim().toUpperCase();
 
   if (!VALID_KIND.has(kind)) {
     return res.status(400).json({ error: '类型无效（REQUIREMENT / SUGGESTION / BUG / OTHER）' });
   }
   if (!title) return res.status(400).json({ error: '请填写标题' });
   if (!content) return res.status(400).json({ error: '请填写内容描述' });
+  if (priority && !VALID_PRIORITY.has(priority)) {
+    return res.status(400).json({ error: '优先级无效（P0 / P1 / P2 / P3）' });
+  }
 
   try {
     const [result] = await getPool().query<ResultSetHeader>(
-      'INSERT INTO feedback_entries (kind, title, content, user_id, username, department) VALUES (?, ?, ?, ?, ?, ?)',
-      [kind, title, content, user.id, user.username, user.department || '']
+      'INSERT INTO feedback_entries (kind, title, content, priority, user_id, username, department) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [kind, title, content, priority, user.id, user.username, user.department || '']
     );
     return res.status(201).json({ success: true, id: Number(result.insertId) });
   } catch (err) {
