@@ -15,6 +15,7 @@ import {
   Coins,
   X,
   MessageSquarePlus,
+  UserCog,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -23,6 +24,8 @@ import { apiFetch } from '../api/client';
 import { UserRole } from '../types/analytics';
 import { getUITheme, toggleUITheme, UI_THEME_EVENT, UIThemeMode } from '../utils/uiTheme';
 import { HelpModal } from './help/HelpModal';
+// v0.9.104 用户信息维护（REQ-16/REQ-18）：昵称 / 头像 / 签名 + 偏好设置维护弹窗
+import { UserPersonalModal } from './user/UserPersonalModal';
 // v0.9.98 需求收集与意见反馈入口弹窗
 import { FeedbackModal } from './feedback/FeedbackModal';
 import { InstallAppButton } from './InstallAppButton';
@@ -58,6 +61,9 @@ export const Header: React.FC = () => {
 
   // v0.9.98 需求收集与意见反馈弹窗开关
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+
+  // v0.9.104 用户信息维护弹窗开关（REQ-18：入口常显，登录用户均可维护本人个性化信息）
+  const [personalOpen, setPersonalOpen] = useState(false);
 
   // P2-11 权限申请：无权访问的数据源列表 + 申请弹窗
   const deniedSources = dataSources.filter((ds) => ds.accessDenied);
@@ -240,6 +246,18 @@ export const Header: React.FC = () => {
           <HelpCircle className="w-4 h-4" />
         </button>
 
+        {/* v0.9.104 用户信息维护：顶部常显入口（REQ-18），登录用户均可维护本人个性化信息 */}
+        {user && (
+          <button
+            onClick={() => setPersonalOpen(true)}
+            title="用户信息维护：昵称 / 头像 / 个人签名与偏好设置"
+            className="flex items-center shrink-0 space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+          >
+            <UserCog className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">用户信息维护</span>
+          </button>
+        )}
+
         {/* Current User Chip + Logout */}
         {user && (
           <div className="flex items-center space-x-2 pl-3 border-l border-slate-700/80 shrink-0">
@@ -269,6 +287,9 @@ export const Header: React.FC = () => {
 
       {/* 帮助弹窗 */}
       {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+
+      {/* v0.9.104 用户信息维护弹窗（REQ-16/REQ-18） */}
+      {personalOpen && <UserPersonalModal onClose={() => setPersonalOpen(false)} />}
 
       {/* v0.9.98 需求收集与意见反馈弹窗 */}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}

@@ -158,3 +158,128 @@ export interface FlexTablePreview {
   columns: string[];
   rows: Record<string, unknown>[];
 }
+
+/** 主题偏好（system = 跟随系统深浅色） */
+export type ThemePreference = 'system' | 'light' | 'dark';
+
+/** 金额单位偏好（与 useAmountUnitStore.AMOUNT_UNITS 口径一致；'' = 跟随「系统管理 → 展示与偏好」全局设置） */
+export type UserAmountUnitPreference = '' | '亿元' | '百万元' | '万元' | '元';
+
+/** 个人偏好设置（空值 = 不覆盖全局默认） */
+export interface UserPreferences {
+  theme: ThemePreference;
+  amountUnit: UserAmountUnitPreference;
+  /** 默认数据源 id（'' = 不指定） */
+  defaultDataSourceId: string;
+}
+
+/**
+ * v0.9.104 REQ-16：首页用户信息 - 个性化维护数据（昵称/头像/签名 + 偏好设置）。
+ * GET/PUT /api/user/personal 往返结构与前端表单状态共用；缺省字段回退 DEFAULT_USER_PERSONAL_INFO。
+ */
+export interface UserPersonalInfo {
+  /** 昵称（空 = 展示账号名） */
+  nickname: string;
+  /** 头像地址（dataURL / 图片 URL；空 = 默认头像） */
+  avatar: string;
+  /** 个人签名（空 = 不展示） */
+  signature: string;
+  preferences: UserPreferences;
+}
+
+/** 个性化字段长度上限（前端表单校验与后端 PUT 入参校验共用） */
+export const USER_PERSONAL_FIELD_LIMITS = {
+  nickname: 30,
+  avatar: 500000,
+  signature: 100,
+  defaultDataSourceId: 64,
+} as const;
+
+/** 个性化信息缺省值（未维护或首次获取时返回） */
+export const DEFAULT_USER_PERSONAL_INFO: UserPersonalInfo = {
+  nickname: '',
+  avatar: '',
+  signature: '',
+  preferences: { theme: 'system', amountUnit: '', defaultDataSourceId: '' },
+};
+
+/** 金额单位偏好取值白名单校验 */
+export function isUserAmountUnitPreference(v: unknown): v is UserAmountUnitPreference {
+  return ['', '亿元', '百万元', '万元', '元'].includes(String(v));
+}
+
+/** 主题偏好取值白名单校验 */
+export function isThemePreference(v: unknown): v is ThemePreference {
+  return v === 'system' || v === 'light' || v === 'dark';
+}
+
+/**
+ * v0.9.104 REQ-16：个性化信息入参校验与归一化（前端提交与后端 PUT 共用）。
+ * 仅接受白名单字段，类型/长度/枚举非法时返回明确错误信息；通过时返回补全缺省值的完整结构。
+ */
+export function normalizeUserPersonalInfo(
+  input: unknown,
+): { ok: true; value: UserPersonalInfo } | { ok: false; error: string } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return { ok: false, error: '个性化信息格式非法：应为对象' };
+  }
+  const raw = input as Record<string, unknown>;
+  const value: UserPersonalInfo = {
+    ...DEFAULT_USER_PERSONAL_INFO,
+    preferences: { ...DEFAULT_USER_PERSONAL_INFO.preferences },
+  };
+  if (raw.nickname !== undefined) {
+    if (typeof raw.nickname !== 'string') return { ok: false, error: '昵称必须为字符串' };
+    const nickname = raw.nickname.trim();
+    if (nickname.length > USER_PERSONAL_FIELD_LIMITS.nickname) {
+      return { ok: false, error: `昵称过长（不超过 ${USER_PERSONAL_FIELD_LIMITS.nickname} 字）` };
+    }
+    value.nickname = nickname;
+  }
+  if (raw.avatar !== undefined) {
+    if (typeof raw.avatar !== 'string') return { ok: false, error: '头像必须为字符串' };
+    if (raw.avatar.length > USER_PERSONAL_FIELD_LIMITS.avatar) {
+      return { ok: false, error: `头像数据过大（不超过 ${USER_PERSONAL_FIELD_LIMITS.avatar} 字节）` };
+    }
+    value.avatar = raw.avatar;
+  }
+  if (raw.signature !== undefined) {
+    if (typeof raw.signature !== 'string') return { ok: false, error: '个人签名必须为字符串' };
+    const signature = raw.signature.trim();
+    if (signature.length > USER_PERSONAL_FIELD_LIMITS.signature) {
+      return { ok: false, error: `个人签名过长（不超过 ${USER_PERSONAL_FIELD_LIMITS.signature} 字）` };
+    }
+    value.signature = signature;
+  }
+  if (raw.preferences !== undefined) {
+    if (typeof raw.preferences !== 'object' || raw.preferences === null || Array.isArray(raw.preferences)) {
+      return { ok: false, error: '偏好设置格式非法：应为对象' };
+    }
+    const prefs = raw.preferences as Record<string, unknown>;
+    if (prefs.theme !== undefined) {
+      const theme = prefs.theme;
+      if (!isThemePreference(theme)) {
+        return { ok: false, error: '主题仅支持 system / light / dark' };
+      }
+      value.preferences.theme = theme;
+    }
+    if (prefs.amountUnit !== undefined) {
+      const amountUnit = prefs.amountUnit;
+      if (!isUserAmountUnitPreference(amountUnit)) {
+        return { ok: false, error: '金额单位仅支持 亿元 / 百万元 / 万元 / 元，或空字符串（跟随全局）' };
+      }
+      value.preferences.amountUnit = amountUnit;
+    }
+    if (prefs.defaultDataSourceId !== undefined) {
+      if (typeof prefs.defaultDataSourceId !== 'string') {
+        return { ok: false, error: '默认数据源 id 必须为字符串' };
+      }
+      const id = prefs.defaultDataSourceId.trim();
+      if (id.length > USER_PERSONAL_FIELD_LIMITS.defaultDataSourceId) {
+        return { ok: false, error: `默认数据源 id 过长（不超过 ${USER_PERSONAL_FIELD_LIMITS.defaultDataSourceId} 字）` };
+      }
+      value.preferences.defaultDataSourceId = id;
+    }
+  }
+  return { ok: true, value };
+}

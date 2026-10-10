@@ -26,6 +26,10 @@
       "description": "登录与自助改密"
     },
     {
+      "name": "User",
+      "description": "用户个性化信息维护（v0.9.104 需求 #16/#18：昵称/头像/签名/偏好）"
+    },
+    {
       "name": "Admin",
       "description": "用户管理（仅 ADMIN）"
     },
@@ -913,6 +917,65 @@
         "responses": {
           "200": {
             "description": "修改成功（旧密码失效）"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/user/personal": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "getUserPersonalInfo",
+        "summary": "读取当前登录用户的个性化信息（昵称/头像/签名/偏好设置；未维护过回退缺省值，v0.9.104）",
+        "responses": {
+          "200": {
+            "description": "个性化信息（缺省字段已回退默认值）"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "User"
+        ],
+        "operationId": "putUserPersonalInfo",
+        "summary": "维护当前登录用户的个性化信息（白名单校验与归一化，仅本人可读写，v0.9.104）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nickname": {
+                    "type": "string"
+                  },
+                  "avatar": {
+                    "type": "string"
+                  },
+                  "signature": {
+                    "type": "string"
+                  },
+                  "preferences": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "保存成功（返回归一化后的完整个性化信息）"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"

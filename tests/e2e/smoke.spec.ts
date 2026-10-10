@@ -110,4 +110,37 @@ test.describe('冒烟：critical 回归防线', () => {
     expect(metrics.headers()['content-type']).toContain('application/json');
     expect(Array.isArray((await metrics.json()).metrics)).toBeTruthy();
   });
+
+  test('用户信息维护入口可见（REQ-18 防线）：Header 常显按钮打开维护弹窗并完成保存往返', async ({
+    page,
+    request,
+  }) => {
+    await loginAsAdmin(page);
+    // 入口防线：曾因入口缺失/不可见导致用户反馈「用户信息维护的入口看不见」（REQ-18）
+    const entry = page.getByRole('button', { name: '用户信息维护' });
+    await expect(entry).toBeVisible();
+
+    // 点击入口 → 维护弹窗打开；表单就绪 = GET /api/user/personal 无 404/权限错误
+    await entry.click();
+    const nicknameInput = page.getByPlaceholder('留空则展示账号名');
+    await expect(nicknameInput).toBeVisible({ timeout: 15_000 });
+
+    // 维护往返：保存成功后给出确认提示（PUT 校验与落库链路在线）
+    await nicknameInput.fill('E2E管理员');
+    await page.getByRole('button', { name: '保存' }).click();
+    await expect(page.getByText('个性化信息已保存')).toBeVisible({ timeout: 15_000 });
+
+    // 关闭弹窗回到主界面
+    await page.getByRole('button', { name: '关闭' }).last().click();
+    await expect(nicknameInput).toHaveCount(0);
+
+    // 复位测试痕迹（昵称/签名清空），保持环境无残留
+    const login = await request.post('/api/auth/login', { data: ADMIN });
+    const { token } = await login.json();
+    const reset = await request.put('/api/user/personal', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { nickname: '', signature: '', preferences: { theme: 'system' } },
+    });
+    expect(reset.ok()).toBeTruthy();
+  });
 });

@@ -28,6 +28,8 @@ import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './
 import { requestLogger } from './server/infra/requestLogger';
 import { metricsHandler, httpRequestDuration } from './server/infra/monitoring';
 import authRoutes from './server/routes/auth';
+// v0.9.104 用户信息维护（REQ-16/REQ-18）：GET/PUT /api/user/personal
+import userRoutes from './server/routes/user';
 import adminRoutes from './server/routes/admin';
 import orgUnitRoutes from './server/routes/orgUnits';
 import datasourceRoutes from './server/routes/datasources';
@@ -369,6 +371,8 @@ async function startServer() {
 
   // 2. Auth / RBAC / Data source management routes
   app.use('/api/auth', authRoutes);
+  // v0.9.104 用户信息维护（仅本人读写，登录用户均可用，见 routes/user.ts）
+  app.use('/api/user', userRoutes);
   // 组织架构树（总部→机构→部门→团队；仅 ADMIN）——须先于 /api/admin 挂载，否则会先过一遍 admin 路由的鉴权链
   app.use('/api/admin/org-units', orgUnitRoutes);
   app.use('/api/admin', adminRoutes);

@@ -721,4 +721,19 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.104 用户信息维护（REQ-16/REQ-18）：每个用户一条个性化信息（昵称/头像/个人签名 + 偏好设置，
+  // 偏好以 JSON 存 preferences_json；头像为 dataURL 或图片 URL，MEDIUMTEXT 容纳上限 500KB）。
+  // 往返结构见 src/components/flexquery/flexQueryShared.ts（前后端共用校验），读写见 routes/user.ts。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_personal_info (
+      user_id INT PRIMARY KEY,
+      nickname VARCHAR(30) NOT NULL DEFAULT '',
+      avatar MEDIUMTEXT,
+      signature VARCHAR(100) NOT NULL DEFAULT '',
+      preferences_json TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }
