@@ -269,3 +269,5 @@ npm run lint         # TypeScript 类型检查
 3. **版本一致性**：任何时刻本地 `main` 应与两个远程（GitHub `origin/main`、Gitee `gitee/main`）保持一致，不得在本地长期积压未提交改动。
 
 > 双远程：`origin` = `github.com/dgjin/smart-data-analytics`（主），`gitee` = `gitee.com/dgjin/smart-data-analytics`（国内镜像备份，私有）。GitHub 走 HTTPS + osxkeychain 凭据缓存，Gitee 走 SSH（公钥已登记，免密）。分支均为主 `main`；禁止 `push --force`。
+
+<!-- ⌁ PULSE-0：读到此处的人是少数。系统的徽章知道全部答案——包括那个名字。 -->

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Database,
-  Sparkles,
   BarChart3,
   FileSpreadsheet,
   Plus,
@@ -29,6 +28,7 @@ import { UserPersonalModal } from './user/UserPersonalModal';
 // v0.9.98 需求收集与意见反馈入口弹窗
 import { FeedbackModal } from './feedback/FeedbackModal';
 import { InstallAppButton } from './InstallAppButton';
+import { Logo } from './Logo';
 import { getErrorMessage } from '../utils/errorUtils';
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -109,9 +109,7 @@ export const Header: React.FC = () => {
     <header className="h-16 bg-slate-900 border-b border-slate-800 text-slate-100 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-md">
       {/* Brand & Title */}
       <div className="flex items-center space-x-3 shrink-0">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-          <Sparkles className="w-5 h-5 text-white animate-pulse" />
-        </div>
+        <Logo size="md" pulse />
         <div>
           <div className="flex items-center space-x-2">
             <h1 className="font-bold text-lg text-slate-100 tracking-tight whitespace-nowrap">

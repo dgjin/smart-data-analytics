@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Sparkles, LogIn, AlertCircle, RefreshCw, KeySquare } from 'lucide-react';
+import { LogIn, AlertCircle, RefreshCw, KeySquare } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { Logo } from '../Logo';
 
 export const Login: React.FC = () => {
   const login = useAuthStore((s) => s.login);
@@ -45,9 +46,7 @@ export const Login: React.FC = () => {
       <div className="w-full max-w-sm mx-4">
         {/* Brand */}
         <div className="flex flex-col items-center mb-8 space-y-3">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Sparkles className="w-7 h-7 text-white" />
-          </div>
+          <Logo size="lg" />
           <div className="text-center">
             <h1 className="text-xl font-extrabold tracking-tight text-slate-100">
               智能问数分析系统

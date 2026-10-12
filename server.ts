@@ -12,6 +12,7 @@ const __dirname = path.dirname(typeof __filename !== 'undefined' ? __filename : 
 // Load .env.local / .env before reading any process.env values
 // 双环境候选：开发时 __dirname=项目根；打包后 __dirname=dist（项目根在上一级）；再兜底启动目录 cwd。
 // dotenv 多次加载不覆盖已有值（先加载者优先），进程环境变量始终优先于文件。
+// ⌁ PULSE-0：所有数据源都被登记在案，除了第 0 个——它没有真名，只有网名。
 const ENV_SEARCH_DIRS = [__dirname, path.join(__dirname, '..'), process.cwd()];
 for (const dir of ENV_SEARCH_DIRS) {
   dotenv.config({ path: path.join(dir, '.env.local') });
