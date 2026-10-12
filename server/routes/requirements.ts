@@ -8,6 +8,9 @@
  * - POST   /:id/review       ADMIN 评估分析：BASELINE 纳入基线 / REJECT 不予采纳 / PENDING 退回；
  *                            每次评估（含继续评估）追加一条 feedback_entry_revisions 留痕
  * - DELETE /:id              删除条目（ADMIN，审计留痕）
+ * - GET    /ops-progress     智能运维系统处理进度代理（v0.9.105，登录用户；?ids= 逗号分隔，
+ *                            非 ADMIN 仅限本人提交的条目；未配置 AIOPS_TRACK_URL /
+ *                            AIOPS_TRACK_TOKEN 时 configured=false 隐藏进度展示）
  * - GET    /export           标准导出接口（requireOpsAccess 双通道：OPS_API_TOKEN 或 ADMIN JWT），
  *                            默认仅导出已纳入基线（status=BASELINED）的条目，供 AIOps 平台主动分析；
  *                            条目附 revisions（评估历史，升序；替代次评估的新内容经此被 AIOps 获取）；
@@ -142,6 +145,114 @@ router.get('/mine', authMiddleware, async (req, res) => {
   } catch (err) {
     logger.error('[Requirements] 我的列表获取失败:', getErrorMessage(err));
     return res.status(500).json({ error: '列表获取失败' });
+  }
+});
+
+// ---------- 智能运维系统处理进度代理（v0.9.105） ----------
+
+/**
+ * 需求在智能运维系统（AIOps）的处理进度：「我的反馈」与「管理面板」需要看到需求
+ * 经「智能分析 → 管理员批准 → 修复发布」的流转进度。本服务以服务令牌通道调用
+ * AIOps 只读接口 GET /api/requirements/track（其发布状态为查询时动态解析），
+ * 把 stage/timeline 按条目归集后返回，前端与本地状态合并展示。
+ * - 未配置 AIOPS_TRACK_URL / AIOPS_TRACK_TOKEN → configured=false（前端隐藏进度区）；
+ * - 上游失败 → ok=false + error（不缓存，下次请求立即重试）；
+ * - 归属隔离：非 ADMIN 仅能查询本人提交的条目（越权 ID 静默剔除，不泄露存在性）。
+ */
+const OPS_TRACK_TTL_MS = 20_000;
+const OPS_TRACK_TIMEOUT_MS = 5_000;
+const MAX_TRACK_IDS = 100;
+/** 进度缓存（key=条目 ID 串，仅成功响应入缓存；插入序淘汰超量键） */
+const opsTrackCache = new Map<string, { at: number; ops: Record<string, unknown> }>();
+
+/** 调 AIOps 只读进度接口（Bearer 服务令牌；5s 超时；按条目 ID 归集 entries） */
+async function fetchOpsTrack(
+  ids: number[]
+): Promise<{ ok: boolean; error?: string; ops?: Record<string, unknown> }> {
+  const base = String(process.env.AIOPS_TRACK_URL || '').trim().replace(/\/+$/, '');
+  const token = String(process.env.AIOPS_TRACK_TOKEN || '').trim();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OPS_TRACK_TIMEOUT_MS);
+  try {
+    const resp = await fetch(
+      `${base}/api/requirements/track?entry_ids=${encodeURIComponent(ids.join(','))}`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
+    );
+    if (!resp.ok) return { ok: false, error: `智能运维系统返回 HTTP ${resp.status}` };
+    const data = (await resp.json()) as {
+      ok?: boolean;
+      error?: string;
+      entries?: Array<Record<string, unknown>>;
+    };
+    if (data?.ok === false) {
+      return { ok: false, error: String(data.error || '智能运维系统未接受请求') };
+    }
+    const ops: Record<string, unknown> = {};
+    for (const item of data?.entries || []) {
+      const entryId = String(item?.entry_id || '');
+      if (entryId) ops[entryId] = item;
+    }
+    return { ok: true, ops };
+  } catch (err) {
+    const aborted = (err as { name?: string })?.name === 'AbortError';
+    return { ok: false, error: aborted ? '智能运维系统响应超时' : '无法连接智能运维系统' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// GET /api/requirements/ops-progress?ids=1,2,3
+router.get('/ops-progress', authMiddleware, async (req, res) => {
+  const raw = String(req.query.ids || '').trim();
+  const ids: number[] = [];
+  for (const part of raw.split(',')) {
+    const n = Number(part.trim());
+    if (Number.isInteger(n) && n > 0 && !ids.includes(n)) ids.push(n);
+  }
+  if (!ids.length) return res.status(400).json({ error: '缺少 ids（逗号分隔的需求条目 ID 列表）' });
+  if (ids.length > MAX_TRACK_IDS) return res.status(400).json({ error: `ids 最多 ${MAX_TRACK_IDS} 个` });
+
+  const configured = Boolean(
+    String(process.env.AIOPS_TRACK_URL || '').trim() && String(process.env.AIOPS_TRACK_TOKEN || '').trim()
+  );
+  if (!configured) return res.json({ success: true, configured: false, ops: {} });
+
+  try {
+    // 归属过滤：非 ADMIN 先回查本人提交的条目，越权 ID 静默剔除
+    let allowed = ids;
+    if (req.user!.role !== 'ADMIN') {
+      const placeholders = ids.map(() => '?').join(',');
+      const [rows] = await getPool().query<RowDataPacket[]>(
+        `SELECT id FROM feedback_entries WHERE user_id = ? AND id IN (${placeholders})`,
+        [req.user!.id, ...ids]
+      );
+      const mine = new Set(rows.map((r) => Number(r.id)));
+      allowed = ids.filter((id) => mine.has(id));
+    }
+    if (!allowed.length) return res.json({ success: true, configured: true, ok: true, ops: {} });
+
+    // 缓存按「排序后的 ID 串」共享（进度数据与用户无关；顺序稳定提高命中率）
+    const cacheKey = [...allowed].sort((a, b) => a - b).join(',');
+    const cached = opsTrackCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < OPS_TRACK_TTL_MS) {
+      return res.json({ success: true, configured: true, ok: true, ops: cached.ops, cached: true });
+    }
+
+    const result = await fetchOpsTrack(allowed);
+    if (!result.ok || !result.ops) {
+      // 失败不缓存：AIOps 短暂不可用时，下一次请求立即重试
+      const error = result.error || '处理进度获取失败';
+      return res.json({ success: true, configured: true, ok: false, error, ops: {} });
+    }
+    opsTrackCache.set(cacheKey, { at: Date.now(), ops: result.ops });
+    if (opsTrackCache.size > 200) {
+      const oldest = opsTrackCache.keys().next().value;
+      if (oldest !== undefined) opsTrackCache.delete(oldest);
+    }
+    return res.json({ success: true, configured: true, ok: true, ops: result.ops });
+  } catch (err) {
+    logger.error('[Requirements] 处理进度获取失败:', getErrorMessage(err));
+    return res.json({ success: true, configured: true, ok: false, error: '处理进度获取失败，请稍后重试', ops: {} });
   }
 });
 

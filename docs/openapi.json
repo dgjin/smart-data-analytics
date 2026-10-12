@@ -7292,6 +7292,34 @@
         }
       }
     },
+    "/api/requirements/ops-progress": {
+      "get": {
+        "tags": [
+          "Requirements"
+        ],
+        "operationId": "requirementsOpsProgress",
+        "summary": "需求在智能运维系统的处理进度（代理 AIOps track；非 ADMIN 仅本人条目）",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "逗号分隔的需求条目 ID 列表（去重；最多 100 个）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功；configured=false 表示未配置 AIOPS_TRACK_URL/TOKEN；ok=false 时带 error 且不缓存"
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          }
+        }
+      }
+    },
     "/api/requirements/summary": {
       "get": {
         "tags": [

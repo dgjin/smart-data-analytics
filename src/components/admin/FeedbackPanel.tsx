@@ -4,6 +4,7 @@
  * 录入：管理员可直接录入需求反馈（类型/标题/内容/优先级，必填与格式校验后经
  * POST /api/requirements 落库，录入成功即刷新列表）；
  * 「已纳入基线」条目经 /api/requirements/export 标准接口提供给 AIOps 平台主动分析。
+ * v0.9.105 展开「已纳入基线」条目懒加载「智能运维处理进度」（阶段徽标 + 完整时间线）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -21,6 +22,7 @@ import {
   ChevronUp,
   Search,
   X,
+  Activity,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
@@ -30,12 +32,17 @@ import {
   FeedbackKind,
   FeedbackStatus,
   KIND_LABELS,
+  OPS_EVENT_LABELS,
+  OpsProgressResponse,
+  OpsTrack,
   REVIEW_ACTION_CLS,
   REVIEW_ACTION_LABELS,
   STATUS_META,
+  formatOpsTime,
   isKind,
   isReviewAction,
   isStatus,
+  opsStageCls,
 } from '../../types/requirements';
 
 type StatusFilter = '' | FeedbackStatus;
@@ -395,6 +402,11 @@ export const FeedbackPanel: React.FC = () => {
   const [reviewTarget, setReviewTarget] = useState<FeedbackEntry | null>(null);
   const [entryOpen, setEntryOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  /** v0.9.105 智能运维处理进度（展开基线条目时懒加载；opsConfigured=null 尚未探测） */
+  const [opsData, setOpsData] = useState<Record<string, OpsTrack>>({});
+  const [opsLoadingId, setOpsLoadingId] = useState<number | null>(null);
+  const [opsError, setOpsError] = useState('');
+  const [opsConfigured, setOpsConfigured] = useState<boolean | null>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -446,6 +458,31 @@ export const FeedbackPanel: React.FC = () => {
       setDeletingId(null);
     }
   };
+
+  // v0.9.105 展开基线条目时拉取智能运维处理进度（每次展开刷新取最新；未配置集成时不展示）
+  const loadOpsFor = useCallback(async (id: number) => {
+    setOpsLoadingId(id);
+    setOpsError('');
+    try {
+      const res = await apiFetch(`/api/requirements/ops-progress?ids=${id}`);
+      const data = (await res.json()) as OpsProgressResponse;
+      if (!data?.configured) {
+        setOpsConfigured(false);
+        return;
+      }
+      setOpsConfigured(true);
+      if (data.ok === false) {
+        setOpsError(data.error || '智能运维处理进度暂不可用');
+        return;
+      }
+      const item = data.ops?.[String(id)];
+      if (item) setOpsData((prev) => ({ ...prev, [id]: item }));
+    } catch {
+      setOpsError('智能运维处理进度获取失败');
+    } finally {
+      setOpsLoadingId(null);
+    }
+  }, []);
 
   const countOf = (status: FeedbackStatus) =>
     summary?.byStatus.find((r) => r.status === status)?.cnt ?? 0;
@@ -611,7 +648,12 @@ export const FeedbackPanel: React.FC = () => {
                 <React.Fragment key={e.id}>
                   <tr
                     className="border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors cursor-pointer"
-                    onClick={() => setExpandedId(expanded ? null : e.id)}
+                    onClick={() => {
+                      const next = expanded ? null : e.id;
+                      setExpandedId(next);
+                      // v0.9.105 展开基线条目时懒加载智能运维处理进度
+                      if (next !== null && e.status === 'BASELINED') void loadOpsFor(e.id);
+                    }}
                   >
                     <td className="px-5 py-3 font-mono text-slate-400">#{e.id}</td>
                     <td className="px-4 py-3">{isKind(e.kind) ? KIND_LABELS[e.kind] : e.kind}</td>
@@ -710,6 +752,57 @@ export const FeedbackPanel: React.FC = () => {
                               </div>
                             ))}
                           </div>
+                        )}
+                        {/* v0.9.105 智能运维处理进度（展开基线条目时懒加载；未配置集成/非基线条目不显示） */}
+                        {e.status === 'BASELINED' && opsConfigured !== false && (
+                          opsLoadingId === e.id && !opsData[e.id] ? (
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              <span>正在获取智能运维处理进度…</span>
+                            </div>
+                          ) : opsData[e.id] ? (
+                            <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 space-y-1.5">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500">
+                                  <Activity className="w-3 h-3 text-indigo-400" />
+                                  <span>智能运维处理进度</span>
+                                </span>
+                                <span
+                                  className={`shrink-0 px-1.5 py-px rounded-full border text-[10px] font-semibold ${opsStageCls(opsData[e.id].stage)}`}
+                                >
+                                  {opsData[e.id].stage_label}
+                                </span>
+                                {opsData[e.id].current_version > 0 && (
+                                  <span className="text-[10px] text-slate-500">第 {opsData[e.id].current_version} 轮分析</span>
+                                )}
+                                {opsData[e.id].updated_at && (
+                                  <span className="text-[10px] text-slate-500">更新于 {formatOpsTime(opsData[e.id].updated_at)}</span>
+                                )}
+                              </div>
+                              {opsData[e.id].timeline.length > 0 ? (
+                                <div className="space-y-1 max-h-40 overflow-y-auto">
+                                  {opsData[e.id].timeline.map((ev, i) => (
+                                    <div key={i} className="flex items-start gap-2 text-[11px] leading-relaxed">
+                                      <span className="shrink-0 text-slate-500 tabular-nums">{formatOpsTime(ev.at)}</span>
+                                      <span
+                                        className={`shrink-0 px-1.5 py-px rounded-full border text-[10px] font-semibold ${opsStageCls(ev.stage)}`}
+                                      >
+                                        {OPS_EVENT_LABELS[ev.stage] || ev.stage}
+                                      </span>
+                                      {ev.version ? <span className="shrink-0 text-slate-400">v{ev.version}</span> : null}
+                                      {ev.detail && <span className="min-w-0 text-slate-300">{ev.detail}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-slate-500">尚无进度事件（等待智能运维系统接收）</p>
+                              )}
+                            </div>
+                          ) : opsError ? (
+                            <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                              {opsError}（可折叠后重新展开重试）
+                            </p>
+                          ) : null
                         )}
                       </td>
                     </tr>

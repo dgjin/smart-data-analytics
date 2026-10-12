@@ -2,6 +2,7 @@
  * v0.9.98 需求收集与意见反馈弹窗（用户侧，Header 入口）：
  * 上半区提交需求/建议/缺陷/其他 → 管理员评估分析 → 纳入基线后经标准接口供 AIOps 主动分析；
  * 下半区「我的反馈」展示处理状态（待评估 / 已纳入基线 / 未采纳）与管理员评估意见。
+ * v0.9.105 已纳入基线条目附「智能运维处理进度」（批量拉取 ops-progress，显阶段徽标+最近事件）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -13,6 +14,7 @@ import {
   BadgeCheck,
   XCircle,
   Search,
+  Activity,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
@@ -22,9 +24,14 @@ import {
   FeedbackKind,
   FeedbackStatus,
   KIND_LABELS,
+  OPS_EVENT_LABELS,
+  OpsProgressResponse,
+  OpsTrack,
   STATUS_META,
+  formatOpsTime,
   isKind,
   isStatus,
+  opsStageCls,
 } from '../../types/requirements';
 
 /** 状态图标（文案与配色复用共享 STATUS_META） */
@@ -44,19 +51,48 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
   const [entries, setEntries] = useState<FeedbackEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  /** v0.9.105 智能运维系统处理进度（按条目 ID 归集） */
+  const [ops, setOps] = useState<Record<string, OpsTrack>>({});
+  const [opsError, setOpsError] = useState('');
+
+  // v0.9.105 仅对「已纳入基线」条目批量拉取进度（服务端 20s 缓存兜底；失败不阻断列表展示）
+  const loadOps = useCallback(async (list: FeedbackEntry[]) => {
+    const ids = list.filter((e) => e.status === 'BASELINED').map((e) => e.id);
+    if (!ids.length) {
+      setOps({});
+      setOpsError('');
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/requirements/ops-progress?ids=${ids.join(',')}`);
+      const data = (await res.json()) as OpsProgressResponse;
+      if (!data?.configured) {
+        setOps({}); // 未配置智能运维集成：不展示进度区
+        return;
+      }
+      setOps(data.ops || {});
+      setOpsError(data.ok === false ? data.error || '智能运维处理进度暂不可用' : '');
+    } catch {
+      setOpsError('智能运维处理进度获取失败');
+    }
+  }, []);
 
   const loadMine = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/requirements/mine');
       const data = await res.json();
-      if (data.success) setEntries(data.entries || []);
+      if (data.success) {
+        const list: FeedbackEntry[] = data.entries || [];
+        setEntries(list);
+        void loadOps(list);
+      }
     } catch {
       /* 列表加载失败不阻断提交 */
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadOps]);
 
   useEffect(() => {
     void loadMine();
@@ -219,6 +255,12 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
             {entries.length === 0 && !loading && (
               <p className="text-[11px] text-slate-500 py-2">暂无提交记录</p>
             )}
+            {/* v0.9.105 进度拉取失败的轻提示（仍可点刷新重试） */}
+            {opsError && entries.some((e) => e.status === 'BASELINED') && (
+              <div className="mb-2 text-[10px] text-amber-300/90 bg-amber-950/40 border border-amber-800/40 rounded-lg px-2 py-1.5 leading-relaxed">
+                {opsError}（可点「刷新」重试）
+              </div>
+            )}
             {entries.length > 0 && filteredEntries.length === 0 && (
               <p className="text-[11px] text-slate-500 py-2">
                 未找到与「{keyword}」匹配的反馈，可尝试更短的关键词或清空搜索
@@ -228,6 +270,9 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
               {filteredEntries.map((e) => {
                 const meta = isStatus(e.status) ? STATUS_META[e.status] : STATUS_META.PENDING;
                 const Icon = STATUS_ICONS[e.status];
+                // v0.9.105 智能运维处理进度（仅已纳入基线的条目有数据）
+                const progress = ops[String(e.id)];
+                const recentEvents = progress ? progress.timeline.slice(-4) : [];
                 return (
                   <div key={e.id} className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 space-y-1">
                     <div className="flex items-center justify-between gap-2">
@@ -249,6 +294,40 @@ export const FeedbackModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
                       <div className="text-[10px] text-slate-400 bg-slate-900/80 rounded-lg px-2 py-1.5 leading-relaxed">
                         评估意见：{e.assessment}
                         {e.reviewer && <span className="text-slate-500">（{e.reviewer}）</span>}
+                      </div>
+                    )}
+                    {progress && (
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/70 px-2 py-1.5 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+                            <Activity className="w-3 h-3 text-indigo-400" />
+                            <span>智能运维处理进度</span>
+                          </span>
+                          <span
+                            className={`shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${opsStageCls(progress.stage)}`}
+                          >
+                            {progress.stage_label}
+                          </span>
+                        </div>
+                        {recentEvents.length > 0 && (
+                          <div className="space-y-0.5">
+                            {progress.timeline.length > recentEvents.length && (
+                              <div className="text-[10px] text-slate-600">
+                                …更早 {progress.timeline.length - recentEvents.length} 条进度
+                              </div>
+                            )}
+                            {recentEvents.map((ev, i) => (
+                              <div key={i} className="flex items-center gap-1.5 text-[10px] leading-relaxed">
+                                <span className="shrink-0 text-slate-500 tabular-nums">{formatOpsTime(ev.at)}</span>
+                                <span className="text-slate-400">
+                                  {OPS_EVENT_LABELS[ev.stage] || ev.stage}
+                                  {ev.version ? ` v${ev.version}` : ''}
+                                  {ev.detail ? `（${ev.detail}）` : ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

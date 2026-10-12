@@ -52,6 +52,7 @@ export const STATE_WHITELIST: WhitelistEntry[] = [
   { file: 'server/query/schemaLinking.ts', name: 'columnEmbeddingCache', category: 'local-accel', reason: '列摘要向量缓存（key 含内容指纹）；未命中仅多一次 embedding 调用' },
   { file: 'server/query/sseReplayBuffer.ts', name: 'buffers', category: 'local-accel', reason: 'SSE 断线续传重放缓冲（终态 TTL 10 分钟）；多实例重连落异节点时 404 降级完整重试，正确性不依赖共享' },
   { file: 'server/llm/llmClient.ts', name: 'unconfiguredFailoverWarned', category: 'local-accel', reason: '引擎未配置（缺 Key）告警去重集合：仅防日志刷屏，无业务语义；各实例独立打一次告警，正确性不依赖共享' },
+  { file: 'server/routes/requirements.ts', name: 'opsTrackCache', category: 'local-accel', reason: 'v0.9.105 智能运维处理进度代理 20s TTL 缓存（key=排序条目 ID 串，仅成功入缓存）；未命中仅多一次 AIOps track 请求，各实例独立无正确性问题' },
   // ---- registry：代码级注册表（启动时注册，无运行态跨请求语义）----
   { file: 'server/infra/taskQueue.ts', name: 'handlers', category: 'registry', reason: '任务处理器注册表：进程启动时注册同一批 handler，各实例内容一致' },
   // ---- statestore-impl：StateStore 内存实现本体（接口层已支持 Redis 外置）----
