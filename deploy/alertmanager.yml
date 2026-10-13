@@ -68,11 +68,18 @@ receivers:
         send_resolved: false
   # 【END-OPS-AGENT】
 
-  # 【AIOps Agent 接入点】本地告警接入服务（aiops-agent/alert_webhook.py，默认 8099）
+  # 【AIOps Agent 接入点】本地告警接入服务经 Caddy 生产入口（2026-10-13 接线；https+本地CA+令牌文件）：
+  # 8099 已收敛为 loopback-only，容器直连 host.docker.internal:8099 不可达。
   - name: aiops-agent
     webhook_configs:
-      - url: 'http://host.docker.internal:8099/webhook'
+      - url: 'https://192.168.0.6:8643/webhook'
         send_resolved: false
+        http_config:
+          tls_config:
+            ca_file: /etc/aiops-tls/ca.crt
+          authorization:
+            type: Bearer
+            credentials_file: /run/secrets/aiops_webhook_token
 
   # - name: email
   #   email_configs:

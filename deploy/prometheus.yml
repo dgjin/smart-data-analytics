@@ -43,6 +43,29 @@ scrape_configs:
     static_configs:
       - targets: ['alertmanager:9093']
 
+  # === AIOps 生产指标（2026-10-13 接线；源=AIOps 渲染 prometheus.fragment.yml）===
+  # 经 Caddy 8643 的 https + 本地 CA 校验 + basic_auth 密码文件（副本目录只读挂载）
+  - job_name: aiops-production-bff
+    scheme: https
+    metrics_path: /internal-metrics/bff
+    tls_config:
+      ca_file: /etc/aiops-tls/ca.crt
+    basic_auth:
+      username: aiops_metrics
+      password_file: /run/secrets/aiops_metrics_password
+    static_configs:
+      - targets: ['192.168.0.6:8643']
+  - job_name: aiops-production-worker
+    scheme: https
+    metrics_path: /internal-metrics/worker
+    tls_config:
+      ca_file: /etc/aiops-tls/ca.crt
+    basic_auth:
+      username: aiops_metrics
+      password_file: /run/secrets/aiops_metrics_password
+    static_configs:
+      - targets: ['192.168.0.6:8643']
+
 # 说明：Ollama 原生不暴露 Prometheus 格式指标（根路径返回纯文本，抓取会解析失败），
 # P0 不单独采集——Ollama 健康度通过应用侧 llm_call_duration_seconds{ok="0"} 异常率观测。
 
