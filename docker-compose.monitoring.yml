@@ -27,6 +27,9 @@ services:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./deploy/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
       - ./deploy/aiops-demo-rules.yml:/etc/prometheus/aiops-demo-rules.yml:ro
+      # AIOps 生产指标接线（2026-10-13）：CA 信任根 + basic_auth 密码副本（宿主 644，容器 uid=65534 可读）
+      - /Users/dgjin/aiops-monitoring-access/ca.crt:/etc/aiops-tls/ca.crt:ro
+      - /Users/dgjin/aiops-monitoring-access/aiops_metrics_password:/run/secrets/aiops_metrics_password:ro
       - prometheus-data:/prometheus
     depends_on:
       - alertmanager
@@ -48,6 +51,9 @@ services:
     volumes:
       - ./deploy/alertmanager.yml:/etc/alertmanager/alertmanager.tpl.yml:ro
       - ./deploy/alertmanager-entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
+      # AIOps 生产接线（2026-10-13）：CA 信任根 + webhook 令牌副本（宿主 644，容器 uid=65534 可读）
+      - /Users/dgjin/aiops-monitoring-access/ca.crt:/etc/aiops-tls/ca.crt:ro
+      - /Users/dgjin/aiops-monitoring-access/aiops_webhook_token:/run/secrets/aiops_webhook_token:ro
       - alertmanager-data:/alertmanager
     restart: unless-stopped
 
