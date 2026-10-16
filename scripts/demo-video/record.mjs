@@ -874,7 +874,7 @@ const main = async () => {
     await moveMouse(page, 700, 500);
   });
 
-  // ── m10 片尾（15.1s，画面动画按 m10.vtt 对齐）──
+  // ── m10 片尾：核心优势与治理闭环（45.8s，画面动画按 m10.vtt 对齐）──
   if (want('m10')) await scene('m10', async (page) => {
     const t0 = Date.now();
     await bounded(page.goto(pathToFileURL(join(__dirname, 'overlay', 'outro.html')).href, { waitUntil: 'load' }), 15000);
