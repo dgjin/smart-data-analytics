@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 演示视频 · 片尾</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --accent: #3b82f6;
+    --warn: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 600px at 50% 0%, rgba(59, 130, 246, .15), transparent 62%),
+      radial-gradient(900px 640px at 50% 108%, rgba(124, 58, 237, .12), transparent 62%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：页面加载即覆盖纯背景色，armed 后 1s 开始 1s 淡出，遮蔽 Chromium 首帧渲染残留 */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1280px; text-align: center; padding: 0 40px; }
+
+  .anim { opacity: 0; transform: translateY(22px); }
+  body.playing .anim { animation: rise .95s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  h1 { font-size: 88px; font-weight: 700; letter-spacing: 22px; text-indent: 22px;
+       background: linear-gradient(180deg, #ffffff 32%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+  .divider { margin: 34px auto 0; width: 680px; height: 1px;
+             background: linear-gradient(90deg, transparent, rgba(139,152,173,.55), transparent);
+             transform: scaleX(0); }
+  body.playing .divider { animation: grow 1.1s cubic-bezier(.22,.61,.36,1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes grow { to { transform: scaleX(1); } }
+
+  .warn { margin: 44px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 14px;
+          padding: 18px 34px; border-radius: 12px; font-size: 24px; letter-spacing: 1.5px; font-weight: 600;
+          color: #ffd48a; background: rgba(245,158,11,.1); border: 1.5px solid rgba(245,158,11,.65);
+          box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+  body.playing .warn { animation: rise .95s cubic-bezier(.22,.61,.36,1) forwards, warnPulse 2.4s ease-in-out infinite; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)), calc(var(--d, 0s) - var(--delta, 0s) + .95s); }
+  @keyframes warnPulse {
+    0%, 100% { box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+    50% { box-shadow: 0 0 44px rgba(245,158,11,.34), inset 0 0 30px rgba(245,158,11,.12); }
+  }
+  .warn .icon { font-size: 27px; }
+
+  .slogan { margin-top: 46px; font-size: 26px; letter-spacing: 6px; color: #b9c8e2; }
+  .slogan b { color: #ffffff; font-weight: 600; }
+
+  .credit { margin-top: 30px; font-size: 17px; letter-spacing: 4px; color: var(--dim); }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <h1 class="anim" style="--d:.4s">感谢观看</h1>
+    <div class="divider" style="--d:1.3s"></div>
+    <div class="warn anim" style="--d:2s"><span class="icon">⚠</span>再次提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+    <div class="slogan anim" style="--d:9.8s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
+    <div class="credit anim" style="--d:11.5s">智能问数数据分析系统项目组 · 2026</div>
+  </div>
+</body>
+</html>

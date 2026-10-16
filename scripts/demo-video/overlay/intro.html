@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 演示视频 · 片头</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --accent: #3b82f6;
+    --warn: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 600px at 18% 6%, rgba(59, 130, 246, .16), transparent 60%),
+      radial-gradient(1000px 700px at 86% 96%, rgba(124, 58, 237, .13), transparent 60%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 隐藏录制脚本注入的仿真光标（本幕无交互） */
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：页面加载即覆盖纯背景色，armed 后 1s 开始 1s 淡出，遮蔽 Chromium 首帧渲染残留 */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1280px; text-align: center; padding: 0 40px; }
+
+  /* 动画基元：上浮渐入（body.playing 由录制脚本在时间轴零点校准后添加；--delta 抵消页面加载耗时） */
+  .anim { opacity: 0; transform: translateY(22px); }
+  body.playing .anim { animation: rise .95s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 8px 22px; border: 1px solid rgba(59,130,246,.4); border-radius: 999px; color: #9db8e8; font-size: 17px; letter-spacing: 2px; background: rgba(59,130,246,.08); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+
+  h1 { margin-top: 30px; font-size: 66px; font-weight: 700; letter-spacing: 6px;
+       background: linear-gradient(180deg, #ffffff 30%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { margin-top: 16px; font-size: 22px; letter-spacing: 14px; color: var(--accent); text-indent: 14px; }
+
+  .divider { margin: 40px auto 0; width: 760px; height: 1px;
+             background: linear-gradient(90deg, transparent, rgba(139,152,173,.55), transparent);
+             transform: scaleX(0); }
+  body.playing .divider { animation: grow 1.1s cubic-bezier(.22,.61,.36,1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes grow { to { transform: scaleX(1); } }
+
+  .team-title { margin-top: 42px; font-size: 20px; letter-spacing: 12px; color: var(--dim); text-indent: 12px; }
+
+  .lead { margin-top: 26px; display: flex; align-items: baseline; justify-content: center; gap: 20px; }
+  .lead .role { font-size: 19px; color: var(--dim); letter-spacing: 3px; }
+  .lead .name { font-size: 40px; font-weight: 600; letter-spacing: 5px;
+                background: linear-gradient(180deg, #ffffff 40%, #bcd2f2 100%);
+                -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+  .members { margin-top: 40px; display: flex; justify-content: center; gap: 26px; }
+  .card { width: 340px; padding: 24px 18px 26px; border-radius: 14px;
+          background: rgba(255,255,255,.035); border: 1px solid rgba(139,152,173,.25);
+          box-shadow: 0 10px 34px rgba(0,0,0,.35); }
+  .card .org { font-size: 17px; color: var(--dim); letter-spacing: 2px; }
+  .card .name { margin-top: 14px; font-size: 26px; font-weight: 600; letter-spacing: 3px; }
+
+  .warn { margin: 52px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 14px;
+          padding: 18px 34px; border-radius: 12px; font-size: 24px; letter-spacing: 1.5px; font-weight: 600;
+          color: #ffd48a; background: rgba(245,158,11,.1); border: 1.5px solid rgba(245,158,11,.65);
+          box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+  body.playing .warn { animation: rise .95s cubic-bezier(.22,.61,.36,1) forwards, warnPulse 2.4s ease-in-out infinite; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)), calc(var(--d, 0s) - var(--delta, 0s) + .95s); }
+  @keyframes warnPulse {
+    0%, 100% { box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+    50% { box-shadow: 0 0 44px rgba(245,158,11,.34), inset 0 0 30px rgba(245,158,11,.12); }
+  }
+  .warn .icon { font-size: 27px; }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <div class="anim" style="--d:.5s"><span class="badge"><span class="dot"></span>NL2SQL 智能数据分析平台</span></div>
+    <h1 class="anim" style="--d:.9s">智能问数数据分析系统</h1>
+    <p class="subtitle anim" style="--d:2s">演示视频</p>
+
+    <div class="divider" style="--d:2.8s"></div>
+
+    <div class="team-title anim" style="--d:4.5s">项 目 组</div>
+    <div class="lead anim" style="--d:5s"><span class="role">项目负责人</span><span class="name">金定国</span></div>
+
+    <div class="members">
+      <div class="card anim" style="--d:7.6s"><div class="org">数智化转型办公室</div><div class="name">高博伟 · 张弘毅</div></div>
+      <div class="card anim" style="--d:11.2s"><div class="org">计划财务部</div><div class="name">尹茵</div></div>
+      <div class="card anim" style="--d:13.6s"><div class="org">安徽省分公司</div><div class="name">鲁帆</div></div>
+    </div>
+
+    <div class="warn anim" style="--d:16s"><span class="icon">⚠</span>特别提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+  </div>
+</body>
+</html>

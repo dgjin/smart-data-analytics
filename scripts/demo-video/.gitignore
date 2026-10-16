@@ -1,0 +1,12 @@
+# 敏感：浏览器登录态（含凭证 cookie），禁止入库
+.auth-state.json
+
+# 大体积生成物与调试产物（可由脚本重新生成）
+*.mp4
+audio/*.mp3
+videos/
+out/
+diag/
+frames/
+scan/
+node_modules/
