@@ -66,6 +66,14 @@
   .hl-main b { color: #ffffff; font-weight: 600; }
   .hl-sub { font-size: 16px; letter-spacing: 5px; color: #8fb0e8; }
 
+  /* ── 演示环境 ── */
+  .env-title { margin-top: 26px; font-size: 17px; letter-spacing: 9px; text-indent: 9px; color: var(--dim); }
+  .env-bar { margin: 14px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 24px;
+             padding: 13px 30px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
+             background: rgba(255,255,255,.025); border: 1px solid rgba(139,152,173,.3); }
+  .env-bar b { color: #dce9ff; font-weight: 600; }
+  .env-bar .sep { width: 1px; height: 15px; background: rgba(139,152,173,.4); }
+
   .warn { margin: 28px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 14px;
           padding: 15px 34px; border-radius: 12px; font-size: 23px; letter-spacing: 1.5px; font-weight: 600;
           color: #ffd48a; background: rgba(245,158,11,.1); border: 1.5px solid rgba(245,158,11,.65);
@@ -89,7 +97,7 @@
     <h1 class="anim" style="--d:.4s">感谢观看</h1>
     <div class="divider" style="--d:1.3s"></div>
 
-    <!-- 时间轴按 m10.vtt 校准：句2（1.65-23.71s）三优势分述 / 句3（23.71-32.29s）闭环结论 / 句4（32.29-40.31s）再提示 / 句5（40.31-45.73s）slogan -->
+    <!-- 时间轴按 m10.vtt 校准：句2（1.65-23.71s）三优势分述 / 句3（23.71-32.29s）闭环结论 / 句4（32.29-51.67s）演示环境 / 句5（51.67-59.69s）再提示 / 句6（59.69-65.10s）slogan -->
     <div class="adv-title anim" style="--d:2.8s">核 心 优 势 · 治 理 闭 环</div>
 
     <div class="cards">
@@ -112,10 +120,19 @@
       <span class="hl-sub">问数质量与可靠性持续提升</span>
     </div>
 
-    <div class="warn anim" style="--d:33s"><span class="icon">⚠</span>再次提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+    <div class="env-title anim" style="--d:33.3s">演 示 环 境</div>
+    <div class="env-bar anim" style="--d:35.5s">
+      <span><b>本地单机部署</b> · 一键启动</span>
+      <span class="sep"></span>
+      <span>数据源 <b>MySQL 演示数据库</b></span>
+      <span class="sep"></span>
+      <span>推理引擎 <b>Ollama 本地</b> + <b>DeepSeek 云端</b> 兜底</span>
+    </div>
 
-    <div class="slogan anim" style="--d:41s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
-    <div class="credit anim" style="--d:43s">智能问数数据分析系统项目组 · 2026</div>
+    <div class="warn anim" style="--d:52.4s"><span class="icon">⚠</span>再次提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+
+    <div class="slogan anim" style="--d:60.4s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
+    <div class="credit anim" style="--d:62.5s">智能问数数据分析系统项目组 · 2026</div>
   </div>
 </body>
 </html>
