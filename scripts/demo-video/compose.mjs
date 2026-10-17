@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCENES = ['m00', 'm0', 'm01', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10'];
+const SCENES = ['m00', 'm0', 'm01', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm8b', 'm9', 'm10'];
 const OUT = join(__dirname, 'out');
 mkdirSync(OUT, { recursive: true });
 

@@ -29,7 +29,7 @@ const md = readFileSync(join(__dirname, 'narration.md'), 'utf8');
 const scenes = {}; // { m1: "正文..." }
 let current = null;
 for (const line of md.split('\n')) {
-  const h = line.match(/^##\s*(m\d+)\s*·/);
+  const h = line.match(/^##\s*(m\d+[a-z]?)\s*·/);
   if (h) {
     current = h[1];
     scenes[current] = [];
