@@ -6,7 +6,7 @@
  *
  * 运行：node scripts/demo-video/generate-tts.mjs
  */
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -42,6 +42,19 @@ for (const line of md.split('\n')) {
 const ids = Object.keys(scenes);
 console.log('scenes found:', ids.join(', '));
 
+// ── 多音字读音修正：仅作用于合成文本，VTT 生成后还原原文 ──
+// 「行」在数据语境应读 háng，edge-tts 对「一行 / 万行 / 行数 / 行级 / 行权限」偶发读 xíng，
+// 合成前替换为同音字「航」保证读音，字幕仍保留原文「行」。
+const TTS_FIXES = [
+  ['行权限', '航权限'],
+  ['一行', '一航'],
+  ['万行', '万航'],
+  ['行数', '航数'],
+  ['行级', '航级'],
+];
+const applyFixes = (t) => TTS_FIXES.reduce((s, [from, to]) => s.split(from).join(to), t);
+const revertFixes = (t) => TTS_FIXES.reduce((s, [from, to]) => s.split(to).join(from), t);
+
 // edge-tts 经代理连微软 wss 偶发 ConnectionTimeout，自动重试并轮换代理端口（最多 4 次，间隔 3s）
 function ttsWithRetry(commonArgs, attempts = 4) {
   for (let i = 1; i <= attempts; i++) {
@@ -69,10 +82,16 @@ for (const id of list) {
   const text = scenes[id].join('\n');
   const txtFile = join(AUDIO_DIR, `${id}.txt`);
   const mp3File = join(AUDIO_DIR, `${id}.mp3`);
-  writeFileSync(txtFile, text, 'utf8');
+  writeFileSync(txtFile, applyFixes(text), 'utf8');
   const args = ['--voice', VOICE, `--rate=${RATE}`, '--file', txtFile, '--write-media', mp3File];
-  if (VTT) args.push('--write-subtitles', join(AUDIO_DIR, `${id}.vtt`));
+  const vttFile = join(AUDIO_DIR, `${id}.vtt`);
+  if (VTT) args.push('--write-subtitles', vttFile);
   ttsWithRetry(args);
+  if (VTT && existsSync(vttFile)) {
+    const raw = readFileSync(vttFile, 'utf8');
+    const fixed = revertFixes(raw);
+    if (fixed !== raw) writeFileSync(vttFile, fixed, 'utf8');
+  }
   const probe = execFileSync('ffprobe', [
     '-v', 'error', '-show_entries', 'format=duration',
     '-of', 'default=noprint_wrappers=1:nokey=1', mp3File,

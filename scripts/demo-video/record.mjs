@@ -336,7 +336,7 @@ const main = async () => {
     await prepareAuth();
   }
 
-  // ── m00 片头：项目组名单与演示数据提示（23.5s，画面动画按 m00.vtt 对齐）──
+  // ── m00 片头：项目组名单、全片时长与倍速提示（时长与动画按 m00.vtt 对齐）──
   if (want('m00')) await scene('m00', async (page) => {
     const t0 = Date.now();
     await bounded(page.goto(pathToFileURL(join(__dirname, 'overlay', 'intro.html')).href, { waitUntil: 'load' }), 15000);
