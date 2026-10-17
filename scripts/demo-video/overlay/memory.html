@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 演示视频 · 统一记忆体</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --blue: #3b82f6;
+    --cyan: #22d3ee;
+    --violet: #8b5cf6;
+    --emerald: #34d399;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(1000px 620px at 14% 2%, rgba(34, 211, 238, .14), transparent 62%),
+      radial-gradient(1000px 700px at 88% 98%, rgba(139, 92, 246, .15), transparent 62%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 隐藏录制脚本注入的仿真光标（本幕无交互） */
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：遮蔽 Chromium 首帧渲染残留（与片头/片尾一致） */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1740px; display: flex; flex-direction: column; align-items: center; }
+
+  /* 动画基元：body.playing 由录制脚本在时间轴零点校准后添加，--delta 抵消页面加载耗时 */
+  .anim { opacity: 0; transform: translateY(20px); }
+  body.playing .anim { animation: rise .9s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* ── 标题 ── */
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 7px 20px;
+           border: 1px solid rgba(34,211,238,.4); border-radius: 999px; color: #9fe8f5;
+           font-size: 16px; letter-spacing: 2px; background: rgba(34,211,238,.08); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan);
+                box-shadow: 0 0 12px var(--cyan); }
+  h1 { margin-top: 18px; font-size: 54px; font-weight: 700; letter-spacing: 5px;
+       background: linear-gradient(180deg, #ffffff 30%, #a8e8f4 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .lede { margin-top: 10px; font-size: 17px; letter-spacing: 3px; color: var(--dim); }
+  .lede b { color: #a9e6ef; font-weight: 600; }
+
+  /* ── 双栏面板 ── */
+  .grid { margin-top: 26px; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .panel { position: relative; border-radius: 18px; padding: 22px 26px 18px;
+           background: rgba(255,255,255,.032); border: 1px solid rgba(139,152,173,.26);
+           box-shadow: 0 14px 44px rgba(0,0,0,.38); }
+  .panel.left { border-top: 2px solid rgba(34,211,238,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(34,211,238,.10); }
+  .panel.right { border-top: 2px solid rgba(139,92,246,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(139,92,246,.10); }
+
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+                padding-bottom: 12px; border-bottom: 1px solid rgba(139,152,173,.22); }
+  .panel-title { font-size: 27px; font-weight: 700; letter-spacing: 2px; }
+  .left .panel-title { color: #bdf2fb; text-shadow: 0 0 20px rgba(34,211,238,.35); }
+  .right .panel-title { color: #d8cbff; text-shadow: 0 0 20px rgba(139,92,246,.35); }
+  .kicker { font-size: 13px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
+
+  /* ── 八通道 ── */
+  .channels { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ch { display: grid; grid-template-columns: 34px 1fr; gap: 11px; align-items: center;
+        padding: 7px 10px; border-radius: 10px; background: rgba(255,255,255,.022);
+        border: 1px solid rgba(139,152,173,.12); }
+  .ch .idx { width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+             font-size: 13px; font-weight: 700; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+             color: #cffafe; background: rgba(34,211,238,.13); border: 1px solid rgba(34,211,238,.45); }
+  .ch.hot { border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.07); }
+  .ch.hot .idx { color: #ecfeff; background: rgba(34,211,238,.24); box-shadow: 0 0 14px rgba(34,211,238,.3); }
+  .cn { font-size: 17.5px; font-weight: 600; letter-spacing: .5px; color: #e6efff; }
+  .cd { margin-top: 1px; font-size: 12.5px; letter-spacing: .3px; color: var(--dim); }
+
+  .formula { margin-top: 12px; padding: 10px 14px; border-radius: 10px; text-align: center;
+             font-size: 15px; letter-spacing: 1px; color: #a5f3fc;
+             background: rgba(34,211,238,.06); border: 1px dashed rgba(34,211,238,.42); }
+  .formula b { color: #e0feff; }
+  .budget { margin-top: 8px; padding: 8px 14px; border-radius: 10px; text-align: center;
+            font-size: 13.5px; letter-spacing: .5px; color: var(--dim);
+            background: rgba(255,255,255,.02); border: 1px solid rgba(139,152,173,.16); }
+
+  /* ── 纠错闭环 ── */
+  .steps { list-style: none; margin-top: 14px; display: flex; flex-direction: column; gap: 7px; }
+  .step { display: grid; grid-template-columns: 38px 1fr; gap: 13px; align-items: center;
+          padding: 6px 11px; border-radius: 10px; background: rgba(255,255,255,.022);
+          border: 1px solid rgba(139,152,173,.12); }
+  .right .idx { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                font-size: 15px; font-weight: 700; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+                color: #ede9fe; background: rgba(139,92,246,.16); border: 1px solid rgba(139,92,246,.55);
+                box-shadow: 0 0 14px rgba(139,92,246,.18); }
+  .st { font-size: 18.5px; font-weight: 600; letter-spacing: .5px; color: #e6efff; }
+  .sd { margin-top: 1px; font-size: 12.5px; letter-spacing: .3px; color: var(--dim); }
+
+  .loopback { margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 10px;
+              padding: 9px 16px; border-radius: 999px; font-size: 13.5px; letter-spacing: 1px;
+              color: #c4b5fd; background: rgba(139,92,246,.07); border: 1px dashed rgba(139,92,246,.5); }
+  .loopback .rot { display: inline-block; font-size: 16px; animation: spin 7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 灰度上线条 ── */
+  .modes { margin-top: 20px; display: flex; align-items: center; gap: 0; }
+  .mode { padding: 9px 22px; border-radius: 10px; font-size: 15px; letter-spacing: 1px;
+          border: 1px solid rgba(139,152,173,.28); background: rgba(255,255,255,.025); color: var(--dim); }
+  .mode.on { color: #d1fae5; border-color: rgba(52,211,153,.55); background: rgba(52,211,153,.08); }
+  .mode.shadow { color: #fde68a; border-color: rgba(251,191,36,.5); background: rgba(251,191,36,.07); }
+  .mode.off { color: #cbd5e1; }
+  .arrow { color: #4a5568; font-size: 18px; padding: 0 14px; }
+  .mode-note { margin-left: 18px; font-size: 13px; letter-spacing: .5px; color: var(--dim); }
+
+  /* ── 收束结论 ── */
+  .finale { margin-top: 18px; text-align: center; padding: 15px 40px; border-radius: 14px;
+            background: rgba(255,255,255,.03); border: 1px solid rgba(139,152,173,.3);
+            box-shadow: 0 0 26px rgba(34,211,238,.08); }
+  .f-main { font-size: 27px; letter-spacing: 2px; color: #e8eef9; }
+  .f-main .cyan { color: #7ff0ff; font-weight: 700; }
+  .f-main .sep { color: #4a5568; margin: 0 14px; }
+  .f-sub { margin-top: 8px; font-size: 14.5px; letter-spacing: 6px; color: var(--dim); text-indent: 6px; }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <div class="anim" style="--d:.5s"><span class="badge"><span class="dot"></span>智能问数 × 统一记忆体</span></div>
+    <h1 class="anim" style="--d:.9s">统一记忆体：越用越准</h1>
+    <p class="lede anim" style="--d:1.6s">八类记忆<b>融合召回</b> · 纠错闭环<b>治理</b> · 安全灰度<b>上线</b></p>
+
+    <!-- 时间轴按 m8c.vtt 校准：句1（0.1-5.48s）总起 / 句2（5.43-26.35s）八通道 / 句3（26.35-47.19s）纠错闭环 / 句4（47.19-57.85s）灰度 / 句5（57.85-65.55s）结论 -->
+    <div class="grid">
+      <!-- 左：八通道融合召回 -->
+      <section class="panel left anim" style="--d:5.6s">
+        <div class="panel-head">
+          <div class="panel-title">八通道融合召回</div>
+          <div class="kicker">推理 / 解析前并行 · 纠错优先</div>
+        </div>
+        <div class="channels">
+          <div class="ch anim" style="--d:6.2s">
+            <span class="idx">01</span>
+            <div><div class="cn">铁律规则</div><div class="cd">强制约束，不允许突破</div></div>
+          </div>
+          <div class="ch anim" style="--d:7.4s">
+            <span class="idx">02</span>
+            <div><div class="cn">语义指标</div><div class="cd">权威口径，全站一致</div></div>
+          </div>
+          <div class="ch hot anim" style="--d:8.6s">
+            <span class="idx">03</span>
+            <div><div class="cn">纠错记忆</div><div class="cd">点踩纠正，优先注入</div></div>
+          </div>
+          <div class="ch anim" style="--d:9.8s">
+            <span class="idx">04</span>
+            <div><div class="cn">业务知识库</div><div class="cd">术语与计算规则</div></div>
+          </div>
+          <div class="ch anim" style="--d:11.0s">
+            <span class="idx">05</span>
+            <div><div class="cn">外部知识</div><div class="cd">企业知识服务补充</div></div>
+          </div>
+          <div class="ch anim" style="--d:12.2s">
+            <span class="idx">06</span>
+            <div><div class="cn">SQL 样例</div><div class="cd">相似问题的标准写法</div></div>
+          </div>
+          <div class="ch anim" style="--d:13.4s">
+            <span class="idx">07</span>
+            <div><div class="cn">个人沉淀</div><div class="cd">本人历史成功问答</div></div>
+          </div>
+          <div class="ch anim" style="--d:14.6s">
+            <span class="idx">08</span>
+            <div><div class="cn">点踩反例</div><div class="cd">避免重复同类错误</div></div>
+          </div>
+        </div>
+        <div class="formula anim" style="--d:20.5s">融合分 = <b>相关度 × 置信度 × 时效 × 来源权重</b>（纠错权重 1.1 最高）</div>
+        <div class="budget anim" style="--d:24.6s">全局 Token 预算 6000 · 纠错块 600 · 超时仅降级单通道，不影响问数</div>
+      </section>
+
+      <!-- 右：纠错记忆闭环（外框与左栏同步出现，步骤仍按旁白顺序点亮，避免前半区长期空白） -->
+      <section class="panel right anim" style="--d:5.8s">
+        <div class="panel-head">
+          <div class="panel-title">纠错记忆闭环</div>
+          <div class="kicker">点踩 → 候选 → 审核 → 召回</div>
+        </div>
+        <ul class="steps">
+          <li class="step anim" style="--d:26.8s">
+            <span class="idx">1</span>
+            <div><div class="st">点踩反馈</div><div class="sd">选择错误类型（选表 / 字段 / 口径 / 理解 / 其他），补充期望口径</div></div>
+          </li>
+          <li class="step anim" style="--d:31.8s">
+            <span class="idx">2</span>
+            <div><div class="st">候选沉淀</div><div class="sd">同问题幂等合并，生成待审核的纠正候选</div></div>
+          </li>
+          <li class="step anim" style="--d:34.2s">
+            <span class="idx">3</span>
+            <div><div class="st">人工审核</div><div class="sd">管理员在「系统管理 → 记忆管理」确认内容与期望 SQL</div></div>
+          </li>
+          <li class="step anim" style="--d:39.2s">
+            <span class="idx">4</span>
+            <div><div class="st">召回注入</div><div class="sd">相似问题优先注入纠正口径（阈值 0.45，最多 2 条）</div></div>
+          </li>
+          <li class="step anim" style="--d:43.2s">
+            <span class="idx">5</span>
+            <div><div class="st">置信度回写</div><div class="sd">点赞 +0.05 / 点踩 −0.20，90 天未命中且低置信自动归档</div></div>
+          </li>
+        </ul>
+        <div class="loopback anim" style="--d:45.6s"><span class="rot">↻</span>反馈 → 候选 → 审核 → 召回 → 再反馈</div>
+      </section>
+    </div>
+
+    <!-- 句4：安全灰度上线 -->
+    <div class="modes anim" style="--d:47.6s">
+      <span class="mode off">off · 默认关闭</span>
+      <span class="arrow">→</span>
+      <span class="mode shadow">shadow · 影子留痕不注入</span>
+      <span class="arrow">→</span>
+      <span class="mode on">on · 按用户灰度（20% 起）</span>
+      <span class="mode-note">默认行为与接入前完全一致，回滚只需置回 off</span>
+    </div>
+
+    <!-- 句5：结论 -->
+    <div class="finale anim" style="--d:58.2s">
+      <div class="f-main">每一次反馈，都成为<b class="cyan">下一次更准确的答案</b><span class="sep">｜</span>问数越用越准</div>
+      <div class="f-sub">从「一次性问答」走向「越用越准」</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -876,7 +876,23 @@ const main = async () => {
     step(`loop animations armed (delta=${delta.toFixed(2)}s)`);
   });
 
-  // ── m9 收尾（19.1s，时间点按 m9.vtt 对齐）──
+  // ── m8c 统一记忆体：八通道召回 · 纠错闭环 · 安全灰度（时长按 m8c.vtt）──
+  if (want('m8c')) await scene('m8c', async (page) => {
+    const t0 = Date.now();
+    await bounded(page.goto(pathToFileURL(join(__dirname, 'overlay', 'memory.html')).href, { waitUntil: 'load' }), 15000);
+    await bounded(page.locator('.stage').first().waitFor({ timeout: 5000 }), 5200);
+    const delta = (Date.now() - t0) / 1000;
+    await bounded(
+      page.evaluate((d) => {
+        document.body.style.setProperty('--delta', d + 's');
+        document.body.classList.add('playing');
+      }, delta),
+      3000
+    );
+    step(`memory animations armed (delta=${delta.toFixed(2)}s)`);
+  });
+
+  // ── m9 收尾（17.6s，时间点按 m9.vtt 对齐）──
   if (want('m9')) await scene('m9', async (page) => {
     const t0 = Date.now();
     const at = async (s) => { const d = t0 + s * 1000 - Date.now(); if (d > 0) await page.waitForTimeout(d); };
