@@ -32,6 +32,8 @@ import {
   Stethoscope,
   X,
   Lightbulb,
+  Pencil,
+  BrainCircuit,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -55,6 +57,8 @@ import { EnvironmentConfigPanel } from './EnvironmentConfigPanel';
 import { FallbackApprovalPanel } from './FallbackApprovalPanel';
 import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
+// v0.9.106 统一记忆体：纠错候选审核 / 记忆条目维护 / 召回观测
+import { MemoryPanel } from './MemoryPanel';
 // v0.9.94 运维事件面板：自动运维事件流（智能体拉取/处置与人工共用同一 API）
 import { OpsEventsPanel } from './OpsEventsPanel';
 // v0.9.85 首启初始化向导 · L3 卡片（未完成=向导入口 / 已完成=系统体检）；v0.9.95 起作为「系统体检」分类内容
@@ -64,6 +68,8 @@ import { KnowledgeBasePanel } from '../datasource/KnowledgeBasePanel';
 import { SqlExamplesPanel } from '../datasource/SqlExamplesPanel';
 // v0.9.57 分类内多面板统一顶部 Tab 分类条
 import { SectionTabs, SectionTabItem } from './SectionTabs';
+// REQ-20 用户信息维护入口：系统管理列表点击用户名进入维护弹窗（仅本人可维护）
+import { UserPersonalModal } from '../user/UserPersonalModal';
 import { getErrorMessage } from '../../utils/errorUtils';
 
 interface AdminUser {
@@ -86,7 +92,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（11 项，左栏导航切换） */
+/** 系统管理分类（12 项，左栏导航切换） */
 type AdminSection =
   | 'users'
   | 'org-structure'
@@ -95,6 +101,7 @@ type AdminSection =
   | 'ai-audit'
   | 'system-check'
   | 'feedback'
+  | 'memory'
   | 'quality-monitoring'
   | 'patrol'
   | 'ops-events'
@@ -115,7 +122,7 @@ const SECTION_GROUPS: {
     text: 'text-indigo-400',
     line: 'from-indigo-500 to-amber-500',
     items: [
-      { id: 'users', label: '基础管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
+      { id: 'users', label: '用户管理', icon: Users, color: 'text-indigo-400', bar: 'bg-indigo-500' },
       { id: 'org-structure', label: '组织架构', icon: Network, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       { id: 'permission-approval', label: '权限审批', icon: ShieldCheck, color: 'text-amber-400', bar: 'bg-amber-500' },
     ],
@@ -132,6 +139,8 @@ const SECTION_GROUPS: {
       { id: 'system-check', label: '系统体检', icon: Stethoscope, color: 'text-emerald-400', bar: 'bg-emerald-500' },
       // v0.9.98 需求反馈：需求/意见收集 → 管理员评估 → 基线管理（标准接口供 AIOps 主动分析）
       { id: 'feedback', label: '需求反馈', icon: Lightbulb, color: 'text-amber-400', bar: 'bg-amber-500' },
+      // v0.9.106 统一记忆体：点踩纠错候选审核与记忆条目维护（仅 ADMIN）
+      { id: 'memory', label: '记忆管理', icon: BrainCircuit, color: 'text-rose-400', bar: 'bg-rose-500' },
     ],
   },
   {
@@ -193,7 +202,7 @@ export const AdminPanel: React.FC = () => {
   // 组织架构树：组织架构面板与用户「组织归属」选择器共用同一份节点数据
   const { units: orgUnits, loading: orgUnitsLoading, refresh: refreshOrgUnits } = useOrgUnits();
 
-  // 左栏分类切换：10 个分类（三域分组见 SECTION_GROUPS），默认「基础管理」
+  // 左栏分类切换：10 个分类（三域分组见 SECTION_GROUPS），默认「用户管理」
   const [section, setSection] = useState<AdminSection>('users');
   // 规则治理分类内顶部 Tab（v0.9.56）：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色
   const [ruleTab, setRuleTab] = useState<RuleGovernanceTab>('metrics');
@@ -220,6 +229,16 @@ export const AdminPanel: React.FC = () => {
   const [deptUser, setDeptUser] = useState<AdminUser | null>(null);
   const [deptDraftId, setDeptDraftId] = useState<number | null>(null);
   const [deptSaving, setDeptSaving] = useState(false);
+
+  // REQ-20 用户信息维护弹窗开关（点击下方列表用户名进入；仅本人可维护）
+  const [personalOpen, setPersonalOpen] = useState(false);
+
+  // 用户基本信息编辑弹窗（管理员维护显示名称 / 角色）
+  const [editUser, setEditUser] = useState<AdminUser | null>(null);
+  const [editDraftName, setEditDraftName] = useState('');
+  const [editDraftRole, setEditDraftRole] = useState<UserRole>('ANALYST');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const showNotice = (type: 'success' | 'error', text: string) => setNotice({ type, text });
 
@@ -328,6 +347,52 @@ export const AdminPanel: React.FC = () => {
   const handleEditOrgUnit = (u: AdminUser) => {
     setDeptUser(u);
     setDeptDraftId(u.orgUnitId ?? null);
+  };
+
+  /** 打开基本信息编辑弹窗：回填当前显示名称与角色 */
+  const handleEditUser = (u: AdminUser) => {
+    setEditUser(u);
+    setEditDraftName(u.displayName);
+    setEditDraftRole(u.role);
+    setEditError(null);
+  };
+
+  /** 保存用户基本信息（显示名称 / 角色）；本人不可改角色（后端同样拦截） */
+  const handleSaveEdit = async () => {
+    if (!editUser || editSaving) return;
+    const displayName = editDraftName.trim();
+    if (!displayName) {
+      setEditError('显示名称不能为空');
+      return;
+    }
+    const isSelf = editUser.id === currentUser?.id;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await apiFetch(`/api/admin/users/${editUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isSelf ? { displayName } : { displayName, role: editDraftRole }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '保存失败');
+      showNotice('success', `已更新用户 ${editUser.username} 的基本信息`);
+      setEditUser(null);
+      loadUsers();
+    } catch (err) {
+      setEditError(getErrorMessage(err) || '保存失败');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  /** REQ-20 点击用户名进入用户信息维护：本人 → 打开维护弹窗；他人 → 拦截并提示无权限（维护仅限本人） */
+  const handleOpenPersonal = (u: AdminUser) => {
+    if (u.id !== currentUser?.id) {
+      showNotice('error', `无权限维护用户 ${u.username} 的个人信息：用户信息维护仅限本人`);
+      return;
+    }
+    setPersonalOpen(true);
   };
 
   /** 保存组织归属：null = 解除关联（department 文本保留，供展示与数据源授权匹配） */
@@ -616,7 +681,14 @@ export const AdminPanel: React.FC = () => {
                               </div>
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <div className="text-sm font-semibold text-slate-200">{u.username}</div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenPersonal(u)}
+                                    title={isSelf ? '点击进入个人信息维护' : '个人信息维护仅限本人'}
+                                    className="text-sm font-semibold text-slate-200 hover:text-indigo-400 hover:underline transition-colors"
+                                  >
+                                    {u.username}
+                                  </button>
                                   {isSelf && (
                                     <span className="text-[9px] text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/30">
                                       当前账号
@@ -666,6 +738,14 @@ export const AdminPanel: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleEditUser(u)}
+                                title="编辑显示名称与角色"
+                                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-300 text-xs font-medium transition-colors"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>编辑</span>
+                              </button>
                               <button
                                 onClick={() => handleToggleStatus(u)}
                                 disabled={isSelf}
@@ -778,6 +858,9 @@ export const AdminPanel: React.FC = () => {
       {/* ============ 区块：需求反馈（v0.9.98：收集 → 评估分析 → 基线管理 → 标准接口供 AIOps 主动分析） ============ */}
       {section === 'feedback' && <FeedbackPanel />}
 
+      {/* ============ 区块：记忆管理（v0.9.106 统一记忆体：纠错候选审核 → 生效记忆维护 → 召回观测） ============ */}
+      {section === 'memory' && <MemoryPanel />}
+
       {/* ============ 区块六：系统配置 (环境配置 + 系统设置) ============ */}
       {section === 'system-config' && <EnvironmentConfigPanel />}
 
@@ -848,6 +931,79 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 基本信息编辑弹窗：管理员维护用户显示名称与角色（角色对本人不可改） */}
+      {editUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl">
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-indigo-400" />
+                编辑用户 — {editUser.username}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditUser(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 text-xs">
+              <div className="space-y-1.5">
+                <label className="text-slate-400 font-medium">显示名称 <span className="text-slate-500">(不超过 50 字)</span></label>
+                <input
+                  type="text"
+                  value={editDraftName}
+                  maxLength={50}
+                  onChange={(e) => setEditDraftName(e.target.value)}
+                  placeholder={editUser.username}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-slate-400 font-medium">角色</label>
+                <select
+                  value={editDraftRole}
+                  disabled={editUser.id === currentUser?.id}
+                  onChange={(e) => setEditDraftRole(e.target.value as UserRole)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
+                >
+                  <option value="ANALYST">分析师</option>
+                  <option value="VIEWER">只读用户</option>
+                  <option value="ADMIN">管理员</option>
+                </select>
+                {editUser.id === currentUser?.id && (
+                  <p className="text-[11px] text-slate-500">不能修改自己的角色</p>
+                )}
+              </div>
+              {editError && (
+                <div className="p-2.5 rounded-lg border bg-rose-950/60 border-rose-800/60 text-rose-300">{editError}</div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setEditUser(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors border border-slate-700"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSaveEdit()}
+                disabled={editSaving}
+                className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 transition-all"
+              >
+                {editSaving ? '保存中…' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REQ-20 用户信息维护弹窗：系统管理-用户管理点击用户名进入（仅本人可维护） */}
+      {personalOpen && <UserPersonalModal onClose={() => setPersonalOpen(false)} />}
     </div>
   );
 };

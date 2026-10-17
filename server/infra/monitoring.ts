@@ -150,6 +150,48 @@ export function observeOpsEvent(severity: string, category: string): void {
   } catch { /* 静默 */ }
 }
 
+// ---------- 统一记忆体（v0.9.106）：召回耗时/注入 token/通道命中 ----------
+
+export const memoryRecallDuration = new client.Histogram({
+  name: 'nl2sql_memory_recall_duration_ms',
+  help: '统一记忆体召回耗时（毫秒）；验收：P95 ≤ 300ms',
+  labelNames: ['mode', 'result'],
+  buckets: [20, 50, 100, 200, 300, 500, 800, 1500],
+  registers: [metricsRegister],
+});
+
+export const memoryRecallTokens = new client.Histogram({
+  name: 'nl2sql_memory_injected_tokens',
+  help: '统一记忆体单次注入 token 估算（不含铁律/指标强制段）',
+  labelNames: ['mode'],
+  buckets: [100, 300, 600, 1200, 2400, 3600, 6000],
+  registers: [metricsRegister],
+});
+
+export const memoryChannelHits = new client.Counter({
+  name: 'nl2sql_memory_channel_hits_total',
+  help: '统一记忆体各通道召回命中条数',
+  labelNames: ['channel'],
+  registers: [metricsRegister],
+});
+
+/** 召回旁路（fail-open，不影响主链路） */
+export function observeMemoryRecall(entry: {
+  mode: 'off' | 'shadow' | 'on';
+  ok: boolean;
+  durationMs: number;
+  injectedTokens: number;
+  channelHits: Record<string, number | undefined>;
+}): void {
+  try {
+    memoryRecallDuration.observe({ mode: entry.mode, result: entry.ok ? 'ok' : 'error' }, Math.max(0, entry.durationMs));
+    if (entry.ok) memoryRecallTokens.observe({ mode: entry.mode }, Math.max(0, entry.injectedTokens));
+    for (const [channel, hits] of Object.entries(entry.channelHits)) {
+      if ((hits || 0) > 0) memoryChannelHits.inc({ channel }, hits as number);
+    }
+  } catch { /* 静默 */ }
+}
+
 // ---------- /metrics 端点（不走 JWT；可选 METRICS_TOKEN 保护） ----------
 
 /** 定长摘要后恒时比较：消除明文比较的计时侧信道（摘要后长度恒定，timingSafeEqual 不会因长度差异抛错） */

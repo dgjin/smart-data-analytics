@@ -736,4 +736,72 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.106 统一记忆体一期（docs/统一记忆体详细设计20261017.md）：
+  // 仅“纠错记忆”落新表；铁律/指标/知识库/样例/对话历史仍由各通道只读原表，不迁移不双写。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS memory_items (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL DEFAULT 'CORRECTION',
+      data_source_id VARCHAR(64) NOT NULL,
+      user_id INT NULL,
+      question VARCHAR(500) NOT NULL,
+      content VARCHAR(4000) NOT NULL DEFAULT '',
+      error_type VARCHAR(20) NOT NULL DEFAULT 'OTHER',
+      expected_sql TEXT,
+      embedding_json MEDIUMTEXT,
+      source VARCHAR(20) NOT NULL DEFAULT 'USER',
+      confidence DECIMAL(3,2) NOT NULL DEFAULT 0.90,
+      hits INT NOT NULL DEFAULT 0,
+      last_used_at DATETIME NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_mem_item_ds (data_source_id, status),
+      INDEX idx_mem_item_user (user_id),
+      INDEX idx_mem_item_kind (kind)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 点踩纠正候选：低摩擦采集先落候选（PENDING），管理员审核通过才进入 memory_items；
+  // 同数据源同问题同错误类型的 PENDING 候选幂等合并（provider.insertCorrectionCandidate）。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS memory_candidates (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      kind VARCHAR(20) NOT NULL DEFAULT 'CORRECTION',
+      data_source_id VARCHAR(64) NOT NULL,
+      user_id INT NULL,
+      question VARCHAR(500) NOT NULL,
+      wrong_sql TEXT,
+      error_type VARCHAR(20) NOT NULL DEFAULT 'OTHER',
+      payload TEXT,
+      status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+      reviewed_by VARCHAR(50) NOT NULL DEFAULT '',
+      reviewed_at DATETIME NULL,
+      memory_id BIGINT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_mem_cand_status (status),
+      INDEX idx_mem_cand_ds (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 召回引用留痕：每次问数实际召回/注入的记忆条目（trace_id 关联 query_trace，可回放推导链）。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS memory_usage (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      trace_id VARCHAR(40) NOT NULL,
+      user_id INT NOT NULL,
+      data_source_id VARCHAR(64) NOT NULL,
+      memory_ref VARCHAR(80) NOT NULL,
+      channel VARCHAR(24) NOT NULL,
+      rank_no INT NOT NULL DEFAULT 0,
+      score DECIMAL(6,4) NOT NULL DEFAULT 0,
+      tokens INT NOT NULL DEFAULT 0,
+      injected TINYINT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_mem_usage_trace (trace_id),
+      INDEX idx_mem_usage_ds_time (data_source_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }

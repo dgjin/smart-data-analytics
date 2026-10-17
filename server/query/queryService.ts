@@ -247,6 +247,8 @@ export async function runNaturalLanguageQuery(
         amountUnit,
         userId: user.id,
         traceId,
+        // v0.9.106 统一记忆体召回域（ACL 预留）
+        userRole: user.role,
         // P2-5：stage 事件携带 traceId，前端收到首个阶段事件即可记录续传锚点
         onStage: streamMode ? (stage, info) => sink.send('stage', { stage, traceId, ...(info || {}) }) : undefined,
         // M1 推导留痕：旁路落库 + 流式模式下实时推送步骤详情（前端步骤器展示）

@@ -40,6 +40,8 @@ import externalKnowledgeRoutes from './server/routes/externalKnowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
 import ironRuleRoutes from './server/routes/ironRules';
+// v0.9.106 统一记忆体管理（仅 ADMIN：纠错候选审核 / 记忆条目 / 观测）
+import memoryRoutes from './server/routes/memory';
 import expertPersonaRoutes from './server/routes/expertPersonas';
 import skillRoutes from './server/routes/skills';
 import queryContextRoutes from './server/routes/queryContext';
@@ -381,6 +383,8 @@ async function startServer() {
   app.use('/api/admin/fallback-approval', fallbackApprovalRoutes);
   // v0.9.46: A/B Test Analytics（仅 ADMIN）
   app.use('/api/admin/ab-test', abTestRoutes);
+  // v0.9.106: 统一记忆体管理（仅 ADMIN）
+  app.use('/api/admin/memory', memoryRoutes);
   app.use('/api/datasources', datasourceRoutes);
   // P3-1 知识库管理路由（新增）
   app.use('/api/knowledge', knowledgeManageRoutes);

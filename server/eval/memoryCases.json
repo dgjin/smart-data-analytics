@@ -1,0 +1,276 @@
+{
+  "version": 1,
+  "description": "统一记忆体纠错召回离线评测集：验证「相似问题能召回到正确纠错记忆、无关问题不误召」。运行 npm run eval:memory",
+  "cases": [
+    {
+      "id": "mem-01",
+      "query": "上个月的有效客户数是多少",
+      "items": [
+        {
+          "id": 101,
+          "question": "上个月有效客户数",
+          "content": "有效客户数按客户主表 status=1 且近 30 天有支付订单统计，不是注册数",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-10-01T00:00:00.000Z"
+        },
+        {
+          "id": 102,
+          "question": "上月销售额",
+          "content": "销售额按订单支付时间统计，退款需冲减",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-10-01T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 101
+    },
+    {
+      "id": "mem-02",
+      "query": "上个月销售额是多少",
+      "items": [
+        {
+          "id": 201,
+          "question": "上个月销售额",
+          "content": "按订单支付时间而非下单时间统计，退款订单需冲减",
+          "errorType": "CALIBER",
+          "confidence": 0.92,
+          "createdAt": "2026-09-20T00:00:00.000Z"
+        },
+        {
+          "id": 202,
+          "question": "上个月订单量",
+          "content": "订单量需排除已取消与测试订单",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-09-20T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 201
+    },
+    {
+      "id": "mem-03",
+      "query": "退款率怎么计算",
+      "items": [
+        {
+          "id": 301,
+          "question": "退款率怎么计算",
+          "content": "退款率 = 退款订单数 / 支付订单数，按退款完成时间归属月份",
+          "errorType": "CALIBER",
+          "confidence": 0.95,
+          "createdAt": "2026-09-10T00:00:00.000Z"
+        },
+        {
+          "id": 302,
+          "question": "退货率",
+          "content": "退货率按退货单数量统计，与退款率不同",
+          "errorType": "UNDERSTANDING",
+          "confidence": 0.85,
+          "createdAt": "2026-09-10T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 301
+    },
+    {
+      "id": "mem-04",
+      "query": "各渠道 GMV 统计",
+      "items": [
+        {
+          "id": 401,
+          "question": "各渠道GMV",
+          "content": "GMV 按渠道汇总订单金额，需排除测试账号与内部员工订单",
+          "errorType": "TABLE_CHOICE",
+          "confidence": 0.88,
+          "createdAt": "2026-09-05T00:00:00.000Z"
+        },
+        {
+          "id": 402,
+          "question": "各渠道退款金额",
+          "content": "退款金额使用退款单表，不是订单表",
+          "errorType": "TABLE_CHOICE",
+          "confidence": 0.9,
+          "createdAt": "2026-09-05T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 401
+    },
+    {
+      "id": "mem-05",
+      "query": "新客的定义是什么",
+      "items": [
+        {
+          "id": 501,
+          "question": "新客定义",
+          "content": "新客指统计周期内完成首单支付的客户，以客户首次支付时间判定",
+          "errorType": "CALIBER",
+          "confidence": 0.95,
+          "createdAt": "2026-08-28T00:00:00.000Z"
+        },
+        {
+          "id": 502,
+          "question": "老客复购定义",
+          "content": "老客复购指历史有支付且本期再次支付",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-28T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 501
+    },
+    {
+      "id": "mem-06",
+      "query": "门店库存周转天数",
+      "items": [
+        {
+          "id": 601,
+          "question": "门店库存周转天数",
+          "content": "库存周转天数 = 平均库存 / 日均出库量，使用门店库存快照表",
+          "errorType": "TABLE_CHOICE",
+          "confidence": 0.9,
+          "createdAt": "2026-08-25T00:00:00.000Z"
+        },
+        {
+          "id": 602,
+          "question": "仓库库存金额",
+          "content": "仓库库存金额使用总仓库存表",
+          "errorType": "TABLE_CHOICE",
+          "confidence": 0.9,
+          "createdAt": "2026-08-25T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 601
+    },
+    {
+      "id": "mem-07",
+      "query": "会员复购率怎么算",
+      "items": [
+        {
+          "id": 701,
+          "question": "会员复购率",
+          "content": "会员复购率 = 周期内复购会员数 / 周期内有支付会员数，按会员 ID 去重",
+          "errorType": "CALIBER",
+          "confidence": 0.93,
+          "createdAt": "2026-08-20T00:00:00.000Z"
+        },
+        {
+          "id": 702,
+          "question": "会员新增数",
+          "content": "会员新增按注册时间统计",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-20T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 701
+    },
+    {
+      "id": "mem-08",
+      "query": "客单价是否含税",
+      "items": [
+        {
+          "id": 801,
+          "question": "客单价是否含税",
+          "content": "客单价使用含税金额（订单表 tax_included_amount），不含运费",
+          "errorType": "UNDERSTANDING",
+          "confidence": 0.9,
+          "createdAt": "2026-08-15T00:00:00.000Z"
+        },
+        {
+          "id": 802,
+          "question": "毛利率计算",
+          "content": "毛利率 = (收入 - 成本) / 收入，成本不含税",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-15T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 801
+    },
+    {
+      "id": "mem-09",
+      "query": "订单量统计是否包含取消订单",
+      "items": [
+        {
+          "id": 901,
+          "question": "订单量是否包含取消订单",
+          "content": "订单量默认排除已取消订单，仅统计支付成功订单",
+          "errorType": "CALIBER",
+          "confidence": 0.94,
+          "createdAt": "2026-08-10T00:00:00.000Z"
+        },
+        {
+          "id": 902,
+          "question": "订单状态分布",
+          "content": "订单状态分布需要包含全部状态",
+          "errorType": "OTHER",
+          "confidence": 0.8,
+          "createdAt": "2026-08-10T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 901
+    },
+    {
+      "id": "mem-10",
+      "query": "毛利率的计算口径",
+      "items": [
+        {
+          "id": 1001,
+          "question": "毛利率计算口径",
+          "content": "毛利率 = (不含税收入 - 不含税成本) / 不含税收入，按商品维度汇总",
+          "errorType": "CALIBER",
+          "confidence": 0.96,
+          "createdAt": "2026-08-01T00:00:00.000Z"
+        },
+        {
+          "id": 1002,
+          "question": "净利率计算口径",
+          "content": "净利率需扣除期间费用",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-01T00:00:00.000Z"
+        }
+      ],
+      "expectTop": 1001
+    },
+    {
+      "id": "mem-11",
+      "query": "服务器 CPU 使用率",
+      "items": [
+        {
+          "id": 1101,
+          "question": "上个月销售额",
+          "content": "按订单支付时间统计",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-01T00:00:00.000Z"
+        },
+        {
+          "id": 1102,
+          "question": "会员复购率",
+          "content": "按会员 ID 去重",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-01T00:00:00.000Z"
+        }
+      ],
+      "expectNone": true,
+      "note": "与业务无关的问题不应误召回纠错记忆"
+    },
+    {
+      "id": "mem-12",
+      "query": "帮我写一首诗",
+      "items": [
+        {
+          "id": 1201,
+          "question": "退款率怎么计算",
+          "content": "退款率 = 退款订单数 / 支付订单数",
+          "errorType": "CALIBER",
+          "confidence": 0.9,
+          "createdAt": "2026-08-01T00:00:00.000Z"
+        }
+      ],
+      "expectNone": true,
+      "note": "闲聊类问题不应误召回"
+    }
+  ]
+}

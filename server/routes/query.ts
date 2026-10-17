@@ -34,6 +34,7 @@ import { getCachedSqlResult, setCachedSqlResult } from '../query/queryCache';
 import { computeDataVersion } from '../dataVersion';
 import { submitTask } from '../infra/taskQueue';
 import { saveFeedback } from '../query/queryFeedback';
+import { applyFeedbackToMemory } from '../memory/feedback';
 import { checkDataSourceAccess } from '../auth/accessControl';
 import { maskRows } from '../query/dlp';
 import { newTraceId } from '../query/queryTrace';
@@ -216,7 +217,7 @@ router.post('/plan', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'
 // 3b. API Endpoint: 问数反馈（P1 反馈闭环）
 // 点赞/点踩落库；点赞的 live 问答自动成为 few-shot 样例
 router.post('/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
-  const { dataSourceId, question, sql, verdict, provenance } = req.body || {};
+  const { dataSourceId, question, sql, verdict, provenance, correction, traceId } = req.body || {};
   if (verdict !== 'UP' && verdict !== 'DOWN') {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: '反馈类型无效' });
   }
@@ -233,6 +234,25 @@ router.post('/feedback', rateLimiter, authMiddleware, requireRole('ADMIN', 'ANAL
       verdict,
       provenance: typeof provenance === 'string' ? provenance : '',
     });
+    // 统一记忆体（v0.9.106）：点踩纠正落候选 + 按 trace 引用调整置信度；
+    // fire-and-forget，记忆体任何异常不影响反馈响应（失败不阻断原则）。
+    void applyFeedbackToMemory({
+      userId: req.user!.id,
+      username: req.user!.username,
+      dataSourceId: typeof dataSourceId === 'string' ? dataSourceId : '',
+      question: question.trim(),
+      executedSql: typeof sql === 'string' ? sql : '',
+      verdict,
+      traceId: typeof traceId === 'string' ? traceId : undefined,
+      correction:
+        correction && typeof correction === 'object'
+          ? {
+              errorType: typeof correction.errorType === 'string' ? correction.errorType : undefined,
+              note: typeof correction.note === 'string' ? correction.note : undefined,
+              expectedSql: typeof correction.expectedSql === 'string' ? correction.expectedSql : undefined,
+            }
+          : undefined,
+    }).catch((err) => logger.warn('[Feedback] memory sync failed:', err));
     return res.json({ success: true });
   } catch (err) {
     logger.error('[Feedback] save failed:', err);

@@ -21,6 +21,7 @@
     "eval": "tsx server/eval/runEval.ts",
     "eval:seed": "tsx server/eval/seedEvalDatasource.ts",
     "eval:retrieval": "tsx server/eval/retrievalRunner.ts",
+    "eval:memory": "tsx server/eval/memoryRunner.ts",
     "reembed:embeddings": "tsx scripts/reembed-embeddings.ts",
     "loadtest": "tsx server/eval/loadTest.ts",
     "init:data-resource": "tsx scripts/init-data-resource.ts",

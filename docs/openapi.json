@@ -108,6 +108,10 @@
     {
       "name": "Requirements",
       "description": "需求收集与意见反馈（提交/评估/基线管理）+ 标准导出接口（供 AIOps 平台主动分析）"
+    },
+    {
+      "name": "Memory",
+      "description": "统一记忆体（纠错候选审核、记忆条目、召回观测；仅 ADMIN）"
     }
   ],
   "x-legacy-aliases": [
@@ -487,11 +491,11 @@
           "200": {
             "description": "移除成功"
           },
-          "404": {
-            "description": "观察列不存在"
-          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "观察列不存在"
           }
         }
       }
@@ -518,11 +522,11 @@
           "200": {
             "description": "确认成功"
           },
-          "404": {
-            "description": "事件不存在或已确认"
-          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "事件不存在或已确认"
           }
         }
       }
@@ -684,11 +688,11 @@
           "200": {
             "description": "受理成功（already=true 表示此前已处理，幂等返回现态）"
           },
-          "404": {
-            "description": "事件不存在"
-          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "事件不存在"
           }
         }
       }
@@ -731,11 +735,11 @@
           "200": {
             "description": "关闭成功（already=true 表示此前已处理，幂等返回现态）"
           },
-          "404": {
-            "description": "事件不存在"
-          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "事件不存在"
           }
         }
       }
@@ -811,14 +815,14 @@
           "200": {
             "description": "日志行数组（JSON 对象或 { raw }；正序，最新在底部）"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "description": "日志文件不存在或不可读"
           },
           "501": {
             "description": "未配置 LOG_FILE 环境变量"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         }
       }
@@ -2026,7 +2030,7 @@
           "Query"
         ],
         "operationId": "submitFeedback",
-        "summary": "对问答结果点赞/点踩（同题幂等，重复提交不重复计数）",
+        "summary": "对问答结果点赞/点踩（可附带点踩纠正信息，进入统一记忆体候选）",
         "requestBody": {
           "required": true,
           "content": {
@@ -2034,22 +2038,57 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "traceId",
-                  "rating"
+                  "dataSourceId",
+                  "question",
+                  "verdict"
                 ],
                 "properties": {
-                  "traceId": {
+                  "dataSourceId": {
                     "type": "string"
                   },
-                  "rating": {
+                  "question": {
+                    "type": "string"
+                  },
+                  "sql": {
+                    "type": "string"
+                  },
+                  "verdict": {
                     "type": "string",
                     "enum": [
-                      "up",
-                      "down"
+                      "UP",
+                      "DOWN"
                     ]
                   },
-                  "comment": {
+                  "provenance": {
                     "type": "string"
+                  },
+                  "traceId": {
+                    "type": "string",
+                    "description": "本次问数 traceId：用于定位被引用的纠错记忆并调整置信度"
+                  },
+                  "correction": {
+                    "type": "object",
+                    "description": "点踩纠正信息（仅 DOWN 时采集；进入待审核候选）",
+                    "properties": {
+                      "errorType": {
+                        "type": "string",
+                        "enum": [
+                          "TABLE_CHOICE",
+                          "COLUMN",
+                          "CALIBER",
+                          "UNDERSTANDING",
+                          "OTHER"
+                        ]
+                      },
+                      "note": {
+                        "type": "string",
+                        "maxLength": 400
+                      },
+                      "expectedSql": {
+                        "type": "string",
+                        "maxLength": 2000
+                      }
+                    }
                   }
                 }
               }
@@ -2058,10 +2097,13 @@
         },
         "responses": {
           "200": {
-            "description": "已记录（幂等）"
+            "description": "已记录（同题 24h 幂等）"
           },
           "400": {
-            "$ref": "#/components/responses/BadRequest"
+            "description": "反馈类型无效或缺少问题"
+          },
+          "500": {
+            "description": "反馈保存失败"
           }
         }
       }
@@ -7490,6 +7532,484 @@
           },
           "Forbidden": {
             "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/config": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "getMemoryConfig",
+        "summary": "当前记忆体开关、灰度比例与预算（off / shadow / on）",
+        "responses": {
+          "200": {
+            "description": "开关与预算"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/stats": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "getMemoryStats",
+        "summary": "记忆体统计：待审核候选、生效记忆、近 7 日引用与纠错注入、Top 命中",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "按数据源过滤（缺省为全部）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "统计结果"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/candidates": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "listMemoryCandidates",
+        "summary": "纠正候选列表（点踩采集，默认 PENDING）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "按数据源过滤（缺省为全部）"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "APPROVED",
+                "REJECTED",
+                "MERGED"
+              ],
+              "default": "PENDING"
+            }
+          },
+          {
+            "name": "errorType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "TABLE_CHOICE",
+                "COLUMN",
+                "CALIBER",
+                "UNDERSTANDING",
+                "OTHER"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ total, items }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/candidates/{id}/approve": {
+      "post": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "approveMemoryCandidate",
+        "summary": "审核通过：候选生成纠错记忆（可补充纠正说明/期望 SQL/置信度）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "纠正说明（缺省由问题与用户说明自动生成）"
+                  },
+                  "expectedSql": {
+                    "type": "string",
+                    "description": "期望 SQL 参考（填写后初始置信度 1.0）"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ success, memoryId }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/candidates/{id}/reject": {
+      "post": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "rejectMemoryCandidate",
+        "summary": "驳回纠正候选",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ success }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/items": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "listMemoryItems",
+        "summary": "纠错记忆条目列表（可按状态/关键词过滤）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "按数据源过滤（缺省为全部）"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "ARCHIVED",
+                "DISABLED"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "问题或纠正内容关键词"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ total, items }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/items/{id}": {
+      "patch": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "updateMemoryItem",
+        "summary": "编辑纠错记忆（内容/期望 SQL/置信度/状态）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "expectedSql": {
+                    "type": "string"
+                  },
+                  "confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "ARCHIVED",
+                      "DISABLED"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ success }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/archive": {
+      "post": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "archiveMemoryItems",
+        "summary": "手动归档长期未命中且低置信的纠错记忆（默认 90 天、置信度 < 0.3）",
+        "responses": {
+          "200": {
+            "description": "{ success, archived }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/admin/memory/usage/{traceId}": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "operationId": "getMemoryUsageByTrace",
+        "summary": "某次问数的记忆引用明细（通道、排序、分数、tokens、是否注入）",
+        "parameters": [
+          {
+            "name": "traceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ rows }"
+          },
+          "400": {
+            "description": "参数无效"
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "需要 ADMIN 角色"
+          },
+          "409": {
+            "description": "状态冲突（已处理或不存在）"
+          },
+          "500": {
+            "description": "服务端错误"
           }
         }
       }

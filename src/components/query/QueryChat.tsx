@@ -9,6 +9,7 @@ import { SQLPreviewModal } from './SQLPreviewModal';
 import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ChatMessageItem } from './ChatMessageItem';
+import type { FeedbackCorrection } from './FeedbackCorrectionPopover';
 import { QueryLoadingIndicator } from './QueryLoadingIndicator';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatTopBar, QueryContextSummary } from './ChatTopBar';
@@ -178,7 +179,7 @@ export const QueryChat: React.FC = () => {
   // —— 已随 useConversationHistory 迁出，见下方 hook 调用
 
   // P1 反馈闭环：点赞/点踩落库（点赞样例将成为 few-shot 提升后续准确率），成功后置灰
-  const handleFeedback = async (msg: ChatMessage, verdict: 'UP' | 'DOWN') => {
+  const handleFeedback = async (msg: ChatMessage, verdict: 'UP' | 'DOWN', correction?: FeedbackCorrection) => {
     if (msg.feedback) return;
     try {
       const resp = await apiFetch('/api/query/feedback', {
@@ -190,11 +191,20 @@ export const QueryChat: React.FC = () => {
           sql: msg.queryResult?.generatedSQL || '',
           verdict,
           provenance: msg.dataProvenance || '',
+          // v0.9.106 统一记忆体：trace 用于定位本次引用的纠错记忆，correction 为点踩纠正采集
+          traceId: msg.traceId || undefined,
+          ...(correction ? { correction } : {}),
         }),
       });
       if (!resp.ok) throw new Error('feedback failed');
       setMessageFeedback(msg.id, verdict);
-      showToast(verdict === 'UP' ? '感谢反馈，该问答已加入样例库' : '感谢反馈，我们会持续优化回答质量');
+      showToast(
+        verdict === 'UP'
+          ? '感谢反馈，该问答已加入样例库'
+          : correction
+            ? '感谢反馈，已进入纠正候选，管理员确认后生效'
+            : '感谢反馈，我们会持续优化回答质量'
+      );
     } catch {
       showToast('反馈提交失败，请稍后重试');
     }

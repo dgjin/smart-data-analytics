@@ -23,6 +23,8 @@ import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { searchExternalKnowledge } from '../knowledge/externalKnowledge';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
 import { loadActiveIronRules, buildIronRulesPrompt } from './ironRules';
+// v0.9.106 统一记忆体：8 通道统一召回（off/shadow/on 三态，失败不阻断）
+import { recallMemory } from '../memory';
 import type { SchemaTable } from './schemaTypes';
 import { budgetText, budgetHistory, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from './schemaGuidance';
@@ -109,6 +111,8 @@ export interface LiveQueryInput {
   userId: number;
   /** M3 本次问数 trace ID：中间表注册关联 */
   traceId: string;
+  /** v0.9.106 统一记忆体召回域（ACL 预留；缺省按 ANALYST） */
+  userRole?: 'ADMIN' | 'ANALYST' | 'VIEWER';
   /** 金额输出单位（亿元/百万元/万元/元）：阶段一 SQL 生成按除数换算，白名单外不生效 */
   amountUnit?: string;
 }
@@ -219,7 +223,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     durationMs: Date.now() - t0,
   });
   // 上下文构建并行化：few-shot / 知识库 RAG / 外部知识库 / 语义指标 / 点踩反例 / 个人对话沉淀 / 铁律规则七者互不依赖，并发执行（各自失败不阻断）
-  const [fewShotPairs, knowledgeRaw, externalKb, metricHits, negativePairs, convPairs, ironRules] = await Promise.all([
+  const [fewShotPairs, knowledgeRaw, externalKb, metricHits, negativePairs, convPairs, ironRules, memoryBundle] = await Promise.all([
     // P0 Few-shot（DAIL-SQL 双维度）：用圈定表名引导样例贴近当前可查表
     loadFewShotExamples(
       dataSourceId,
@@ -245,27 +249,49 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     ).catch(() => []),
     // 铁律规则库（v0.9.35）：该数据源全部 ACTIVE 铁律恒注入（最高优先级强制约束，不按问题匹配）
     loadActiveIronRules(dataSourceId).catch(() => []),
+    // 统一记忆体（v0.9.106）：与上七路并行；off 零开销、shadow 仅留痕、on 按用户灰度注入。
+    // 命中时覆盖上七路结果（含跨通道去重与全局预算），未命中/未启用回退原七路逻辑。
+    recallMemory({
+      scope: { dataSourceId, userId: input.userId, role: input.userRole || 'ANALYST' },
+      query,
+      relevantTables: promptSchemaBase.map((t) => String(t?.name || '')),
+      traceId: input.traceId,
+    }).catch(() => null),
   ]);
   // Vanna 借鉴：few-shot 以 user/assistant 消息对注入对话历史（比平铺文本更贴合 LLM 多轮格式）；
   // 团队样例库在前，个人对话沉淀在后，均为「先问题后 SQL」格式
-  const fewShotHistory: ChatMessage[] = [
-    ...fewShotPairs.map((ex) => ({ question: ex.question, sql: ex.sql })),
-    ...convPairs,
-  ].flatMap((ex) => [
+  // v0.9.106：记忆体命中时使用统一召回（已按归一化 SQL 去重 + 共享预算裁剪）的消息对
+  const effectiveFewShot = memoryBundle
+    ? memoryBundle.fewShotPairs
+    : [...fewShotPairs.map((ex) => ({ question: ex.question, sql: ex.sql })), ...convPairs];
+  const fewShotHistory: ChatMessage[] = effectiveFewShot.flatMap((ex) => [
     { role: 'user' as const, content: ex.question },
     { role: 'assistant' as const, content: ex.sql },
   ]);
-  const knowledge = budgetText(knowledgeRaw, KNOWLEDGE_TOKEN_BUDGET);
+  const knowledge = memoryBundle ? memoryBundle.knowledgeBlock : budgetText(knowledgeRaw, KNOWLEDGE_TOKEN_BUDGET);
   // 外部知识库片段独立预算控制，追加在本地知识之后（互不挤占注入槽位）
-  const externalSnippet = externalKb?.snippet || '';
+  // v0.9.106：记忆体命中时 knowledgeBlock 已内含外部知识（统一预算），不再单独追加
+  const externalSnippet = memoryBundle ? '' : externalKb?.snippet || '';
   trace({
     stepType: 'knowledge',
     title: '知识库检索与 Few-shot 样例',
     inputSummary: query,
-    outputSummary: `知识片段 ${knowledge ? knowledge.length : 0} 字${externalSnippet ? `；外部知识库 ${externalSnippet.length} 字（成功 ${externalKb?.okSources ?? 0} 源${externalKb?.failSources ? `，失败 ${externalKb.failSources} 源` : ''}）` : ''}；few-shot 样例 ${fewShotPairs.length} 组（个人沉淀 ${convPairs.length} 组）；点踩反例 ${negativePairs.length} 组`,
+    outputSummary: `知识片段 ${knowledge ? knowledge.length : 0} 字${externalSnippet ? `；外部知识库 ${externalSnippet.length} 字（成功 ${externalKb?.okSources ?? 0} 源${externalKb?.failSources ? `，失败 ${externalKb.failSources} 源` : ''}）` : ''}；few-shot 样例 ${effectiveFewShot.length} 组（个人沉淀 ${convPairs.length} 组）；点踩反例 ${negativePairs.length} 组${memoryBundle ? `；记忆体注入 ${memoryBundle.stats.injectedTokens} tokens（${memoryBundle.stats.elapsedMs}ms，去重 ${memoryBundle.stats.deduped} 条）` : ''}`,
     durationMs: Date.now() - t0,
   });
-  const metricPrompt = buildMetricPrompt(metricHits);
+  if (memoryBundle) {
+    trace({
+      stepType: 'knowledge',
+      title: '统一记忆体召回',
+      inputSummary: query,
+      outputSummary: `通道命中 ${(Object.entries(memoryBundle.stats.channelHits) as [string, number | undefined][])
+        .filter(([, v]) => (v || 0) > 0)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(' ')}；强制段 ${memoryBundle.stats.forced} 条；注入 ${memoryBundle.stats.injectedTokens} tokens；耗时 ${memoryBundle.stats.elapsedMs}ms`,
+      durationMs: Date.now() - t0,
+    });
+  }
+  const metricPrompt = memoryBundle ? memoryBundle.metricPrompt : buildMetricPrompt(metricHits);
   if (metricHits.length > 0) {
     trace({
       stepType: 'metrics',
@@ -276,7 +302,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     });
   }
   // 铁律规则全量恒注入（v0.9.35）：ACTIVE 即最高优先级强制约束，注入留痕便于推导审计
-  const ironRulesPrompt = buildIronRulesPrompt(ironRules);
+  const ironRulesPrompt = memoryBundle ? memoryBundle.ironRulesPrompt : buildIronRulesPrompt(ironRules);
   if (ironRules.length > 0) {
     trace({
       stepType: 'metrics',
@@ -325,7 +351,8 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     }).catch(() => null);
     if (chain) chainTables = chain.tables;
   }
-  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, fewShotPairs.length + convPairs.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativePairs, input.dataSourceName, ironRulesPrompt);
+  const negativeExamplesForPrompt = memoryBundle ? memoryBundle.negativeExamples : negativePairs;
+  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, effectiveFewShot.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativeExamplesForPrompt, input.dataSourceName, ironRulesPrompt);
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
   // 专家角色路由：库化配置按 sortOrder 升序关键词匹配（仅 ADMIN 维护，v0.9.40），库异常时回退内置常量
