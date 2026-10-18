@@ -47,19 +47,19 @@
   @keyframes grow { to { transform: scaleX(1); } }
 
   /* ── 核心优势 · 治理闭环 ── */
-  .adv-title { margin-top: 30px; font-size: 19px; letter-spacing: 10px; text-indent: 10px; color: var(--dim); }
+  .adv-title { margin-top: 20px; font-size: 19px; letter-spacing: 10px; text-indent: 10px; color: var(--dim); }
 
-  .cards { margin-top: 22px; display: flex; justify-content: center; gap: 24px; }
-  .card { width: 336px; padding: 22px 18px 24px; border-radius: 14px;
+  .cards { margin-top: 14px; display: flex; justify-content: center; gap: 24px; }
+  .card { width: 340px; padding: 18px 16px 20px; border-radius: 14px;
           background: rgba(255,255,255,.035); border: 1px solid rgba(139,152,173,.25);
           box-shadow: 0 10px 34px rgba(0,0,0,.35); }
-  .card .t { font-size: 21px; font-weight: 600; letter-spacing: 3px; color: #dce9ff; }
-  .card .t::before { content: ""; display: block; margin: 0 auto 12px; width: 34px; height: 3px; border-radius: 2px;
+  .card .t { font-size: 20px; font-weight: 600; letter-spacing: 3px; color: #dce9ff; }
+  .card .t::before { content: ""; display: block; margin: 0 auto 10px; width: 34px; height: 3px; border-radius: 2px;
                      background: linear-gradient(90deg, var(--accent), rgba(124,58,237,.9)); }
-  .card .d { margin-top: 12px; font-size: 15px; line-height: 1.75; color: var(--dim); letter-spacing: 1px; }
+  .card .d { margin-top: 10px; font-size: 14px; line-height: 1.7; color: var(--dim); letter-spacing: 1px; }
 
-  .highlight { margin: 22px auto 0; max-width: 1080px; display: flex; flex-direction: column; gap: 9px; align-items: center;
-               padding: 16px 30px; border-radius: 12px;
+  .highlight { margin: 14px auto 0; max-width: 1080px; display: flex; flex-direction: column; gap: 8px; align-items: center;
+               padding: 12px 28px; border-radius: 12px;
                background: rgba(59,130,246,.09); border: 1px solid rgba(59,130,246,.5);
                box-shadow: 0 0 26px rgba(59,130,246,.14), inset 0 0 22px rgba(59,130,246,.06); }
   .hl-main { font-size: 23px; letter-spacing: 2px; color: #c8dbfa; }
@@ -67,22 +67,31 @@
   .hl-sub { font-size: 16px; letter-spacing: 5px; color: #8fb0e8; }
 
   /* ── 演示环境 ── */
-  .env-title, .tech-title { margin-top: 20px; font-size: 17px; letter-spacing: 9px; text-indent: 9px; color: var(--dim); }
-  .env-bar { margin: 12px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 24px;
-             padding: 13px 30px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
+  .env-title, .tech-title { margin-top: 12px; font-size: 17px; letter-spacing: 9px; text-indent: 9px; color: var(--dim); }
+  .env-bar { margin: 9px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 24px;
+             padding: 10px 28px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
              background: rgba(255,255,255,.025); border: 1px solid rgba(139,152,173,.3); }
   .env-bar b { color: #dce9ff; font-weight: 600; }
   .env-bar .sep { width: 1px; height: 15px; background: rgba(139,152,173,.4); }
 
   /* ── 技术栈 ── */
-  .tech-bar { margin: 12px auto 0; max-width: 1080px; display: flex; flex-direction: column; gap: 8px; align-items: center;
-              padding: 13px 30px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
+  .tech-bar { margin: 9px auto 0; max-width: 1080px; display: flex; flex-direction: column; gap: 7px; align-items: center;
+              padding: 10px 28px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
               background: rgba(255,255,255,.025); border: 1px solid rgba(139,152,173,.3); }
   .tech-bar b { color: #dce9ff; font-weight: 600; }
   .tech-bar .hint { color: #6f7d92; }
 
-  .warn { margin: 22px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 14px;
-          padding: 15px 34px; border-radius: 12px; font-size: 23px; letter-spacing: 1.5px; font-weight: 600;
+  /* ── 后续演进 · 企业级升级 ── */
+  .road-title { margin-top: 12px; font-size: 17px; letter-spacing: 9px; text-indent: 9px; color: var(--dim); }
+  .road-grid { margin: 9px auto 0; max-width: 1160px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .road { padding: 11px 12px 12px; border-radius: 10px; text-align: left;
+          background: rgba(124,58,237,.06); border: 1px solid rgba(124,58,237,.32); }
+  .road .rt { font-size: 15px; font-weight: 600; color: #d9c9ff; letter-spacing: 1px; }
+  .road .rd { margin-top: 6px; font-size: 12.5px; line-height: 1.62; color: var(--dim); letter-spacing: .3px; }
+  .road .rd b { color: #cfe0ff; font-weight: 600; }
+
+  .warn { margin: 12px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 14px;
+          padding: 12px 30px; border-radius: 12px; font-size: 21px; letter-spacing: 1.5px; font-weight: 600;
           color: #ffd48a; background: rgba(245,158,11,.1); border: 1.5px solid rgba(245,158,11,.65);
           box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
   body.playing .warn { animation: rise .95s cubic-bezier(.22,.61,.36,1) forwards, warnPulse 2.4s ease-in-out infinite; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)), calc(var(--d, 0s) - var(--delta, 0s) + .95s); }
@@ -92,10 +101,10 @@
   }
   .warn .icon { font-size: 26px; }
 
-  .slogan { margin-top: 22px; font-size: 25px; letter-spacing: 6px; color: #b9c8e2; }
+  .slogan { margin-top: 12px; font-size: 25px; letter-spacing: 6px; color: #b9c8e2; }
   .slogan b { color: #ffffff; font-weight: 600; }
 
-  .credit { margin-top: 20px; font-size: 16px; letter-spacing: 4px; color: var(--dim); }
+  .credit { margin-top: 10px; font-size: 16px; letter-spacing: 4px; color: var(--dim); }
 </style>
 </head>
 <body>
@@ -104,7 +113,7 @@
     <h1 class="anim" style="--d:.4s">感谢观看</h1>
     <div class="divider" style="--d:1.3s"></div>
 
-    <!-- 时间轴按 m10.vtt 校准：句2（1.65-23.71s）三优势分述 / 句3（23.71-32.29s）闭环结论 / 句4（32.29-52.66s）演示环境 / 句5（52.66-73.61s）技术栈 / 句6（73.61-81.63s）再提示 / 句7（81.63-87.04s）slogan -->
+    <!-- 时间轴按 m10.vtt 校准：句2（1.65-23.71s）三优势 / 句3（23.71-32.29s）闭环 / 句4（32.29-52.66s）演示环境 / 句5（52.66-73.61s）技术栈 / 句6（73.61-79.24s）演进引入 / 句7-10（79.24-112.57s）四条演进方向 / 句11（112.57-120.59s）再提示 / 句12（120.59-126.0s）slogan -->
     <div class="adv-title anim" style="--d:2.8s">核 心 优 势 · 治 理 闭 环</div>
 
     <div class="cards">
@@ -142,10 +151,30 @@
       <span>后端 <b>Node.js + Express</b> · MySQL · Redis<span class="hint">　｜　</span>工程化 Vitest · Playwright · ESLint</span>
     </div>
 
-    <div class="warn anim" style="--d:74.4s"><span class="icon">⚠</span>再次提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+    <div class="road-title anim" style="--d:74s">后 续 演 进 · 企 业 级 升 级</div>
+    <div class="road-grid">
+      <div class="road anim" style="--d:79.6s">
+        <div class="rt">后端工程化</div>
+        <div class="rd"><b>Express → Spring Boot</b><br>OpenAPI 契约先行 · 按域渐进迁移</div>
+      </div>
+      <div class="road anim" style="--d:88.4s">
+        <div class="rt">检索升级</div>
+        <div class="rd"><b>引入向量数据库</b><br>pgvector / Milvus · 混合召回与精排</div>
+      </div>
+      <div class="road anim" style="--d:97.5s">
+        <div class="rt">异步与集成</div>
+        <div class="rd"><b>Kafka 消息中间件</b><br>任务削峰 · 多消费组</div>
+      </div>
+      <div class="road anim" style="--d:104.4s">
+        <div class="rt">云原生运维</div>
+        <div class="rd"><b>OpenTelemetry + K8s</b><br>全链路追踪 · 灰度发布 · 多租户合规</div>
+      </div>
+    </div>
 
-    <div class="slogan anim" style="--d:82.4s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
-    <div class="credit anim" style="--d:84.5s">智能问数数据分析系统项目组 · 2026</div>
+    <div class="warn anim" style="--d:113s"><span class="icon">⚠</span>再次提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+
+    <div class="slogan anim" style="--d:121s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
+    <div class="credit anim" style="--d:123.1s">智能问数数据分析系统项目组 · 2026</div>
   </div>
 </body>
 </html>
