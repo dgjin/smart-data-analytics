@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 演示视频 · 片尾</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --accent: #3b82f6;
+    --warn: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 600px at 50% 0%, rgba(59, 130, 246, .15), transparent 62%),
+      radial-gradient(900px 640px at 50% 108%, rgba(124, 58, 237, .12), transparent 62%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：页面加载即覆盖纯背景色，armed 后 1s 开始 1s 淡出，遮蔽 Chromium 首帧渲染残留 */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1280px; text-align: center; padding: 0 40px; }
+
+  .anim { opacity: 0; transform: translateY(22px); }
+  body.playing .anim { animation: rise .95s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  h1 { font-size: 72px; font-weight: 700; letter-spacing: 22px; text-indent: 22px;
+       background: linear-gradient(180deg, #ffffff 32%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+  .divider { margin: 22px auto 0; width: 680px; height: 1px;
+             background: linear-gradient(90deg, transparent, rgba(139,152,173,.55), transparent);
+             transform: scaleX(0); }
+  body.playing .divider { animation: grow 1.1s cubic-bezier(.22,.61,.36,1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes grow { to { transform: scaleX(1); } }
+
+  /* ── 核心优势 · 治理闭环 ── */
+  .adv-title { margin-top: 30px; font-size: 19px; letter-spacing: 10px; text-indent: 10px; color: var(--dim); }
+
+  .cards { margin-top: 22px; display: flex; justify-content: center; gap: 24px; }
+  .card { width: 336px; padding: 22px 18px 24px; border-radius: 14px;
+          background: rgba(255,255,255,.035); border: 1px solid rgba(139,152,173,.25);
+          box-shadow: 0 10px 34px rgba(0,0,0,.35); }
+  .card .t { font-size: 21px; font-weight: 600; letter-spacing: 3px; color: #dce9ff; }
+  .card .t::before { content: ""; display: block; margin: 0 auto 12px; width: 34px; height: 3px; border-radius: 2px;
+                     background: linear-gradient(90deg, var(--accent), rgba(124,58,237,.9)); }
+  .card .d { margin-top: 12px; font-size: 15px; line-height: 1.75; color: var(--dim); letter-spacing: 1px; }
+
+  .highlight { margin: 22px auto 0; max-width: 1080px; display: flex; flex-direction: column; gap: 9px; align-items: center;
+               padding: 16px 30px; border-radius: 12px;
+               background: rgba(59,130,246,.09); border: 1px solid rgba(59,130,246,.5);
+               box-shadow: 0 0 26px rgba(59,130,246,.14), inset 0 0 22px rgba(59,130,246,.06); }
+  .hl-main { font-size: 23px; letter-spacing: 2px; color: #c8dbfa; }
+  .hl-main b { color: #ffffff; font-weight: 600; }
+  .hl-sub { font-size: 16px; letter-spacing: 5px; color: #8fb0e8; }
+
+  /* ── 演示环境 ── */
+  .env-title, .tech-title { margin-top: 20px; font-size: 17px; letter-spacing: 9px; text-indent: 9px; color: var(--dim); }
+  .env-bar { margin: 12px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 24px;
+             padding: 13px 30px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
+             background: rgba(255,255,255,.025); border: 1px solid rgba(139,152,173,.3); }
+  .env-bar b { color: #dce9ff; font-weight: 600; }
+  .env-bar .sep { width: 1px; height: 15px; background: rgba(139,152,173,.4); }
+
+  /* ── 技术栈 ── */
+  .tech-bar { margin: 12px auto 0; max-width: 1080px; display: flex; flex-direction: column; gap: 8px; align-items: center;
+              padding: 13px 30px; border-radius: 10px; font-size: 16px; letter-spacing: 1px; color: #aebacd;
+              background: rgba(255,255,255,.025); border: 1px solid rgba(139,152,173,.3); }
+  .tech-bar b { color: #dce9ff; font-weight: 600; }
+  .tech-bar .hint { color: #6f7d92; }
+
+  .warn { margin: 22px auto 0; max-width: 1080px; display: flex; align-items: center; justify-content: center; gap: 14px;
+          padding: 15px 34px; border-radius: 12px; font-size: 23px; letter-spacing: 1.5px; font-weight: 600;
+          color: #ffd48a; background: rgba(245,158,11,.1); border: 1.5px solid rgba(245,158,11,.65);
+          box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+  body.playing .warn { animation: rise .95s cubic-bezier(.22,.61,.36,1) forwards, warnPulse 2.4s ease-in-out infinite; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)), calc(var(--d, 0s) - var(--delta, 0s) + .95s); }
+  @keyframes warnPulse {
+    0%, 100% { box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+    50% { box-shadow: 0 0 44px rgba(245,158,11,.34), inset 0 0 30px rgba(245,158,11,.12); }
+  }
+  .warn .icon { font-size: 26px; }
+
+  .slogan { margin-top: 22px; font-size: 25px; letter-spacing: 6px; color: #b9c8e2; }
+  .slogan b { color: #ffffff; font-weight: 600; }
+
+  .credit { margin-top: 20px; font-size: 16px; letter-spacing: 4px; color: var(--dim); }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <h1 class="anim" style="--d:0.36s">感谢观看</h1>
+    <div class="divider" style="--d:1.15s"></div>
+
+    <!-- 时间轴按 m10.vtt 校准：句2（1.65-23.71s）三优势分述 / 句3（23.71-32.29s）闭环结论 / 句4（32.29-52.66s）演示环境 / 句5（52.66-73.61s）技术栈 / 句6（73.61-81.63s）再提示 / 句7（81.63-87.04s）slogan -->
+    <div class="adv-title anim" style="--d:2.5s">核 心 优 势 · 治 理 闭 环</div>
+
+    <div class="cards">
+      <div class="card anim" style="--d:4.33s">
+        <div class="t">指标语义治理</div>
+        <div class="d">语义指标库统一全站口径<br>每一次分析都基于同一套标准取数</div>
+      </div>
+      <div class="card anim" style="--d:9.26s">
+        <div class="t">知识库沉淀</div>
+        <div class="d">企业术语与业务规则入库<br>帮 AI 读懂业务语言</div>
+      </div>
+      <div class="card anim" style="--d:14s">
+        <div class="t">反馈闭环反哺</div>
+        <div class="d">点踩纠错与人工审核回流知识治理<br>反哺下一轮推导</div>
+      </div>
+    </div>
+
+    <div class="highlight anim" style="--d:22.13s">
+      <span class="hl-main">问数与治理形成闭环 · <b>越用越准 · 越用越懂业务</b></span>
+      <span class="hl-sub">问数质量与可靠性持续提升</span>
+    </div>
+
+    <div class="env-title anim" style="--d:30.44s">演 示 环 境</div>
+    <div class="env-bar anim" style="--d:32.44s">
+      <span><b>本地单机部署</b> · 一键启动</span>
+      <span class="sep"></span>
+      <span>数据源 <b>MySQL 演示数据库</b></span>
+      <span class="sep"></span>
+      <span>推理引擎 <b>Ollama 本地</b> + <b>DeepSeek 云端</b> 兜底</span>
+    </div>
+
+    <div class="tech-title anim" style="--d:48.9s">技 术 栈</div>
+    <div class="tech-bar anim" style="--d:50.02s">
+      <span>前端 <b>React 19</b> · TypeScript · Vite · Zustand · Tailwind CSS</span>
+      <span>后端 <b>Node.js + Express</b> · MySQL · Redis<span class="hint">　｜　</span>工程化 Vitest · Playwright · ESLint</span>
+    </div>
+
+    <div class="warn anim" style="--d:68.19s"><span class="icon">⚠</span>再次提示：本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+
+    <div class="slogan anim" style="--d:74.93s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
+    <div class="credit anim" style="--d:76.85s">智能问数数据分析系统项目组 · 2026</div>
+  </div>
+</body>
+</html>

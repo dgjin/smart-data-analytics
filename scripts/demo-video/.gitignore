@@ -4,9 +4,14 @@
 # 大体积生成物与调试产物（可由脚本重新生成）
 *.mp4
 audio/*.mp3
+audio-male/*.mp3
+audio-male/*.txt
 videos/
+videos-male/
 out/
+out-male/
 diag/
+diag-male/
 frames/
 scan/
 node_modules/

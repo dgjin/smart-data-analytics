@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 演示视频 · 双闭环</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --blue: #3b82f6;
+    --violet: #8b5cf6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(1000px 620px at 16% 4%, rgba(59, 130, 246, .16), transparent 62%),
+      radial-gradient(1000px 700px at 88% 98%, rgba(124, 58, 237, .14), transparent 62%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 隐藏录制脚本注入的仿真光标（本幕无交互） */
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：遮蔽 Chromium 首帧渲染残留（与片头/片尾一致） */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1740px; display: flex; flex-direction: column; align-items: center; }
+
+  /* 动画基元：body.playing 由录制脚本在时间轴零点校准后添加，--delta 抵消页面加载耗时 */
+  .anim { opacity: 0; transform: translateY(20px); }
+  body.playing .anim { animation: rise .9s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* ── 标题 ── */
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 7px 20px;
+           border: 1px solid rgba(59,130,246,.4); border-radius: 999px; color: #9db8e8;
+           font-size: 16px; letter-spacing: 2px; background: rgba(59,130,246,.08); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue);
+                box-shadow: 0 0 12px var(--blue); }
+  h1 { margin-top: 20px; font-size: 54px; font-weight: 700; letter-spacing: 5px;
+       background: linear-gradient(180deg, #ffffff 30%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .lede { margin-top: 12px; font-size: 17px; letter-spacing: 3px; color: var(--dim); }
+  .lede b { color: #a9c3ea; font-weight: 600; }
+
+  /* ── 双闭环面板 ── */
+  .grid { margin-top: 30px; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .panel { position: relative; border-radius: 18px; padding: 24px 28px 20px;
+           background: rgba(255,255,255,.032); border: 1px solid rgba(139,152,173,.26);
+           box-shadow: 0 14px 44px rgba(0,0,0,.38); }
+  .panel.left { border-top: 2px solid rgba(59,130,246,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(59,130,246,.10); }
+  .panel.right { border-top: 2px solid rgba(139,92,246,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(139,92,246,.10); }
+
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+                padding-bottom: 14px; border-bottom: 1px solid rgba(139,152,173,.22); }
+  .panel-title { font-size: 28px; font-weight: 700; letter-spacing: 2px; }
+  .left .panel-title { color: #bcd6ff; text-shadow: 0 0 20px rgba(59,130,246,.35); }
+  .right .panel-title { color: #d8cbff; text-shadow: 0 0 20px rgba(139,92,246,.35); }
+  .kicker { font-size: 13px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
+
+  .steps { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 9px; }
+  .step { display: grid; grid-template-columns: 42px 1fr; gap: 15px; align-items: center;
+          padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.022);
+          border: 1px solid rgba(139,152,173,.12); }
+  .idx { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+         font-size: 17px; font-weight: 700; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .left .idx { color: #dbeafe; background: rgba(59,130,246,.16); border: 1px solid rgba(59,130,246,.55);
+               box-shadow: 0 0 14px rgba(59,130,246,.18); }
+  .right .idx { color: #ede9fe; background: rgba(139,92,246,.16); border: 1px solid rgba(139,92,246,.55);
+                box-shadow: 0 0 14px rgba(139,92,246,.18); }
+  .st { font-size: 21px; font-weight: 600; letter-spacing: 1px; color: #e6efff; }
+  .sd { margin-top: 3px; font-size: 14.5px; letter-spacing: .5px; color: var(--dim); }
+
+  .loopback { margin-top: 14px; display: flex; align-items: center; justify-content: center; gap: 10px;
+              padding: 10px 16px; border-radius: 999px; font-size: 14px; letter-spacing: 1px; }
+  .left .loopback { color: #9db8e8; background: rgba(59,130,246,.07); border: 1px dashed rgba(59,130,246,.5); }
+  .right .loopback { color: #c4b5fd; background: rgba(139,92,246,.07); border: 1px dashed rgba(139,92,246,.5); }
+  .loopback .rot { display: inline-block; font-size: 17px; animation: spin 7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 收束结论 ── */
+  .finale { margin-top: 26px; text-align: center; padding: 16px 40px; border-radius: 14px;
+            background: rgba(255,255,255,.03); border: 1px solid rgba(139,152,173,.3);
+            box-shadow: 0 0 26px rgba(59,130,246,.08); }
+  .f-main { font-size: 28px; letter-spacing: 3px; color: #e8eef9; }
+  .f-main .blue { color: #8fb8ff; font-weight: 700; }
+  .f-main .violet { color: #c4b5fd; font-weight: 700; }
+  .f-main .sep { color: #4a5568; margin: 0 14px; }
+  .f-sub { margin-top: 9px; font-size: 15px; letter-spacing: 7px; color: var(--dim); text-indent: 7px; }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <div class="anim" style="--d:0.47s"><span class="badge"><span class="dot"></span>智能问数 × 智能运维</span></div>
+    <h1 class="anim" style="--d:0.83s">双闭环：自我修复 · 自我完善</h1>
+    <p class="lede anim" style="--d:1.48s">外接 <b>智能运维系统（AIOps Agent）</b> 与 <b>需求反馈基线</b>，让系统持续进化</p>
+
+    <!-- 时间轴按 m8b.vtt 校准：句1（0.1-5.96s）总起 / 句2（5.91-35.78s）运维闭环 / 句3（35.78-56.82s）需求闭环 / 句4（56.82-62.71s）结论 -->
+    <div class="grid">
+      <!-- 左：运维闭环 · 自我修复 -->
+      <section class="panel left anim" style="--d:5.7s">
+        <div class="panel-head">
+          <div class="panel-title">运维闭环 · 自我修复</div>
+          <div class="kicker">外接智能运维系统 · 标准接口双向对接</div>
+        </div>
+        <ul class="steps">
+          <li class="step anim" style="--d:7.36s">
+            <span class="idx">1</span>
+            <div><div class="st">监控与巡检</div><div class="sd">质量监控、异常巡检发现日志错误与服务异常</div></div>
+          </li>
+          <li class="step anim" style="--d:12.15s">
+            <span class="idx">2</span>
+            <div><div class="st">证据同步</div><div class="sd">日志证据、trace 链路与告警上下文实时同步</div></div>
+          </li>
+          <li class="step anim" style="--d:17.04s">
+            <span class="idx">3</span>
+            <div><div class="st">智能诊断</div><div class="sd">根因分析、置信度闸门与影响面评估</div></div>
+          </li>
+          <li class="step anim" style="--d:21.1s">
+            <span class="idx">4</span>
+            <div><div class="st">修复验证</div><div class="sd">最小化补丁、沙箱验证与回归测试</div></div>
+          </li>
+          <li class="step anim" style="--d:24.61s">
+            <span class="idx">5</span>
+            <div><div class="st">灰度发布</div><div class="sd">金丝雀观察、异常自动回滚、处置结果回写</div></div>
+          </li>
+        </ul>
+        <div class="loopback anim" style="--d:28.58s"><span class="rot">↻</span>发现 → 诊断 → 修复 → 验证 → 发布 → 持续监控</div>
+      </section>
+
+      <!-- 右：需求闭环 · 自我完善 -->
+      <section class="panel right anim" style="--d:6.06s">
+        <div class="panel-head">
+          <div class="panel-title">需求闭环 · 自我完善</div>
+          <div class="kicker">需求反馈 · 评估 · 版本基线</div>
+        </div>
+        <ul class="steps">
+          <li class="step anim" style="--d:35.98s">
+            <span class="idx">1</span>
+            <div><div class="st">提出</div><div class="sd">需求、建议、缺陷在线提交，随时可查</div></div>
+          </li>
+          <li class="step anim" style="--d:38.76s">
+            <span class="idx">2</span>
+            <div><div class="st">评估</div><div class="sd">管理员在线评审，给出采纳意见与优先级</div></div>
+          </li>
+          <li class="step anim" style="--d:41.55s">
+            <span class="idx">3</span>
+            <div><div class="st">基线</div><div class="sd">纳入版本基线，形成可分析的迭代清单</div></div>
+          </li>
+          <li class="step anim" style="--d:44.79s">
+            <span class="idx">4</span>
+            <div><div class="st">交付</div><div class="sd">智能运维主动分析，开发测试后发布上线</div></div>
+          </li>
+          <li class="step anim" style="--d:48.04s">
+            <span class="idx">5</span>
+            <div><div class="st">同步</div><div class="sd">进度与结果实时回传，持续跟踪验证</div></div>
+          </li>
+        </ul>
+        <div class="loopback anim" style="--d:49.43s"><span class="rot">↻</span>提出 → 评估 → 基线 → 交付 → 同步 → 持续完善</div>
+      </section>
+    </div>
+
+    <div class="finale anim" style="--d:53.04s">
+      <div class="f-main">运维闭环 <b class="blue">越用越稳</b><span class="sep">｜</span>需求闭环 <b class="violet">越用越好</b></div>
+      <div class="f-sub">自我修复 · 自我完善 · 全程留痕 · 证据可查</div>
+    </div>
+  </div>
+</body>
+</html>
