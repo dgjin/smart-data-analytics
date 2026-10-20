@@ -8477,6 +8477,64 @@
         }
       }
     },
+    "/api/ratings/public-stats": {
+      "get": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "getPublicRatingStats",
+        "summary": "侧边栏评分统计（登录可见，仅全量均分与条数）",
+        "description": "问数星级评价与全站满意度的全量均分（保留 1 位小数）与评价条数；只返回聚合数字，不含评价内容或用户信息。",
+        "responses": {
+          "200": {
+            "description": "评分统计",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "query": {
+                      "type": "object",
+                      "properties": {
+                        "avg": {
+                          "type": "number"
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "avg": {
+                          "type": "number"
+                        },
+                        "count": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
     "/api/admin/ratings/overview": {
       "get": {
         "tags": [

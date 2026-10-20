@@ -25,6 +25,7 @@ import { useStreamState } from './hooks/useStreamState';
 import { useSkillLibrary } from './hooks/useSkillLibrary';
 import { useSendQuery } from './hooks/useSendQuery';
 import { getErrorMessage } from '../../utils/errorUtils';
+import { notifyRatingUpdated } from '../../utils/ratingEvents';
 import { logger } from '../../utils/logger';
 
 // L1 输入层（与服务端 queryGuard.MAX_QUESTION_LENGTH 对齐）：单条提问最大 500 字
@@ -239,7 +240,8 @@ export const QueryChat: React.FC = () => {
       throw new Error(body?.error || '评价提交失败，请稍后重试');
     }
     setMessageRating(msg.id, value.rating);
-    showToast('感谢评价，评分已记录到评价中心');
+    notifyRatingUpdated();
+    showToast(`已记录 ${value.rating} 星评价，可再次打开补充标签或建议`);
   };
 
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);

@@ -258,6 +258,35 @@ export function countTags(rows: TagsRow[], limit = 10): Array<{ tag: string; cou
     .slice(0, limit);
 }
 
+export interface PublicRatingStats {
+  query: { avg: number; count: number };
+  app: { avg: number; count: number };
+  updatedAt: string;
+}
+
+interface AvgRow extends mysql.RowDataPacket {
+  cnt: number | string;
+  avg_rating: number | string | null;
+}
+
+/**
+ * 侧边栏评分统计：问数星级评价与全站满意度的全量均分（1 位小数）与条数。
+ * 只返回聚合数字，不含任何评价内容或用户信息，供登录用户查看口碑概况。
+ */
+export async function publicRatingStats(): Promise<PublicRatingStats> {
+  const pool = getPool();
+  const [[queryRows], [appRows]] = await Promise.all([
+    pool.query<AvgRow[]>('SELECT COUNT(*) AS cnt, AVG(rating) AS avg_rating FROM query_ratings'),
+    pool.query<AvgRow[]>('SELECT COUNT(*) AS cnt, AVG(rating) AS avg_rating FROM app_satisfaction'),
+  ]);
+  const pack = (row?: AvgRow) => {
+    const count = Number(row?.cnt) || 0;
+    const avg = Number(row?.avg_rating);
+    return { count, avg: count > 0 && Number.isFinite(avg) ? Math.round(avg * 10) / 10 : 0 };
+  };
+  return { query: pack(queryRows[0]), app: pack(appRows[0]), updatedAt: new Date().toISOString() };
+}
+
 export async function ratingOverview(daysInput: unknown): Promise<RatingOverview> {
   const days = normalizeDays(daysInput, 30);
   const pool = getPool();

@@ -139,6 +139,8 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
 
   // v0.9.107 星级评价弹层开关（与赞/踩相互独立，可重复修改）
   const [ratingOpen, setRatingOpen] = useState(false);
+  // v0.9.108 快速评价：保留本次会话内已提交的标签/说明，再次打开时回显（点星只改星级不会丢补充）
+  const [ratingDraft, setRatingDraft] = useState<QueryRatingValue | null>(null);
 
   // v0.9.38 结果全屏：图表与明细在 fixed 叠层内放大完整呈现（Esc/按钮退出），交互对齐灵活查询的 fullZone 模式
   const [resultFull, setResultFull] = useState(false);
@@ -374,7 +376,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
 
                 {/* v0.9.107 星级评价：1-5 星 + 标签 + 说明，与赞/踩独立（不参与 few-shot） */}
                 <span className="w-px h-3 bg-slate-700" />
-                <div className="relative" title="星级评价（1-5 星，可补充标签与说明）">
+                <div className="relative" title="星级评价（点星即提交，可补充标签与说明）">
                   <button
                     onClick={() => setRatingOpen((v) => !v)}
                     className={`flex items-center space-x-1 px-1 py-0.5 rounded-md border transition-colors ${
@@ -390,10 +392,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                   {ratingOpen && (
                     <div className="absolute right-0 top-full mt-1 z-30">
                       <QueryRatingPopover
-                        initial={msg.rating ? { rating: msg.rating, tags: [], comment: '' } : null}
+                        initial={ratingDraft ?? (msg.rating ? { rating: msg.rating, tags: [], comment: '' } : null)}
                         onClose={() => setRatingOpen(false)}
                         onSubmit={async (value) => {
                           await onRate(msg, value);
+                          setRatingDraft(value);
                           setRatingOpen(false);
                         }}
                       />

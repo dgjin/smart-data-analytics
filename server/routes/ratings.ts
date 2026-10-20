@@ -2,7 +2,8 @@
  * v0.9.107 评价提交路由：
  * - POST /query  问数回答星级评价（ADMIN/ANALYST，与问数能力一致）；
  * - POST /app    全站满意度（所有登录用户，24h 内重复提交更新最近一条）；
- * - GET  /mine   当前用户最近一次全站满意度（Header 入口回显）。
+ * - GET  /mine   当前用户最近一次全站满意度（Header 入口回显）；
+ * - GET  /public-stats  侧边栏评分统计（登录可见，仅全量均分与条数）。
  * 评价独立于 query_feedback，不参与 few-shot 与统一记忆体。
  */
 import { Router } from 'express';
@@ -15,6 +16,7 @@ import {
   normalizeComment,
   normalizeRating,
   normalizeTags,
+  publicRatingStats,
   saveAppSatisfaction,
   saveQueryRating,
 } from '../feedback/ratings';
@@ -97,6 +99,15 @@ router.get('/mine', async (req, res) => {
   } catch (err) {
     logger.warn('[Rating] 最近评价查询失败:', getErrorMessage(err));
     return res.status(500).json({ error: '评价查询失败' });
+  }
+});
+
+router.get('/public-stats', rateLimiter, async (_req, res) => {
+  try {
+    return res.json({ success: true, ...(await publicRatingStats()) });
+  } catch (err) {
+    logger.warn('[Rating] 评分统计查询失败:', getErrorMessage(err));
+    return res.status(500).json({ error: '评分统计查询失败' });
   }
 });
 

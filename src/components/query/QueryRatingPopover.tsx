@@ -1,5 +1,6 @@
 /**
  * v0.9.107 问数星级评价弹层：1-5 星 + 最多 3 个预设标签 + 最多 200 字说明。
+ * v0.9.108 快速评价：点星即提交并关闭弹层，标签与建议为可选补充（可先选标签/写建议再点星）。
  * 只做展示与本地校验，提交动作由父组件回调（ChatMessageItem → QueryChat → POST /api/ratings/query）。
  * 与赞/踩 + 点踩纠错链路相互独立：不参与 few-shot 与统一记忆体。
  */
@@ -51,8 +52,9 @@ export const QueryRatingPopover: React.FC<{
     });
   };
 
-  const submit = async () => {
-    if (!rating) {
+  const submit = async (scoreOverride?: number) => {
+    const score = scoreOverride ?? rating;
+    if (!score) {
       setError('请先选择星级');
       return;
     }
@@ -60,10 +62,11 @@ export const QueryRatingPopover: React.FC<{
       setError(`评价内容不能超过 ${MAX_RATING_COMMENT} 字`);
       return;
     }
+    setRating(score);
     setError('');
     setSubmitting(true);
     try {
-      await onSubmit({ rating, tags, comment: comment.trim() });
+      await onSubmit({ rating: score, tags, comment: comment.trim() });
     } catch (err) {
       setError(getErrorMessage(err) || '评价提交失败，请稍后重试');
     } finally {
@@ -74,7 +77,7 @@ export const QueryRatingPopover: React.FC<{
   return (
     <div className="w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-3 text-left">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-semibold text-slate-200">给本次回答打分</span>
+        <span className="text-[11px] font-semibold text-slate-200">给本次回答打分 · 点星即提交</span>
         <button onClick={onClose} className="text-slate-500 hover:text-slate-300" aria-label="关闭">
           <X className="w-3.5 h-3.5" />
         </button>
@@ -85,10 +88,11 @@ export const QueryRatingPopover: React.FC<{
           <button
             key={n}
             type="button"
-            onClick={() => setRating(n)}
-            aria-label={`${n} 星`}
-            title={RATING_LABELS[n]}
-            className="p-0.5 rounded hover:bg-slate-800 transition-colors"
+            onClick={() => void submit(n)}
+            disabled={submitting}
+            aria-label={`${n} 星（点击即提交）`}
+            title={`${RATING_LABELS[n]}（点击即提交）`}
+            className="p-0.5 rounded hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
             <Star
               className={`w-5 h-5 ${n <= rating ? 'text-amber-400 fill-amber-400' : 'text-slate-600 hover:text-amber-300'}`}
@@ -133,19 +137,21 @@ export const QueryRatingPopover: React.FC<{
 
       <div className="mt-2 flex items-center justify-between">
         <span className="text-[10px] text-slate-500">
-          已选标签 {tags.length}/{MAX_RATING_TAGS}
+          点星即完成评价 · 标签 {tags.length}/{MAX_RATING_TAGS}（可选）
         </span>
         <div className="flex items-center gap-2">
           <button onClick={onClose} className="text-[10px] text-slate-400 hover:text-slate-200">
             取消
           </button>
-          <button
-            onClick={submit}
-            disabled={submitting || !rating}
-            className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-[10px] font-semibold text-white transition-colors"
-          >
-            {submitting ? '提交中…' : '提交评价'}
-          </button>
+          {rating > 0 && (
+            <button
+              onClick={() => void submit()}
+              disabled={submitting}
+              className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-[10px] font-semibold text-white transition-colors"
+            >
+              {submitting ? '提交中…' : '保存补充'}
+            </button>
+          )}
         </div>
       </div>
     </div>

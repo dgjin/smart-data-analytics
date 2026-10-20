@@ -253,6 +253,33 @@ describe('GET /api/ratings/mine', () => {
   });
 });
 
+describe('GET /api/ratings/public-stats', () => {
+  it('未登录返回 401', async () => {
+    querySpy.mockImplementation(dbStub([]));
+
+    const res = await request(app).get('/api/ratings/public-stats');
+
+    expect(res.status).toBe(401);
+  });
+
+  it('返回问数/全站均分与条数（均分保留 1 位小数）', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        analystAuth,
+        { match: 'FROM query_ratings', rows: () => [{ cnt: '12', avg_rating: '4.25' }] },
+        { match: 'FROM app_satisfaction', rows: () => [{ cnt: '0', avg_rating: null }] },
+      ])
+    );
+
+    const res = await request(app).get('/api/ratings/public-stats').set('Authorization', `Bearer ${ANALYST_TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.query).toEqual({ avg: 4.3, count: 12 });
+    expect(res.body.app).toEqual({ avg: 0, count: 0 });
+    expect(typeof res.body.updatedAt).toBe('string');
+  });
+});
+
 describe('GET /api/admin/ratings/overview', () => {
   it('非 ADMIN 返回 403，未登录返回 401', async () => {
     querySpy.mockImplementation(dbStub([viewerAuth]));
