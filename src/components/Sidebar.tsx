@@ -60,6 +60,9 @@ export const Sidebar: React.FC = () => {
   // v0.9.109 全站星级评价弹窗（入口由 Header 移至侧边栏评价卡片）
   const [satisfactionOpen, setSatisfactionOpen] = useState(false);
 
+  // 暂时隐藏 Footer 顶部的引擎介绍卡（保留代码，置 true 即恢复）
+  const SHOW_ENGINE_INTRO = false;
+
   // 收缩态下 Schema 区域的展开状态
   const [schemaOpen, setSchemaOpen] = useState(true);
 
@@ -339,15 +342,18 @@ export const Sidebar: React.FC = () => {
 
       {/* Footer Info Card */}
       <div className="p-3 border-t border-slate-800/80 bg-slate-900/80 space-y-2">
-        <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-indigo-500/20 text-xs space-y-1.5">
-          <div className="flex items-center space-x-1.5 text-indigo-300 font-semibold text-[11px]">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="truncate">{engine ? `${engine.label} 引擎运行中` : 'AI 引擎运行中'}</span>
+        {/* 引擎介绍卡：暂时隐藏（SHOW_ENGINE_INTRO=false），恢复时改为 true */}
+        {SHOW_ENGINE_INTRO && (
+          <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-indigo-500/20 text-xs space-y-1.5">
+            <div className="flex items-center space-x-1.5 text-indigo-300 font-semibold text-[11px]">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">{engine ? `${engine.label} 引擎运行中` : 'AI 引擎运行中'}</span>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-tight">
+              基于自然语言自动转化 SQL、智能推荐最优可视化图表并输出归因诊断。
+            </p>
           </div>
-          <p className="text-[11px] text-slate-400 leading-tight">
-            基于自然语言自动转化 SQL、智能推荐最优可视化图表并输出归因诊断。
-          </p>
-        </div>
+        )}
         {/* v0.9.107 访问计数器（收缩态不展示，避免窄栏挤压） */}
         <VisitCounter />
         {/* v0.9.108 星级评价统计：综合星级 + 问数/全站均分，v0.9.109 起兼作全站评价入口 */}
