@@ -14,7 +14,7 @@ import {
   Coins,
   X,
   MessageSquarePlus,
-  UserCog,
+  Star,
 } from 'lucide-react';
 import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
@@ -27,6 +27,8 @@ import { HelpModal } from './help/HelpModal';
 import { UserPersonalModal } from './user/UserPersonalModal';
 // v0.9.98 需求收集与意见反馈入口弹窗
 import { FeedbackModal } from './feedback/FeedbackModal';
+// v0.9.107 全站满意度评价弹窗（常驻入口，独立于需求反馈）
+import { SatisfactionDialog } from './feedback/SatisfactionDialog';
 import { InstallAppButton } from './InstallAppButton';
 import { Logo } from './Logo';
 import { getErrorMessage } from '../utils/errorUtils';
@@ -61,6 +63,9 @@ export const Header: React.FC = () => {
 
   // v0.9.98 需求收集与意见反馈弹窗开关
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+
+  // v0.9.107 全站满意度评价弹窗开关（常驻入口，24h 内重复提交更新最近一条）
+  const [satisfactionOpen, setSatisfactionOpen] = useState(false);
 
   // v0.9.104 用户信息维护弹窗开关（REQ-18：入口常显，登录用户均可维护本人个性化信息）
   const [personalOpen, setPersonalOpen] = useState(false);
@@ -235,6 +240,16 @@ export const Header: React.FC = () => {
           <span className="hidden sm:inline">需求反馈</span>
         </button>
 
+        {/* v0.9.107 全站满意度评价：常驻星标入口（不弹窗打扰，可反复修改） */}
+        <button
+          onClick={() => setSatisfactionOpen(true)}
+          title="全站满意度评价：1-5 星 + 标签 + 建议，24 小时内可重复修改"
+          className="flex items-center shrink-0 space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 transition-colors"
+        >
+          <Star className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">满意度</span>
+        </button>
+
         {/* 帮助：打开用户使用指南 */}
         <button
           onClick={() => setHelpOpen(true)}
@@ -244,26 +259,19 @@ export const Header: React.FC = () => {
           <HelpCircle className="w-4 h-4" />
         </button>
 
-        {/* v0.9.104 用户信息维护：顶部常显入口（REQ-18），登录用户均可维护本人个性化信息 */}
-        {user && (
-          <button
-            onClick={() => setPersonalOpen(true)}
-            title="用户信息维护：昵称 / 头像 / 个人签名与偏好设置"
-            className="flex items-center shrink-0 space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
-          >
-            <UserCog className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">用户信息维护</span>
-          </button>
-        )}
-
         {/* Current User Chip + Logout */}
         {user && (
           <div className="flex items-center space-x-2 pl-3 border-l border-slate-700/80 shrink-0">
-            <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setPersonalOpen(true)}
+              title="点击进入个人信息维护：昵称 / 头像 / 个人签名与偏好设置"
+              className="flex items-center space-x-2 rounded-lg px-1.5 py-1 hover:bg-slate-800 border border-transparent hover:border-slate-700 transition-colors"
+            >
               <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-[11px] font-bold text-white shadow">
                 {user.displayName.slice(0, 1).toUpperCase()}
               </div>
-              <div className="hidden lg:block leading-tight">
+              <div className="hidden lg:block leading-tight text-left">
                 <div className="text-xs font-semibold text-slate-200">{user.displayName}</div>
                 <span
                   className={`inline-block mt-0.5 px-1.5 py-px rounded-full border text-[10px] font-semibold ${ROLE_BADGE[user.role]}`}
@@ -271,7 +279,7 @@ export const Header: React.FC = () => {
                   {ROLE_LABELS[user.role]}
                 </span>
               </div>
-            </div>
+            </button>
             <button
               onClick={logout}
               title="退出登录"
@@ -291,6 +299,9 @@ export const Header: React.FC = () => {
 
       {/* v0.9.98 需求收集与意见反馈弹窗 */}
       {feedbackOpen && <FeedbackModal onClose={() => setFeedbackOpen(false)} />}
+
+      {/* v0.9.107 全站满意度评价弹窗 */}
+      {satisfactionOpen && <SatisfactionDialog page={activeTab} onClose={() => setSatisfactionOpen(false)} />}
 
       {/* P2-11 权限申请弹窗 */}
       {requestOpen && (

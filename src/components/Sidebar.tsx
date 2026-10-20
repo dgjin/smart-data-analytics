@@ -17,6 +17,8 @@ import { useAnalyticsStore } from '../hooks/useAnalyticsStore';
 import { useAuthStore } from '../hooks/useAuthStore';
 import { useEngineInfo } from '../hooks/useEngineInfo';
 import { AppTab } from '../types/analytics';
+// v0.9.107 访问计数器（展开态 Footer 展示）
+import { VisitCounter } from './VisitCounter';
 
 const COLLAPSE_KEY = 'app-sidebar-collapsed';
 
@@ -330,7 +332,7 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Footer Info Card */}
-      <div className="p-3 border-t border-slate-800/80 bg-slate-900/80">
+      <div className="p-3 border-t border-slate-800/80 bg-slate-900/80 space-y-2">
         <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-950/40 via-slate-900 to-slate-900 border border-indigo-500/20 text-xs space-y-1.5">
           <div className="flex items-center space-x-1.5 text-indigo-300 font-semibold text-[11px]">
             <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
@@ -340,6 +342,8 @@ export const Sidebar: React.FC = () => {
             基于自然语言自动转化 SQL、智能推荐最优可视化图表并输出归因诊断。
           </p>
         </div>
+        {/* v0.9.107 访问计数器（收缩态不展示，避免窄栏挤压） */}
+        <VisitCounter />
       </div>
     </aside>
   );

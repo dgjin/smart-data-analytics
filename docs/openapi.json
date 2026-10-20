@@ -112,6 +112,14 @@
     {
       "name": "Memory",
       "description": "统一记忆体（纠错候选审核、记忆条目、召回观测；仅 ADMIN）"
+    },
+    {
+      "name": "Access",
+      "description": "v0.9.107 访问计数（匿名可调，仅聚合计数；不采集 IP/UA/明细）"
+    },
+    {
+      "name": "Ratings",
+      "description": "v0.9.107 评价体系（问数星级评价 + 全站满意度，独立于 query_feedback）"
     }
   ],
   "x-legacy-aliases": [
@@ -8010,6 +8018,793 @@
           },
           "500": {
             "description": "服务端错误"
+          }
+        }
+      }
+    },
+    "/api/access/visit": {
+      "post": {
+        "tags": [
+          "Access"
+        ],
+        "operationId": "recordAccessVisit",
+        "summary": "上报一次访问（匿名可调；新会话才计累计/今日访问）",
+        "description": "同一 sessionId 重复上报只刷新活跃时间，不重复计累计访问；module 为页面模块 key（query/reports/query-reports/dashboard/flexquery/datasources/admin），用于模块热度排行。",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "sessionId"
+                ],
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "浏览器会话标识（16-64 位 [A-Za-z0-9_-]，仅以 SHA-256 摘要入库）"
+                  },
+                  "module": {
+                    "type": "string",
+                    "description": "模块 key（可选，60s 内前端节流）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/access/ping": {
+      "post": {
+        "tags": [
+          "Access"
+        ],
+        "operationId": "pingAccessSession",
+        "summary": "在线心跳（匿名可调；只刷新 last_seen）",
+        "description": "当前在线 = 最近 5 分钟有心跳的会话（匿名与登录均计入）；会话不存在时静默补建，不重复计访问。",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "sessionId"
+                ],
+                "properties": {
+                  "sessionId": {
+                    "type": "string",
+                    "description": "浏览器会话标识（16-64 位 [A-Za-z0-9_-]，仅以 SHA-256 摘要入库）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/access/public-stats": {
+      "get": {
+        "tags": [
+          "Access"
+        ],
+        "operationId": "getPublicAccessStats",
+        "summary": "公开访问计数器（累计访问 / 今日访问 / 当前在线）",
+        "description": "仅返回聚合数字，不包含任何用户或问题信息；按 IP 限流。",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "统计结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "totalVisits": {
+                      "type": "integer",
+                      "description": "历史每日新增会话数之和"
+                    },
+                    "todayVisits": {
+                      "type": "integer",
+                      "description": "当日新增会话数"
+                    },
+                    "online": {
+                      "type": "integer",
+                      "description": "最近 5 分钟有心跳的会话数"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/admin/access/stats": {
+      "get": {
+        "tags": [
+          "Access"
+        ],
+        "operationId": "getAccessStatsAdmin",
+        "summary": "访问统计（仅 ADMIN）：计数器 + 近 N 天模块热度排行",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 30
+            },
+            "description": "时间范围 1-365 天（默认 30）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "访问统计",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "totalVisits": {
+                      "type": "integer"
+                    },
+                    "todayVisits": {
+                      "type": "integer"
+                    },
+                    "online": {
+                      "type": "integer"
+                    },
+                    "days": {
+                      "type": "integer"
+                    },
+                    "modules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "module": {
+                            "type": "string"
+                          },
+                          "hits": {
+                            "type": "integer"
+                          },
+                          "share": {
+                            "type": "number",
+                            "description": "占所选时间范围全部模块访问次数的百分比"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/ratings/query": {
+      "post": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "createQueryRating",
+        "summary": "问数回答星级评价（ADMIN/ANALYST）",
+        "description": "独立于 query_feedback（赞/踩 + 点踩纠错），不参与 few-shot 与统一记忆体。同用户 + 同数据源 + 同问题重复提交为更新（dedupe_key 幂等）。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "question",
+                  "rating"
+                ],
+                "properties": {
+                  "rating": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "评分 1-5 星"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "预设标签，最多 3 个、每个 ≤20 字"
+                  },
+                  "comment": {
+                    "type": "string",
+                    "description": "评价文字，≤200 字"
+                  },
+                  "dataSourceId": {
+                    "type": "string",
+                    "description": "数据源 ID"
+                  },
+                  "question": {
+                    "type": "string",
+                    "description": "用户原始问题（必填）"
+                  },
+                  "sql": {
+                    "type": "string",
+                    "description": "本次执行的 SQL（可追溯）"
+                  },
+                  "traceId": {
+                    "type": "string",
+                    "description": "问数链路 trace ID"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/ratings/app": {
+      "post": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "createAppSatisfaction",
+        "summary": "全站满意度评价（所有登录用户）",
+        "description": "同一用户 24 小时内重复提交更新最近一条，防止刷量。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rating"
+                ],
+                "properties": {
+                  "rating": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "description": "评分 1-5 星"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "预设标签，最多 3 个、每个 ≤20 字"
+                  },
+                  "comment": {
+                    "type": "string",
+                    "description": "评价文字，≤200 字"
+                  },
+                  "page": {
+                    "type": "string",
+                    "description": "提交时所在页面模块 key"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "BadRequest": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "RateLimited": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/ratings/mine": {
+      "get": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "getMySatisfaction",
+        "summary": "当前用户最近一次全站满意度（Header 入口回显）",
+        "responses": {
+          "200": {
+            "description": "最近一次评价（无记录时 rating 为 null）",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "rating": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "rating": {
+                          "type": "integer"
+                        },
+                        "tags": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "comment": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/admin/ratings/overview": {
+      "get": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "getRatingOverviewAdmin",
+        "summary": "评价概览（仅 ADMIN）：两套指标 + 按天趋势 + 标签 TOP",
+        "description": "好评率 = 4 星及以上占比；NPS =（5 星人数 − 1-3 星人数）/ 总数 × 100。",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "概览",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "query": {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "avg": {
+                          "type": "number"
+                        },
+                        "goodRate": {
+                          "type": "number"
+                        },
+                        "lowCount": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "app": {
+                      "type": "object",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "avg": {
+                          "type": "number"
+                        },
+                        "nps": {
+                          "type": "number"
+                        },
+                        "lowCount": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "trend": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string"
+                          },
+                          "queryAvg": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "queryCount": {
+                            "type": "integer"
+                          },
+                          "appAvg": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "appCount": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "tag": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        },
+                        "app": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "tag": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/admin/ratings/items": {
+      "get": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "listRatingsAdmin",
+        "summary": "评价明细分页（仅 ADMIN，两表 UNION ALL）",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "query",
+                "app"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "minRating",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          {
+            "name": "maxRating",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 30
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "maximum": 5000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "明细",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "pageSize": {
+                      "type": "integer"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "query",
+                              "app"
+                            ]
+                          },
+                          "username": {
+                            "type": "string"
+                          },
+                          "rating": {
+                            "type": "integer"
+                          },
+                          "tags": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "comment": {
+                            "type": "string"
+                          },
+                          "question": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/admin/ratings/export": {
+      "get": {
+        "tags": [
+          "Ratings"
+        ],
+        "operationId": "exportRatingsAdmin",
+        "summary": "导出评价明细 CSV（仅 ADMIN；UTF-8 BOM，导出写审计）",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "query",
+                "app"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV 文件（text/csv; charset=utf-8，带 UTF-8 BOM）",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "Unauthorized": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "Forbidden": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "Internal": {
+            "$ref": "#/components/responses/Internal"
           }
         }
       }

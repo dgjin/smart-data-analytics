@@ -203,6 +203,8 @@ interface AnalyticsState {
   setActiveQueryResult: (res: QueryResultData | null) => void;
   updateMessageChartConfig: (msgId: string, config: ChartConfig) => void;
   setMessageFeedback: (msgId: string, verdict: 'UP' | 'DOWN') => void;
+  /** v0.9.107 问数星级评价：写入本次会话内已评价星级（仅 UI 回显，落库在 /api/ratings/query） */
+  setMessageRating: (msgId: string, rating: number) => void;
   clearChat: () => void;
 
   // Custom Dashboard Widgets（v0.9.24 服务端持久化：初值为空，由 initDashboardWidgets() 迁移本地遗留后拉取服务端列表）
@@ -369,6 +371,12 @@ export const useAnalyticsStore = create<AnalyticsState>()(
   setMessageFeedback: (msgId, verdict) =>
     set((state) => ({
       chatMessages: state.chatMessages.map((m) => (m.id === msgId ? { ...m, feedback: verdict } : m)),
+    })),
+
+  // v0.9.107 问数星级评价：仅回显本次会话内已提交的星级（真实落库在 /api/ratings/query）
+  setMessageRating: (msgId, rating) =>
+    set((state) => ({
+      chatMessages: state.chatMessages.map((m) => (m.id === msgId ? { ...m, rating } : m)),
     })),
 
   clearChat: () =>

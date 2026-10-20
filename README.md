@@ -64,6 +64,7 @@
 - **八层纵深防御**：输入防护（截断+注入检测）→ 鉴权 → 限流（速率+配额+并发槽位）→ Schema 白名单 → 敏感过滤 → 只读 SQL 执行 → 审计落账 → 可观测日志
 - **结构化日志与自动运维事件流**（v0.9.93，v0.9.94 增强）：运行日志 JSONL 结构化（时间戳 / 级别 / 模块 / 链路字段，TTY 自适应保持人读）；requestId / 用户 / 任务链路贯穿（AsyncLocalStorage）；六类异常（问数失败 / 后台任务 / 巡检 / 知识漂移 / 进程崩溃 / 前端错误回流）自动归集为运维事件（15 分钟窗口去重 + NEW→ACK→RESOLVED 状态机 + 流转审计）并纳入 Prometheus 指标与告警；运维 API（`/api/ops/events` 列表 / 摘要 / 受理 / 解决 + `/api/ops/logs` 日志尾读 + `/api/ops/client-errors` 前端错误上报）支持 `OPS_API_TOKEN` 机器通道（Bearer），供自动运维智能体对接；启动脚本日志归档轮转（保底 5 份 + 超 14 天清理）+ 容器日志上限 10MB×5；v0.9.94 增强——系统管理「运维事件」面板（KPI 态势 + 过滤 + 受理 / 关闭闭环，与智能体共用同一通道）、Alertmanager 告警旁路推送（`OPS_AGENT_WEBHOOK_URL`，与事件流 API 推拉互备）、可选 Loki 日志栈（compose profile）、日志域对账脚本（`npm run logs:reconcile`）、智能体操作审计独立归属（`ops_agent`）
 - **需求收集与意见反馈**（v0.9.98；v0.9.99 入口升级；v0.9.102 继续评估 + 评估历史；v0.9.103 搜索 + 管理员录入；v0.9.105 智能运维处理进度）：Header 顶部「需求反馈」链接入口（图标 + 文字，常显易发现）提交需求 / 建议 / 缺陷 / 其他并跟踪处理进度（待评估 / 已纳入基线 / 未采纳 + 评估意见；v0.9.105 起已纳基线条目附**「智能运维处理进度」**——阶段徽标（等待处理 / 智能分析中 / 分析完成待批准 / 已批准修复发布中 / 已发布上线 / 已转人工等）+ 最近事件时间线，经服务端代理 `GET /api/requirements/ops-progress` 从 AIOps 只读拉取，`AIOPS_TRACK_URL` / `AIOPS_TRACK_TOKEN` 配置）；管理面板「治理与审核 › 需求反馈」评估分析（纳入基线必填评估意见 P0-P3 / 不予采纳 / 退回待评估，全部留审计；v0.9.102 起已评估条目可「继续评估」——弹窗预填上次结论、每次评估追加 `feedback_entry_revisions` 留痕、展开行查看完整评估记录时间线、存量条目升级自动回填；v0.9.103 起列表支持按标题 / 内容 / 提交人搜索（含拼音首字母）与「录入反馈」直录——`POST /api/requirements` 支持可选 `priority` P0-P3；v0.9.105 起展开基线条目懒加载完整处理时间线）；已纳入基线条目经 `GET /api/requirements/export` 标准接口供智能运维平台主动拉取分析（`OPS_API_TOKEN` 机器通道，沿用 v0.9.93 双通道鉴权；支持状态 / 类型 / 更新时间增量过滤；v0.9.102 响应附 `revisions` 评估历史——继续评估的新内容可被 AIOps 同步获取并重新分析），`/.well-known/requirements.json` 自描述能力清单 + `aiops.json` Manifest 新增 `requirements_path`
+- **访问计数与评价体系**（v0.9.107）：登录页底部与侧边栏底部展示「累计访问 / 今日访问 / 当前在线」三指标（会话去重，同一浏览器只计 1 次；在线 = 近 5 分钟有心跳的会话），管理端「治理与审核 › 访问与评价」可看近 7/30 天模块热度排行；问数结果新增独立星级评价入口（1-5 星 + 最多 3 个标签 + 200 字建议，同数据源同问题重复提交为更新），Header 常驻「满意度评价」入口采集全站满意度（同用户 24 小时内重复提交更新最近一条）；管理端「评价中心」提供问数均分 / 好评率 / 全站均分 / NPS 概览、近 30 天趋势、标签 TOP、近 7 天低分待关注、明细分页与 CSV 导出。隐私口径：仅落聚合计数与会话哈希，不采集 IP / User-Agent / 个人访问明细 / 停留时长；写入失败不影响页面与问数主流程
 - **密钥保护**：数据源凭据加密存储；生产环境缺失 `JWT_SECRET` 拒绝启动
 
 ## 技术栈
@@ -206,9 +207,11 @@ server/
   pdfExport.ts             # 报告 / 问数结果 PDF 导出（spawn python3 调 ReportLab，stdin JSON → stdout PDF）
   pdfgen/report_pdf.py     # ReportLab 排版脚本（A4 竖/横版、中文 CID 字体、图表 PNG 嵌入）
   pdfgen/query_pdf.py      # 问数结果 PDF 排版脚本（A4 竖版、图表 PNG 嵌入，v0.9.82）
-  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help/setup/requirements
+  routes/                  # auth/admin/datasources/knowledge/knowledge-external/sql-examples/skills/query/queryContext/report/patrols/metrics/conversations/help/setup/requirements/access/ratings
+  access/                  # 访问计数（会话哈希幂等计数 / 在线心跳 / 模块热度 / 7 天清理，v0.9.107）
+  feedback/                # 问数星级评价与全站满意度（去重 upsert / 概览与 NPS / 明细与 CSV，v0.9.107）
 src/
-  components/              # query/charts/reports/dashboard/datasource/setup/help/admin/auth
+  components/              # query/charts/reports/dashboard/datasource/setup/help/admin/auth/feedback
   hooks/  utils/  types/   # 状态管理（Zustand）与工具
 docs/核心文档/            # 核心文档独立目录（v0.9.79）
 docs/核心文档/用户使用指南.md    # 终端用户操作向导（系统内帮助实时读取）
@@ -222,7 +225,7 @@ docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T �
 ## 测试与检查
 
 ```bash
-npm test             # Vitest（155 文件 / 2187 用例）
+npm test             # Vitest（160 文件 / 2237 用例）
 npm run lint         # TypeScript 类型检查
 ```
 

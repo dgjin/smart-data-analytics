@@ -115,6 +115,44 @@ export async function authMiddleware(
   }
 }
 
+/**
+ * 可选鉴权（v0.9.107）：有合法 Bearer token 时回填 req.user，无 token 或 token 失效时按匿名放行。
+ * 仅用于匿名可访问的接口（访问计数上报），不得用于需要权限校验的端点。
+ */
+export async function optionalAuthMiddleware(
+  req: express.Request,
+  _res: express.Response,
+  next: express.NextFunction
+) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!token) return next();
+
+  try {
+    const payload = jwt.verify(token, jwtSecret()) as jwt.JwtPayload;
+    const [rows] = await getPool().query<UserRow[]>(
+      'SELECT id, username, display_name, department, role, status, must_change_password FROM users WHERE id = ? LIMIT 1',
+      [payload.sub]
+    );
+    const user = rows[0];
+    if (user && user.status === 'ACTIVE') {
+      req.user = {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name,
+        department: user.department || '',
+        role: user.role,
+        mustChangePassword: !!user.must_change_password,
+      };
+      setLlmUserContext(user.id, user.username);
+      updateLogContext({ userId: user.id, username: user.username });
+    }
+  } catch {
+    // 匿名放行：无效 token 不阻断公开接口
+  }
+  next();
+}
+
 /** 角色守卫：requireRole('ADMIN') / requireRole('ADMIN','ANALYST') */
 export function requireRole(...roles: UserRole[]) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {

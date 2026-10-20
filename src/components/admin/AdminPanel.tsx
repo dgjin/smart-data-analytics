@@ -10,6 +10,7 @@ import {
   Users,
   Gauge,
   BookMarked,
+  BarChart3,
   Settings,
   Search,
   Radar,
@@ -59,6 +60,8 @@ import { ABTestDashboard } from './ABTestDashboard';
 import { PatrolPanel } from './PatrolPanel';
 // v0.9.106 统一记忆体：纠错候选审核 / 记忆条目维护 / 召回观测
 import { MemoryPanel } from './MemoryPanel';
+// v0.9.107 访问计数与评价体系：访问统计（计数器 + 模块热度）与评价中心看板
+import { AccessFeedbackPanel } from './access/AccessFeedbackPanel';
 // v0.9.94 运维事件面板：自动运维事件流（智能体拉取/处置与人工共用同一 API）
 import { OpsEventsPanel } from './OpsEventsPanel';
 // v0.9.85 首启初始化向导 · L3 卡片（未完成=向导入口 / 已完成=系统体检）；v0.9.95 起作为「系统体检」分类内容
@@ -92,7 +95,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   VIEWER: '只读用户',
 };
 
-/** 系统管理分类（12 项，左栏导航切换） */
+/** 系统管理分类（13 项，左栏导航切换） */
 type AdminSection =
   | 'users'
   | 'org-structure'
@@ -102,6 +105,7 @@ type AdminSection =
   | 'system-check'
   | 'feedback'
   | 'memory'
+  | 'access-feedback'
   | 'quality-monitoring'
   | 'patrol'
   | 'ops-events'
@@ -141,6 +145,8 @@ const SECTION_GROUPS: {
       { id: 'feedback', label: '需求反馈', icon: Lightbulb, color: 'text-amber-400', bar: 'bg-amber-500' },
       // v0.9.106 统一记忆体：点踩纠错候选审核与记忆条目维护（仅 ADMIN）
       { id: 'memory', label: '记忆管理', icon: BrainCircuit, color: 'text-rose-400', bar: 'bg-rose-500' },
+      // v0.9.107 访问计数与评价体系：访问统计（计数器 + 模块热度）与评价中心看板
+      { id: 'access-feedback', label: '访问与评价', icon: BarChart3, color: 'text-sky-400', bar: 'bg-sky-500' },
     ],
   },
   {
@@ -858,8 +864,11 @@ export const AdminPanel: React.FC = () => {
       {/* ============ 区块：需求反馈（v0.9.98：收集 → 评估分析 → 基线管理 → 标准接口供 AIOps 主动分析） ============ */}
       {section === 'feedback' && <FeedbackPanel />}
 
-      {/* ============ 区块：记忆管理（v0.9.106 统一记忆体：纠错候选审核 → 生效记忆维护 → 召回观测） ============ */}
+      {/* ============ 区块：记忆管理（v0.9.106 统一记忆体：纠错候选审核 → 生效 记忆维护 → 召回观测） ============ */}
       {section === 'memory' && <MemoryPanel />}
+
+      {/* ============ 区块：访问与评价（v0.9.107 访问统计 + 评价中心看板） ============ */}
+      {section === 'access-feedback' && <AccessFeedbackPanel />}
 
       {/* ============ 区块六：系统配置 (环境配置 + 系统设置) ============ */}
       {section === 'system-config' && <EnvironmentConfigPanel />}

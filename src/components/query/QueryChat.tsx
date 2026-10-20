@@ -10,6 +10,8 @@ import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ChatMessageItem } from './ChatMessageItem';
 import type { FeedbackCorrection } from './FeedbackCorrectionPopover';
+// v0.9.107 星级评价提交值类型
+import type { QueryRatingValue } from './QueryRatingPopover';
 import { QueryLoadingIndicator } from './QueryLoadingIndicator';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatTopBar, QueryContextSummary } from './ChatTopBar';
@@ -45,6 +47,7 @@ export const QueryChat: React.FC = () => {
     pinChartToDashboardRemote,
     updateMessageChartConfig,
     setMessageFeedback,
+    setMessageRating,
     clearChat,
     setActiveTab,
     setPendingReportId,
@@ -215,6 +218,29 @@ export const QueryChat: React.FC = () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  // v0.9.107 问数星级评价：独立于赞/踩（不写 query_feedback、不参与 few-shot），成功后回显星级
+  const handleRate = async (msg: ChatMessage, value: QueryRatingValue) => {
+    const resp = await apiFetch('/api/ratings/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dataSourceId: msg.dataSourceId || activeDataSourceId,
+        question: msg.question || '',
+        sql: msg.queryResult?.generatedSQL || '',
+        traceId: msg.traceId || undefined,
+        rating: value.rating,
+        tags: value.tags,
+        comment: value.comment,
+      }),
+    });
+    if (!resp.ok) {
+      const body = (await resp.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error || '评价提交失败，请稍后重试');
+    }
+    setMessageRating(msg.id, value.rating);
+    showToast('感谢评价，评分已记录到评价中心');
+  };
 
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);
   // L7 AI 开关：数据源被停用（disconnected）时禁用问数入口（服务端同样强制拒绝）
@@ -506,6 +532,7 @@ export const QueryChat: React.FC = () => {
             agentPlanResolved={resolvedAgentPlans.has(msg.id)}
             onInspectSql={setInspectModalResult}
             onFeedback={handleFeedback}
+            onRate={handleRate}
             onSendQuery={handleSendQuery}
             onCopyQuestion={handleCopyQuestion}
             onEditQuestion={handleEditQuestion}

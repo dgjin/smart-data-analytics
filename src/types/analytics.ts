@@ -283,6 +283,8 @@ export interface ChatMessage {
   question?: string;
   /** P1 反馈闭环：用户对本条回答的评价（已提交后置灰按钮） */
   feedback?: 'UP' | 'DOWN';
+  /** v0.9.107 问数星级评价：本次会话内已提交的星级（1-5，用于按钮态回显） */
+  rating?: number;
   /** 歧义澄清：语义理解存在多种可能时由服务端返回，用户点选确认后重新提交 */
   clarification?: {
     question: string;

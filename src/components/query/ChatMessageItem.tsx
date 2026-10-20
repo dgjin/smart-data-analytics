@@ -19,6 +19,7 @@ import {
   Pencil,
   ShieldCheck,
   Sparkles,
+  Star,
   ThumbsDown,
   ThumbsUp,
   User,
@@ -34,6 +35,8 @@ import { KPIStats } from '../charts/KPIStats';
 import { TraceReplay } from './AnalysisTracePanel';
 // v0.9.106 点踩纠正弹层（统一记忆体）：采集错误类型/补充说明/期望 SQL
 import { FeedbackCorrectionPopover, FeedbackCorrection } from './FeedbackCorrectionPopover';
+// v0.9.107 问数星级评价弹层（独立于赞/踩，不参与 few-shot）
+import { QueryRatingPopover, QueryRatingValue, StarRow } from './QueryRatingPopover';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { exportQueryResult, QUERY_EXPORT_FORMATS, QueryExportFormat } from '../../utils/queryResultExport';
 
@@ -50,6 +53,8 @@ export interface ChatMessageItemProps {
   agentPlanResolved: boolean;
   onInspectSql: (result: QueryResultData) => void;
   onFeedback: (msg: ChatMessage, verdict: 'UP' | 'DOWN', correction?: FeedbackCorrection) => void;
+  /** v0.9.107 问数星级评价（1-5 星 + 标签 + 说明），提交成功后父组件回写 msg.rating */
+  onRate: (msg: ChatMessage, value: QueryRatingValue) => Promise<void>;
   onSendQuery: (queryText?: string, approvedPlanId?: string, options?: { refreshCache?: boolean }) => void;
   onCopyQuestion: (content: string) => void;
   onEditQuestion: (content: string) => void;
@@ -113,6 +118,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
   agentPlanResolved,
   onInspectSql,
   onFeedback,
+  onRate,
   onSendQuery,
   onCopyQuestion,
   onEditQuestion,
@@ -130,6 +136,9 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
 
   // v0.9.106 点踩纠正弹层：点踩先收集“错在哪”，再提交反馈（可跳过）
   const [correctionOpen, setCorrectionOpen] = useState(false);
+
+  // v0.9.107 星级评价弹层开关（与赞/踩相互独立，可重复修改）
+  const [ratingOpen, setRatingOpen] = useState(false);
 
   // v0.9.38 结果全屏：图表与明细在 fixed 叠层内放大完整呈现（Esc/按钮退出），交互对齐灵活查询的 fullZone 模式
   const [resultFull, setResultFull] = useState(false);
@@ -362,6 +371,35 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                     />
                   </div>
                 )}
+
+                {/* v0.9.107 星级评价：1-5 星 + 标签 + 说明，与赞/踩独立（不参与 few-shot） */}
+                <span className="w-px h-3 bg-slate-700" />
+                <div className="relative" title="星级评价（1-5 星，可补充标签与说明）">
+                  <button
+                    onClick={() => setRatingOpen((v) => !v)}
+                    className={`flex items-center space-x-1 px-1 py-0.5 rounded-md border transition-colors ${
+                      msg.rating
+                        ? 'text-amber-400 border-amber-500/50 bg-amber-950/30'
+                        : 'text-slate-400 border-slate-700 hover:text-amber-300 hover:border-amber-500/50'
+                    }`}
+                    aria-label="星级评价"
+                  >
+                    {msg.rating ? <StarRow value={msg.rating} /> : <Star className="w-3 h-3" />}
+                    {msg.rating && <span className="text-[10px] font-semibold">{msg.rating}</span>}
+                  </button>
+                  {ratingOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-30">
+                      <QueryRatingPopover
+                        initial={msg.rating ? { rating: msg.rating, tags: [], comment: '' } : null}
+                        onClose={() => setRatingOpen(false)}
+                        onSubmit={async (value) => {
+                          await onRate(msg, value);
+                          setRatingOpen(false);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             <span>{msg.timestamp}</span>

@@ -3,6 +3,8 @@ import { LogIn, AlertCircle, RefreshCw, KeySquare } from 'lucide-react';
 import { useAuthStore } from '../../hooks/useAuthStore';
 import { getErrorMessage } from '../../utils/errorUtils';
 import { Logo } from '../Logo';
+// v0.9.107 访问计数器（累计 / 今日 / 在线，仅聚合数字）
+import { VisitCounter } from '../VisitCounter';
 
 export const Login: React.FC = () => {
   const login = useAuthStore((s) => s.login);
@@ -130,6 +132,9 @@ export const Login: React.FC = () => {
             首次登录将强制修改初始密码
           </p>
         </form>
+
+        {/* v0.9.107 访问计数器：累计访问 · 今日访问 · 当前在线（仅聚合数字） */}
+        <VisitCounter className="mt-5" />
       </div>
     </div>
   );

@@ -804,4 +804,74 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.107 访问计数器：只做聚合计数，不落访问明细/IP/UA。
+  // 会话以 SHA-256(sessionId) 存储（7 天清理），累计/今日访问来自日聚合表。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS access_sessions (
+      session_hash CHAR(64) PRIMARY KEY,
+      is_authed TINYINT(1) NOT NULL DEFAULT 0,
+      first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_access_sessions_seen (last_seen)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS access_daily (
+      stat_date DATE PRIMARY KEY,
+      visits INT NOT NULL DEFAULT 0,
+      authed_visits INT NOT NULL DEFAULT 0
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS access_module_daily (
+      stat_date DATE NOT NULL,
+      module VARCHAR(32) NOT NULL,
+      hits INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (stat_date, module)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.107 问数星级评价：与 query_feedback（赞踩/纠错）独立，避免影响 few-shot 与统一记忆体链路；
+  // dedupe_key 保证同用户同数据源同问题重复评价为更新而非新增。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS query_ratings (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      dedupe_key CHAR(64) NOT NULL,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL DEFAULT '',
+      data_source_id VARCHAR(64) NOT NULL DEFAULT '',
+      question VARCHAR(500) NOT NULL DEFAULT '',
+      executed_sql VARCHAR(2000) NOT NULL DEFAULT '',
+      trace_id VARCHAR(40) NOT NULL DEFAULT '',
+      rating TINYINT NOT NULL,
+      tags VARCHAR(200) NOT NULL DEFAULT '',
+      comment VARCHAR(500) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_query_rating_dedupe (dedupe_key),
+      INDEX idx_query_rating_created (created_at),
+      INDEX idx_query_rating_score (rating, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.107 全站满意度：同用户 24h 内重复提交更新最近一条。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_satisfaction (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      username VARCHAR(50) NOT NULL DEFAULT '',
+      page VARCHAR(32) NOT NULL DEFAULT '',
+      rating TINYINT NOT NULL,
+      tags VARCHAR(200) NOT NULL DEFAULT '',
+      comment VARCHAR(500) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_app_sat_user (user_id, created_at),
+      INDEX idx_app_sat_created (created_at),
+      INDEX idx_app_sat_score (rating, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
 }

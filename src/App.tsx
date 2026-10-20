@@ -11,6 +11,8 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { SetupWizardHost } from './components/setup/SetupWizardHost';
 import { useAnalyticsStore } from './hooks/useAnalyticsStore';
 import { useAuthStore } from './hooks/useAuthStore';
+// v0.9.107 访问采集：登录页与登录后均上报（同一浏览器会话只计 1 次访问，模块热度按 Tab 切换）
+import { useAccessTracker } from './hooks/useAccessTracker';
 import { logger } from './utils/logger';
 
 // v0.4.14：bundle 优化——重组件懒加载（减少首屏体积）
@@ -22,6 +24,9 @@ const QueryReportCenter = lazy(() => import('./components/reports/QueryReportCen
 export default function App() {
   const { activeTab, setActiveTab, loadDataSources } = useAnalyticsStore();
   const { token, user, loginWithToken } = useAuthStore();
+
+  // v0.9.107 访问计数与在线心跳（未登录也上报，驱动登录页计数器与「当前在线」）
+  useAccessTracker(activeTab);
 
   // P2-11 OIDC 回跳：/api/auth/oidc/callback 签发本地 JWT 后重定向回 /?sso_token=...
   // （失败时带 sso_error，登录页读取并展示）

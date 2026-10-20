@@ -95,6 +95,12 @@ import opsEventsRoutes from './server/routes/opsEvents';
 import clientErrorsRoutes from './server/routes/clientErrors';
 // v0.9.98 需求收集与意见反馈（提交/评估/基线 + 标准导出接口，见 server/routes/requirements.ts）
 import requirementsRoutes from './server/routes/requirements';
+// v0.9.107 访问计数与评价体系（见 server/routes/access.ts、accessAdmin.ts、ratings.ts、ratingsAdmin.ts）
+import accessRoutes from './server/routes/access';
+import accessAdminRoutes from './server/routes/accessAdmin';
+import ratingsRoutes from './server/routes/ratings';
+import ratingsAdminRoutes from './server/routes/ratingsAdmin';
+import { startAccessSweeper } from './server/access/counter';
 
 // LLM 通道（Ollama/Gemini）统一收敛在 server/llmClient.ts
 // Input safety limits 已由 server/queryGuard.ts 接管（L1 输入层：500 字截断 + 注入拒绝）
@@ -196,6 +202,8 @@ async function startServer() {
   startPatrolScheduler();
   // v0.9.77 P2-15 固定报表订阅：低频调度器（到期订阅重跑固定报表并按阈值告警）
   startFlexSubscriptionScheduler();
+  // v0.9.107 访问计数：每小时清理 7 天前的会话记录（日聚合永久保留，无个人信息）
+  startAccessSweeper();
 
   const jsonParser2mb = express.json({ limit: '2mb' });
   const jsonParser10mb = express.json({ limit: '10mb' });
@@ -378,6 +386,9 @@ async function startServer() {
   app.use('/api/user', userRoutes);
   // 组织架构树（总部→机构→部门→团队；仅 ADMIN）——须先于 /api/admin 挂载，否则会先过一遍 admin 路由的鉴权链
   app.use('/api/admin/org-units', orgUnitRoutes);
+  // v0.9.107 访问统计与评价中心（仅 ADMIN）——同样须先于 /api/admin 挂载
+  app.use('/api/admin/access', accessAdminRoutes);
+  app.use('/api/admin/ratings', ratingsAdminRoutes);
   app.use('/api/admin', adminRoutes);
   // v0.9.44: Fallback 困难样本审核接口（仅 ADMIN）
   app.use('/api/admin/fallback-approval', fallbackApprovalRoutes);
@@ -430,6 +441,9 @@ async function startServer() {
   app.use('/api/access-requests', accessRequestRoutes);
   // v0.9.98 需求收集与意见反馈（提交 → 管理员评估 → 基线管理 → 标准导出供 AIOps 主动分析）
   app.use('/api/requirements', requirementsRoutes);
+  // v0.9.107 访问计数（匿名可调，仅聚合计数）与评价提交（登录用户，独立于 query_feedback）
+  app.use('/api/access', accessRoutes);
+  app.use('/api/ratings', ratingsRoutes);
   // P2-12 DLP 统一导出通道（CSV 水印 + 下载审批，见 server/routes/export.ts）
   app.use('/api/export', exportRoutes);
   // v0.9.2 异步任务查询/下载（见 server/routes/tasks.ts）
