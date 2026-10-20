@@ -372,20 +372,22 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                   </div>
                 )}
 
-                {/* v0.9.107 星级评价：1-5 星 + 标签 + 说明，与赞/踩独立（不参与 few-shot） */}
+                {/* v0.9.107 星级评价：纯星级 1-5，与赞/踩独立（不参与 few-shot）；文字标签提升入口可见性 */}
                 <span className="w-px h-3 bg-slate-700" />
-                <div className="relative" title="星级评价（点星即提交，可补充标签与说明）">
+                <div className="relative" title="给本次回答打星级（点星即提交，可再次修改）">
                   <button
                     onClick={() => setRatingOpen((v) => !v)}
-                    className={`flex items-center space-x-1 px-1 py-0.5 rounded-md border transition-colors ${
+                    className={`flex items-center space-x-1 px-1.5 py-0.5 rounded-md border transition-colors ${
                       msg.rating
-                        ? 'text-amber-400 border-amber-500/50 bg-amber-950/30'
-                        : 'text-slate-400 border-slate-700 hover:text-amber-300 hover:border-amber-500/50'
+                        ? 'text-amber-300 border-amber-500/60 bg-amber-500/15'
+                        : 'text-amber-300 border-amber-500/40 bg-amber-500/10 hover:text-amber-200 hover:border-amber-400 hover:bg-amber-500/20'
                     }`}
-                    aria-label="星级评价"
+                    aria-label="给本次回答打星级"
                   >
                     {msg.rating ? <StarRow value={msg.rating} /> : <Star className="w-3 h-3" />}
-                    {msg.rating && <span className="text-[10px] font-semibold">{msg.rating}</span>}
+                    <span className="text-[10px] font-semibold">
+                      {msg.rating ? `${msg.rating} 星` : '评价'}
+                    </span>
                   </button>
                   {ratingOpen && (
                     <div className="absolute right-0 top-full mt-1 z-30">
