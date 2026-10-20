@@ -10,8 +10,6 @@ import { SkillLibraryModal } from './SkillLibraryModal';
 import { ChatHistoryPanel } from './ChatHistoryPanel';
 import { ChatMessageItem } from './ChatMessageItem';
 import type { FeedbackCorrection } from './FeedbackCorrectionPopover';
-// v0.9.107 星级评价提交值类型
-import type { QueryRatingValue } from './QueryRatingPopover';
 import { QueryLoadingIndicator } from './QueryLoadingIndicator';
 import { ChatInputArea } from './ChatInputArea';
 import { ChatTopBar, QueryContextSummary } from './ChatTopBar';
@@ -220,8 +218,8 @@ export const QueryChat: React.FC = () => {
     };
   }, []);
 
-  // v0.9.107 问数星级评价：独立于赞/踩（不写 query_feedback、不参与 few-shot），成功后回显星级
-  const handleRate = async (msg: ChatMessage, value: QueryRatingValue) => {
+  // v0.9.107 问数星级评价（v0.9.109 纯星级）：独立于赞/踩（不写 query_feedback、不参与 few-shot），成功后回显星级
+  const handleRate = async (msg: ChatMessage, rating: number) => {
     const resp = await apiFetch('/api/ratings/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -230,18 +228,16 @@ export const QueryChat: React.FC = () => {
         question: msg.question || '',
         sql: msg.queryResult?.generatedSQL || '',
         traceId: msg.traceId || undefined,
-        rating: value.rating,
-        tags: value.tags,
-        comment: value.comment,
+        rating,
       }),
     });
     if (!resp.ok) {
       const body = (await resp.json().catch(() => null)) as { error?: string } | null;
       throw new Error(body?.error || '评价提交失败，请稍后重试');
     }
-    setMessageRating(msg.id, value.rating);
+    setMessageRating(msg.id, rating);
     notifyRatingUpdated();
-    showToast(`已记录 ${value.rating} 星评价，可再次打开补充标签或建议`);
+    showToast(`已记录 ${rating} 星评价，可再次点击星星修改`);
   };
 
   const activeDS = dataSources.find((ds) => ds.id === activeDataSourceId);

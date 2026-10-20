@@ -8288,11 +8288,11 @@
                     "items": {
                       "type": "string"
                     },
-                    "description": "预设标签，最多 3 个、每个 ≤20 字"
+                    "description": "预设标签，最多 3 个、每个 ≤20 字（可选，v0.9.109 起前端不再采集，保留历史兼容）"
                   },
                   "comment": {
                     "type": "string",
-                    "description": "评价文字，≤200 字"
+                    "description": "评价文字，≤200 字（可选，v0.9.109 起前端不再采集，保留历史兼容）"
                   },
                   "dataSourceId": {
                     "type": "string",
@@ -8378,11 +8378,11 @@
                     "items": {
                       "type": "string"
                     },
-                    "description": "预设标签，最多 3 个、每个 ≤20 字"
+                    "description": "预设标签，最多 3 个、每个 ≤20 字（可选，v0.9.109 起前端不再采集，保留历史兼容）"
                   },
                   "comment": {
                     "type": "string",
-                    "description": "评价文字，≤200 字"
+                    "description": "评价文字，≤200 字（可选，v0.9.109 起前端不再采集，保留历史兼容）"
                   },
                   "page": {
                     "type": "string",

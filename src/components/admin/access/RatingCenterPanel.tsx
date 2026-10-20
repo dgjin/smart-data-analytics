@@ -1,8 +1,7 @@
 /**
- * v0.9.107 评价中心面板（管理端）：
+ * v0.9.107 评价中心面板（管理端，v0.9.109 简化为纯星级）：
  * - 6 张概览卡：问数均分/评价数/好评率 + 全站均分/评价数/NPS；
  * - 近 30 天趋势（双线：问数均分 / 全站均分）；
- * - 标签 TOP（问数/全站切换，横向条形）；
  * - 低分待关注（近 7 天 ≤2 星，最多 10 条，顶部红色计数徽标）；
  * - 明细分页（来源/评分/时间范围筛选）+ CSV 导出（UTF-8 BOM，服务端写审计）。
  * 数据来自 /api/admin/ratings/*（仅 ADMIN）；问数评价与 query_feedback 独立，口径互不影响。
@@ -27,7 +26,6 @@ interface OverviewResponse {
   query: { count: number; avg: number; goodRate: number; lowCount: number };
   app: { count: number; avg: number; nps: number; lowCount: number };
   trend: Array<{ date: string; queryAvg: number | null; queryCount: number; appAvg: number | null; appCount: number }>;
-  tags: { query: Array<{ tag: string; count: number }>; app: Array<{ tag: string; count: number }> };
 }
 
 interface RatingItem {
@@ -35,8 +33,6 @@ interface RatingItem {
   source: 'query' | 'app';
   username: string;
   rating: number;
-  tags: string[];
-  comment: string;
   question: string;
   createdAt: string;
 }
@@ -63,7 +59,6 @@ const StarBadge: React.FC<{ value: number }> = ({ value }) => (
 export const RatingCenterPanel: React.FC = () => {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [overviewError, setOverviewError] = useState('');
-  const [tagSource, setTagSource] = useState<'query' | 'app'>('query');
 
   const [lowItems, setLowItems] = useState<RatingItem[]>([]);
   const [items, setItems] = useState<ItemsResponse | null>(null);
@@ -144,8 +139,6 @@ export const RatingCenterPanel: React.FC = () => {
     [overview]
   );
 
-  const tagRows = overview?.tags[tagSource] || [];
-  const maxTagCount = tagRows.reduce((acc, row) => Math.max(acc, row.count), 1);
   const totalPages = items ? Math.max(1, Math.ceil(items.total / items.pageSize)) : 1;
 
   const exportCsv = async () => {
@@ -218,9 +211,9 @@ export const RatingCenterPanel: React.FC = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div>
         {/* 趋势 */}
-        <div className="xl:col-span-2 p-4 rounded-xl bg-slate-900 border border-slate-800">
+        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
           <div className="text-xs font-semibold text-slate-200 mb-2">近 30 天评分趋势</div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -238,44 +231,6 @@ export const RatingCenterPanel: React.FC = () => {
               </LineChart>
             </ResponsiveContainer>
           </div>
-        </div>
-
-        {/* 标签 TOP */}
-        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-200">标签 TOP</span>
-            <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
-              {(['query', 'app'] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setTagSource(s)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-                    tagSource === s ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {s === 'query' ? '问数' : '全站'}
-                </button>
-              ))}
-            </div>
-          </div>
-          {tagRows.length === 0 ? (
-            <p className="py-8 text-center text-[11px] text-slate-500">暂无标签数据</p>
-          ) : (
-            <div className="space-y-2">
-              {tagRows.slice(0, 8).map((row) => (
-                <div key={row.tag} className="flex items-center space-x-2">
-                  <span className="w-16 shrink-0 text-[11px] text-slate-300 truncate">{row.tag}</span>
-                  <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-400"
-                      style={{ width: `${Math.max((row.count / maxTagCount) * 100, 4)}%` }}
-                    />
-                  </div>
-                  <span className="w-8 shrink-0 text-right text-[10px] text-slate-400 tabular-nums">{row.count}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
@@ -310,7 +265,6 @@ export const RatingCenterPanel: React.FC = () => {
                   <span className="text-[10px] text-slate-500">{item.createdAt}</span>
                 </div>
                 {item.question && <p className="mt-1 text-[11px] text-slate-300 truncate">问题：{item.question}</p>}
-                {item.comment && <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-2">{item.comment}</p>}
               </div>
             ))}
           </div>
@@ -388,8 +342,6 @@ export const RatingCenterPanel: React.FC = () => {
                 <th className="text-left py-2 pr-3 font-medium">来源</th>
                 <th className="text-left py-2 pr-3 font-medium">用户</th>
                 <th className="text-left py-2 pr-3 font-medium">评分</th>
-                <th className="text-left py-2 pr-3 font-medium">标签</th>
-                <th className="text-left py-2 pr-3 font-medium">评价内容</th>
                 <th className="text-left py-2 pr-3 font-medium">关联问题</th>
                 <th className="text-left py-2 font-medium">时间</th>
               </tr>
@@ -406,22 +358,6 @@ export const RatingCenterPanel: React.FC = () => {
                   <td className="py-2 pr-3 whitespace-nowrap">
                     <StarBadge value={item.rating} />
                   </td>
-                  <td className="py-2 pr-3">
-                    <span className="flex flex-wrap gap-1">
-                      {item.tags.length > 0 ? (
-                        item.tags.map((tag) => (
-                          <span key={tag} className="px-1.5 py-px rounded bg-slate-800 text-[10px] text-slate-300">
-                            {tag}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-3 max-w-[16rem]">
-                    <span className="line-clamp-2">{item.comment || '—'}</span>
-                  </td>
                   <td className="py-2 pr-3 max-w-[14rem]">
                     <span className="line-clamp-2">{item.question || '—'}</span>
                   </td>
@@ -430,7 +366,7 @@ export const RatingCenterPanel: React.FC = () => {
               ))}
               {!loadingItems && (items?.items.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-slate-500">
+                  <td colSpan={5} className="py-6 text-center text-slate-500">
                     当前筛选条件下暂无评价
                   </td>
                 </tr>

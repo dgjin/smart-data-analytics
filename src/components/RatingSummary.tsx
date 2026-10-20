@@ -1,8 +1,8 @@
 /**
- * v0.9.108 侧边栏星级评价统计：问数评分 / 全站评分（均分 + 评价条数）。
- * - 数据来自 GET /api/ratings/public-stats，只含聚合数字，不含任何评价内容或用户信息；
- * - 每 60s 轮询，评价提交成功后通过 app:rating-updated 事件立即刷新；
- * - 拉取失败静默隐藏，不阻塞侧边栏其他内容。
+ * v0.9.108 侧边栏评价统计（v0.9.109 评价入口由 Header 移至侧边栏）：
+ * - 展示问数 + 全站的综合星级（加权均分）与总评价条数，并保留两项细分均分；
+ * - 点击「评价」打开全站星级评价（仅 1-5 星）；
+ * - 60s 轮询 + 评价提交后 app:rating-updated 事件即时刷新；只含聚合数字。
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Star } from 'lucide-react';
@@ -19,12 +19,13 @@ interface PublicRatingStats {
   app: StatPair;
 }
 
+const EMPTY_STATS: PublicRatingStats = { query: { avg: 0, count: 0 }, app: { avg: 0, count: 0 } };
 const REFRESH_MS = 60_000;
 
 const formatAvg = (pair: StatPair): string => (pair.count > 0 ? pair.avg.toFixed(1) : '暂无');
 
-export const RatingSummary: React.FC<{ className?: string }> = ({ className = '' }) => {
-  const [stats, setStats] = useState<PublicRatingStats | null>(null);
+export const RatingSummary: React.FC<{ onRate: () => void; className?: string }> = ({ onRate, className = '' }) => {
+  const [stats, setStats] = useState<PublicRatingStats>(EMPTY_STATS);
 
   const load = useCallback(async () => {
     try {
@@ -36,7 +37,7 @@ export const RatingSummary: React.FC<{ className?: string }> = ({ className = ''
         app: { avg: Number(data.app?.avg) || 0, count: Number(data.app?.count) || 0 },
       });
     } catch {
-      /* 评分统计获取失败静默 */
+      /* 评分统计获取失败静默，保留上一次数据 */
     }
   }, []);
 
@@ -51,33 +52,47 @@ export const RatingSummary: React.FC<{ className?: string }> = ({ className = ''
     };
   }, [load]);
 
-  if (!stats) return null;
-
   const total = stats.query.count + stats.app.count;
+  const overall =
+    total > 0 ? (stats.query.avg * stats.query.count + stats.app.avg * stats.app.count) / total : 0;
+  const filled = Math.round(overall);
 
   return (
     <div
-      className={`flex items-center justify-center flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-slate-500 ${className}`}
-      title="评分统计：问数星级评价与全站满意度的平均分（1-5 星）与评价条数；仅聚合数字，所有登录用户可见"
+      className={`rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-950/20 via-slate-900 to-slate-900 p-2.5 space-y-1.5 ${className}`}
+      title="综合星级 = 问数星级评价与全站满意度的加权平均；仅展示聚合数字，不含评价内容"
     >
-      <span className="inline-flex items-center space-x-1">
-        <Star className="w-3 h-3 text-amber-400/80 fill-amber-400/40" />
-        {total === 0 ? (
-          <span className="text-slate-500">
-            星级评价 <span className="text-slate-600">暂无评价，欢迎打分</span>
-          </span>
-        ) : (
-          <>
-            <span>问数</span>
-            <span className="font-semibold text-slate-300 tabular-nums">{formatAvg(stats.query)}</span>
-            {stats.query.count > 0 && <span className="text-slate-600">({stats.query.count})</span>}
-            <span className="text-slate-700">·</span>
-            <span>全站</span>
-            <span className="font-semibold text-slate-300 tabular-nums">{formatAvg(stats.app)}</span>
-            {stats.app.count > 0 && <span className="text-slate-600">({stats.app.count})</span>}
-          </>
-        )}
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-200">
+          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+          综合星级
+        </span>
+        <button
+          onClick={onRate}
+          className="px-1.5 py-0.5 rounded border border-amber-500/40 text-[10px] text-amber-300 hover:bg-amber-500/10 transition-colors"
+        >
+          评价
+        </button>
+      </div>
+
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star
+            key={n}
+            className={`w-3 h-3 ${n <= filled ? 'text-amber-400 fill-amber-400' : 'text-slate-700'}`}
+          />
+        ))}
+        <span className="ml-1 text-sm font-bold text-amber-300 tabular-nums">
+          {total > 0 ? overall.toFixed(1) : '—'}
+        </span>
+        <span className="text-[10px] text-slate-500">（{total} 条）</span>
+      </div>
+
+      <p className="text-[10px] text-slate-500 tabular-nums">
+        问数 {formatAvg(stats.query)}
+        {stats.query.count > 0 ? `（${stats.query.count}）` : ''} · 全站 {formatAvg(stats.app)}
+        {stats.app.count > 0 ? `（${stats.app.count}）` : ''}
+      </p>
     </div>
   );
 };

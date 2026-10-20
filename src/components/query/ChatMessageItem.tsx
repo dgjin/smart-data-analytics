@@ -35,8 +35,8 @@ import { KPIStats } from '../charts/KPIStats';
 import { TraceReplay } from './AnalysisTracePanel';
 // v0.9.106 点踩纠正弹层（统一记忆体）：采集错误类型/补充说明/期望 SQL
 import { FeedbackCorrectionPopover, FeedbackCorrection } from './FeedbackCorrectionPopover';
-// v0.9.107 问数星级评价弹层（独立于赞/踩，不参与 few-shot）
-import { QueryRatingPopover, QueryRatingValue, StarRow } from './QueryRatingPopover';
+// v0.9.107 问数星级评价弹层（独立于赞/踩，不参与 few-shot；v0.9.109 纯星级）
+import { QueryRatingPopover, StarRow } from './QueryRatingPopover';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { exportQueryResult, QUERY_EXPORT_FORMATS, QueryExportFormat } from '../../utils/queryResultExport';
 
@@ -53,8 +53,8 @@ export interface ChatMessageItemProps {
   agentPlanResolved: boolean;
   onInspectSql: (result: QueryResultData) => void;
   onFeedback: (msg: ChatMessage, verdict: 'UP' | 'DOWN', correction?: FeedbackCorrection) => void;
-  /** v0.9.107 问数星级评价（1-5 星 + 标签 + 说明），提交成功后父组件回写 msg.rating */
-  onRate: (msg: ChatMessage, value: QueryRatingValue) => Promise<void>;
+  /** v0.9.107 问数星级评价（1-5 星），提交成功后父组件回写 msg.rating */
+  onRate: (msg: ChatMessage, rating: number) => Promise<void>;
   onSendQuery: (queryText?: string, approvedPlanId?: string, options?: { refreshCache?: boolean }) => void;
   onCopyQuestion: (content: string) => void;
   onEditQuestion: (content: string) => void;
@@ -139,8 +139,6 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
 
   // v0.9.107 星级评价弹层开关（与赞/踩相互独立，可重复修改）
   const [ratingOpen, setRatingOpen] = useState(false);
-  // v0.9.108 快速评价：保留本次会话内已提交的标签/说明，再次打开时回显（点星只改星级不会丢补充）
-  const [ratingDraft, setRatingDraft] = useState<QueryRatingValue | null>(null);
 
   // v0.9.38 结果全屏：图表与明细在 fixed 叠层内放大完整呈现（Esc/按钮退出），交互对齐灵活查询的 fullZone 模式
   const [resultFull, setResultFull] = useState(false);
@@ -392,11 +390,10 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                   {ratingOpen && (
                     <div className="absolute right-0 top-full mt-1 z-30">
                       <QueryRatingPopover
-                        initial={ratingDraft ?? (msg.rating ? { rating: msg.rating, tags: [], comment: '' } : null)}
+                        initialRating={msg.rating}
                         onClose={() => setRatingOpen(false)}
-                        onSubmit={async (value) => {
-                          await onRate(msg, value);
-                          setRatingDraft(value);
+                        onSubmit={async (rating) => {
+                          await onRate(msg, rating);
                           setRatingOpen(false);
                         }}
                       />

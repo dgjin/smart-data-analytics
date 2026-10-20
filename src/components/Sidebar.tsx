@@ -19,8 +19,9 @@ import { useEngineInfo } from '../hooks/useEngineInfo';
 import { AppTab } from '../types/analytics';
 // v0.9.107 访问计数器（展开态 Footer 展示）
 import { VisitCounter } from './VisitCounter';
-// v0.9.108 星级评价统计（问数/全站均分 + 条数）
+// v0.9.108 星级评价统计（问数/全站均分 + 条数，v0.9.109 兼全站评价入口）
 import { RatingSummary } from './RatingSummary';
+import { SatisfactionDialog } from './feedback/SatisfactionDialog';
 
 const COLLAPSE_KEY = 'app-sidebar-collapsed';
 
@@ -55,6 +56,9 @@ export const Sidebar: React.FC = () => {
       return next;
     });
   };
+
+  // v0.9.109 全站星级评价弹窗（入口由 Header 移至侧边栏评价卡片）
+  const [satisfactionOpen, setSatisfactionOpen] = useState(false);
 
   // 收缩态下 Schema 区域的展开状态
   const [schemaOpen, setSchemaOpen] = useState(true);
@@ -346,9 +350,14 @@ export const Sidebar: React.FC = () => {
         </div>
         {/* v0.9.107 访问计数器（收缩态不展示，避免窄栏挤压） */}
         <VisitCounter />
-        {/* v0.9.108 星级评价统计：问数/全站均分与条数，提交评价后立即刷新 */}
-        <RatingSummary />
+        {/* v0.9.108 星级评价统计：综合星级 + 问数/全站均分，v0.9.109 起兼作全站评价入口 */}
+        <RatingSummary onRate={() => setSatisfactionOpen(true)} />
       </div>
+
+      {/* v0.9.109 全站星级评价弹窗（点星即提交并关闭） */}
+      {satisfactionOpen && (
+        <SatisfactionDialog page={activeTab} onClose={() => setSatisfactionOpen(false)} />
+      )}
     </aside>
   );
 };
