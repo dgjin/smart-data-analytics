@@ -9,19 +9,31 @@ import {
   CheckCircle2,
   AlertCircle,
   History,
-  ArrowUp,
-  ArrowDown,
   Route,
   Tag,
   Layers3,
   ChevronDown,
   ChevronRight,
   GitBranch,
+  Search,
+  Power,
+  PowerOff,
+  ArrowLeftRight,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { getErrorMessage } from '../../utils/errorUtils';
 import { SectionTabs, type SectionTabItem } from './SectionTabs';
+import {
+  SchemaInput,
+  SchemaColumnsInput,
+  LevelEditor,
+  useEscapeKey,
+  columnsOf,
+  listFromText,
+} from './ontologyUi';
 import type { TableSchema } from '../../types/analytics';
 import {
   ENTITY_TYPE_META,
@@ -70,12 +82,38 @@ const ACTION_LABELS: Record<string, string> = {
   RESTORE: '回滚',
 };
 
-/** 逗号/顿号/分号/换行分隔 → 去空数组 */
-function listFromText(text: string): string[] {
-  return text
-    .split(/[,，、;；\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+/** 版本快照 → 一行可读摘要（替代原始 JSON 截断；完整快照仍在 title 中可查看） */
+function summarizeSnapshot(assetType: OntologyAssetType, snapshot: Record<string, unknown>): string {
+  const s = snapshot || {};
+  const status = typeof s.status === 'string' ? s.status : '';
+  const text = (v: unknown, max = 40) => (typeof v === 'string' && v ? v.slice(0, max) : '');
+
+  if (assetType === 'entity') {
+    return [
+      text(s.name),
+      text(s.entityType),
+      Array.isArray(s.aliases) && s.aliases.length > 0 ? `别名 ${s.aliases.join('、')}` : '',
+      status ? `状态 ${status}` : '',
+      text(s.description),
+    ].filter(Boolean).join(' · ');
+  }
+
+  if (assetType === 'relation') {
+    const fromCols = Array.isArray(s.fromColumns) ? s.fromColumns.join(',') : '';
+    const toCols = Array.isArray(s.toColumns) ? s.toColumns.join(',') : '';
+    return [
+      `${text(s.fromTable) || '?'}(${fromCols}) → ${text(s.toTable) || '?'}(${toCols})`,
+      text(s.cardinality) ? `基数 ${s.cardinality}` : '',
+      text(s.purpose),
+      status ? `状态 ${status}` : '',
+    ].filter(Boolean).join(' · ');
+  }
+
+  return [
+    text(s.name),
+    Array.isArray(s.levels) ? s.levels.join(' > ') : '',
+    status ? `状态 ${status}` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 /** 统一 API 调用：非 2xx 抛带服务端 error 的异常 */
@@ -97,12 +135,6 @@ interface SectionProps {
   openVersions: (assetType: OntologyAssetType, id: number, title: string) => void;
 }
 
-/** 表名/列名输入建议（来自当前数据源 Schema；不存在时仍允许手工填写） */
-function columnsOf(tables: TableSchema[], tableName: string): string[] {
-  const t = tables.find((x) => x.name.toLowerCase() === tableName.trim().toLowerCase());
-  return Array.isArray(t?.columns) ? t.columns.map((c) => c.name) : [];
-}
-
 // ============ 实体与绑定 ============
 
 const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotice, onChanged, openVersions }) => {
@@ -117,6 +149,10 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [bindingDraft, setBindingDraft] = useState<OntologyBindingItem[]>([]);
   const [savingBindings, setSavingBindings] = useState(false);
+  // 易用性（v0.9.111）：列表检索、仅看未绑定、绑定草稿脏标记
+  const [query, setQuery] = useState('');
+  const [onlyUnbound, setOnlyUnbound] = useState(false);
+  const [bindingsDirty, setBindingsDirty] = useState(false);
 
   const load = useCallback(async () => {
     if (!dataSourceId) return;
@@ -137,6 +173,25 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
     const timer = setTimeout(() => void load(), 0);
     return () => clearTimeout(timer);
   }, [load]);
+
+  const boundCount = useMemo(() => entities.filter((e) => (e.bindings?.length || 0) > 0).length, [entities]);
+
+  /** 列表检索：名称 / 别名 / 说明 / 绑定表列，全部客户端过滤，输入即得 */
+  const visibleEntities = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return entities.filter((e) => {
+      if (onlyUnbound && (e.bindings?.length || 0) > 0) return false;
+      if (!q) return true;
+      return (
+        e.name.toLowerCase().includes(q) ||
+        (e.description || '').toLowerCase().includes(q) ||
+        e.aliases.some((a) => a.toLowerCase().includes(q)) ||
+        (e.bindings || []).some((b) => b.tableName.toLowerCase().includes(q) || b.columnName.toLowerCase().includes(q))
+      );
+    });
+  }, [entities, onlyUnbound, query]);
+
+  useEscapeKey(editing !== null && !isSaving, () => setEditing(null));
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,25 +263,47 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
     }
   };
 
+  const draftOf = (ent: OntologyEntityItem): OntologyBindingItem[] =>
+    (ent.bindings || []).map((b) => ({
+      entityId: ent.id,
+      dataSourceId,
+      tableName: b.tableName,
+      columnName: b.columnName,
+      role: b.role,
+    }));
+
   const toggleExpand = (ent: OntologyEntityItem) => {
     if (expandedId === ent.id) {
+      if (bindingsDirty && !window.confirm('当前实体的绑定有未保存改动，确认收起并放弃？')) return;
       setExpandedId(null);
+      setBindingsDirty(false);
       return;
     }
+    if (bindingsDirty && !window.confirm('切换实体将丢弃当前未保存的绑定改动，确认继续？')) return;
     setExpandedId(ent.id);
-    setBindingDraft(
-      (ent.bindings || []).map((b) => ({
-        entityId: ent.id,
-        dataSourceId,
-        tableName: b.tableName,
-        columnName: b.columnName,
-        role: b.role,
-      }))
-    );
+    setBindingsDirty(false);
+    setBindingDraft(draftOf(ent));
+  };
+
+  /** 绑定草稿的任何编辑都标记为脏，保存/重置后清除 */
+  const updateDraft = (next: OntologyBindingItem[]) => {
+    setBindingDraft(next);
+    setBindingsDirty(true);
+  };
+
+  const addBindingRow = (ent: OntologyEntityItem) => {
+    updateDraft([...bindingDraft, { entityId: ent.id, dataSourceId, tableName: '', columnName: '', role: 'ATTRIBUTE' }]);
+  };
+
+  const resetBindings = () => {
+    const ent = entities.find((e) => e.id === expandedId);
+    if (!ent) return;
+    setBindingDraft(draftOf(ent));
+    setBindingsDirty(false);
   };
 
   const handleSaveBindings = async (entityId: number) => {
-    if (savingBindings) return;
+    if (savingBindings || !bindingsDirty) return;
     setSavingBindings(true);
     try {
       const bindings = bindingDraft
@@ -238,6 +315,7 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
         body: JSON.stringify({ dataSourceId, bindings }),
       });
       showNotice('success', `绑定已整组保存（${bindings.length} 条，IDENTITY 加权最高）`);
+      setBindingsDirty(false);
       await load();
       onChanged();
     } catch (err) {
@@ -247,19 +325,72 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
     }
   };
 
+  /** 停用/启用：PUT 全量字段并翻转 status（不跳版本历史，version+1 留快照） */
+  const handleToggleStatus = async (ent: OntologyEntityItem) => {
+    const nextStatus = ent.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+    try {
+      await callApi<{ ok: boolean }>(`/api/ontology/entities/${ent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ent.name,
+          entityType: ent.entityType,
+          aliases: ent.aliases,
+          description: ent.description || '',
+          status: nextStatus,
+        }),
+      });
+      showNotice(
+        'success',
+        nextStatus === 'ACTIVE'
+          ? `实体「${ent.name}」已启用，恢复参与圈表加权与提示词注入`
+          : `实体「${ent.name}」已停用，不再参与圈表加权与提示词注入（绑定保留）`
+      );
+      await load();
+      onChanged();
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-slate-400">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2 shadow-xl">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Search className="w-3.5 h-3.5 text-cyan-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索实体 / 别名 / 说明 / 绑定表列"
+            aria-label="搜索业务实体"
+            className="w-64 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+          />
+          <label className="flex items-center space-x-1.5 text-slate-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlyUnbound}
+              onChange={(e) => setOnlyUnbound(e.target.checked)}
+              className="accent-cyan-500"
+            />
+            <span>仅看未绑定</span>
+          </label>
+          <span className="text-[10px] text-slate-500">
+            共 {entities.length} 个 · 已绑定 {boundCount} 个 · 当前显示 {visibleEntities.length} 个
+          </span>
+          <button onClick={() => void load()} disabled={isLoading} className="flex items-center space-x-1 text-slate-400 hover:text-slate-200 disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /><span>刷新</span>
+          </button>
+          <button
+            onClick={() => setIsCreating((v) => !v)}
+            className="ml-auto flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-lg shadow-cyan-600/30 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>新建实体</span>
+          </button>
+        </div>
+        <div className="text-[11px] text-slate-400">
           实体 = 业务概念（机构/客户/项目…）+ 别名 + 表列绑定；问数命中实体名或别名时，绑定表获得圈表加权。
-        </span>
-        <button
-          onClick={() => setIsCreating((v) => !v)}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-lg shadow-cyan-600/30 transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>新建实体</span>
-        </button>
+        </div>
       </div>
 
       {isCreating && (
@@ -308,11 +439,20 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
               />
             </div>
           </div>
-          <div className="flex items-center justify-end space-x-2 pt-1">
-            <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700">取消</button>
-            <button type="submit" disabled={isSubmitting || !form.name.trim()} className="px-5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold shadow">
-              {isSubmitting ? '创建中…' : '确认创建'}
+          <div className="flex items-center justify-between pt-1">
+            <button
+              type="button"
+              onClick={() => setForm({ name: '机构', entityType: 'SUBJECT', aliases: '机构名称、JGMC、组织', description: '机构主数据，覆盖集团/分公司/项目三级' })}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 text-[11px]"
+            >
+              <Sparkles className="w-3 h-3" /><span>填入示例</span>
             </button>
+            <div className="flex items-center space-x-2">
+              <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700">取消</button>
+              <button type="submit" disabled={isSubmitting || !form.name.trim()} className="px-5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-xs font-bold shadow">
+                {isSubmitting ? '创建中…' : '确认创建'}
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -332,7 +472,7 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
               </tr>
             </thead>
             <tbody>
-              {entities.map((ent, idx) => {
+              {visibleEntities.map((ent, idx) => {
                 const typeMeta = ENTITY_TYPE_META[ent.entityType] || ENTITY_TYPE_META.SUBJECT;
                 const statusMeta = ONTOLOGY_STATUS_META[ent.status] || ONTOLOGY_STATUS_META.ACTIVE;
                 const expanded = expandedId === ent.id;
@@ -365,6 +505,18 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
                           <button onClick={() => openVersions('entity', ent.id, ent.name)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium transition-colors">
                             <History className="w-3 h-3" /><span>版本</span>
                           </button>
+                          <button
+                            onClick={() => void handleToggleStatus(ent)}
+                            aria-label={ent.status === 'ACTIVE' ? `停用实体 ${ent.name}` : `启用实体 ${ent.name}`}
+                            title={ent.status === 'ACTIVE' ? '停用后不再参与圈表加权与提示词注入' : '重新启用'}
+                            className={`p-1.5 rounded-lg border text-[11px] transition-colors ${
+                              ent.status === 'ACTIVE'
+                                ? 'border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-amber-300'
+                                : 'border-emerald-700/60 text-emerald-300 hover:bg-emerald-950/40'
+                            }`}
+                          >
+                            {ent.status === 'ACTIVE' ? <PowerOff className="w-3 h-3" /> : <Power className="w-3 h-3" />}
+                          </button>
                           <button onClick={() => handleDelete(ent)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors">
                             <Trash2 className="w-3 h-3" /><span>删除</span>
                           </button>
@@ -373,39 +525,79 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
                     </tr>
                     {expanded && (
                       <tr className="border-b border-slate-800/60 bg-slate-950/40">
-                        <td colSpan={7} className="px-4 py-3 space-y-2">
-                          <div className="text-[11px] text-slate-400">表/列绑定（整组替换；列名留空 = 表级绑定）：</div>
+                        <td
+                          colSpan={7}
+                          className="px-4 py-3 space-y-2"
+                          onKeyDown={(e) => {
+                            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleSaveBindings(ent.id);
+                            }
+                          }}
+                        >
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="text-slate-400">表/列绑定（整组替换；列名留空 = 表级绑定）：</span>
+                            {bindingsDirty ? (
+                              <span className="px-2 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 text-[10px] font-semibold">有未保存改动</span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full border border-slate-700 text-slate-500 text-[10px]">与库内一致</span>
+                            )}
+                            <span className="text-[10px] text-slate-500">表/列支持联想，未命中 Schema 仅提示不阻断</span>
+                          </div>
+                          {bindingDraft.length === 0 && (
+                            <div className="text-[11px] text-slate-500">暂无绑定，点击「添加绑定」登记该实体对应的表列</div>
+                          )}
                           {bindingDraft.map((b, i) => (
-                            <div key={i} className="flex flex-wrap items-center gap-2">
-                              <input
-                                list={`ont-entity-${ent.id}-tables`}
-                                value={b.tableName}
-                                onChange={(e) => {
-                                  const next = [...bindingDraft];
-                                  next[i] = { ...b, tableName: e.target.value };
-                                  setBindingDraft(next);
-                                }}
-                                placeholder="表名，如 JGXX"
-                                className="w-40 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-                              />
-                              <input
-                                list={`ont-entity-${ent.id}-cols-${i}`}
-                                value={b.columnName}
-                                onChange={(e) => {
-                                  const next = [...bindingDraft];
-                                  next[i] = { ...b, columnName: e.target.value };
-                                  setBindingDraft(next);
-                                }}
-                                placeholder="列名（可空）"
-                                className="w-40 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
-                              />
+                            <div
+                              key={i}
+                              className="flex flex-wrap items-start gap-2"
+                              onKeyDown={(e) => {
+                                const isInput = (e.target as HTMLElement).tagName === 'INPUT';
+                                if (e.key === 'Enter' && isInput && i === bindingDraft.length - 1) {
+                                  e.preventDefault();
+                                  addBindingRow(ent);
+                                }
+                              }}
+                            >
+                              <div className="w-44">
+                                <SchemaInput
+                                  kind="table"
+                                  value={b.tableName}
+                                  onChange={(v) => {
+                                    const next = [...bindingDraft];
+                                    next[i] = { ...b, tableName: v };
+                                    updateDraft(next);
+                                  }}
+                                  tables={tables}
+                                  listId={`ont-entity-${ent.id}-tables-${i}`}
+                                  placeholder="表名，如 JGXX"
+                                  ariaLabel={`绑定表 ${i + 1}`}
+                                />
+                              </div>
+                              <div className="w-44">
+                                <SchemaInput
+                                  kind="column"
+                                  value={b.columnName}
+                                  onChange={(v) => {
+                                    const next = [...bindingDraft];
+                                    next[i] = { ...b, columnName: v };
+                                    updateDraft(next);
+                                  }}
+                                  tables={tables}
+                                  tableName={b.tableName}
+                                  listId={`ont-entity-${ent.id}-cols-${i}`}
+                                  placeholder="列名（可空）"
+                                  ariaLabel={`绑定列 ${i + 1}`}
+                                />
+                              </div>
                               <select
                                 value={b.role}
                                 onChange={(e) => {
                                   const next = [...bindingDraft];
                                   next[i] = { ...b, role: e.target.value as OntologyBindingRole };
-                                  setBindingDraft(next);
+                                  updateDraft(next);
                                 }}
+                                aria-label={`绑定角色 ${i + 1}`}
                                 className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-cyan-500"
                               >
                                 {BINDING_ROLES.map((r) => (
@@ -413,34 +605,37 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
                                 ))}
                               </select>
                               <button
-                                onClick={() => setBindingDraft(bindingDraft.filter((_, j) => j !== i))}
+                                onClick={() => updateDraft(bindingDraft.filter((_, j) => j !== i))}
                                 className="p-1 rounded-lg text-rose-300 hover:bg-rose-950/40"
                                 title="移除该绑定"
+                                aria-label={`移除绑定 ${i + 1}`}
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
-                              <datalist id={`ont-entity-${ent.id}-cols-${i}`}>
-                                {columnsOf(tables, b.tableName).map((c) => <option key={c} value={c} />)}
-                              </datalist>
                             </div>
                           ))}
-                          <datalist id={`ont-entity-${ent.id}-tables`}>
-                            {tables.map((t) => <option key={t.name} value={t.name} />)}
-                          </datalist>
-                          <div className="flex items-center space-x-2 pt-1">
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
                             <button
-                              onClick={() => setBindingDraft([...bindingDraft, { entityId: ent.id, dataSourceId, tableName: '', columnName: '', role: 'ATTRIBUTE' }])}
+                              onClick={() => addBindingRow(ent)}
                               className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px]"
                             >
                               <Plus className="w-3 h-3" /><span>添加绑定</span>
                             </button>
                             <button
-                              onClick={() => void handleSaveBindings(ent.id)}
-                              disabled={savingBindings}
-                              className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-[11px] font-bold"
+                              onClick={resetBindings}
+                              disabled={!bindingsDirty || savingBindings}
+                              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 disabled:opacity-40 text-[11px]"
                             >
-                              {savingBindings ? '保存中…' : '保存绑定'}
+                              <RotateCcw className="w-3 h-3" /><span>重置</span>
                             </button>
+                            <button
+                              onClick={() => void handleSaveBindings(ent.id)}
+                              disabled={savingBindings || !bindingsDirty}
+                              className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-[11px] font-bold"
+                            >
+                              {savingBindings ? '保存中…' : bindingsDirty ? '保存绑定' : '已保存'}
+                            </button>
+                            <span className="text-[10px] text-slate-500">Enter 新增一行 · Ctrl/Cmd + Enter 保存</span>
                           </div>
                         </td>
                       </tr>
@@ -448,9 +643,27 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
                   </React.Fragment>
                 );
               })}
+              {isLoading && entities.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">加载中…</td>
+                </tr>
+              )}
               {!isLoading && entities.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-500">该数据源暂无业务实体，点击「新建实体」登记机构/客户/项目等业务概念</td>
+                </tr>
+              )}
+              {!isLoading && entities.length > 0 && visibleEntities.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    没有匹配的实体（共 {entities.length} 个）
+                    <button
+                      onClick={() => { setQuery(''); setOnlyUnbound(false); }}
+                      className="ml-2 text-cyan-300 hover:text-cyan-200 underline underline-offset-2"
+                    >
+                      清除筛选
+                    </button>
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -460,7 +673,7 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !isSaving && setEditing(null)}>
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="编辑实体" className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100">编辑实体「{editing.name}」</h3>
               <button onClick={() => !isSaving && setEditing(null)} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button>
@@ -501,24 +714,68 @@ const EntitySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotic
 
 // ============ 值域释义 ============
 
-const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, onChanged }) => {
+/**
+ * 批量粘贴解析（v0.9.111）：
+ * 以「值=含义」为主，兼容 Excel 粘贴的制表符、中文冒号，以及仅一个逗号的行；
+ * 同一个值重复出现时后者覆盖前者（与单条 upsert 的覆盖语义一致）。
+ */
+function parseValuePairs(text: string): {
+  pairs: { valueCode: string; meaning: string }[];
+  invalid: number;
+  duplicates: number;
+} {
+  const rawPairs: { valueCode: string; meaning: string }[] = [];
+  let invalid = 0;
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/\r$/, '').trim();
+    if (!line) continue;
+    const candidates = [line.search(/[=＝]/), line.indexOf('\t'), line.search(/[:：]/)].filter((i) => i > 0);
+    let idx = candidates.length > 0 ? Math.min(...candidates) : -1;
+    if (idx < 0) {
+      const first = line.indexOf(',');
+      if (first > 0 && line.indexOf(',', first + 1) < 0) idx = first;
+    }
+    if (idx <= 0) {
+      invalid += 1;
+      continue;
+    }
+    const valueCode = line.slice(0, idx).trim();
+    const meaning = line.slice(idx + 1).trim();
+    if (!valueCode || !meaning) {
+      invalid += 1;
+      continue;
+    }
+    rawPairs.push({ valueCode, meaning });
+  }
+  const byValue = new Map<string, string>();
+  for (const p of rawPairs) byValue.set(p.valueCode, p.meaning);
+  return {
+    pairs: [...byValue.entries()].map(([valueCode, meaning]) => ({ valueCode, meaning })),
+    invalid,
+    duplicates: rawPairs.length - byValue.size,
+  };
+}
+
+const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotice, onChanged }) => {
   const [notes, setNotes] = useState<OntologyValueNoteItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [filterTable, setFilterTable] = useState('');
   const [filterColumn, setFilterColumn] = useState('');
+  const [query, setQuery] = useState('');
   const [form, setForm] = useState({ tableName: '', columnName: '', valueCode: '', meaning: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [editing, setEditing] = useState<OntologyValueNoteItem | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
+  const [editStatus, setEditStatus] = useState<'ACTIVE' | 'DISABLED'>('ACTIVE');
 
   const load = useCallback(async () => {
     if (!dataSourceId) return;
     setIsLoading(true);
     try {
+      // 筛选全部在前端完成：输入不再逐字触发请求，大表也保持即时响应
       const params = new URLSearchParams({ dataSourceId });
-      if (filterTable.trim()) params.set('tableName', filterTable.trim());
       const data = await callApi<{ valueNotes: OntologyValueNoteItem[] }>(`/api/ontology/value-notes?${params.toString()}`);
       setNotes(data.valueNotes || []);
     } catch (err) {
@@ -526,17 +783,32 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
     } finally {
       setIsLoading(false);
     }
-  }, [dataSourceId, filterTable, showNotice]);
+  }, [dataSourceId, showNotice]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 0);
     return () => clearTimeout(timer);
   }, [load]);
 
-  const visibleNotes = useMemo(
-    () => (filterColumn.trim() ? notes.filter((n) => n.columnName.toLowerCase().includes(filterColumn.trim().toLowerCase())) : notes),
-    [notes, filterColumn]
-  );
+  useEscapeKey(editing !== null, () => setEditing(null));
+
+  const visibleNotes = useMemo(() => {
+    const tableKey = filterTable.trim().toLowerCase();
+    const columnKey = filterColumn.trim().toLowerCase();
+    const q = query.trim().toLowerCase();
+    return notes.filter((n) => {
+      if (tableKey && !n.tableName.toLowerCase().includes(tableKey)) return false;
+      if (columnKey && !n.columnName.toLowerCase().includes(columnKey)) return false;
+      if (!q) return true;
+      return (
+        n.valueCode.toLowerCase().includes(q) ||
+        n.meaning.toLowerCase().includes(q) ||
+        `${n.tableName}.${n.columnName}`.toLowerCase().includes(q)
+      );
+    });
+  }, [notes, filterTable, filterColumn, query]);
+
+  const bulkParsed = useMemo(() => parseValuePairs(bulkText), [bulkText]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -573,41 +845,41 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
       showNotice('error', '批量粘贴前请先填写表名与列名');
       return;
     }
-    const pairs = bulkText
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const idx = line.search(/[=＝]/);
-        if (idx <= 0) return null;
-        return { valueCode: line.slice(0, idx).trim(), meaning: line.slice(idx + 1).trim() };
-      })
-      .filter((p): p is { valueCode: string; meaning: string } => Boolean(p && p.valueCode && p.meaning));
-    if (pairs.length === 0) {
+    if (bulkParsed.pairs.length === 0) {
       showNotice('error', '未解析到有效行，请按「值=含义」每行一条');
       return;
     }
-    setBulkSubmitting(true);
-    let okCount = 0;
-    let failCount = 0;
-    for (const p of pairs) {
-      try {
-        await callApi<{ ok: boolean }>('/api/ontology/value-notes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dataSourceId, tableName, columnName, valueCode: p.valueCode, meaning: p.meaning }),
-        });
-        okCount += 1;
-      } catch {
-        failCount += 1;
-      }
+    if (bulkParsed.pairs.length > 200) {
+      showNotice('error', `单次最多批量保存 200 条（当前 ${bulkParsed.pairs.length} 条），请分批粘贴`);
+      return;
     }
-    setBulkSubmitting(false);
-    showNotice(failCount === 0 ? 'success' : 'error', `批量保存完成：成功 ${okCount} 条${failCount > 0 ? `，失败 ${failCount} 条` : ''}`);
-    if (okCount > 0) {
-      setBulkText('');
-      await load();
-      onChanged();
+    setBulkSubmitting(true);
+    try {
+      // 单请求批量写入：服务端逐条 upsert 并返回成功/失败明细，避免逐行走网络
+      const data = await callApi<{
+        ok: boolean;
+        saved: number;
+        failed: number;
+        failures?: { index: number; error: string }[];
+      }>('/api/ontology/value-notes/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataSourceId, tableName, columnName, items: bulkParsed.pairs }),
+      });
+      if (data.failed > 0) {
+        showNotice('error', `批量保存：成功 ${data.saved} 条，失败 ${data.failed} 条（${data.failures?.[0]?.error || '详见服务端日志'}）`);
+      } else {
+        showNotice('success', `批量保存完成：成功 ${data.saved} 条${bulkParsed.duplicates > 0 ? `，重复值已按后者覆盖 ${bulkParsed.duplicates} 条` : ''}`);
+      }
+      if (data.saved > 0) {
+        setBulkText('');
+        await load();
+        onChanged();
+      }
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    } finally {
+      setBulkSubmitting(false);
     }
   };
 
@@ -617,10 +889,27 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
       await callApi<{ ok: boolean }>(`/api/ontology/value-notes/${editing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meaning: editMeaning.trim() }),
+        body: JSON.stringify({ meaning: editMeaning.trim(), status: editStatus }),
       });
-      showNotice('success', '值域含义已更新');
+      showNotice('success', editStatus === 'DISABLED' ? '值域含义已更新并停用（不再注入问数提示词）' : '值域含义已更新');
       setEditing(null);
+      await load();
+      onChanged();
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    }
+  };
+
+  /** 行内停用/启用：只切换 status，不改变含义 */
+  const handleToggleStatus = async (note: OntologyValueNoteItem) => {
+    const nextStatus = note.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+    try {
+      await callApi<{ ok: boolean }>(`/api/ontology/value-notes/${note.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meaning: note.meaning, status: nextStatus }),
+      });
+      showNotice('success', `${note.tableName}.${note.columnName} = ${note.valueCode} 已${nextStatus === 'ACTIVE' ? '启用' : '停用'}`);
       await load();
       onChanged();
     } catch (err) {
@@ -646,27 +935,80 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Tag className="w-4 h-4 text-amber-400" />
           <span className="font-bold text-slate-300">值域释义</span>
-          <input value={filterTable} onChange={(e) => setFilterTable(e.target.value)} placeholder="按表名筛选" className="w-36 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
-          <input value={filterColumn} onChange={(e) => setFilterColumn(e.target.value)} placeholder="按列名筛选" className="w-36 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索值 / 含义"
+            aria-label="搜索值域释义"
+            className="w-40 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
+          />
+          <input value={filterTable} onChange={(e) => setFilterTable(e.target.value)} list="ont-vn-filter-tables" placeholder="按表名筛选" aria-label="按表名筛选" className="w-36 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
+          <input value={filterColumn} onChange={(e) => setFilterColumn(e.target.value)} placeholder="按列名筛选" aria-label="按列名筛选" className="w-36 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
+          <datalist id="ont-vn-filter-tables">
+            {tables.map((t) => <option key={t.name} value={t.name} />)}
+          </datalist>
           <button onClick={() => void load()} disabled={isLoading} className="flex items-center space-x-1 text-slate-400 hover:text-slate-200">
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /><span>刷新</span>
           </button>
-          <span className="text-[10px] text-slate-500">共 {visibleNotes.length} 条（问数仅注入命中表相关列）</span>
+          <span className="text-[10px] text-slate-500">
+            共 {notes.length} 条 · 当前显示 {visibleNotes.length} 条（问数仅注入命中表相关列）
+          </span>
+          {(query || filterTable || filterColumn) && (
+            <button onClick={() => { setQuery(''); setFilterTable(''); setFilterColumn(''); }} className="text-[10px] text-amber-300 hover:text-amber-200 underline underline-offset-2">
+              清除筛选
+            </button>
+          )}
         </div>
-        <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-2 text-xs">
-          <input value={form.tableName} onChange={(e) => setForm({ ...form, tableName: e.target.value })} placeholder="表名，如 JGXX" className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
-          <input value={form.columnName} onChange={(e) => setForm({ ...form, columnName: e.target.value })} placeholder="列名，如 BB" className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
-          <input value={form.valueCode} onChange={(e) => setForm({ ...form, valueCode: e.target.value })} placeholder="值，如 1" maxLength={100} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
-          <input value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} placeholder="含义，如 本期" maxLength={200} className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
+        <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-5 gap-2 text-xs items-start">
+          <SchemaInput
+            kind="table"
+            value={form.tableName}
+            onChange={(v) => setForm({ ...form, tableName: v })}
+            tables={tables}
+            listId="ont-vn-create-tables"
+            placeholder="表名，如 JGXX"
+            accent="amber"
+            ariaLabel="值域表名"
+          />
+          <SchemaInput
+            kind="column"
+            value={form.columnName}
+            onChange={(v) => setForm({ ...form, columnName: v })}
+            tables={tables}
+            tableName={form.tableName}
+            listId="ont-vn-create-columns"
+            placeholder="列名，如 BB"
+            accent="amber"
+            ariaLabel="值域列名"
+          />
+          <input value={form.valueCode} onChange={(e) => setForm({ ...form, valueCode: e.target.value })} placeholder="值，如 1" maxLength={100} aria-label="值编码" className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
+          <input value={form.meaning} onChange={(e) => setForm({ ...form, meaning: e.target.value })} placeholder="含义，如 本期" maxLength={200} aria-label="业务含义" className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500" />
           <button type="submit" disabled={isSubmitting || !form.tableName.trim() || !form.columnName.trim() || !form.valueCode.trim() || !form.meaning.trim()} className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold">
             {isSubmitting ? '保存中…' : '新增/覆盖'}
           </button>
         </form>
         <div className="space-y-1 text-xs">
-          <label className="text-slate-400 text-[11px]">批量粘贴（每行一条「值=含义」，写入上方所选表.列）:</label>
-          <textarea value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={3} placeholder={'1=本期\n2=同期\n9=其他'} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-amber-500 resize-y font-mono" />
-          <div className="flex justify-end">
-            <button onClick={() => void handleBulk()} disabled={bulkSubmitting || !bulkText.trim()} className="px-3 py-1.5 rounded-lg border border-amber-700/60 text-amber-300 hover:bg-amber-950/40 disabled:opacity-50 text-[11px] font-semibold">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-slate-400 text-[11px]">批量粘贴（每行一条，写入上方所选表.列）:</label>
+            <span className="text-[10px] text-slate-500">支持「值=含义」「值:含义」及 Excel 两列粘贴</span>
+            <button
+              type="button"
+              onClick={() => setBulkText('1=本期\n2=同期\n9=其他')}
+              className="ml-auto flex items-center space-x-1 px-2 py-0.5 rounded-lg border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 text-[10px]"
+            >
+              <Sparkles className="w-2.5 h-2.5" /><span>填入示例</span>
+            </button>
+          </div>
+          <textarea value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={3} placeholder={'1=本期\n2=同期\n9=其他'} aria-label="批量粘贴值域释义" className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-amber-500 resize-y font-mono" />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {bulkText.trim() && (
+              <span className={`text-[10px] ${bulkParsed.pairs.length === 0 ? 'text-rose-300' : 'text-slate-400'}`}>
+                将写入 {bulkParsed.pairs.length} 条
+                {bulkParsed.duplicates > 0 ? ` · 重复 ${bulkParsed.duplicates} 条按后者覆盖` : ''}
+                {bulkParsed.invalid > 0 ? ` · ${bulkParsed.invalid} 行无法解析` : ''}
+              </span>
+            )}
+            <button onClick={() => void handleBulk()} disabled={bulkSubmitting || bulkParsed.pairs.length === 0} className="px-3 py-1.5 rounded-lg border border-amber-700/60 text-amber-300 hover:bg-amber-950/40 disabled:opacity-50 text-[11px] font-semibold">
               {bulkSubmitting ? '批量保存中…' : '批量保存'}
             </button>
           </div>
@@ -701,10 +1043,22 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end space-x-1.5">
                       <button
-                        onClick={() => { setEditing(n); setEditMeaning(n.meaning); }}
+                        onClick={() => { setEditing(n); setEditMeaning(n.meaning); setEditStatus(n.status); }}
                         className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium"
                       >
                         <Pencil className="w-3 h-3" /><span>编辑</span>
+                      </button>
+                      <button
+                        onClick={() => void handleToggleStatus(n)}
+                        aria-label={n.status === 'ACTIVE' ? `停用值域释义 ${n.tableName}.${n.columnName}` : `启用值域释义 ${n.tableName}.${n.columnName}`}
+                        title={n.status === 'ACTIVE' ? '停用后不再注入提示词' : '重新启用'}
+                        className={`p-1.5 rounded-lg border transition-colors ${
+                          n.status === 'ACTIVE'
+                            ? 'border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-amber-300'
+                            : 'border-emerald-700/60 text-emerald-300 hover:bg-emerald-950/40'
+                        }`}
+                      >
+                        {n.status === 'ACTIVE' ? <PowerOff className="w-3 h-3" /> : <Power className="w-3 h-3" />}
                       </button>
                       <button onClick={() => void handleDelete(n)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium">
                         <Trash2 className="w-3 h-3" /><span>删除</span>
@@ -713,9 +1067,19 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
                   </td>
                 </tr>
               ))}
-              {!isLoading && visibleNotes.length === 0 && (
+              {isLoading && notes.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">加载中…</td>
+                </tr>
+              )}
+              {!isLoading && notes.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-slate-500">暂无值域释义，可上方单条新增或批量粘贴「值=含义」</td>
+                </tr>
+              )}
+              {!isLoading && notes.length > 0 && visibleNotes.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">没有匹配的值域释义（共 {notes.length} 条）</td>
                 </tr>
               )}
             </tbody>
@@ -725,14 +1089,28 @@ const ValueNoteSection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setEditing(null)}>
-          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="编辑值域释义" className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100">编辑释义 · {editing.tableName}.{editing.columnName} = {editing.valueCode}</h3>
               <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button>
             </div>
-            <div className="space-y-1 text-xs">
-              <label className="text-slate-300 font-medium">业务含义:</label>
-              <input value={editMeaning} onChange={(e) => setEditMeaning(e.target.value)} maxLength={200} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-amber-500" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-slate-300 font-medium">业务含义:</label>
+                <input value={editMeaning} onChange={(e) => setEditMeaning(e.target.value)} maxLength={200} aria-label="编辑业务含义" className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-amber-500" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-slate-300 font-medium">状态:</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as 'ACTIVE' | 'DISABLED')}
+                  aria-label="编辑状态"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                >
+                  <option value="ACTIVE">生效中（参与提示词注入）</option>
+                  <option value="DISABLED">已停用（不注入）</option>
+                </select>
+              </div>
             </div>
             <div className="flex justify-end space-x-2">
               <button onClick={() => setEditing(null)} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">取消</button>
@@ -767,95 +1145,141 @@ const EMPTY_RELATION_FORM: RelationFormState = {
   purpose: '',
 };
 
-/** 关系表单字段（创建与编辑复用；列名逗号分隔，表名/列名带 Schema 建议） */
+/** 表单即时校验（与服务端 sanitizeRelationInput 对齐，提交前就给出可读原因） */
+function relationFormError(f: RelationFormState): string | null {
+  const fromCols = listFromText(f.fromColumns);
+  const toCols = listFromText(f.toColumns);
+  if (!f.fromTable.trim()) return '请填写起点表';
+  if (!f.toTable.trim()) return '请填写终点表';
+  if (fromCols.length === 0 || toCols.length === 0) return '起止关联列均为必填';
+  if (fromCols.length !== toCols.length) return `两侧关联列数量需一致（当前 ${fromCols.length} vs ${toCols.length}）`;
+  return null;
+}
+
+/**
+ * 关系表单字段（创建与编辑复用）：
+ * 表/列带 Schema 联想；列支持「已选 chips + 下拉追加」，两侧列数不一致时即时提示；
+ * 一键交换起点/终点（列同步交换），避免手工对调出错。
+ */
 const RelationFields: React.FC<{
   value: RelationFormState;
   onChange: (next: RelationFormState) => void;
   tables: TableSchema[];
   idPrefix: string;
-}> = ({ value, onChange, tables, idPrefix }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-    <div className="space-y-1">
-      <label className="text-slate-300 font-medium">起点表:</label>
-      <input
-        list={`${idPrefix}-tables`}
-        value={value.fromTable}
-        onChange={(e) => onChange({ ...value, fromTable: e.target.value })}
-        placeholder="例如: JGXX"
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      />
+}> = ({ value, onChange, tables, idPrefix }) => {
+  const fromCols = listFromText(value.fromColumns);
+  const toCols = listFromText(value.toColumns);
+  const mismatch = fromCols.length !== toCols.length;
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-slate-300 font-medium">起点表:</label>
+          <SchemaInput
+            kind="table"
+            value={value.fromTable}
+            onChange={(v) => onChange({ ...value, fromTable: v })}
+            tables={tables}
+            listId={`${idPrefix}-from-table`}
+            placeholder="例如: JGXX"
+            accent="emerald"
+            ariaLabel="起点表"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-slate-300 font-medium">起点列（必填，多列按顺序对应）:</label>
+          <SchemaColumnsInput
+            value={value.fromColumns}
+            onChange={(v) => onChange({ ...value, fromColumns: v })}
+            tables={tables}
+            tableName={value.fromTable}
+            listId={`${idPrefix}-from-cols`}
+            placeholder="例如: JGDM，或 JGDM,JGBH"
+            ariaLabel="起点列"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-slate-300 font-medium">终点表:</label>
+          <SchemaInput
+            kind="table"
+            value={value.toTable}
+            onChange={(v) => onChange({ ...value, toTable: v })}
+            tables={tables}
+            listId={`${idPrefix}-to-table`}
+            placeholder="例如: XMXX"
+            accent="emerald"
+            ariaLabel="终点表"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-slate-300 font-medium">终点列（必填，与起点列一一对应）:</label>
+          <SchemaColumnsInput
+            value={value.toColumns}
+            onChange={(v) => onChange({ ...value, toColumns: v })}
+            tables={tables}
+            tableName={value.toTable}
+            listId={`${idPrefix}-to-cols`}
+            placeholder="例如: JGDM"
+            ariaLabel="终点列"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-slate-300 font-medium">JOIN 类型:</label>
+          <select
+            value={value.joinType}
+            onChange={(e) => onChange({ ...value, joinType: e.target.value as OntologyJoinType })}
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
+          >
+            {JOIN_TYPES.map((j) => <option key={j} value={j}>{j} JOIN</option>)}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-slate-300 font-medium">基数（起点 → 终点）:</label>
+          <select
+            value={value.cardinality}
+            onChange={(e) => onChange({ ...value, cardinality: e.target.value as OntologyCardinality })}
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
+          >
+            {CARDINALITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1 md:col-span-2">
+          <label className="text-slate-300 font-medium">业务用途（≤300 字，注入提示词时随路径展示）:</label>
+          <input
+            value={value.purpose}
+            onChange={(e) => onChange({ ...value, purpose: e.target.value })}
+            maxLength={300}
+            placeholder="例如: 资产归属机构，按机构名称关联"
+            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
+          />
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className={`text-[10px] ${mismatch ? 'text-rose-300' : 'text-slate-500'}`}>
+          {fromCols.length === 0 || toCols.length === 0
+            ? '起止列均为必填（服务端要求两侧列一一对应）'
+            : mismatch
+              ? `两侧关联列数量需一致（当前 ${fromCols.length} vs ${toCols.length}）`
+              : `已配置 ${fromCols.length} 组关联列：${fromCols.map((c, i) => `${c}=${toCols[i]}`).join('，')}`}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange({
+            ...value,
+            fromTable: value.toTable,
+            fromColumns: value.toColumns,
+            toTable: value.fromTable,
+            toColumns: value.fromColumns,
+          })}
+          className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px]"
+        >
+          <ArrowLeftRight className="w-3 h-3" /><span>交换起点 / 终点</span>
+        </button>
+      </div>
     </div>
-    <div className="space-y-1">
-      <label className="text-slate-300 font-medium">起点列（逗号分隔，可空 = 表级）:</label>
-      <input
-        list={`${idPrefix}-from-cols`}
-        value={value.fromColumns}
-        onChange={(e) => onChange({ ...value, fromColumns: e.target.value })}
-        placeholder="例如: JGMC"
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      />
-    </div>
-    <div className="space-y-1">
-      <label className="text-slate-300 font-medium">终点表:</label>
-      <input
-        list={`${idPrefix}-tables`}
-        value={value.toTable}
-        onChange={(e) => onChange({ ...value, toTable: e.target.value })}
-        placeholder="例如: XMXX"
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      />
-    </div>
-    <div className="space-y-1">
-      <label className="text-slate-300 font-medium">终点列（逗号分隔，可空 = 表级）:</label>
-      <input
-        list={`${idPrefix}-to-cols`}
-        value={value.toColumns}
-        onChange={(e) => onChange({ ...value, toColumns: e.target.value })}
-        placeholder="例如: JGDM"
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      />
-    </div>
-    <div className="space-y-1">
-      <label className="text-slate-300 font-medium">JOIN 类型:</label>
-      <select
-        value={value.joinType}
-        onChange={(e) => onChange({ ...value, joinType: e.target.value as OntologyJoinType })}
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      >
-        {JOIN_TYPES.map((j) => <option key={j} value={j}>{j} JOIN</option>)}
-      </select>
-    </div>
-    <div className="space-y-1">
-      <label className="text-slate-300 font-medium">基数（起点 → 终点）:</label>
-      <select
-        value={value.cardinality}
-        onChange={(e) => onChange({ ...value, cardinality: e.target.value as OntologyCardinality })}
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      >
-        {CARDINALITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-      </select>
-    </div>
-    <div className="space-y-1 md:col-span-2">
-      <label className="text-slate-300 font-medium">业务用途（≤300 字，注入提示词时随路径展示）:</label>
-      <input
-        value={value.purpose}
-        onChange={(e) => onChange({ ...value, purpose: e.target.value })}
-        maxLength={300}
-        placeholder="例如: 资产归属机构，按机构名称关联"
-        className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-      />
-    </div>
-    <datalist id={`${idPrefix}-tables`}>
-      {tables.map((t) => <option key={t.name} value={t.name} />)}
-    </datalist>
-    <datalist id={`${idPrefix}-from-cols`}>
-      {columnsOf(tables, value.fromTable).map((c) => <option key={c} value={c} />)}
-    </datalist>
-    <datalist id={`${idPrefix}-to-cols`}>
-      {columnsOf(tables, value.toTable).map((c) => <option key={c} value={c} />)}
-    </datalist>
-  </div>
-);
+  );
+};
 
 const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotice, onChanged, openVersions }) => {
   const [relations, setRelations] = useState<OntologyRelationItem[]>([]);
@@ -871,6 +1295,7 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
   const [previewTo, setPreviewTo] = useState('');
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<{ from: string; to: string; paths: OntologyRelationPath[] } | null>(null);
+  const [query, setQuery] = useState('');
 
   const load = useCallback(async () => {
     if (!dataSourceId) return;
@@ -892,6 +1317,19 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
     return () => clearTimeout(timer);
   }, [load]);
 
+  useEscapeKey(editing !== null && !isSaving, () => setEditing(null));
+
+  /** 关联路径检索：起止表 / 列 / 用途，客户端即时过滤 */
+  const visibleRelations = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return relations;
+    return relations.filter((r) =>
+      [r.fromTable, r.toTable, r.purpose, ...r.fromColumns, ...r.toColumns]
+        .filter(Boolean)
+        .some((s) => String(s).toLowerCase().includes(q))
+    );
+  }, [relations, query]);
+
   const payloadOf = (f: RelationFormState) => ({
     dataSourceId,
     fromTable: f.fromTable.trim(),
@@ -906,6 +1344,11 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    const invalid = relationFormError(form);
+    if (invalid) {
+      showNotice('error', invalid);
+      return;
+    }
     setIsSubmitting(true);
     try {
       await callApi<{ ok: boolean; id: number }>('/api/ontology/relations', {
@@ -940,6 +1383,11 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
 
   const handleSaveEdit = async () => {
     if (!editing || isSaving) return;
+    const invalid = relationFormError(editForm);
+    if (invalid) {
+      showNotice('error', invalid);
+      return;
+    }
     setIsSaving(true);
     try {
       await callApi<{ ok: boolean }>(`/api/ontology/relations/${editing.id}`, {
@@ -963,6 +1411,33 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
     try {
       await callApi<{ ok: boolean }>(`/api/ontology/relations/${rel.id}`, { method: 'DELETE' });
       showNotice('success', '已删除关联路径');
+      await load();
+      onChanged();
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    }
+  };
+
+  /** 停用/启用关联路径：PUT 全量字段并翻转 status */
+  const handleToggleStatus = async (rel: OntologyRelationItem) => {
+    const nextStatus = rel.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+    try {
+      await callApi<{ ok: boolean }>(`/api/ontology/relations/${rel.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataSourceId,
+          fromTable: rel.fromTable,
+          fromColumns: rel.fromColumns,
+          toTable: rel.toTable,
+          toColumns: rel.toColumns,
+          joinType: rel.joinType,
+          cardinality: rel.cardinality,
+          purpose: rel.purpose || '',
+          status: nextStatus,
+        }),
+      });
+      showNotice('success', `关联路径 ${rel.fromTable} → ${rel.toTable} 已${nextStatus === 'ACTIVE' ? '启用' : '停用'}`);
       await load();
       onChanged();
     } catch (err) {
@@ -994,28 +1469,54 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] text-slate-400">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2 shadow-xl">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Search className="w-3.5 h-3.5 text-emerald-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="按表名 / 列名 / 用途筛选"
+            aria-label="筛选关联路径"
+            className="w-64 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500"
+          />
+          <span className="text-[10px] text-slate-500">共 {relations.length} 条 · 当前显示 {visibleRelations.length} 条</span>
+          {query && (
+            <button onClick={() => setQuery('')} className="text-[10px] text-emerald-300 hover:text-emerald-200 underline underline-offset-2">清除筛选</button>
+          )}
+          <button onClick={() => void load()} disabled={isLoading} className="flex items-center space-x-1 text-slate-400 hover:text-slate-200 disabled:opacity-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} /><span>刷新</span>
+          </button>
+          <button
+            onClick={() => setIsCreating((v) => !v)}
+            className="ml-auto flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/30 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>登记路径</span>
+          </button>
+        </div>
+        <div className="text-[11px] text-slate-400">
           已登记 JOIN 路径 = 表间关联的权威口径（含基数与用途）；问数命中表之间存在路径时作为候选 JOIN 注入，仅推荐、不强制。
-        </span>
-        <button
-          onClick={() => setIsCreating((v) => !v)}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-600/30 transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>登记路径</span>
-        </button>
+        </div>
       </div>
 
       {isCreating && (
         <form onSubmit={handleCreate} className="bg-slate-900 border border-emerald-500/40 rounded-2xl p-5 space-y-3 shadow-2xl">
           <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-2">登记关联路径（创建即生效）</h3>
           <RelationFields value={form} onChange={setForm} tables={tables} idPrefix="ont-rel-create" />
-          <div className="flex items-center justify-end space-x-2 pt-1">
-            <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700">取消</button>
-            <button type="submit" disabled={isSubmitting || !form.fromTable.trim() || !form.toTable.trim()} className="px-5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold shadow">
-              {isSubmitting ? '登记中…' : '确认登记'}
+          <div className="flex items-center justify-between pt-1">
+            <button
+              type="button"
+              onClick={() => setForm({ ...EMPTY_RELATION_FORM, fromTable: 'JGXX', fromColumns: 'JGDM', toTable: 'XMXX', toColumns: 'JGDM', purpose: '项目归属机构，按机构代码关联' })}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800 text-[11px]"
+            >
+              <Sparkles className="w-3 h-3" /><span>填入示例</span>
             </button>
+            <div className="flex items-center space-x-2">
+              <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700">取消</button>
+              <button type="submit" disabled={isSubmitting || Boolean(relationFormError(form))} title={relationFormError(form) || undefined} className="px-5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold shadow">
+                {isSubmitting ? '登记中…' : '确认登记'}
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -1025,9 +1526,12 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Route className="w-4 h-4 text-emerald-400" />
           <span className="font-bold text-slate-300">路径预览</span>
-          <input value={previewFrom} onChange={(e) => setPreviewFrom(e.target.value)} placeholder="起点表" className="w-32 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500" />
+          <input value={previewFrom} onChange={(e) => setPreviewFrom(e.target.value)} list="ont-rel-preview-tables" placeholder="起点表" aria-label="路径预览起点表" className="w-32 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500" />
           <span className="text-slate-500">→</span>
-          <input value={previewTo} onChange={(e) => setPreviewTo(e.target.value)} placeholder="终点表" className="w-32 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500" />
+          <input value={previewTo} onChange={(e) => setPreviewTo(e.target.value)} list="ont-rel-preview-tables" placeholder="终点表" aria-label="路径预览终点表" className="w-32 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500" />
+          <datalist id="ont-rel-preview-tables">
+            {tables.map((t) => <option key={t.name} value={t.name} />)}
+          </datalist>
           <button
             onClick={() => void handlePreview()}
             disabled={previewing}
@@ -1071,7 +1575,7 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
               </tr>
             </thead>
             <tbody>
-              {relations.map((rel, idx) => {
+              {visibleRelations.map((rel, idx) => {
                 const statusMeta = ONTOLOGY_STATUS_META[rel.status] || ONTOLOGY_STATUS_META.ACTIVE;
                 return (
                   <tr key={rel.id} className="border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors">
@@ -1103,6 +1607,18 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
                         <button onClick={() => openVersions('relation', rel.id, `${rel.fromTable} → ${rel.toTable}`)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium transition-colors">
                           <History className="w-3 h-3" /><span>版本</span>
                         </button>
+                        <button
+                          onClick={() => void handleToggleStatus(rel)}
+                          aria-label={rel.status === 'ACTIVE' ? `停用关联路径 ${rel.fromTable} 到 ${rel.toTable}` : `启用关联路径 ${rel.fromTable} 到 ${rel.toTable}`}
+                          title={rel.status === 'ACTIVE' ? '停用后不再作为候选 JOIN 注入' : '重新启用'}
+                          className={`p-1.5 rounded-lg border transition-colors ${
+                            rel.status === 'ACTIVE'
+                              ? 'border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-amber-300'
+                              : 'border-emerald-700/60 text-emerald-300 hover:bg-emerald-950/40'
+                          }`}
+                        >
+                          {rel.status === 'ACTIVE' ? <PowerOff className="w-3 h-3" /> : <Power className="w-3 h-3" />}
+                        </button>
                         <button onClick={() => void handleDelete(rel)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors">
                           <Trash2 className="w-3 h-3" /><span>删除</span>
                         </button>
@@ -1111,9 +1627,19 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
                   </tr>
                 );
               })}
+              {isLoading && relations.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">加载中…</td>
+                </tr>
+              )}
               {!isLoading && relations.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-500">该数据源暂无关联路径，点击「登记路径」维护表间 JOIN 的权威口径</td>
+                </tr>
+              )}
+              {!isLoading && relations.length > 0 && visibleRelations.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">没有匹配的关联路径（共 {relations.length} 条）</td>
                 </tr>
               )}
             </tbody>
@@ -1123,18 +1649,21 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !isSaving && setEditing(null)}>
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label="编辑关联路径" className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100">编辑关联路径「{editing.fromTable} → {editing.toTable}」</h3>
               <button onClick={() => !isSaving && setEditing(null)} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button>
             </div>
             <RelationFields value={editForm} onChange={setEditForm} tables={tables} idPrefix="ont-rel-edit" />
-            <div className="flex justify-end space-x-2">
-              <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold">取消</button>
-              <button onClick={() => void handleSaveEdit()} disabled={isSaving || !editForm.fromTable.trim() || !editForm.toTable.trim()} className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold shadow flex items-center space-x-1">
-                {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isSaving ? '保存中…' : '保存'}</span>
-              </button>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-slate-500">保存后版本 +1，可在「版本」中回滚</span>
+              <div className="flex justify-end space-x-2">
+                <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold">取消</button>
+                <button onClick={() => void handleSaveEdit()} disabled={isSaving || Boolean(relationFormError(editForm))} title={relationFormError(editForm) || undefined} className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold shadow flex items-center space-x-1">
+                  {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSaving ? '保存中…' : '保存'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1145,16 +1674,17 @@ const RelationSection: React.FC<SectionProps> = ({ dataSourceId, tables, showNot
 
 // ============ 业务层级 ============
 
-const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, onChanged, openVersions }) => {
+const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, tables, showNotice, onChanged, openVersions }) => {
   const [hierarchies, setHierarchies] = useState<OntologyHierarchyItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [form, setForm] = useState({ name: '', levels: '' });
+  const [form, setForm] = useState<{ name: string; levels: string[] }>({ name: '', levels: ['', ''] });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editing, setEditing] = useState<OntologyHierarchyItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editLevels, setEditLevels] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [query, setQuery] = useState('');
 
   const load = useCallback(async () => {
     if (!dataSourceId) return;
@@ -1176,10 +1706,24 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
     return () => clearTimeout(timer);
   }, [load]);
 
+  useEscapeKey(editing !== null && !isSaving, () => setEditing(null));
+
+  /** 层级列名建议：取当前数据源所有表的列名去重（层级通常来自同一张维度表） */
+  const columnOptions = useMemo(
+    () => [...new Set(tables.flatMap((t) => t.columns.map((c) => c.name)))].slice(0, 300),
+    [tables]
+  );
+
+  const visibleHierarchies = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return hierarchies;
+    return hierarchies.filter((h) => h.name.toLowerCase().includes(q) || h.levels.some((lv) => lv.toLowerCase().includes(q)));
+  }, [hierarchies, query]);
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    const levels = listFromText(form.levels);
+    const levels = form.levels.map((s) => s.trim()).filter(Boolean);
     if (levels.length < 2) {
       showNotice('error', '业务层级至少需要两级（由粗到细，如 集团、分公司、项目）');
       return;
@@ -1193,7 +1737,7 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
       });
       showNotice('success', `业务层级「${form.name.trim()}」已创建（${levels.join(' > ')}）`);
       setIsCreating(false);
-      setForm({ name: '', levels: '' });
+      setForm({ name: '', levels: ['', ''] });
       await load();
       onChanged();
     } catch (err) {
@@ -1207,14 +1751,6 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
     setEditing(h);
     setEditName(h.name);
     setEditLevels(h.levels.length > 0 ? [...h.levels] : ['']);
-  };
-
-  const moveLevel = (index: number, delta: -1 | 1) => {
-    const target = index + delta;
-    if (target < 0 || target >= editLevels.length) return;
-    const next = [...editLevels];
-    [next[index], next[target]] = [next[target], next[index]];
-    setEditLevels(next);
   };
 
   const handleSaveEdit = async () => {
@@ -1254,50 +1790,96 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
     }
   };
 
+  /** 停用/启用业务层级：PUT 全量字段并翻转 status */
+  const handleToggleStatus = async (h: OntologyHierarchyItem) => {
+    const nextStatus = h.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
+    try {
+      await callApi<{ ok: boolean }>(`/api/ontology/hierarchies/${h.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: h.name, levels: h.levels, status: nextStatus }),
+      });
+      showNotice('success', `业务层级「${h.name}」已${nextStatus === 'ACTIVE' ? '启用' : '停用'}`);
+      await load();
+      onChanged();
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[11px] text-slate-400">
           业务层级 = 同一分析维度的下钻顺序（由粗到细）；问数命中相关表时注入，供「按机构层级汇总」等口径参考。
         </span>
-        <button
-          onClick={() => setIsCreating((v) => !v)}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold shadow-lg shadow-violet-600/30 transition-all"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>新建层级</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索层级名称或列名"
+              aria-label="搜索业务层级"
+              className="w-52 bg-slate-950 border border-slate-700 rounded-lg pl-7 pr-6 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-violet-500"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} aria-label="清除搜索" className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-500">{visibleHierarchies.length}/{hierarchies.length} 条</span>
+          <button
+            onClick={() => setIsCreating((v) => !v)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-semibold shadow-lg shadow-violet-600/30 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>新建层级</span>
+          </button>
+        </div>
       </div>
 
       {isCreating && (
         <form onSubmit={handleCreate} className="bg-slate-900 border border-violet-500/40 rounded-2xl p-5 space-y-3 shadow-2xl">
-          <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-2">新建业务层级（创建即生效）</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">层级名称（≤50 字，数据源内唯一）:</label>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                maxLength={50}
-                placeholder="例如: 机构层级"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-violet-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-slate-300 font-medium">层级列（逗号分隔，由粗到细）:</label>
-              <input
-                value={form.levels}
-                onChange={(e) => setForm({ ...form, levels: e.target.value })}
-                placeholder="例如: 集团、分公司、项目"
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-violet-500"
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-end space-x-2 pt-1">
-            <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700">取消</button>
-            <button type="submit" disabled={isSubmitting || !form.name.trim() || !form.levels.trim()} className="px-5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-bold shadow">
-              {isSubmitting ? '创建中…' : '确认创建'}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h3 className="font-bold text-slate-100 text-sm">新建业务层级（创建即生效）</h3>
+            <button
+              type="button"
+              onClick={() => setForm({ name: '机构层级', levels: ['集团', '分公司', '项目'] })}
+              className="flex items-center space-x-1 text-[11px] text-violet-300 hover:text-violet-200"
+            >
+              <Sparkles className="w-3 h-3" /><span>填入示例</span>
             </button>
+          </div>
+          <div className="space-y-1 text-xs">
+            <label className="text-slate-300 font-medium">层级名称（≤50 字，数据源内唯一）:</label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              maxLength={50}
+              placeholder="例如: 机构层级"
+              aria-label="层级名称"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-violet-500"
+            />
+          </div>
+          <div className="space-y-1 text-xs">
+            <label className="text-slate-300 font-medium">层级序列（由粗到细，至少两级；可按表结构联想列名）:</label>
+            <LevelEditor
+              levels={form.levels}
+              onChange={(levels) => setForm({ ...form, levels })}
+              columnOptions={columnOptions}
+              listId="ont-hier-create-levels"
+            />
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[10px] text-slate-500">保存后参与「按层级汇总」口径注入；停用后保留数据但不再注入</span>
+            <div className="flex items-center space-x-2">
+              <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700">取消</button>
+              <button type="submit" disabled={isSubmitting || !form.name.trim() || form.levels.filter((s) => s.trim()).length < 2} className="px-5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-xs font-bold shadow">
+                {isSubmitting ? '创建中…' : '确认创建'}
+              </button>
+            </div>
           </div>
         </form>
       )}
@@ -1315,10 +1897,10 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
               </tr>
             </thead>
             <tbody>
-              {hierarchies.map((h, idx) => {
+              {visibleHierarchies.map((h, idx) => {
                 const statusMeta = ONTOLOGY_STATUS_META[h.status] || ONTOLOGY_STATUS_META.ACTIVE;
                 return (
-                  <tr key={h.id} className="border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors">
+                  <tr key={h.id} className={`border-b border-slate-800/60 text-slate-300 hover:bg-slate-800/30 transition-colors ${h.status === 'DISABLED' ? 'opacity-60' : ''}`}>
                     <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
                     <td className="px-4 py-3 font-semibold text-slate-200">{h.name}</td>
                     <td className="px-4 py-3">
@@ -1343,6 +1925,19 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
                         <button onClick={() => openVersions('hierarchy', h.id, h.name)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px] font-medium transition-colors">
                           <History className="w-3 h-3" /><span>版本</span>
                         </button>
+                        <button
+                          onClick={() => void handleToggleStatus(h)}
+                          aria-label={`${h.status === 'ACTIVE' ? '停用' : '启用'}业务层级 ${h.name}`}
+                          title={h.status === 'ACTIVE' ? '停用：保留数据，但不再参与问数注入' : '启用：恢复参与问数注入'}
+                          className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
+                            h.status === 'ACTIVE'
+                              ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                              : 'border-emerald-800/60 text-emerald-300 hover:bg-emerald-950/40'
+                          }`}
+                        >
+                          {h.status === 'ACTIVE' ? <PowerOff className="w-3 h-3" /> : <Power className="w-3 h-3" />}
+                          <span>{h.status === 'ACTIVE' ? '停用' : '启用'}</span>
+                        </button>
                         <button onClick={() => void handleDelete(h)} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-rose-800/60 text-rose-300 hover:bg-rose-950/40 text-[11px] font-medium transition-colors">
                           <Trash2 className="w-3 h-3" /><span>删除</span>
                         </button>
@@ -1351,9 +1946,24 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
                   </tr>
                 );
               })}
+              {isLoading && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    <RefreshCw className="inline w-3.5 h-3.5 mr-1 animate-spin" />加载中…
+                  </td>
+                </tr>
+              )}
               {!isLoading && hierarchies.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-slate-500">该数据源暂无业务层级，可登记「集团、分公司、项目」等下钻顺序</td>
+                </tr>
+              )}
+              {!isLoading && hierarchies.length > 0 && visibleHierarchies.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    没有匹配「{query}」的业务层级
+                    <button onClick={() => setQuery('')} className="ml-2 text-violet-300 hover:underline">清除搜索</button>
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -1363,38 +1973,29 @@ const HierarchySection: React.FC<SectionProps> = ({ dataSourceId, showNotice, on
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !isSaving && setEditing(null)}>
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="编辑业务层级"
+            className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-100">编辑业务层级「{editing.name}」</h3>
-              <button onClick={() => !isSaving && setEditing(null)} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button>
+              <button onClick={() => !isSaving && setEditing(null)} aria-label="关闭" className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button>
             </div>
             <div className="space-y-1 text-xs">
               <label className="text-slate-300 font-medium">层级名称:</label>
-              <input value={editName} onChange={(e) => setEditName(e.target.value)} maxLength={50} className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-violet-500" />
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} maxLength={50} aria-label="层级名称" className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-violet-500" />
             </div>
-            <div className="space-y-2 text-xs">
+            <div className="space-y-1 text-xs">
               <label className="text-slate-300 font-medium">层级序列（由粗到细，可上下调整顺序）:</label>
-              {editLevels.map((lv, i) => (
-                <div key={i} className="flex items-center space-x-1.5">
-                  <span className="w-5 text-center text-[10px] text-slate-500">{i + 1}</span>
-                  <input
-                    value={lv}
-                    onChange={(e) => {
-                      const next = [...editLevels];
-                      next[i] = e.target.value;
-                      setEditLevels(next);
-                    }}
-                    placeholder="层级列名，如 集团"
-                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 focus:outline-none focus:border-violet-500"
-                  />
-                  <button onClick={() => moveLevel(i, -1)} disabled={i === 0} className="p-1 rounded-lg text-slate-400 hover:bg-slate-800 disabled:opacity-30" title="上移"><ArrowUp className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => moveLevel(i, 1)} disabled={i === editLevels.length - 1} className="p-1 rounded-lg text-slate-400 hover:bg-slate-800 disabled:opacity-30" title="下移"><ArrowDown className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => setEditLevels(editLevels.filter((_, j) => j !== i))} className="p-1 rounded-lg text-rose-300 hover:bg-rose-950/40" title="移除该级"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
-              ))}
-              <button onClick={() => setEditLevels([...editLevels, ''])} className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 text-[11px]">
-                <Plus className="w-3 h-3" /><span>添加层级</span>
-              </button>
+              <LevelEditor
+                levels={editLevels}
+                onChange={setEditLevels}
+                columnOptions={columnOptions}
+                listId="ont-hier-edit-levels"
+              />
             </div>
             <div className="flex justify-end space-x-2">
               <button onClick={() => setEditing(null)} disabled={isSaving} className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold">取消</button>
@@ -1453,6 +2054,8 @@ const VersionHistoryModal: React.FC<{
     return () => clearTimeout(timer);
   }, [load]);
 
+  useEscapeKey(restoringVersion === null, onClose);
+
   const handleRestore = async (v: OntologyVersionItem) => {
     if (restoringVersion !== null) return;
     if (!window.confirm(`确认将「${target.title}」回滚到 v${v.version}？当前内容会作为新版本保留，可再次回滚。`)) return;
@@ -1473,40 +2076,54 @@ const VersionHistoryModal: React.FC<{
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => restoringVersion === null && onClose()}>
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="版本历史"
+        className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-1.5">
             <History className="w-4 h-4 text-cyan-400" />
             <span>版本历史 · {target.title}</span>
+            {!isLoading && <span className="text-[10px] font-normal text-slate-500">共 {versions.length} 个版本 · Esc 关闭</span>}
           </h3>
-          <button onClick={onClose} disabled={restoringVersion !== null} className="text-slate-400 hover:text-slate-200 disabled:opacity-50"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} disabled={restoringVersion !== null} aria-label="关闭" className="text-slate-400 hover:text-slate-200 disabled:opacity-50"><X className="w-4 h-4" /></button>
         </div>
         <div className="max-h-[420px] overflow-y-auto space-y-1.5">
-          {versions.map((v) => (
-            <div key={`${v.version}-${v.createdAt}-${v.action}`} className="flex items-center justify-between gap-2 bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2 text-xs">
-              <div className="min-w-0">
-                <div className="flex items-center space-x-1.5">
-                  <span className="font-bold text-slate-200">v{v.version}</span>
-                  <span className="px-1.5 py-0.5 rounded-full border border-slate-600/50 text-[10px] text-slate-300">{ACTION_LABELS[v.action] || v.action || '变更'}</span>
-                  <span className="text-[10px] text-slate-500">{v.actor || '-'} · {v.createdAt || '-'}</span>
+          {versions.map((v, idx) => {
+            const isLatest = idx === 0;
+            return (
+              <div key={`${v.version}-${v.createdAt}-${v.action}`} className={`flex items-center justify-between gap-2 bg-slate-950/60 border rounded-xl px-3 py-2 text-xs ${isLatest ? 'border-cyan-700/50' : 'border-slate-800'}`}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-bold text-slate-200">v{v.version}</span>
+                    {isLatest && <span className="px-1.5 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/40 text-[10px] text-cyan-200">最新</span>}
+                    <span className="px-1.5 py-0.5 rounded-full border border-slate-600/50 text-[10px] text-slate-300">{ACTION_LABELS[v.action] || v.action || '变更'}</span>
+                    <span className="text-[10px] text-slate-500">{v.actor || '-'} · {v.createdAt || '-'}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 truncate" title={JSON.stringify(v.snapshot)}>
+                    {summarizeSnapshot(target.assetType, v.snapshot) || '（空快照）'}
+                  </div>
                 </div>
-                <div className="text-[10px] text-slate-500 font-mono truncate" title={JSON.stringify(v.snapshot)}>
-                  {JSON.stringify(v.snapshot).slice(0, 160)}
-                </div>
+                <button
+                  onClick={() => void handleRestore(v)}
+                  disabled={restoringVersion !== null || isLatest}
+                  title={isLatest ? '已是最新版本' : `回滚到 v${v.version}`}
+                  className="shrink-0 px-2.5 py-1 rounded-lg border border-cyan-700/60 text-cyan-300 hover:bg-cyan-950/40 disabled:opacity-40 text-[11px] font-semibold"
+                >
+                  {restoringVersion === v.version ? '回滚中…' : isLatest ? '当前版本' : '回滚到此版本'}
+                </button>
               </div>
-              <button
-                onClick={() => void handleRestore(v)}
-                disabled={restoringVersion !== null}
-                className="shrink-0 px-2.5 py-1 rounded-lg border border-cyan-700/60 text-cyan-300 hover:bg-cyan-950/40 disabled:opacity-50 text-[11px] font-semibold"
-              >
-                {restoringVersion === v.version ? '回滚中…' : '回滚到此版本'}
-              </button>
-            </div>
-          ))}
+            );
+          })}
           {!isLoading && versions.length === 0 && (
             <div className="py-8 text-center text-xs text-slate-500">暂无版本记录（创建/更新/删除/回滚均会留快照）</div>
           )}
-          {isLoading && <div className="py-8 text-center text-xs text-slate-500">加载中…</div>}
+          {isLoading && (
+            <div className="py-8 text-center text-xs text-slate-500"><RefreshCw className="inline w-3.5 h-3.5 mr-1 animate-spin" />加载中…</div>
+          )}
         </div>
         <div className="text-[10px] text-slate-500">回滚仅作用于治理元数据（实体/关系/层级），不改变执行层 Schema 与已生成 SQL。</div>
       </div>
@@ -1577,12 +2194,13 @@ export const OntologyPanel: React.FC = () => {
     void loadSummary();
   }, [loadSummary]);
 
-  const counters: { label: string; value: number; cls: string }[] = [
-    { label: '业务实体', value: summary?.entities ?? 0, cls: 'text-cyan-300' },
-    { label: '表列绑定', value: summary?.bindings ?? 0, cls: 'text-slate-200' },
-    { label: '值域释义', value: summary?.valueNotes ?? 0, cls: 'text-amber-300' },
-    { label: '关联路径', value: summary?.relations ?? 0, cls: 'text-emerald-300' },
-    { label: '业务层级', value: summary?.hierarchies ?? 0, cls: 'text-violet-300' },
+  // 可点击的计数卡直接切到对应 Tab（表列绑定依附实体，不单独跳转）
+  const counters: { label: string; value: number; cls: string; tab?: OntologyTab; hint?: string }[] = [
+    { label: '业务实体', value: summary?.entities ?? 0, cls: 'text-cyan-300', tab: 'entities' },
+    { label: '表列绑定', value: summary?.bindings ?? 0, cls: 'text-slate-200', hint: '在「实体与绑定」中按实体维护' },
+    { label: '值域释义', value: summary?.valueNotes ?? 0, cls: 'text-amber-300', tab: 'value-notes' },
+    { label: '关联路径', value: summary?.relations ?? 0, cls: 'text-emerald-300', tab: 'relations' },
+    { label: '业务层级', value: summary?.hierarchies ?? 0, cls: 'text-violet-300', tab: 'hierarchies' },
   ];
 
   return (
@@ -1607,12 +2225,25 @@ export const OntologyPanel: React.FC = () => {
           <span className="text-[10px] text-slate-500">命中实体 → 圈表加权 + 四段提示词软注入；执行层 Schema 白名单不变</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          {counters.map((c) => (
-            <div key={c.label} className="bg-slate-950/60 border border-slate-800 rounded-xl px-3 py-2">
-              <div className={`text-lg font-bold ${c.cls}`}>{c.value}</div>
-              <div className="text-[10px] text-slate-500">{c.label}（ACTIVE）</div>
-            </div>
-          ))}
+          {counters.map((c) => {
+            const activeTab = c.tab !== undefined && c.tab === tab;
+            return (
+              <button
+                key={c.label}
+                type="button"
+                onClick={() => c.tab && setTab(c.tab)}
+                disabled={!c.tab}
+                title={c.hint || `查看${c.label}`}
+                aria-label={c.tab ? `查看${c.label}` : c.hint}
+                className={`text-left bg-slate-950/60 border rounded-xl px-3 py-2 transition-colors ${
+                  activeTab ? 'border-cyan-500/60 ring-1 ring-cyan-500/30' : 'border-slate-800'
+                } ${c.tab ? 'hover:border-slate-600 cursor-pointer' : 'cursor-default'}`}
+              >
+                <div className={`text-lg font-bold ${c.cls}`}>{c.value}</div>
+                <div className="text-[10px] text-slate-500">{c.label}（ACTIVE）{c.tab ? ' ›' : ''}</div>
+              </button>
+            );
+          })}
         </div>
       </div>
 

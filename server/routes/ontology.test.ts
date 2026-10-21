@@ -93,6 +93,7 @@ describe('鉴权与角色守卫', () => {
     querySpy.mockImplementation(dbStub([analystAuth]));
     expect((await post('/api/ontology/entities', validEntity, ANALYST_TOKEN)).status).toBe(403);
     expect((await post('/api/ontology/value-notes', {}, ANALYST_TOKEN)).status).toBe(403);
+    expect((await post('/api/ontology/value-notes/bulk', {}, ANALYST_TOKEN)).status).toBe(403);
     expect((await post('/api/ontology/relations', {}, ANALYST_TOKEN)).status).toBe(403);
     expect((await post('/api/ontology/hierarchies', {}, ANALYST_TOKEN)).status).toBe(403);
     expect((await get('/api/ontology/entities/1/versions', ANALYST_TOKEN)).status).toBe(403);
@@ -223,6 +224,39 @@ describe('值域释义', () => {
     querySpy.mockImplementation(dbStub([adminAuth]));
     const res = await post('/api/ontology/value-notes', { dataSourceId: 'ds_m1', tableName: 'JGXX', columnName: 'BB', valueCode: '1' });
     expect(res.status).toBe(400);
+  });
+
+  it('POST /value-notes/bulk 空 items → 400；超过 200 条 → 400', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth]));
+    expect((await post('/api/ontology/value-notes/bulk', { dataSourceId: 'ds_m1', tableName: 'JGXX', columnName: 'BB', items: [] })).status).toBe(400);
+    const tooMany = Array.from({ length: 201 }, (_, i) => ({ valueCode: String(i), meaning: `含义${i}` }));
+    expect(
+      (await post('/api/ontology/value-notes/bulk', { dataSourceId: 'ds_m1', tableName: 'JGXX', columnName: 'BB', items: tooMany })).status
+    ).toBe(400);
+  });
+
+  it('POST /value-notes/bulk 部分失败仍 200，返回 saved/failed/failures', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        adminAuth,
+        { match: 'SELECT id FROM ontology_value_notes', rows: () => [] },
+        { match: 'INSERT INTO ontology_value_notes', rows: () => resultSet({ insertId: 21 }) },
+      ])
+    );
+    const res = await post('/api/ontology/value-notes/bulk', {
+      dataSourceId: 'ds_m1',
+      tableName: 'JGXX',
+      columnName: 'BB',
+      items: [
+        { valueCode: '1', meaning: '本期' },
+        { valueCode: '', meaning: '缺值编码' },
+        { valueCode: '2', meaning: '上期' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.saved).toBe(2);
+    expect(res.body.failed).toBe(1);
+    expect(res.body.failures[0]).toMatchObject({ index: 1, error: expect.stringContaining('值编码') });
   });
 });
 

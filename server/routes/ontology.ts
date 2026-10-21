@@ -200,6 +200,43 @@ router.post('/value-notes', ...adminOnly, async (req, res) => {
   }
 });
 
+// POST /api/ontology/value-notes/bulk —— 批量 upsert（ADMIN，单次 ≤200 条；逐条校验并返回失败明细）
+router.post('/value-notes/bulk', ...adminOnly, async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const dataSourceId = String(body.dataSourceId || '');
+  if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (items.length === 0) return res.status(400).json({ error: 'items 不能为空' });
+  if (items.length > 200) return res.status(400).json({ error: '单次最多批量保存 200 条' });
+
+  const actor = String(req.user?.username || 'unknown');
+  const failures: { index: number; valueCode: string; error: string }[] = [];
+  let saved = 0;
+  for (let i = 0; i < items.length; i += 1) {
+    const raw = (items[i] ?? {}) as Record<string, unknown>;
+    const cleaned = sanitizeValueNoteInput({
+      dataSourceId,
+      tableName: body.tableName,
+      columnName: body.columnName,
+      valueCode: raw.valueCode,
+      meaning: raw.meaning,
+    });
+    if (cleaned.ok !== true) {
+      failures.push({ index: i, valueCode: String(raw.valueCode ?? ''), error: cleaned.error });
+      continue;
+    }
+    try {
+      const r = await upsertValueNote(cleaned.note, actor);
+      if (r.ok === true) saved += 1;
+      else failures.push({ index: i, valueCode: cleaned.note.valueCode, error: r.error });
+    } catch (err) {
+      failures.push({ index: i, valueCode: cleaned.note.valueCode, error: getErrorMessage(err) || '写入失败' });
+    }
+  }
+  // 部分失败仍返回 200：由前端汇总展示成功/失败条数与首条原因
+  res.json({ ok: failures.length === 0, saved, failed: failures.length, failures: failures.slice(0, 20) });
+});
+
 // PUT /api/ontology/value-notes/:id —— 行内编辑含义/状态（ADMIN）
 router.put('/value-notes/:id', ...adminOnly, async (req, res) => {
   const id = parseId(req.params.id);

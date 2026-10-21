@@ -9192,6 +9192,36 @@
         }
       }
     },
+    "/api/ontology/value-notes/bulk": {
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "bulkUpsertOntologyValueNotes",
+        "summary": "批量 upsert 值域释义（同一表列，单次 ≤200 条；仅 ADMIN，返回成功/失败明细）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "批量结果（saved / failed / failures）"
+          },
+          "400": {
+            "description": "参数非法或超过 200 条"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/ontology/value-notes/{id}": {
       "put": {
         "tags": [
