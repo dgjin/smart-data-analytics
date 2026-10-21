@@ -76,7 +76,7 @@
 | 后端 | Express 4 + Node.js（tsx 开发 / esbuild 打包），含 Dockerfile |
 | 数据 | MySQL（mysql2）、PostgreSQL/Greenplum（pg）；可选 Redis（`REDIS_URL`，限流/配额/缓存状态外置，未配则进程内存储） |
 | AI | Ollama（本地）/ 通义千问百炼 / Gemini API / DeepSeek API，node-sql-parser |
-| 测试 | Vitest（155 文件 / 2187 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/本地与云端模型问数对比评估报告20260914.md)） |
+| 测试 | Vitest（155 文件 / 2187 用例）+ NL2SQL 评测集（server/eval：主集 148 用例六类分层 + 行级权限类、机创集 54 用例、对比抽样集 60 用例；`npm run eval:seed` 一键重建可复现评测数据源；本地/云端模型对比见 [对比评估报告](docs/archive/历史文档/评估报告/本地与云端模型问数对比评估报告20260914.md)） |
 
 ## 快速开始
 
@@ -220,6 +220,7 @@ docs/核心文档/更新日志.md        # 用户视角版本更新记录（帮�
 docs/核心文档/系统功能说明书.md  # 功能单一事实源（开发/评审侧，变更记录）
 docs/数据源配置与问数质量保障指导手册.md  # 新项目部署数据源接入与数据配置指导（质量保证单一事实源）
 docs/数据资源库智能问数质量提升实操手册.md  # 质量运营手册（七大杠杆/SOP/验收）
+docs/archive/历史文档/   # 过时文档归档（评估报告 / 实施报告 / 历史规划 / 历史材料）
 docs/training-ppt/         # 系统功能培训网页版 PPT（HTML slides，T 键切换字体主题）
 ```
 
