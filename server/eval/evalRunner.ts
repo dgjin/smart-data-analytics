@@ -61,6 +61,16 @@ export interface EvalSummary {
   /** 请求级引擎覆盖标识（对比评测时写入报告，便于区分同批用例的不同引擎结果） */
   engine?: string;
   model?: string;
+  /** P0-4 稳定性治理：实际执行轮数（缺省 1） */
+  runCount?: number;
+  /** 多跑准确率均值（单跑时等于 accuracy） */
+  meanAccuracy?: number;
+  /** 多跑分类准确率均值 */
+  byCategoryMean?: Record<string, CategoryStat>;
+  /** 单跑相对均值的最大跌幅（0-1） */
+  maxRunDrop?: number;
+  /** 每轮门禁统计（不含逐用例明细） */
+  runs?: EvalRunStat[];
   results: EvalCaseResult[];
 }
 
@@ -195,6 +205,89 @@ export function isBelowThreshold(accuracy: number, minAccuracy?: number): boolea
   return typeof minAccuracy === 'number' && accuracy < minAccuracy;
 }
 
+/** 评测集筛选：用例 ID / 分类 / 每类上限 / 全局上限（纯函数，便于单测） */
+export function selectEvalCases(
+  cases: EvalCase[],
+  opts: { caseIds?: string[]; categories?: string[]; limit?: number; perCategoryLimit?: number }
+): EvalCase[] {
+  let picked = Array.isArray(cases) ? cases.slice() : [];
+  if (opts.caseIds && opts.caseIds.length > 0) {
+    const ids = new Set(opts.caseIds);
+    picked = picked.filter((c) => ids.has(c.id));
+  }
+  const cats = (opts.categories || []).map((c) => c.trim().toLowerCase()).filter(Boolean);
+  if (cats.length > 0) {
+    const allow = new Set(cats);
+    picked = picked.filter((c) => allow.has(String(c.category || 'single_agg').toLowerCase()));
+  }
+  if (opts.perCategoryLimit && opts.perCategoryLimit > 0) {
+    const seen = new Map<string, number>();
+    const capped: EvalCase[] = [];
+    for (const c of picked) {
+      const cat = c.category || 'single_agg';
+      const n = seen.get(cat) || 0;
+      if (n >= opts.perCategoryLimit) continue;
+      seen.set(cat, n + 1);
+      capped.push(c);
+    }
+    picked = capped;
+  }
+  if (opts.limit && opts.limit > 0) picked = picked.slice(0, opts.limit);
+  return picked;
+}
+
+/** 单跑门禁统计（不含逐用例明细，便于多跑聚合） */
+export interface EvalRunStat {
+  accuracy: number;
+  pass: number;
+  total: number;
+  byCategory: Record<string, CategoryStat>;
+}
+
+export interface EvalMultiRunStat {
+  /** 多跑准确率均值（单跑时等于该跑准确率） */
+  meanAccuracy: number;
+  /** 分类准确率均值 */
+  byCategoryMean: Record<string, CategoryStat>;
+  /** 单跑相对均值的最大跌幅（绝对值，0-1） */
+  maxRunDrop: number;
+  /** 门禁：均值低于阈值，或单跑跌幅超过上限 */
+  belowThreshold: boolean;
+}
+
+/**
+ * P0-4 评测稳定性治理：同集多跑取均值 + 单跑跌幅门禁。
+ * meanAccuracy 消除单跑 ±15 分波动；maxRunDrop 拦截「均值达标但某跑异常低」的假稳定。
+ */
+export function summarizeRuns(
+  runs: EvalRunStat[],
+  minAccuracy?: number,
+  maxRunDrop: number = 0.15
+): EvalMultiRunStat {
+  if (!Array.isArray(runs) || runs.length === 0) {
+    return { meanAccuracy: 0, byCategoryMean: {}, maxRunDrop: 0, belowThreshold: false };
+  }
+  const meanAccuracy = runs.reduce((s, r) => s + r.accuracy, 0) / runs.length;
+  const best = Math.max(...runs.map((r) => r.accuracy));
+  const drop = Math.max(0, best - meanAccuracy);
+  const catNames = new Set<string>();
+  for (const r of runs) for (const cat of Object.keys(r.byCategory)) catNames.add(cat);
+  const byCategoryMean: Record<string, CategoryStat> = {};
+  for (const cat of catNames) {
+    const stats = runs.map((r) => r.byCategory[cat]).filter(Boolean) as CategoryStat[];
+    if (stats.length === 0) continue;
+    const accuracy = stats.reduce((s, x) => s + x.accuracy, 0) / stats.length;
+    const total = Math.round(stats.reduce((s, x) => s + x.total, 0) / stats.length);
+    byCategoryMean[cat] = { total, pass: Math.round(total * accuracy), accuracy };
+  }
+  return {
+    meanAccuracy,
+    byCategoryMean,
+    maxRunDrop: drop,
+    belowThreshold: isBelowThreshold(meanAccuracy, minAccuracy) || drop > maxRunDrop,
+  };
+}
+
 export interface RunEvalOptions {
   baseUrl?: string;
   username?: string;
@@ -204,42 +297,39 @@ export interface RunEvalOptions {
   casesFile?: string;
   /** 仅运行指定用例（逗号分隔 id） */
   caseIds?: string[];
+  /** 仅运行指定分类（join/multi_dim/time/...），空 = 全部 */
+  categories?: string[];
+  /** 每分类最多取前 N 条（定向评测用，先于全局 limit 生效） */
+  perCategoryLimit?: number;
   /** 仅运行前 N 条（分批跑，规避每小时配额） */
   limit?: number;
   perCaseTimeoutMs?: number;
   /** 准确率阈值（0-1）；低于阈值 belowThreshold=true（P0-2 CI 门禁阻断依据） */
   minAccuracy?: number;
+  /** P0-4 稳定性治理：同集连跑轮数（默认 1）；>1 时按均值 + 跌幅门禁判定 */
+  runs?: number;
+  /** 单跑相对均值的最大允许跌幅（0-1，默认 0.15） */
+  maxRunDrop?: number;
+  /** A/B：关闭本体注入（仅 ADMIN 生效，服务端按请求忽略他人传入） */
+  ontology?: 'on' | 'off';
   /** 请求级引擎覆盖（本地 vs 云端对比评测）：与 model 同时提供时透传到问数请求体，
    *  服务端按请求切换引擎（validateModelSelection 校验），同批用例可在同一服务进程内跑不同引擎，对比条件一致 */
   engine?: string;
   model?: string;
 }
 
-/** 执行评测：逐条走 HTTP 问数链路（真实端到端，含防御层/圈表/执行），统计执行准确率 */
-export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
-  const baseUrl = opts.baseUrl || process.env.EVAL_BASE_URL || 'http://127.0.0.1:3000';
-  const username = opts.username || process.env.EVAL_USER || 'admin';
-  const password = opts.password || process.env.EVAL_PASS || 'admin123';
-  const timeoutMs = opts.perCaseTimeoutMs || 10 * 60 * 1000;
+interface SuiteRunContext {
+  baseUrl: string;
+  token: string;
+  timeoutMs: number;
+  dataSourceId: string;
+  cases: EvalCase[];
+  opts: RunEvalOptions;
+}
 
-  const suite = loadEvalCases(opts.casesFile);
-  const dataSourceId = opts.dataSourceId || suite.dataSourceId;
-  let cases = suite.cases;
-  if (opts.caseIds && opts.caseIds.length > 0) {
-    const ids = new Set(opts.caseIds);
-    cases = cases.filter((c) => ids.has(c.id));
-  }
-  if (opts.limit && opts.limit > 0) cases = cases.slice(0, opts.limit);
-
-  // 登录获取 token
-  const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!loginRes.ok) throw new Error(`评测登录失败: HTTP ${loginRes.status}`);
-  const token = String((await loginRes.json())?.token || '');
-
+/** 单轮评测：逐条走 HTTP 问数链路（真实端到端，含防御层/圈表/执行） */
+async function runSuiteOnce(ctx: SuiteRunContext): Promise<{ summary: EvalSummary; stat: EvalRunStat }> {
+  const { baseUrl, token, timeoutMs, dataSourceId, cases, opts } = ctx;
   const results: EvalCaseResult[] = [];
   for (const c of cases) {
     const startedAt = Date.now();
@@ -258,6 +348,8 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
           query: c.question,
           dataSourceId: caseDsId,
           refreshCache: true,
+          // A/B：关闭本体注入（服务端仅对 ADMIN 生效）
+          ...(opts.ontology === 'off' ? { disableOntology: true } : {}),
           // 对比评测：请求级引擎覆盖（服务端 validateModelSelection 校验后按请求切换，非法值 400）
           ...(opts.engine && opts.model ? { model: { engine: opts.engine, model: opts.model } } : {}),
         }),
@@ -321,11 +413,9 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
   }
 
   const pass = results.filter((r) => r.status === 'pass').length;
-  // 六类分层统计 + 阈值判定（纯函数，便于单测）
+  // 分类分层统计（纯函数，便于单测）
   const byCategory = computeCategoryStats(results, cases);
   const accuracy = results.length > 0 ? pass / results.length : 0;
-  const minAccuracy = opts.minAccuracy;
-  const belowThreshold = isBelowThreshold(accuracy, minAccuracy);
   const summary: EvalSummary = {
     total: results.length,
     pass,
@@ -335,25 +425,92 @@ export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
     accuracy,
     avgDurationMs: results.length > 0 ? Math.round(results.reduce((s, r) => s + r.durationMs, 0) / results.length) : 0,
     byCategory,
-    minAccuracy,
-    belowThreshold,
+    minAccuracy: opts.minAccuracy,
+    belowThreshold: isBelowThreshold(accuracy, opts.minAccuracy),
     ...(opts.engine && opts.model ? { engine: opts.engine, model: opts.model } : {}),
     results,
+  };
+  return { summary, stat: { accuracy, pass, total: results.length, byCategory } };
+}
+
+/** 执行评测：单跑或 P0-4 多跑，逐条走 HTTP 问数链路统计执行准确率 */
+export async function runEval(opts: RunEvalOptions = {}): Promise<EvalSummary> {
+  const baseUrl = opts.baseUrl || process.env.EVAL_BASE_URL || 'http://127.0.0.1:3000';
+  const username = opts.username || process.env.EVAL_USER || 'admin';
+  const password = opts.password || process.env.EVAL_PASS || 'admin123';
+  const timeoutMs = opts.perCaseTimeoutMs || 10 * 60 * 1000;
+
+  const suite = loadEvalCases(opts.casesFile);
+  const dataSourceId = opts.dataSourceId || suite.dataSourceId;
+  const cases = selectEvalCases(suite.cases, opts);
+
+  // 登录获取 token（多跑复用同一 token）
+  const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!loginRes.ok) throw new Error(`评测登录失败: HTTP ${loginRes.status}`);
+  const token = String((await loginRes.json())?.token || '');
+
+  const runCount = Math.max(1, Math.floor(opts.runs || 1));
+  const runStats: EvalRunStat[] = [];
+  let lastSummary: EvalSummary | null = null;
+  for (let i = 0; i < runCount; i++) {
+    if (runCount > 1) console.log(`[eval] ===== 第 ${i + 1}/${runCount} 轮 =====`);
+    const { summary, stat } = await runSuiteOnce({ baseUrl, token, timeoutMs, dataSourceId, cases, opts });
+    lastSummary = summary;
+    runStats.push(stat);
+    if (runCount > 1) {
+      console.log(`[eval] 第 ${i + 1} 轮准确率: ${(stat.accuracy * 100).toFixed(1)}%（pass ${stat.pass}/${stat.total}）`);
+    }
+  }
+
+  const aggregated = summarizeRuns(runStats, opts.minAccuracy, opts.maxRunDrop ?? 0.15);
+  const summary: EvalSummary = {
+    ...(lastSummary as EvalSummary),
+    runCount,
+    meanAccuracy: aggregated.meanAccuracy,
+    byCategoryMean: aggregated.byCategoryMean,
+    maxRunDrop: aggregated.maxRunDrop,
+    runs: runStats,
+    // 多跑时以均值 + 跌幅门禁为准；单跑时等价于既有阈值判定
+    belowThreshold: aggregated.belowThreshold,
   };
 
   // 报告生成物统一落 reports/ 子目录，与源码/评测集分离
   const reportsDir = join(HERE, 'reports');
   mkdirSync(reportsDir, { recursive: true });
   const reportPath = join(reportsDir, `eval-report-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-  writeFileSync(reportPath, JSON.stringify({ ...summary, dataSourceId, generatedAt: new Date().toISOString() }, null, 2));
+  writeFileSync(
+    reportPath,
+    JSON.stringify(
+      {
+        ...summary,
+        dataSourceId,
+        generatedAt: new Date().toISOString(),
+        ...(opts.ontology ? { ontology: opts.ontology } : {}),
+      },
+      null,
+      2
+    )
+  );
   const engineTag = opts.engine && opts.model ? `[${opts.engine}:${opts.model}] ` : '';
-  console.log(`[eval] ${engineTag}执行准确率: ${(summary.accuracy * 100).toFixed(1)}%（pass ${pass}/${summary.total}）· 报告: ${reportPath}`);
-  for (const cat of Object.keys(byCategory).sort()) {
-    const s = byCategory[cat];
+  const runTag = runCount > 1 ? `${runCount} 跑均值 ` : '';
+  console.log(
+    `[eval] ${engineTag}${runTag}执行准确率: ${(aggregated.meanAccuracy * 100).toFixed(1)}%（单跑 ${(summary.accuracy * 100).toFixed(1)}%）` +
+      `${runCount > 1 ? `，最大跌幅 ${(aggregated.maxRunDrop * 100).toFixed(1)}%` : ''} · 报告: ${reportPath}`
+  );
+  const displayCats = runCount > 1 ? aggregated.byCategoryMean : summary.byCategory;
+  for (const cat of Object.keys(displayCats).sort()) {
+    const s = displayCats[cat];
     console.log(`[eval]   ${cat.padEnd(12)} ${(s.accuracy * 100).toFixed(1)}%（${s.pass}/${s.total}）`);
   }
-  if (belowThreshold) {
-    console.error(`[eval] ⚠️ 准确率 ${(accuracy * 100).toFixed(1)}% 低于阈值 ${(Number(minAccuracy) * 100).toFixed(0)}%（P0-2 门禁）`);
+  if (summary.belowThreshold) {
+    console.error(
+      `[eval] ⚠️ ${runCount > 1 ? `均值 ${(aggregated.meanAccuracy * 100).toFixed(1)}% 或单跑跌幅 ${(aggregated.maxRunDrop * 100).toFixed(1)}%` : `准确率 ${(summary.accuracy * 100).toFixed(1)}%`} 未通过门禁` +
+        `${typeof opts.minAccuracy === 'number' ? `（阈值 ${(Number(opts.minAccuracy) * 100).toFixed(0)}%` : '（'}${runCount > 1 ? `，跌幅上限 ${(Number(opts.maxRunDrop ?? 0.15) * 100).toFixed(0)}%` : ''}）`
+    );
   }
   return summary;
 }

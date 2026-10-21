@@ -9,6 +9,8 @@ import {
   extractTableNames,
   computeCategoryStats,
   isBelowThreshold,
+  selectEvalCases,
+  summarizeRuns,
 } from './evalRunner';
 
 describe('loadEvalCases', () => {
@@ -146,5 +148,79 @@ describe('P0-1 六类分层扩展', () => {
     expect(isBelowThreshold(0.9, 0.85)).toBe(false);
     expect(isBelowThreshold(0.8, undefined)).toBe(false);
     expect(isBelowThreshold(0.85, 0.85)).toBe(false);
+  });
+});
+
+describe('P0-4 评测双跑', () => {
+  const cases = [
+    { id: 'a', question: '', goldenSql: 'SELECT 1', category: 'join', expect: 'result' as const },
+    { id: 'b', question: '', goldenSql: 'SELECT 1', category: 'join', expect: 'result' as const },
+    { id: 'c', question: '', goldenSql: 'SELECT 1', category: 'join', expect: 'result' as const },
+    { id: 'd', question: '', goldenSql: 'SELECT 1', category: 'time', expect: 'result' as const },
+    { id: 'e', question: '', goldenSql: 'SELECT 1', category: 'time', expect: 'result' as const },
+    { id: 'f', question: '', goldenSql: 'SELECT 1', category: 'single_agg', expect: 'result' as const },
+  ];
+
+  it('selectEvalCases：按 ID / 分类（大小写不敏感）/ 每类上限 / 全局上限筛选', () => {
+    // 指定 ID
+    expect(selectEvalCases(cases, { caseIds: ['a', 'd'] }).map((c) => c.id)).toEqual(['a', 'd']);
+    // 分类过滤（大小写不敏感、多分类）
+    expect(selectEvalCases(cases, { categories: ['JOIN', 'time'] }).map((c) => c.id)).toEqual([
+      'a', 'b', 'c', 'd', 'e',
+    ]);
+    // 每类上限：每类只留前 2 条
+    expect(selectEvalCases(cases, { perCategoryLimit: 2 }).map((c) => c.id)).toEqual([
+      'a', 'b', 'd', 'e', 'f',
+    ]);
+    // 每类上限先于全局上限生效
+    expect(selectEvalCases(cases, { perCategoryLimit: 2, limit: 3 }).map((c) => c.id)).toEqual([
+      'a', 'b', 'd',
+    ]);
+    // 无条件时不丢失用例
+    expect(selectEvalCases(cases, {})).toHaveLength(cases.length);
+  });
+
+  it('summarizeRuns：单跑均值等于该跑准确率、跌幅 0、保留分类统计', () => {
+    const runs = [
+      {
+        accuracy: 0.8,
+        pass: 8,
+        total: 10,
+        byCategory: { join: { total: 5, pass: 4, accuracy: 0.8 } },
+      },
+    ];
+    const s = summarizeRuns(runs, 0.7);
+    expect(s.meanAccuracy).toBeCloseTo(0.8);
+    expect(s.maxRunDrop).toBe(0);
+    expect(s.byCategoryMean.join.accuracy).toBeCloseTo(0.8);
+    expect(s.belowThreshold).toBe(false);
+  });
+
+  it('summarizeRuns：多跑求均值、分类均值、最大跌幅取 best-mean', () => {
+    const mk = (accuracy: number, joinAcc: number) => ({
+      accuracy,
+      pass: Math.round(accuracy * 10),
+      total: 10,
+      byCategory: { join: { total: 5, pass: Math.round(joinAcc * 5), accuracy: joinAcc } },
+    });
+    const s = summarizeRuns([mk(1, 1), mk(0.6, 0.4)], 0.7, 0.15);
+    expect(s.meanAccuracy).toBeCloseTo(0.8);
+    // best(1) - mean(0.8) = 0.2
+    expect(s.maxRunDrop).toBeCloseTo(0.2);
+    expect(s.byCategoryMean.join.accuracy).toBeCloseTo(0.7);
+    expect(s.byCategoryMean.join.total).toBe(5);
+    // 均值 0.8 ≥ 阈值 0.7，但跌幅 0.2 > 0.15 → 门禁失败
+    expect(s.belowThreshold).toBe(true);
+    // 放宽跌幅上限后通过
+    expect(summarizeRuns([mk(1, 1), mk(0.6, 0.4)], 0.7, 0.25).belowThreshold).toBe(false);
+  });
+
+  it('summarizeRuns：均值低于阈值不通过；空输入安全返回', () => {
+    const mk = (accuracy: number) => ({ accuracy, pass: 0, total: 10, byCategory: {} });
+    expect(summarizeRuns([mk(0.5), mk(0.5)], 0.7, 0.15).belowThreshold).toBe(true);
+    expect(summarizeRuns([mk(0.5), mk(0.5)], undefined, 0.15).belowThreshold).toBe(false);
+    const empty = summarizeRuns([], 0.7);
+    expect(empty.meanAccuracy).toBe(0);
+    expect(empty.belowThreshold).toBe(false);
   });
 });
