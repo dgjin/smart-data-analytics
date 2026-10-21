@@ -76,7 +76,37 @@ const versionRows = [
   },
 ];
 
-/** 按 URL + method 分流：版本 / 概览 / 值域 / 关系 / 层级 / 实体（GET 列表、PUT 绑定与停用） */
+/** 智能预填草案（dryRun / apply 共用） */
+const autoBuildDraft = {
+  entities: [
+    {
+      name: '财务',
+      entityType: 'SUBJECT',
+      aliases: [],
+      description: '财务主题宽表',
+      bindings: [{ tableName: 'fct_fin', columnName: '', role: 'IDENTITY' }],
+      reasons: ['表主题'],
+    },
+  ],
+  valueNotes: [{ tableName: 'fct_fin', columnName: 'BB', valueCode: '1', meaning: '核算版', reason: '枚举描述' }],
+  relations: [
+    {
+      fromTable: 'fct_fin',
+      fromColumns: ['JGBH'],
+      toTable: 'fct_biz',
+      toColumns: ['JGBH'],
+      joinType: 'LEFT',
+      cardinality: 'N:1',
+      purpose: '按机构归集',
+      reason: '跨表同名键',
+    },
+  ],
+  hierarchies: [{ name: '财务分类层级', levels: ['YJFL', 'EJFL'], reason: '分级列族' }],
+  skipped: ['编号列 XYZ 未找到配对名称列'],
+  stats: { tables: 2, columns: 12, entities: 1, bindings: 1, valueNotes: 1, relations: 1, hierarchies: 1 },
+};
+
+/** 按 URL + method 分流：版本 / 概览 / 值域 / 关系 / 层级 / 实体（GET 列表、PUT 绑定与停用）/ 智能预填 */
 function mockRoutes() {
   mockedApiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     const u = String(url);
@@ -84,6 +114,26 @@ function mockRoutes() {
     const reply = (data: unknown) => ({ ok: true, json: async () => data }) as unknown as Response;
 
     if (u.includes('/versions')) return reply({ versions: versionRows });
+    if (u.includes('/api/ontology/auto-build')) {
+      if (String(init?.body || '').includes('"apply":true')) {
+        return reply({
+          ok: true,
+          mode: 'apply',
+          draft: autoBuildDraft,
+          applied: {
+            entitiesCreated: 1,
+            entitiesUpdated: 0,
+            bindingsWritten: 1,
+            valueNotesWritten: 1,
+            relationsCreated: 1,
+            hierarchiesCreated: 1,
+            skippedExisting: 0,
+            errors: [],
+          },
+        });
+      }
+      return reply({ ok: true, mode: 'preview', draft: autoBuildDraft });
+    }
     if (u.includes('/api/ontology/summary')) {
       return reply({ summary: { entities: 2, bindings: 1, valueNotes: 1, relations: 0, hierarchies: 1 } });
     }
@@ -194,5 +244,44 @@ describe('OntologyPanel 易用性', () => {
     expect((await screen.findAllByText(/机构 · SUBJECT · 别名 JGMC/)).length).toBe(2);
     expect(screen.getByText('最新')).toBeTruthy();
     expect(screen.getByText('当前版本')).toBeTruthy();
+  });
+
+  it('智能预填：打开弹窗先预览草案，不携带 apply 直接写库', async () => {
+    render(<OntologyPanel />);
+    await screen.findByText('机构');
+
+    fireEvent.click(screen.getByText('智能预填'));
+    expect(await screen.findByText('业务实体与绑定')).toBeTruthy();
+    expect(screen.getByText(/fct_fin\.\(表级\)/)).toBeTruthy();
+    expect(screen.getByText(/1 → 核算版/)).toBeTruthy();
+    expect(screen.getByText(/共 4 项候选/)).toBeTruthy();
+    expect(screen.getByText(/编号列 XYZ 未找到配对名称列/)).toBeTruthy();
+
+    const call = mockedApiFetch.mock.calls.find(([url]) => String(url).includes('/api/ontology/auto-build'));
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({ dataSourceId: 'ds1' });
+  });
+
+  it('智能预填：应用后展示写入统计，完成后刷新概览', async () => {
+    render(<OntologyPanel />);
+    await screen.findByText('机构');
+
+    fireEvent.click(screen.getByText('智能预填'));
+    fireEvent.click(await screen.findByText('应用 4 项'));
+
+    expect(await screen.findByText(/已应用到数据源/)).toBeTruthy();
+    expect(screen.getByText('新增实体')).toBeTruthy();
+    await waitFor(() =>
+      expect(mockedApiFetch).toHaveBeenCalledWith(
+        '/api/ontology/auto-build',
+        expect.objectContaining({ method: 'POST', body: expect.stringContaining('"apply":true') })
+      )
+    );
+
+    const summaryCalls = () =>
+      mockedApiFetch.mock.calls.filter(([url]) => String(url).includes('/api/ontology/summary')).length;
+    const before = summaryCalls();
+    fireEvent.click(screen.getByText('完成并刷新'));
+    await waitFor(() => expect(summaryCalls()).toBeGreaterThan(before));
+    expect(screen.queryByText('业务实体与绑定')).toBeNull();
   });
 });

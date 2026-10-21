@@ -26,6 +26,7 @@ import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { getErrorMessage } from '../../utils/errorUtils';
 import { SectionTabs, type SectionTabItem } from './SectionTabs';
+import { OntologyAutoBuildModal } from './OntologyAutoBuildModal';
 import {
   SchemaInput,
   SchemaColumnsInput,
@@ -2144,6 +2145,7 @@ export const OntologyPanel: React.FC = () => {
   const [versionTarget, setVersionTarget] = useState<VersionTarget | null>(null);
   // 版本回滚后强制重挂载四个子面板，使其重新拉取最新资产
   const [refreshToken, setRefreshToken] = useState(0);
+  const [autoBuildOpen, setAutoBuildOpen] = useState(false);
 
   const showNotice = useCallback((type: 'success' | 'error', text: string) => setNotice({ type, text }), []);
   const openVersions = useCallback(
@@ -2164,6 +2166,10 @@ export const OntologyPanel: React.FC = () => {
 
   const tables = useMemo(
     () => dataSources.find((ds) => ds.id === dataSourceId)?.tables || [],
+    [dataSources, dataSourceId]
+  );
+  const dataSourceName = useMemo(
+    () => dataSources.find((ds) => ds.id === dataSourceId)?.name || '',
     [dataSources, dataSourceId]
   );
 
@@ -2218,6 +2224,15 @@ export const OntologyPanel: React.FC = () => {
             {dataSources.length === 0 && <option value="">暂无数据源</option>}
             {dataSources.map((ds) => <option key={ds.id} value={ds.id}>{ds.name}</option>)}
           </select>
+          <button
+            onClick={() => setAutoBuildOpen(true)}
+            disabled={!dataSourceId}
+            title="根据数据源 Schema 的中文描述与命名规则自动生成四类本体资产"
+            className="flex items-center space-x-1 rounded-lg border border-cyan-700/60 bg-cyan-950/30 px-2.5 py-1.5 text-cyan-200 hover:bg-cyan-900/40 disabled:opacity-40"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>智能预填</span>
+          </button>
           <button onClick={() => void loadSummary()} disabled={isSummaryLoading} className="flex items-center space-x-1 text-slate-400 hover:text-slate-200 disabled:opacity-50">
             <RefreshCw className={`w-3.5 h-3.5 ${isSummaryLoading ? 'animate-spin' : ''}`} />
             <span>刷新概览</span>
@@ -2306,6 +2321,16 @@ export const OntologyPanel: React.FC = () => {
         <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-10 text-center text-xs text-slate-500">
           暂无可用数据源，请先在「数据源与 Schema」接入后再维护业务本体
         </div>
+      )}
+
+      {autoBuildOpen && dataSourceId && (
+        <OntologyAutoBuildModal
+          dataSourceId={dataSourceId}
+          dataSourceName={dataSourceName}
+          showNotice={showNotice}
+          onClose={() => setAutoBuildOpen(false)}
+          onApplied={handleRestored}
+        />
       )}
 
       {versionTarget && (

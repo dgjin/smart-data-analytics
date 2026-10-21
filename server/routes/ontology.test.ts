@@ -342,3 +342,116 @@ describe('概览计数', () => {
     expect(res.body.summary).toEqual({ entities: 3, valueNotes: 5, relations: 2, hierarchies: 1, bindings: 6 });
   });
 });
+
+describe('自动搭建（auto-build）', () => {
+  const autoSchema = JSON.stringify([
+    {
+      name: 'fct_fin',
+      displayName: '财务宽表',
+      rowCount: 1000,
+      columns: [
+        { name: 'JGBH', description: '机构' },
+        { name: 'JGMC', description: '机构名称' },
+        { name: 'BB', description: '版本（1=核算版；2=分成版）' },
+      ],
+    },
+    {
+      name: 'fct_biz',
+      displayName: '主营业务-业务粒度宽表',
+      rowCount: 100,
+      columns: [
+        { name: 'JGBH', description: '机构编号' },
+        { name: 'JGMC', description: '机构名称' },
+        { name: 'SFYQ', description: '是否逾期（取值：是/否）' },
+      ],
+    },
+  ]);
+
+  const dsRule = (schema = autoSchema) => ({
+    match: 'FROM data_sources WHERE id',
+    rows: () => [{ name: '数据资源', schema_json: schema }],
+  });
+
+  /** apply 场景的完整 stub：查重/列表一律返回空，写入返回自增 ID */
+  const applyRules = () => [
+    adminAuth,
+    dsRule(),
+    { match: 'SELECT id FROM ontology_entities', rows: () => [] },
+    { match: 'FROM ontology_entities WHERE data_source_id', rows: () => [] },
+    { match: 'FROM ontology_entities WHERE id', rows: () => [entityRow({ id: 101 })] },
+    { match: 'DELETE FROM ontology_bindings', rows: () => resultSet({ affectedRows: 0 }) },
+    { match: 'FROM ontology_bindings', rows: () => [] },
+    { match: 'INSERT INTO ontology_entities', rows: () => resultSet({ insertId: 101 }) },
+    { match: 'INSERT INTO ontology_versions', rows: () => resultSet({}) },
+    { match: 'INSERT INTO ontology_bindings', rows: () => resultSet({}) },
+    { match: 'SELECT id FROM ontology_value_notes', rows: () => [] },
+    { match: 'FROM ontology_value_notes', rows: () => [] },
+    { match: 'INSERT INTO ontology_value_notes', rows: () => resultSet({ insertId: 201 }) },
+    { match: 'SELECT id FROM ontology_relations', rows: () => [] },
+    { match: 'FROM ontology_relations', rows: () => [] },
+    { match: 'INSERT INTO ontology_relations', rows: () => resultSet({ insertId: 301 }) },
+    { match: 'SELECT id FROM ontology_hierarchies', rows: () => [] },
+    { match: 'FROM ontology_hierarchies', rows: () => [] },
+    { match: 'INSERT INTO ontology_hierarchies', rows: () => resultSet({ insertId: 401 }) },
+  ];
+
+  it('ANALYST → 403；缺少 dataSourceId → 400', async () => {
+    querySpy.mockImplementation(dbStub([analystAuth]));
+    expect((await post('/api/ontology/auto-build', { dataSourceId: 'ds_m1' }, ANALYST_TOKEN)).status).toBe(403);
+
+    querySpy.mockImplementation(dbStub([adminAuth]));
+    expect((await post('/api/ontology/auto-build', {})).status).toBe(400);
+  });
+
+  it('数据源不存在 → 404；Schema 为空 → 400', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth, { match: 'FROM data_sources WHERE id', rows: () => [] }]));
+    expect((await post('/api/ontology/auto-build', { dataSourceId: 'missing' })).status).toBe(404);
+
+    querySpy.mockImplementation(dbStub([adminAuth, dsRule('[]')]));
+    const empty = await post('/api/ontology/auto-build', { dataSourceId: 'ds_m1' });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toContain('Schema');
+  });
+
+  it('dryRun 返回草案且不写库', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth, dsRule()]));
+    const res = await post('/api/ontology/auto-build', { dataSourceId: 'ds_m1' });
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe('preview');
+    expect(res.body.draft.stats).toMatchObject({ entities: 3, valueNotes: 2, relations: 1 });
+    expect(res.body.draft.entities.map((e: { name: string }) => e.name)).toEqual(
+      expect.arrayContaining(['财务', '主营业务', '机构'])
+    );
+    const writes = querySpy.mock.calls.filter(([sql]) => /INSERT|UPDATE|DELETE/i.test(String(sql)));
+    expect(writes).toHaveLength(0);
+  });
+
+  it('apply 落库实体/绑定/值域/关联，并返回写入统计', async () => {
+    querySpy.mockImplementation(dbStub(applyRules()));
+    const res = await post('/api/ontology/auto-build', { dataSourceId: 'ds_m1', apply: true });
+    expect(res.status).toBe(200);
+    expect(res.body.mode).toBe('apply');
+    expect(res.body.applied).toMatchObject({
+      entitiesCreated: 3,
+      entitiesUpdated: 0,
+      valueNotesWritten: 2,
+      relationsCreated: 1,
+      hierarchiesCreated: 0,
+      skippedExisting: 0,
+    });
+    expect(res.body.applied.bindingsWritten).toBeGreaterThan(0);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('重复 apply 默认跳过已存在实体（幂等保护人工维护）', async () => {
+    const rules = applyRules();
+    // index 3 为实体列表查询；保留 index 2 的「按名称查重」规则命中空集
+    rules[3] = { match: 'FROM ontology_entities WHERE data_source_id', rows: () => [entityRow({ name: '机构' })] };
+    querySpy.mockImplementation(dbStub(rules));
+    const res = await post('/api/ontology/auto-build', { dataSourceId: 'ds_m1', apply: true });
+    expect(res.status).toBe(200);
+    expect(res.body.applied.entitiesCreated).toBe(2);
+    expect(res.body.applied.skippedExisting).toBeGreaterThanOrEqual(1);
+  });
+});
+

@@ -8875,6 +8875,59 @@
         }
       }
     },
+    "/api/ontology/auto-build": {
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "autoBuildOntology",
+        "summary": "按数据源 Schema 自动生成业务本体草案；apply=false 仅预览，apply=true 幂等写入（仅 ADMIN）",
+        "description": "规则化推断四类资产：表主题与编号-名称列对 → 实体与绑定；中文描述中的枚举 → 值域释义；跨表同名键 → 关联路径；分级/地域列族 → 业务层级。同名实体、同键值域、同方向关联与同名层级默认跳过，overwrite=true 才更新实体/值域/层级。",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dataSourceId"
+                ],
+                "properties": {
+                  "dataSourceId": {
+                    "type": "string",
+                    "description": "数据源 ID（需已保存 Schema）"
+                  },
+                  "apply": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "true 落库，false 仅返回草案"
+                  },
+                  "overwrite": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "已存在资产是否更新（默认跳过）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "草案与（apply 时的）写入统计"
+          },
+          "400": {
+            "description": "缺少 dataSourceId 或数据源尚未保存 Schema"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "数据源不存在"
+          }
+        }
+      }
+    },
     "/api/ontology/summary": {
       "get": {
         "tags": [

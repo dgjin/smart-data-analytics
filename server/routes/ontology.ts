@@ -7,6 +7,7 @@
  */
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import type { RowDataPacket } from 'mysql2';
 import { authMiddleware, requireRole } from '../auth/auth';
 import {
   listEntities,
@@ -41,6 +42,8 @@ import {
 } from '../query/ontology';
 import { getErrorMessage } from '../infra/errorUtils';
 import { logger } from '../infra/logger';
+import { getPool } from '../infra/db';
+import { buildOntologyDraft, type AutoBuildTable } from '../query/ontologyAutoBuild';
 
 const router = Router();
 
@@ -442,6 +445,180 @@ router.get('/path', authMiddleware, async (req, res) => {
   } catch (err) {
     logger.error('[Ontology Path Error]', err);
     res.status(500).json({ error: `路径检索失败：${getErrorMessage(err) || '未知错误'}` });
+  }
+});
+
+// ---------- 自动搭建（v0.9.112） ----------
+
+/**
+ * POST /api/ontology/auto-build —— 基于数据源 Schema 生成本体草案（ADMIN）。
+ * body: { dataSourceId, apply?, overwrite? }
+ * - 默认 dryRun，仅返回草案供预览；
+ * - apply=true 时落库：实体 / 值域 / 关联 / 层级均按业务键幂等，已存在默认跳过；
+ * - overwrite=true 时覆盖同名实体（定义 + 绑定）与同键值域，谨慎使用。
+ */
+router.post('/auto-build', ...adminOnly, async (req, res) => {
+  const dataSourceId = String(req.body?.dataSourceId || '').trim();
+  if (!dataSourceId) return res.status(400).json({ error: '缺少 dataSourceId' });
+  const apply = req.body?.apply === true;
+  const overwrite = req.body?.overwrite === true;
+  const actor = String(req.user?.username || 'unknown');
+
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query<RowDataPacket[]>(
+      'SELECT name, schema_json FROM data_sources WHERE id = ? LIMIT 1',
+      [dataSourceId]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: '数据源不存在' });
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(String(rows[0].schema_json || '[]'));
+    } catch {
+      return res.status(400).json({ error: '数据源 Schema 解析失败，请重新提取 Schema 后再试' });
+    }
+    const rawTables = Array.isArray(parsed)
+      ? parsed
+      : parsed && Array.isArray((parsed as { tables?: unknown[] }).tables)
+        ? (parsed as { tables: unknown[] }).tables
+        : [];
+    if (rawTables.length === 0) {
+      return res.status(400).json({ error: '数据源尚未提取 Schema，无法自动搭建' });
+    }
+
+    const draft = buildOntologyDraft(rawTables as AutoBuildTable[]);
+    const dataSourceName = String(rows[0].name || '');
+    if (!apply) {
+      return res.json({ ok: true, mode: 'preview', dataSourceId, dataSourceName, draft });
+    }
+
+    const applied = {
+      entitiesCreated: 0,
+      entitiesUpdated: 0,
+      bindingsWritten: 0,
+      valueNotesWritten: 0,
+      relationsCreated: 0,
+      hierarchiesCreated: 0,
+      skippedExisting: 0,
+      errors: [] as string[],
+    };
+    const pushError = (text: string) => {
+      if (applied.errors.length < 20) applied.errors.push(text);
+    };
+
+    // 实体 + 绑定：已存在默认跳过（保护人工维护），overwrite 时更新定义并覆盖绑定
+    const existingEntities = await listEntities(dataSourceId);
+    const entityByName = new Map(existingEntities.map((e) => [e.name, e]));
+    for (const e of draft.entities) {
+      const existing = entityByName.get(e.name);
+      let entityId: number | null = existing?.id ?? null;
+      if (existing) {
+        if (!overwrite) {
+          applied.skippedExisting += 1;
+          continue;
+        }
+        const r = await updateEntity(
+          existing.id as number,
+          { name: e.name, entityType: e.entityType, aliases: e.aliases, description: e.description, status: existing.status },
+          actor
+        );
+        if (r.ok !== true) {
+          pushError(`实体「${e.name}」更新失败：${r.error}`);
+          continue;
+        }
+        applied.entitiesUpdated += 1;
+      } else {
+        const r = await createEntity(
+          { dataSourceId, name: e.name, entityType: e.entityType, aliases: e.aliases, description: e.description, status: 'ACTIVE' },
+          actor
+        );
+        if (r.ok !== true) {
+          pushError(`实体「${e.name}」创建失败：${r.error}`);
+          continue;
+        }
+        entityId = r.id;
+        applied.entitiesCreated += 1;
+      }
+      if (entityId === null) continue;
+      if (!existing || overwrite) {
+        const rb = await replaceBindings(
+          entityId,
+          e.bindings.map((b) => ({ entityId: entityId as number, dataSourceId, ...b }))
+        );
+        if (rb.ok === true) applied.bindingsWritten += e.bindings.length;
+        else pushError(`实体「${e.name}」绑定写入失败：${rb.error}`);
+      }
+    }
+
+    // 值域释义：同 (表, 列, 值) 默认跳过，overwrite 时更新含义
+    const noteKey = (t: string, c: string, v: string) => `${t}.${c}.${v}`.toLowerCase();
+    const existingNotes = await listValueNotes(dataSourceId);
+    const noteSet = new Set(existingNotes.map((n) => noteKey(n.tableName, n.columnName, n.valueCode)));
+    for (const n of draft.valueNotes) {
+      if (noteSet.has(noteKey(n.tableName, n.columnName, n.valueCode)) && !overwrite) {
+        applied.skippedExisting += 1;
+        continue;
+      }
+      const r = await upsertValueNote(
+        { dataSourceId, tableName: n.tableName, columnName: n.columnName, valueCode: n.valueCode, meaning: n.meaning, status: 'ACTIVE' },
+        actor
+      );
+      if (r.ok === true) applied.valueNotesWritten += 1;
+      else pushError(`值域 ${n.tableName}.${n.columnName}=${n.valueCode} 写入失败：${r.error}`);
+    }
+
+    // 关联路径：同方向唯一键默认跳过
+    const relKey = (r: { fromTable: string; fromColumns: string[]; toTable: string; toColumns: string[] }) =>
+      `${r.fromTable}.${r.fromColumns.join(',')}->${r.toTable}.${r.toColumns.join(',')}`.toLowerCase();
+    const existingRelations = await listRelations(dataSourceId);
+    const relSet = new Set(existingRelations.map(relKey));
+    for (const r of draft.relations) {
+      if (relSet.has(relKey(r))) {
+        applied.skippedExisting += 1;
+        continue;
+      }
+      const cr = await createRelation(
+        {
+          dataSourceId,
+          fromTable: r.fromTable,
+          fromColumns: r.fromColumns,
+          toTable: r.toTable,
+          toColumns: r.toColumns,
+          joinType: r.joinType,
+          cardinality: r.cardinality,
+          purpose: r.purpose,
+          status: 'ACTIVE',
+        },
+        actor
+      );
+      if (cr.ok === true) applied.relationsCreated += 1;
+      else pushError(`关联路径 ${r.fromTable}→${r.toTable} 写入失败：${cr.error}`);
+    }
+
+    // 业务层级：同名默认跳过，overwrite 时更新层级列序
+    const existingHierarchies = await listHierarchies(dataSourceId);
+    const hierarchyByName = new Map(existingHierarchies.map((h) => [h.name, h]));
+    for (const h of draft.hierarchies) {
+      const existing = hierarchyByName.get(h.name);
+      if (existing) {
+        if (!overwrite) {
+          applied.skippedExisting += 1;
+          continue;
+        }
+        const r = await updateHierarchy(existing.id as number, { name: h.name, levels: h.levels, status: existing.status }, actor);
+        if (r.ok !== true) pushError(`业务层级「${h.name}」更新失败：${r.error}`);
+        continue;
+      }
+      const r = await createHierarchy({ dataSourceId, name: h.name, levels: h.levels, status: 'ACTIVE' }, actor);
+      if (r.ok === true) applied.hierarchiesCreated += 1;
+      else pushError(`业务层级「${h.name}」创建失败：${r.error}`);
+    }
+
+    res.json({ ok: applied.errors.length === 0, mode: 'apply', dataSourceId, dataSourceName, draft, applied });
+  } catch (err) {
+    logger.error('[Ontology AutoBuild Error]', err);
+    res.status(500).json({ error: `自动搭建失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 
