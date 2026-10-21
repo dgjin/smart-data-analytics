@@ -35,6 +35,7 @@ import {
   Lightbulb,
   Pencil,
   BrainCircuit,
+  Boxes,
 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
@@ -51,6 +52,8 @@ import { DriftAlertPanel } from './DriftAlertPanel';
 import { ReportTemplateManager } from './ReportTemplateManager';
 import { MetricsPanel } from './MetricsPanel';
 import { IronRulesPanel } from './IronRulesPanel';
+// v0.9.110 业务本体治理：实体与绑定 / 值域释义 / 关联路径 / 业务层级（M1+M2）
+import { OntologyPanel } from './OntologyPanel';
 import { ExpertPersonasPanel } from './ExpertPersonasPanel';
 import { AccessRequestsPanel } from './AccessRequestsPanel';
 import { DlpDownloadPanel } from './DlpDownloadPanel';
@@ -163,12 +166,13 @@ const SECTION_GROUPS: {
   },
 ];
 
-/** 规则治理分类内的顶部 Tab（v0.9.56 起整合业务知识库与 SQL 样例库，五类治理资产统一入口） */
-type RuleGovernanceTab = 'metrics' | 'iron-rules' | 'knowledge' | 'examples' | 'personas';
+/** 规则治理分类内的顶部 Tab（v0.9.56 起整合业务知识库与 SQL 样例库；v0.9.110 新增业务本体，六类治理资产统一入口） */
+type RuleGovernanceTab = 'metrics' | 'iron-rules' | 'ontology' | 'knowledge' | 'examples' | 'personas';
 
 const RULE_TABS: SectionTabItem<RuleGovernanceTab>[] = [
   { id: 'metrics', label: '语义指标', icon: Ruler, color: 'text-cyan-400' },
   { id: 'iron-rules', label: '铁律规则', icon: ScrollText, color: 'text-rose-400' },
+  { id: 'ontology', label: '业务本体', icon: Boxes, color: 'text-emerald-400' },
   { id: 'knowledge', label: '业务知识库', icon: BookOpen, color: 'text-amber-400' },
   { id: 'examples', label: 'SQL 样例库', icon: FileCode2, color: 'text-violet-400' },
   { id: 'personas', label: '专家角色', icon: UserCog, color: 'text-emerald-400' },
@@ -814,7 +818,7 @@ export const AdminPanel: React.FC = () => {
         </div>
       )}
       
-      {/* ============ 区块三：规则治理（v0.9.56 起五类治理资产顶部 Tab 分类：语义指标 / 铁律规则 / 业务知识库 / SQL 样例库 / 专家角色） ============ */}
+      {/* ============ 区块三：规则治理（v0.9.56 起五类治理资产顶部 Tab 分类；v0.9.110 新增业务本体共六类：语义指标 / 铁律规则 / 业务本体 / 业务知识库 / SQL 样例库 / 专家角色） ============ */}
       {section === 'rule-governance' && (
         <div className="space-y-6">
           {/* 顶部 Tab 分类条（业务知识库与 SQL 样例库由「数据源与 Schema」迁入，统一治理入口） */}
@@ -824,6 +828,8 @@ export const AdminPanel: React.FC = () => {
           {ruleTab === 'metrics' && <MetricsPanel />}
           {/* 铁律规则：铁律规则库（v0.9.35 全量恒注入强制约束） */}
           {ruleTab === 'iron-rules' && <IronRulesPanel />}
+          {/* 业务本体：实体/别名/绑定 + 值域释义 + 关联路径 + 业务层级（v0.9.110 M1/M2 软注入治理） */}
+          {ruleTab === 'ontology' && <OntologyPanel />}
           {/* 业务知识库：术语口径与外部知识源（v0.9.56 由数据源页迁入） */}
           {ruleTab === 'knowledge' && (
             <KnowledgeBasePanel dataSources={dataSources} initialId={activeDataSourceId} />
