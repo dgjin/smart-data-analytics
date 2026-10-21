@@ -40,6 +40,8 @@ import externalKnowledgeRoutes from './server/routes/externalKnowledge';
 import sqlExampleRoutes from './server/routes/sqlExamples';
 import metricRoutes from './server/routes/metrics';
 import ironRuleRoutes from './server/routes/ironRules';
+// v0.9.110 业务本体治理（实体/绑定/值域/关系/层级）
+import ontologyRoutes from './server/routes/ontology';
 // v0.9.106 统一记忆体管理（仅 ADMIN：纠错候选审核 / 记忆条目 / 观测）
 import memoryRoutes from './server/routes/memory';
 import expertPersonaRoutes from './server/routes/expertPersonas';
@@ -384,6 +386,8 @@ async function startServer() {
   app.use('/api/auth', authRoutes);
   // v0.9.104 用户信息维护（仅本人读写，登录用户均可用，见 routes/user.ts）
   app.use('/api/user', userRoutes);
+  // v0.9.110 业务本体治理（实体/绑定/值域/关系/层级；写接口 ADMIN，读接口登录可读）
+  app.use('/api/ontology', ontologyRoutes);
   // 组织架构树（总部→机构→部门→团队；仅 ADMIN）——须先于 /api/admin 挂载，否则会先过一遍 admin 路由的鉴权链
   app.use('/api/admin/org-units', orgUnitRoutes);
   // v0.9.107 访问统计与评价中心（仅 ADMIN）——同样须先于 /api/admin 挂载

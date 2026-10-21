@@ -470,6 +470,115 @@ export async function createSchema(pool: mysql.Pool): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // v0.9.110 业务本体 M1：实体与术语层（业务实体 + 别名 + 表/列绑定 + 值域释义）。
+  // 与 OWL/RDF 无关，仅做「登记 → 命中 → 软注入 prompt」，执行层表白名单仍是最终兜底。
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ontology_entities (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      name VARCHAR(50) NOT NULL COMMENT '业务实体名（如 机构/项目）',
+      entity_type VARCHAR(20) NOT NULL DEFAULT 'SUBJECT' COMMENT 'SUBJECT/OBJECT/TIME/GEO',
+      aliases_json VARCHAR(600) NOT NULL DEFAULT '[]' COMMENT '业务别名 JSON 数组（如 机构名称/JGMC）',
+      description VARCHAR(300) NOT NULL DEFAULT '',
+      status ENUM('ACTIVE','DISABLED','PENDING','REJECTED') NOT NULL DEFAULT 'ACTIVE',
+      version INT NOT NULL DEFAULT 1,
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ontology_entity_ds_name (data_source_id, name),
+      INDEX idx_ontology_entity_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.110 业务本体 M1：实体绑定（实体 → 表/列 + 角色），column_name 为空表示表级绑定
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ontology_bindings (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      entity_id BIGINT NOT NULL,
+      data_source_id VARCHAR(64) NOT NULL,
+      table_name VARCHAR(64) NOT NULL,
+      column_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '空=表级绑定',
+      role ENUM('IDENTITY','ATTRIBUTE','RELATION_KEY') NOT NULL DEFAULT 'IDENTITY',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ontology_binding (entity_id, table_name, column_name),
+      INDEX idx_ontology_binding_ds_table (data_source_id, table_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.110 业务本体 M1：值域释义（枚举/编码列的实际取值含义，注入时按命中表过滤）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ontology_value_notes (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      table_name VARCHAR(64) NOT NULL,
+      column_name VARCHAR(64) NOT NULL,
+      value_code VARCHAR(100) NOT NULL,
+      meaning VARCHAR(200) NOT NULL,
+      status ENUM('ACTIVE','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ontology_value_note (data_source_id, table_name, column_name, value_code),
+      INDEX idx_ontology_value_note_ds_table (data_source_id, table_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.110 业务本体 M2：已登记 JOIN 路径（关系 / 基数 / 用途），供提示词推荐与血缘 declared 边使用
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ontology_relations (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      from_table VARCHAR(64) NOT NULL,
+      from_columns VARCHAR(300) NOT NULL COMMENT '逗号分隔的关联列',
+      to_table VARCHAR(64) NOT NULL,
+      to_columns VARCHAR(300) NOT NULL,
+      join_type ENUM('INNER','LEFT','RIGHT') NOT NULL DEFAULT 'LEFT',
+      cardinality ENUM('1:1','1:N','N:1','N:N') NOT NULL DEFAULT 'N:1',
+      purpose VARCHAR(300) NOT NULL DEFAULT '',
+      status ENUM('ACTIVE','DISABLED','PENDING','REJECTED') NOT NULL DEFAULT 'ACTIVE',
+      version INT NOT NULL DEFAULT 1,
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      -- 唯一键列长按 utf8mb4 4 字节折算：64+64+191+64+191=574 字符（2296 字节）< 3072 上限；
+      -- 关联列最长 300 字符，取前 191 作前缀足以区分（超长时由应用层 sanitize 拦截）
+      UNIQUE KEY uniq_ontology_relation (data_source_id, from_table, from_columns(191), to_table, to_columns(191)),
+      INDEX idx_ontology_relation_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.110 业务本体 M2：业务层级（如 集团 > 分公司 > 项目，levels_json 存列序数组）
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ontology_hierarchies (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      data_source_id VARCHAR(64) NOT NULL,
+      name VARCHAR(50) NOT NULL,
+      levels_json VARCHAR(600) NOT NULL DEFAULT '[]' COMMENT '层级列序 JSON 数组，由粗到细',
+      status ENUM('ACTIVE','DISABLED','PENDING','REJECTED') NOT NULL DEFAULT 'ACTIVE',
+      version INT NOT NULL DEFAULT 1,
+      created_by VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_ontology_hierarchy_ds_name (data_source_id, name),
+      INDEX idx_ontology_hierarchy_ds_status (data_source_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // v0.9.110 业务本体通用版本快照（实体/关系/层级共用，替代三张分表）：每次写入 version+1 并留快照
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ontology_versions (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      asset_type ENUM('entity','relation','hierarchy') NOT NULL,
+      asset_id BIGINT NOT NULL,
+      version INT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      action VARCHAR(20) NOT NULL COMMENT 'CREATE/UPDATE/DELETE/RESTORE',
+      actor VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ontology_versions_asset (asset_type, asset_id, version)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // 问数专家角色库（v0.9.40）：阶段二解读的 persona 路由配置（角色标签/触发关键词/rolePrompt）。
   // 内置 5 角色（risk/customer/finance/npl/default）启动时播种，可编辑不可删除；
   // default 为路由兜底（不参与关键词匹配），禁禁用禁删。仅 ADMIN 维护。
