@@ -10,7 +10,7 @@
   </defs>
   <rect width="1200" height="1520" fill="#ffffff"/>
   <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数 · 详细推导过程（NL2SQL 双阶段流水线）</text>
-  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.46 · 八源上下文并行 · 铁律优先 · 大小模型分工 · 中文强制兜底 · Fallback 对抗训练自愈闭环 · 全链路 query_trace 留痕 · 拒答/澄清/自省四契约</text>
+  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.110 · 八源上下文并行 · 业务本体四段注入 · 上下文仲裁（铁律 &gt; 指标 &gt; 本体 &gt; 业务口径 &gt; 知识 · 6000 token） · 大小模型分工 · 中文强制兜底 · Fallback 自愈闭环 · query_trace 留痕 · 拒答/澄清/自省四契约</text>
   <rect x="460" y="72" width="280" height="42" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
   <text x="600" y="93" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">用户自然语言提问</text>
   <line x1="600" y1="114" x2="600" y2="140" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
@@ -35,10 +35,10 @@
   <text x="612" y="450" font-size="11" fill="#6b7280">未命中</text>
   <rect x="360" y="462" width="480" height="48" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="600" y="478" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表（Schema Linking）</text>
-  <text x="600" y="496" font-size="11" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排 · 问题向量缓存复用 · 降级纯关键词</text>
+  <text x="600" y="496" font-size="10" fill="#6b7280" text-anchor="middle">本体快照 → 实体命中绑定加权 (+8/+4/+3) · 关键词粗排 + embedding 精排 · 降级纯关键词</text>
   <line x1="600" y1="510" x2="600" y2="538" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
   <line x1="106" y1="542" x2="1094" y2="542" stroke="#2563eb" stroke-width="1.5"/>
-  <text x="600" y="534" font-size="11" fill="#2563eb" text-anchor="middle">Promise.all 八源上下文并行构建（各自失败降级不阻断 · 注入优先级：铁律 > 指标 > 专家角色 > few-shot > RAG）</text>
+  <text x="600" y="534" font-size="11" fill="#2563eb" text-anchor="middle">Promise.all 八源 + 业务本体四段构建 · 上下文仲裁（铁律 &gt; 指标 &gt; 本体 &gt; 业务口径 &gt; 知识 · 去重裁剪 · 总预算 6000 token）</text>
   <line x1="600" y1="538" x2="600" y2="542" stroke="#2563eb" stroke-width="1.5"/>
   <line x1="105" y1="542" x2="105" y2="560" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
   <rect x="40" y="564" width="131" height="72" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
@@ -90,8 +90,8 @@
   <line x1="1092" y1="636" x2="1092" y2="660" stroke="#2563eb" stroke-width="1.5"/>
   <line x1="105" y1="660" x2="1092" y2="660" stroke="#2563eb" stroke-width="1.5"/>
   <line x1="600" y1="660" x2="600" y2="683" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
-  <rect x="720" y="640" width="280" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
-  <text x="860" y="660" font-size="10.5" fill="#6b7280" text-anchor="middle">trace: 知识 N 字 · 外部 N 源 · few-shot N 组 · 铁律 N 条</text>
+  <rect x="700" y="640" width="380" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
+  <text x="890" y="660" font-size="10.5" fill="#6b7280" text-anchor="middle">trace：本体命中 · 仲裁 token · 知识/外部/few-shot/铁律 N</text>
   <polygon points="600,685 720,718 600,751 480,718" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="600" y="723" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">清洗信号 / 深度分析？</text>
   <line x1="477" y1="718" x2="436" y2="718" stroke="#9333ea" stroke-width="1.5" marker-end="url(#ap)"/>

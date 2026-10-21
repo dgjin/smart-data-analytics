@@ -28,6 +28,7 @@ export default {
     { id: 'm8', title: '治理' },
     { id: 'm8b', title: '双闭环' },
     { id: 'm8c', title: '记忆体' },
+    { id: 'm8d', title: '业务本体' },
     { id: 'm9', title: '收尾' },
     { id: 'm10', title: '片尾' },
   ],

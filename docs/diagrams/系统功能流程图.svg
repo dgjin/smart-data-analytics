@@ -9,7 +9,7 @@
   </defs>
   <rect width="1120" height="1320" fill="#ffffff"/>
   <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数分析系统 · 整体功能流程图</text>
-  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.46 · React 19 + Vite + Tailwind CSS 4 前端 · Express 4 服务端 · 大小模型分工 AI（Qwen / Ollama / Gemini）· 90 测试文件 1035 用例 · 112 REST 端点</text>
+  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.110 · React 19 + Vite + Tailwind CSS 4 前端 · Express 4 服务端 · 大小模型分工 AI（Qwen / Ollama / Gemini）· 163 测试文件 2299 用例 · 261 REST 端点</text>
   <circle cx="560" cy="84" r="10" fill="#ffffff" stroke="#111827" stroke-width="1.5"/>
   <path d="M 544,110 Q 560,94 576,110" fill="none" stroke="#111827" stroke-width="1.5"/>
   <text x="584" y="90" font-size="12.5" fill="#111827">用户</text>
@@ -56,16 +56,16 @@
   <text x="437" y="334" font-size="10.5" fill="#6b7280" text-anchor="middle">JSON / CSV / Excel / API</text>
   <text x="437" y="346" font-size="9" fill="#9333ea" text-anchor="middle">ADMIN</text>
   <rect x="588" y="266" width="238" height="86" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="707" y="288" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">知识 · 技能 · 样例 · 铁律 · 指标</text>
+  <text x="707" y="288" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">知识 · 样例 · 指标 · 铁律 · 本体</text>
   <text x="707" y="306" font-size="10.5" fill="#6b7280" text-anchor="middle">本地 RAG · 外部知识库 · 技能分享审核</text>
   <text x="707" y="320" font-size="10.5" fill="#6b7280" text-anchor="middle">SQL 样例 · 语义指标 · JSON 备份 (v0.9.33)</text>
-  <text x="707" y="334" font-size="10.5" fill="#6b7280" text-anchor="middle">铁律规则库 (v0.9.35) · 专家角色 (v0.9.40)</text>
+  <text x="707" y="334" font-size="10.5" fill="#6b7280" text-anchor="middle">铁律规则库 · 专家角色 · 业务本体 (v0.9.110)</text>
   <text x="707" y="346" font-size="9" fill="#9333ea" text-anchor="middle">ADMIN（外部源配置）</text>
   <rect x="858" y="266" width="238" height="86" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
-  <text x="977" y="288" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">系统管理（六大区块）</text>
-  <text x="977" y="306" font-size="10.5" fill="#6b7280" text-anchor="middle">基础管理 · 质量监控 · 规则治理</text>
-  <text x="977" y="320" font-size="10.5" fill="#6b7280" text-anchor="middle">权限审批 · AI 审核 · 系统配置</text>
-  <text x="977" y="334" font-size="10.5" fill="#6b7280" text-anchor="middle">Fallback 审核队列 · A/B 看板</text>
+  <text x="977" y="288" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">系统管理（十三分类）</text>
+  <text x="977" y="306" font-size="10.5" fill="#6b7280" text-anchor="middle">用户 · 组织架构 · 权限审批</text>
+  <text x="977" y="320" font-size="10.5" fill="#6b7280" text-anchor="middle">规则治理 · AI 审核 · 质量监控</text>
+  <text x="977" y="334" font-size="10.5" fill="#6b7280" text-anchor="middle">记忆 · 访问评价 · 需求反馈</text>
   <text x="977" y="346" font-size="9" fill="#9333ea" text-anchor="middle">ADMIN</text>
   <line x1="167" y1="352" x2="167" y2="398" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
   <line x1="437" y1="352" x2="437" y2="398" stroke="#2563eb" stroke-width="1.5" marker-end="url(#ab)"/>
@@ -79,15 +79,15 @@
   <rect x="48" y="510" width="238" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="167" y="533" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">问数编排 liveQuery</text>
   <text x="167" y="552" font-size="10.5" fill="#6b7280" text-anchor="middle">双阶段流水线 · SSE 流式进度</text>
-  <text x="167" y="566" font-size="10.5" fill="#6b7280" text-anchor="middle">六重上下文 · 拒答契约 · 深度分析</text>
+  <text x="167" y="566" font-size="10.5" fill="#6b7280" text-anchor="middle">本体四段 · 仲裁 · 拒答契约</text>
   <rect x="318" y="510" width="238" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="437" y="533" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">Schema 圈表</text>
   <text x="437" y="552" font-size="10.5" fill="#6b7280" text-anchor="middle">关键词粗排 + embedding 精排</text>
-  <text x="437" y="566" font-size="10.5" fill="#6b7280" text-anchor="middle">短 TTL 缓存 · 降级纯关键词</text>
+  <text x="437" y="566" font-size="10.5" fill="#6b7280" text-anchor="middle">短 TTL 缓存 · 本体加权 · 降级关键词</text>
   <rect x="588" y="510" width="238" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
-  <text x="707" y="533" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">上下文并行构建（八源）</text>
+  <text x="707" y="533" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">上下文构建（八源 + 本体）</text>
   <text x="707" y="552" font-size="10.5" fill="#6b7280" text-anchor="middle">few-shot · 本地/外部 RAG · 语义指标</text>
-  <text x="707" y="566" font-size="10.5" fill="#6b7280" text-anchor="middle">铁律 · 专家角色 · 反例 · 金额单位</text>
+  <text x="707" y="566" font-size="10.5" fill="#6b7280" text-anchor="middle">本体四段 · 铁律 · 专家角色 · 反例</text>
   <rect x="858" y="510" width="238" height="62" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
   <text x="977" y="533" font-size="13" font-weight="600" fill="#111827" text-anchor="middle">复杂度预门控 / 清洗链</text>
   <text x="977" y="552" font-size="10.5" fill="#6b7280" text-anchor="middle">启发式信号 · 中间表 ait_*</text>
@@ -128,7 +128,7 @@
   <rect x="48" y="798" width="1008" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>
   <text x="552" y="818" font-size="10.5" fill="#6b7280" text-anchor="middle">queryCache 语义缓存 · queryTrace 全链路留痕 · queryPlan 计划模式 · drill 下钻 · fileDataSource 文件落库 · serverFallbacks 中文兜底 (v0.9.39-42)</text>
   <rect x="48" y="834" width="1008" height="30" rx="6" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>
-  <text x="552" y="854" font-size="10.5" fill="#166534" text-anchor="middle">知识注入优先级：铁律规则 > 语义指标 > 专家角色 > few-shot 样例 > 知识库 RAG · Fallback 审核入口：系统管理 → AI 审核（优先级排名 + 批量操作）</text>
+  <text x="552" y="854" font-size="10.5" fill="#166534" text-anchor="middle">上下文注入优先级：铁律规则 > 语义指标 > 业务本体 > 业务口径 > 知识 / 样例 · 上下文仲裁器排序去重 · 总预算 6000 token · Fallback 审核入口：系统管理 → AI 审核</text>
   <text x="560" y="892" font-size="11" fill="#374151" text-anchor="middle" font-weight="600">失败自愈闭环 (v0.9.44-46)：问数失败 → 自动采集 → 人工审核标注正确 SQL → 注入样例库 Few-Shot → 同类失败自动修正重试</text>
   <line x1="300" y1="908" x2="300" y2="940" stroke="#9333ea" stroke-width="1.5" marker-start="url(#ap)" marker-end="url(#ap)"/>
   <line x1="820" y1="908" x2="820" y2="940" stroke="#9333ea" stroke-width="1.5" marker-start="url(#ap)" marker-end="url(#ap)"/>
@@ -166,7 +166,7 @@
   <path d="M 48,1124 A 125,10 0 0 1 298,1124 L 298,1198 A 125,10 0 0 1 48,1198 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
   <ellipse cx="173" cy="1124" rx="125" ry="10" fill="#dcfce7" stroke="#86efac" stroke-width="1.5"/>
   <text x="173" y="1150" font-size="12" font-weight="600" fill="#111827" text-anchor="middle">应用库 MySQL smart_analytics</text>
-  <text x="173" y="1166" font-size="10" fill="#6b7280" text-anchor="middle">用户/数据源/知识/技能/指标/铁律</text>
+  <text x="173" y="1166" font-size="10" fill="#6b7280" text-anchor="middle">用户/数据源/知识/技能/指标/铁律/本体</text>
   <text x="173" y="1180" font-size="10" fill="#6b7280" text-anchor="middle">对话历史/审计/trace/报告模板/专家角色</text>
   <text x="173" y="1194" font-size="10" fill="#6b7280" text-anchor="middle">fallback_samples/ab_experiments/saved_reports</text>
   <path d="M 330,1124 A 110,10 0 0 1 550,1124 L 550,1198 A 110,10 0 0 1 330,1198 Z" fill="#f0fdf4" stroke="#86efac" stroke-width="1.5"/>
@@ -203,6 +203,6 @@
   <text x="474" y="1272" font-size="11.5" fill="#6b7280">留痕 / 回放</text>
   <line x1="556" y1="1268" x2="586" y2="1268" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ao)"/>
   <text x="594" y="1272" font-size="11.5" fill="#6b7280">数据变化自主更新</text>
-  <text x="1068" y="1272" font-size="10.5" fill="#9ca3af" text-anchor="end">v0.9.46 · 2026-09-10 · 紫色标签 = 权限受限 · 橙色 = v0.6+ 新增能力</text>
-  <text x="40" y="1294" font-size="10.5" fill="#9ca3af">相比 v0.5.3 旧图新增：铁律规则库 · 专家角色库 · Fallback 对抗训练闭环 · 异步任务 · SSE 断线续传 · 漂移检测 · 并行生成 · 运行监控 · 报表服务端保存 · JSON 备份 · 文件数据源落库 · 高级筛选双入口 · 结果全屏 · 中文强制兜底 · 大小模型分工</text>
+  <text x="1068" y="1272" font-size="10.5" fill="#9ca3af" text-anchor="end">v0.9.110 · 2026-10-21 · 紫色标签 = 权限受限 · 橙色 = v0.6+ 新增能力</text>
+  <text x="40" y="1294" font-size="10.5" fill="#9ca3af">v0.7 – v0.9.110 新增：铁律规则库 · 专家角色 · Fallback 自愈 · 异步任务 · 断线续传 · 漂移检测 · 运行监控 · JSON 备份 · 文件落库 · 结果全屏 · 中文兜底 · 大小模型分工 · 首启向导 · 需求反馈 · 业务本体 · 上下文仲裁 · 评测双跑</text>
 </svg>

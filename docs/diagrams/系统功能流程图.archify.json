@@ -3,11 +3,12 @@
   "diagram_type": "workflow",
   "meta": {
     "title": "智能问数分析系统 · 系统功能流程图",
+    "subtitle": "v0.9.110 · 业务本体增强 · 系统管理十三分类 · 上下文仲裁",
     "locale": "zh-CN",
     "output": "docs/diagrams/系统功能流程图.html",
     "quality_profile": "showcase",
     "views": [
-      { "id": "happy-path", "label": "一条功能主链", "focus": ["login", "onboard", "ask", "derive", "result", "assets"], "note": "从身份接入、数据与规则治理，到提问、推导、呈现与资产沉淀。" },
+      { "id": "happy-path", "label": "一条功能主链", "focus": ["login", "onboard", "ask", "derive", "result", "assets"], "note": "从身份接入、数据 / 规则 / 本体治理，到提问、推导、呈现与资产沉淀。" },
       { "id": "safety-and-ops", "label": "防护与运维", "focus": ["ask", "guard", "audit", "patrol"], "note": "每次请求都经过六层防护与配额，并留下可回放的审计痕迹与定时巡检。" },
       { "id": "quality-loop", "label": "质量闭环", "focus": ["result", "feedback", "learn", "onboard", "ask"], "note": "点踩与人工审核把错误样本沉淀为反例与个人经验，再回流到下一轮推导。" }
     ]
@@ -24,17 +25,17 @@
     { "id": "deliver", "label": "呈现 + 沉淀 + 闭环", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
   "groups": [
-    { "id": "pipeline", "label": "双阶段推导", "lane": "core", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "pipeline", "label": "双阶段推导 · 本体增强", "lane": "core", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
     { "id": "safety", "label": "六层防护链", "lane": "guard", "fromCol": 2, "toCol": 3, "variant": "security" },
     { "id": "quality", "label": "质量回流", "lane": "loop", "fromCol": 4, "toCol": 5, "variant": "dashed" }
   ],
   "mainPath": ["login", "onboard", "ask", "derive", "result", "assets"],
   "nodes": [
     { "id": "login", "lane": "access", "col": 0, "type": "external", "label": "登录与角色识别", "sublabel": "本地账号 / OIDC 单点", "tag": "JIT 建号", "width": 132 },
-    { "id": "onboard", "lane": "access", "col": 1, "type": "database", "label": "数据与规则接入", "sublabel": "数据源 · 指标 · 铁律", "tag": "Scope 白名单", "width": 132 },
+    { "id": "onboard", "lane": "access", "col": 1, "type": "database", "label": "数据与规则接入", "sublabel": "数据源·指标·铁律·本体", "tag": "Scope 白名单", "width": 132 },
     { "id": "clarify", "lane": "access", "col": 2, "type": "security", "label": "澄清与边界拒答", "sublabel": "澄清追问 · 越界拒答", "width": 132 },
     { "id": "ask", "lane": "core", "col": 2, "type": "frontend", "label": "提问与模式选择", "sublabel": "问数 / 报告 / 深度思考", "width": 132 },
-    { "id": "derive", "lane": "core", "col": 3, "type": "backend", "label": "双阶段 NL2SQL 推导", "sublabel": "七路上下文 · 自纠错", "width": 132 },
+    { "id": "derive", "lane": "core", "col": 3, "type": "backend", "label": "双阶段 NL2SQL 推导", "sublabel": "本体注入 · 仲裁 · 自纠错", "width": 132 },
     { "id": "result", "lane": "core", "col": 4, "type": "frontend", "label": "结果呈现与导出", "sublabel": "图表 / 表格 / 归因", "tag": "PPTX · DOCX · PDF", "width": 132 },
     { "id": "assets", "lane": "core", "col": 5, "type": "frontend", "label": "资产沉淀与复用", "sublabel": "看板 / 报告 / 灵活查询", "width": 132 },
     { "id": "guard", "lane": "guard", "col": 2, "type": "security", "label": "六层防护与配额", "sublabel": "频率 20 次/时 · 并发槽 1", "tag": "fail-closed", "width": 132 },
@@ -58,8 +59,8 @@
     { "id": "assets-patrol", "from": "assets", "to": "patrol", "label": "定时巡检", "variant": "dashed", "role": "branch" }
   ],
   "cards": [
-    { "dot": "cyan", "title": "一条功能主链", "items": ["登录后先做数据源与口径治理", "三种模式共用一条推导链路", "结果一键沉淀为看板与报告"] },
-    { "dot": "rose", "title": "防护与边界", "items": ["六层防护：净化 · 鉴权 · ACL · 配额", "澄清与越界拒答只在首轮触发", "trace 记录上下文、SQL、结果与耗时"] },
-    { "dot": "emerald", "title": "质量闭环", "items": ["点踩与审核把错误样本沉淀为反例", "反例回流知识治理，下轮 few-shot 注入", "评测 148 + 54 + 60 用例守住回归"] }
+    { "dot": "cyan", "title": "一条功能主链", "items": ["登录后先做数据源、口径与本体治理", "本体四段注入，经仲裁后进入推导", "结果一键沉淀为看板与报告"] },
+    { "dot": "rose", "title": "防护与边界", "items": ["六层防护：净化 · 鉴权 · ACL · 配额", "系统管理十三分类，规则治理统一维护六类资产", "澄清与越界拒答只在首轮触发", "trace 记录本体命中、仲裁与 SQL 耗时"] },
+    { "dot": "emerald", "title": "质量闭环", "items": ["点踩与审核把错误样本沉淀为反例", "反例回流知识治理，下轮 few-shot 注入", "评测双跑与本体开关守住回归"] }
   ]
 }

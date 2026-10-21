@@ -21,7 +21,7 @@ s(f'  <rect width="{W}" height="{H}" fill="#ffffff"/>')
 
 # ---- Title ----
 s(f'  <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数分析系统 · 整体功能流程图</text>')
-s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.46 · React 19 + Vite + Tailwind CSS 4 前端 · Express 4 服务端 · 大小模型分工 AI（Qwen / Ollama / Gemini）· 90 测试文件 1035 用例 · 112 REST 端点</text>')
+s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.110 · React 19 + Vite + Tailwind CSS 4 前端 · Express 4 服务端 · 大小模型分工 AI（Qwen / Ollama / Gemini）· 163 测试文件 2299 用例 · 261 REST 端点</text>')
 
 # ---- User layer ----
 s(f'  <circle cx="560" cy="84" r="10" fill="#ffffff" stroke="#111827" stroke-width="1.5"/>')
@@ -54,8 +54,8 @@ for x, y, t1, t2, t3, t4, tc, tag in mods1:
 mods2 = [
     (48, 266, "决策数据看板", "图表固化 · 日常巡检 · 指标直查", "60s 轮询 · 数据变化自主更新", "全屏大屏 · 异步刷新 (v0.9.2+)", "#ea580c", "数据变化自主更新 (v0.4.8+)"),
     (318, 266, "数据源与 Schema", "多源接入 · 文件导入落库 (v0.9.34)", "数据血缘 · 行级权限 · 自省开关", "JSON / CSV / Excel / API", "#9333ea", "ADMIN"),
-    (588, 266, "知识 · 技能 · 样例 · 铁律 · 指标", "本地 RAG · 外部知识库 · 技能分享审核", "SQL 样例 · 语义指标 · JSON 备份 (v0.9.33)", "铁律规则库 (v0.9.35) · 专家角色 (v0.9.40)", "#9333ea", "ADMIN（外部源配置）"),
-    (858, 266, "系统管理（六大区块）", "基础管理 · 质量监控 · 规则治理", "权限审批 · AI 审核 · 系统配置", "Fallback 审核队列 · A/B 看板", "#9333ea", "ADMIN"),
+    (588, 266, "知识 · 样例 · 指标 · 铁律 · 本体", "本地 RAG · 外部知识库 · 技能分享审核", "SQL 样例 · 语义指标 · JSON 备份 (v0.9.33)", "铁律规则库 · 专家角色 · 业务本体 (v0.9.110)", "#9333ea", "ADMIN（外部源配置）"),
+    (858, 266, "系统管理（十三分类）", "用户 · 组织架构 · 权限审批", "规则治理 · AI 审核 · 质量监控", "记忆 · 访问评价 · 需求反馈", "#9333ea", "ADMIN"),
 ]
 for x, y, t1, t2, t3, t4, tc, tag in mods2:
     cx = x + 119
@@ -80,9 +80,9 @@ s(f'  <rect x="36" y="480" width="1048" height="428" rx="10" fill="none" stroke=
 s(f'  <text x="50" y="500" font-size="13" font-weight="600" fill="#374151">智能分析引擎（Express / Node.js · tsx 开发 / esbuild 打包）</text>')
 
 erow1 = [
-    (48, 510, "问数编排 liveQuery", "双阶段流水线 · SSE 流式进度", "六重上下文 · 拒答契约 · 深度分析"),
-    (318, 510, "Schema 圈表", "关键词粗排 + embedding 精排", "短 TTL 缓存 · 降级纯关键词"),
-    (588, 510, "上下文并行构建（八源）", "few-shot · 本地/外部 RAG · 语义指标", "铁律 · 专家角色 · 反例 · 金额单位"),
+    (48, 510, "问数编排 liveQuery", "双阶段流水线 · SSE 流式进度", "本体四段 · 仲裁 · 拒答契约"),
+    (318, 510, "Schema 圈表", "关键词粗排 + embedding 精排", "短 TTL 缓存 · 本体加权 · 降级关键词"),
+    (588, 510, "上下文构建（八源 + 本体）", "few-shot · 本地/外部 RAG · 语义指标", "本体四段 · 铁律 · 专家角色 · 反例"),
     (858, 510, "复杂度预门控 / 清洗链", "启发式信号 · 中间表 ait_*", "物化应用库 · TTL 24h · 不阻断"),
 ]
 for x, y, t1, t2, t3 in erow1:
@@ -135,7 +135,7 @@ s(f'  <text x="902" y="772" font-size="10.5" fill="#6b7280" text-anchor="middle"
 s(f'  <rect x="48" y="798" width="1008" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>')
 s(f'  <text x="552" y="818" font-size="10.5" fill="#6b7280" text-anchor="middle">queryCache 语义缓存 · queryTrace 全链路留痕 · queryPlan 计划模式 · drill 下钻 · fileDataSource 文件落库 · serverFallbacks 中文兜底 (v0.9.39-42)</text>')
 s(f'  <rect x="48" y="834" width="1008" height="30" rx="6" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1"/>')
-s(f'  <text x="552" y="854" font-size="10.5" fill="#166534" text-anchor="middle">知识注入优先级：铁律规则 > 语义指标 > 专家角色 > few-shot 样例 > 知识库 RAG · Fallback 审核入口：系统管理 → AI 审核（优先级排名 + 批量操作）</text>')
+s(f'  <text x="552" y="854" font-size="10.5" fill="#166534" text-anchor="middle">上下文注入优先级：铁律规则 > 语义指标 > 业务本体 > 业务口径 > 知识 / 样例 · 上下文仲裁器排序去重 · 总预算 6000 token · Fallback 审核入口：系统管理 → AI 审核</text>')
 s(f'  <text x="560" y="892" font-size="11" fill="#374151" text-anchor="middle" font-weight="600">失败自愈闭环 (v0.9.44-46)：问数失败 → 自动采集 → 人工审核标注正确 SQL → 注入样例库 Few-Shot → 同类失败自动修正重试</text>')
 
 # Engine → AI arrows
@@ -183,7 +183,7 @@ def cylinder(x, w, title, lines, fill, stroke, top_fill):
     for i, ln in enumerate(lines):
         s(f'  <text x="{cx}" y="{1166 + i*14}" font-size="10" fill="#6b7280" text-anchor="middle">{ln}</text>')
 
-cylinder(48, 250, "应用库 MySQL smart_analytics", ["用户/数据源/知识/技能/指标/铁律", "对话历史/审计/trace/报告模板/专家角色", "fallback_samples/ab_experiments/saved_reports"], "#f0fdf4", "#86efac", "#dcfce7")
+cylinder(48, 250, "应用库 MySQL smart_analytics", ["用户/数据源/知识/技能/指标/铁律/本体", "对话历史/审计/trace/报告模板/专家角色", "fallback_samples/ab_experiments/saved_reports"], "#f0fdf4", "#86efac", "#dcfce7")
 cylinder(330, 220, "用户源数据库", ["MySQL / PostgreSQL / Greenplum", "业务宽表 127 万 + 1139 万行", "CSV / Excel / JSON 文件落库"], "#f0fdf4", "#86efac", "#dcfce7")
 cylinder(610, 160, "Redis / StateStore", ["限流 / 配额 / 任务队列状态", "SSE 续传缓冲 · 未配则进程内", ""], "#f0fdf4", "#86efac", "#dcfce7")
 cylinder(820, 200, "外部知识库服务", ["Dify / RAGFlow / 自建网关", "POST 检索 · Bearer 认证", "API Key AES-256-GCM"], "#faf5ff", "#ddd6fe", "#ede9fe")
@@ -212,8 +212,8 @@ s(f'  <line x1="436" y1="{ly}" x2="466" y2="{ly}" stroke="#6b7280" stroke-width=
 s(f'  <text x="474" y="{ly+4}" font-size="11.5" fill="#6b7280">留痕 / 回放</text>')
 s(f'  <line x1="556" y1="{ly}" x2="586" y2="{ly}" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ao)"/>')
 s(f'  <text x="594" y="{ly+4}" font-size="11.5" fill="#6b7280">数据变化自主更新</text>')
-s(f'  <text x="1068" y="{ly+4}" font-size="10.5" fill="#9ca3af" text-anchor="end">v0.9.46 · 2026-09-10 · 紫色标签 = 权限受限 · 橙色 = v0.6+ 新增能力</text>')
-s(f'  <text x="40" y="{ly+26}" font-size="10.5" fill="#9ca3af">相比 v0.5.3 旧图新增：铁律规则库 · 专家角色库 · Fallback 对抗训练闭环 · 异步任务 · SSE 断线续传 · 漂移检测 · 并行生成 · 运行监控 · 报表服务端保存 · JSON 备份 · 文件数据源落库 · 高级筛选双入口 · 结果全屏 · 中文强制兜底 · 大小模型分工</text>')
+s(f'  <text x="1068" y="{ly+4}" font-size="10.5" fill="#9ca3af" text-anchor="end">v0.9.110 · 2026-10-21 · 紫色标签 = 权限受限 · 橙色 = v0.6+ 新增能力</text>')
+s(f'  <text x="40" y="{ly+26}" font-size="10.5" fill="#9ca3af">v0.7 – v0.9.110 新增：铁律规则库 · 专家角色 · Fallback 自愈 · 异步任务 · 断线续传 · 漂移检测 · 运行监控 · JSON 备份 · 文件落库 · 结果全屏 · 中文兜底 · 大小模型分工 · 首启向导 · 需求反馈 · 业务本体 · 上下文仲裁 · 评测双跑</text>')
 
 s('</svg>')
 

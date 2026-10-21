@@ -17,9 +17,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCENES = ['m00', 'm0', 'm01', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm8b', 'm8c', 'm9', 'm10'];
+const SCENES = ['m00', 'm0', 'm01', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm8b', 'm8c', 'm8d', 'm9', 'm10'];
 // overlay 文件 → 所属幕（与 record.mjs 中的加载位置一致）
-const OVERLAY_SCENES = { 'intro.html': 'm00', 'loop.html': 'm8b', 'memory.html': 'm8c', 'outro.html': 'm10' };
+const OVERLAY_SCENES = { 'intro.html': 'm00', 'loop.html': 'm8b', 'memory.html': 'm8c', 'ontology.html': 'm8d', 'outro.html': 'm10' };
 const OUT_OVERLAY = join(__dirname, 'overlay-male');
 const DIAG = join(__dirname, 'diag-male');
 
@@ -164,11 +164,11 @@ for (const [file, scene] of Object.entries(OVERLAY_SCENES)) {
     overlayRows.push({ file, scene, oldV, nv });
     return `--d:${fmt(nv)}s`;
   });
-  // 片头片尾的整片时长提示：男声版 ≈ 14.9 分钟，文案改为 15 分钟
+  // 片头片尾的整片时长提示：男声版 ≈ 17 分钟，文案改为 17 分钟
   if (file === 'intro.html') {
     const before = out;
-    out = out.replace('全片约 <b>16 分钟</b>', '全片约 <b>15 分钟</b>');
-    if (out === before) report.push('警告：intro.html 未找到「全片约 16 分钟」文案，请人工核对');
+    out = out.replace('全片约 <b>18 分钟</b>', '全片约 <b>17 分钟</b>');
+    if (out === before) report.push('警告：intro.html 未找到「全片约 18 分钟」文案，请人工核对');
   }
   if (!n) throw new Error(`${file} 未匹配到任何 --d 值`);
   if (maxD > mDur[scene] / 1000 + 0.5) {
@@ -215,7 +215,7 @@ mkdirSync(DIAG, { recursive: true });
 writeFileSync(join(DIAG, 'remap-report.txt'), report.join('\n') + '\n', 'utf8');
 
 console.log(
-  `[remap] 15 幕句级校验通过；at ${atRows.length} 处、overlay ${overlayRows.length} 处已映射`
+  `[remap] ${SCENES.length} 幕句级校验通过；at ${atRows.length} 处、overlay ${overlayRows.length} 处已映射`
 );
 console.log(`[remap] 女声 ${(fTotal / 60).toFixed(2)} min → 男声 ${(mTotal / 60).toFixed(2)} min`);
 console.log(`[remap] -> record-male.mjs, overlay-male/*.html, diag-male/remap-report.txt`);

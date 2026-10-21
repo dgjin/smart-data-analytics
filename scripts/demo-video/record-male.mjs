@@ -897,6 +897,22 @@ const main = async () => {
     step(`memory animations armed (delta=${delta.toFixed(2)}s)`);
   });
 
+  // ── m8d 业务本体：四类资产 · 圈表加权 · 四段注入 · 上下文仲裁（时长按 m8d.vtt）──
+  if (want('m8d')) await scene('m8d', async (page) => {
+    const t0 = Date.now();
+    await bounded(page.goto(pathToFileURL(join(__dirname, 'overlay-male', 'ontology.html')).href, { waitUntil: 'load' }), 15000);
+    await bounded(page.locator('.stage').first().waitFor({ timeout: 5000 }), 5200);
+    const delta = (Date.now() - t0) / 1000;
+    await bounded(
+      page.evaluate((d) => {
+        document.body.style.setProperty('--delta', d + 's');
+        document.body.classList.add('playing');
+      }, delta),
+      3000
+    );
+    step(`ontology animations armed (delta=${delta.toFixed(2)}s)`);
+  });
+
   // ── m9 收尾（17.6s，时间点按 m9.vtt 对齐）──
   if (want('m9')) await scene('m9', async (page) => {
     const t0 = Date.now();

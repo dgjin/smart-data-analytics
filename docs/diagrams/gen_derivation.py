@@ -39,7 +39,7 @@ def arrow(x1, y1, x2, y2, color="#2563eb", marker="url(#ab)", dash=None):
 
 # Title
 s(f'  <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数 · 详细推导过程（NL2SQL 双阶段流水线）</text>')
-s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.46 · 八源上下文并行 · 铁律优先 · 大小模型分工 · 中文强制兜底 · Fallback 对抗训练自愈闭环 · 全链路 query_trace 留痕 · 拒答/澄清/自省四契约</text>')
+s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.110 · 八源上下文并行 · 业务本体四段注入 · 上下文仲裁（铁律 &gt; 指标 &gt; 本体 &gt; 业务口径 &gt; 知识 · 6000 token） · 大小模型分工 · 中文强制兜底 · Fallback 自愈闭环 · query_trace 留痕 · 拒答/澄清/自省四契约</text>')
 
 # Step 0: User question
 box(460, 72, 280, 42, "用户自然语言提问", None, "#eff6ff", "#bfdbfe")
@@ -66,12 +66,12 @@ arrow(CX, 432, CX, 458, "#2563eb", "url(#ab)")
 s(f'  <text x="612" y="450" font-size="11" fill="#6b7280">未命中</text>')
 
 # Step 5: Schema linking
-box(360, 462, 480, 48, "Schema 圈表（Schema Linking）", "关键词粗排 + embedding 精排 · 问题向量缓存复用 · 降级纯关键词")
+box(360, 462, 480, 48, "Schema 圈表（Schema Linking）", "本体快照 → 实体命中绑定加权 (+8/+4/+3) · 关键词粗排 + embedding 精排 · 降级纯关键词", "#ffffff", "#d1d5db", 13, 10)
 arrow(CX, 510, CX, 538)
 
 # Step 6: Parallel context (8 sources)
 s(f'  <line x1="106" y1="542" x2="1094" y2="542" stroke="#2563eb" stroke-width="1.5"/>')
-s(f'  <text x="600" y="534" font-size="11" fill="#2563eb" text-anchor="middle">Promise.all 八源上下文并行构建（各自失败降级不阻断 · 注入优先级：铁律 > 指标 > 专家角色 > few-shot > RAG）</text>')
+s(f'  <text x="600" y="534" font-size="11" fill="#2563eb" text-anchor="middle">Promise.all 八源 + 业务本体四段构建 · 上下文仲裁（铁律 &gt; 指标 &gt; 本体 &gt; 业务口径 &gt; 知识 · 去重裁剪 · 总预算 6000 token）</text>')
 s(f'  <line x1="600" y1="538" x2="600" y2="542" stroke="#2563eb" stroke-width="1.5"/>')
 
 contexts = [
@@ -99,8 +99,8 @@ s(f'  <line x1="105" y1="660" x2="1092" y2="660" stroke="#2563eb" stroke-width="
 arrow(CX, 660, CX, 683)
 
 # Trace record
-s(f'  <rect x="720" y="640" width="280" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>')
-s(f'  <text x="860" y="660" font-size="10.5" fill="#6b7280" text-anchor="middle">trace: 知识 N 字 · 外部 N 源 · few-shot N 组 · 铁律 N 条</text>')
+s(f'  <rect x="700" y="640" width="380" height="30" rx="6" fill="#f9fafb" stroke="#e5e7eb" stroke-width="1"/>')
+s(f'  <text x="890" y="660" font-size="10.5" fill="#6b7280" text-anchor="middle">trace：本体命中 · 仲裁 token · 知识/外部/few-shot/铁律 N</text>')
 
 # Step 7: Complexity decision
 diamond(CX, 718, 120, 33, "清洗信号 / 深度分析？")

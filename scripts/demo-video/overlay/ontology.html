@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 演示视频 · 业务本体</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --cyan: #22d3ee;
+    --violet: #8b5cf6;
+    --emerald: #34d399;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(1000px 620px at 12% 2%, rgba(139, 92, 246, .16), transparent 62%),
+      radial-gradient(1000px 700px at 90% 98%, rgba(34, 211, 238, .13), transparent 62%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 隐藏录制脚本注入的仿真光标（本幕无交互） */
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：遮蔽 Chromium 首帧渲染残留（与片头/片尾一致） */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1740px; display: flex; flex-direction: column; align-items: center; }
+
+  /* 动画基元：body.playing 由录制脚本在时间轴零点校准后添加，--delta 抵消页面加载耗时 */
+  .anim { opacity: 0; transform: translateY(20px); }
+  body.playing .anim { animation: rise .9s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* ── 标题 ── */
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 7px 20px;
+           border: 1px solid rgba(139,92,246,.45); border-radius: 999px; color: #d8cbff;
+           font-size: 16px; letter-spacing: 2px; background: rgba(139,92,246,.1); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--violet);
+                box-shadow: 0 0 12px var(--violet); }
+  h1 { margin-top: 18px; font-size: 54px; font-weight: 700; letter-spacing: 5px;
+       background: linear-gradient(180deg, #ffffff 30%, #d3c4ff 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .lede { margin-top: 10px; font-size: 17px; letter-spacing: 3px; color: var(--dim); }
+  .lede b { color: #c4b5fd; font-weight: 600; }
+
+  /* ── 双栏面板 ── */
+  .grid { margin-top: 26px; width: 100%; display: grid; grid-template-columns: 1fr 1.08fr; gap: 28px; }
+  .panel { position: relative; border-radius: 18px; padding: 22px 26px 18px;
+           background: rgba(255,255,255,.032); border: 1px solid rgba(139,152,173,.26);
+           box-shadow: 0 14px 44px rgba(0,0,0,.38); }
+  .panel.left { border-top: 2px solid rgba(139,92,246,.78); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(139,92,246,.10); }
+  .panel.right { border-top: 2px solid rgba(34,211,238,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(34,211,238,.10); }
+
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+                padding-bottom: 12px; border-bottom: 1px solid rgba(139,152,173,.22); }
+  .panel-title { font-size: 27px; font-weight: 700; letter-spacing: 2px; }
+  .left .panel-title { color: #ddd0ff; text-shadow: 0 0 20px rgba(139,92,246,.35); }
+  .right .panel-title { color: #bdf2fb; text-shadow: 0 0 20px rgba(34,211,238,.35); }
+  .kicker { font-size: 13px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
+
+  /* ── 四类资产（2×2）── */
+  .assets { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .asset { display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: start;
+           padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.022);
+           border: 1px solid rgba(139,152,173,.14); }
+  .asset .idx { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+                font-size: 13px; font-weight: 700; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+                color: #ede9fe; background: rgba(139,92,246,.16); border: 1px solid rgba(139,92,246,.5); }
+  .asset.join { border-color: rgba(34,211,238,.34); background: rgba(34,211,238,.045); }
+  .asset.join .idx { color: #cffafe; background: rgba(34,211,238,.16); border-color: rgba(34,211,238,.5); }
+  .an { font-size: 18px; font-weight: 600; letter-spacing: .5px; color: #e6efff; }
+  .ad { margin-top: 3px; font-size: 12.5px; line-height: 1.45; letter-spacing: .2px; color: var(--dim); }
+  .ad code { font-family: "SF Mono", ui-monospace, Menlo, monospace; color: #a5f3fc; }
+
+  .formula { margin-top: 12px; padding: 10px 14px; border-radius: 10px; text-align: center;
+             font-size: 14.5px; letter-spacing: .8px; color: #ddd0ff;
+             background: rgba(139,92,246,.07); border: 1px dashed rgba(139,92,246,.45); }
+  .formula b { color: #f3e8ff; }
+
+  .example { margin-top: 10px; padding: 11px 14px; border-radius: 10px;
+             background: rgba(34,211,238,.045); border: 1px solid rgba(34,211,238,.28); }
+  .ex-t { font-size: 13px; letter-spacing: 1px; color: #a5f3fc; }
+  .ex-b { margin-top: 4px; font-size: 13px; line-height: 1.5; letter-spacing: .2px; color: #c7d2e3; }
+  .ex-b code { font-family: "SF Mono", ui-monospace, Menlo, monospace; color: #7ff0ff; }
+
+  /* ── 链路步骤 ── */
+  .steps { list-style: none; margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+  .step { display: grid; grid-template-columns: 38px 1fr; gap: 13px; align-items: center;
+          padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.022);
+          border: 1px solid rgba(139,152,173,.12); }
+  .right .idx { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                font-size: 15px; font-weight: 700; font-family: "SF Mono", ui-monospace, Menlo, monospace;
+                color: #cffafe; background: rgba(34,211,238,.14); border: 1px solid rgba(34,211,238,.55);
+                box-shadow: 0 0 14px rgba(34,211,238,.16); }
+  .st { font-size: 18px; font-weight: 600; letter-spacing: .5px; color: #e6efff; }
+  .st em { font-style: normal; color: #7ff0ff; }
+  .sd { margin-top: 2px; font-size: 12.5px; line-height: 1.45; letter-spacing: .2px; color: var(--dim); }
+  .sd code { font-family: "SF Mono", ui-monospace, Menlo, monospace; color: #7ff0ff; }
+
+  .order { margin-top: 11px; display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; gap: 6px;
+           padding: 9px 10px; border-radius: 10px; font-size: 13.5px; letter-spacing: .5px;
+           background: rgba(52,211,153,.06); border: 1px dashed rgba(52,211,153,.42); color: #d1fae5; }
+  .order .k { padding: 3px 9px; border-radius: 6px; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.4); }
+  .order .k.top { background: rgba(52,211,153,.24); color: #ecfdf5; font-weight: 700; }
+  .order .gt { color: #4a5568; font-size: 12px; }
+
+  /* ── 留痕与验证 ── */
+  .proof { margin-top: 20px; display: flex; align-items: stretch; gap: 14px; width: 100%; }
+  .proof .item { flex: 1; padding: 12px 18px; border-radius: 12px; background: rgba(255,255,255,.028);
+                 border: 1px solid rgba(139,152,173,.24); }
+  .proof .pt { font-size: 15px; font-weight: 600; letter-spacing: .5px; color: #dbe6f7; }
+  .proof .pd { margin-top: 3px; font-size: 12.5px; letter-spacing: .3px; color: var(--dim); }
+  .proof .item.hot { border-color: rgba(34,211,238,.35); background: rgba(34,211,238,.05); }
+
+  /* ── 收束结论 ── */
+  .finale { margin-top: 18px; text-align: center; padding: 15px 40px; border-radius: 14px;
+            background: rgba(255,255,255,.03); border: 1px solid rgba(139,152,173,.3);
+            box-shadow: 0 0 26px rgba(139,92,246,.09); }
+  .f-main { font-size: 27px; letter-spacing: 2px; color: #e8eef9; }
+  .f-main .violet { color: #c4b5fd; font-weight: 700; }
+  .f-main .sep { color: #4a5568; margin: 0 14px; }
+  .f-sub { margin-top: 8px; font-size: 14.5px; letter-spacing: 6px; color: var(--dim); text-indent: 6px; }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <div class="anim" style="--d:.5s"><span class="badge"><span class="dot"></span>智能问数 × 业务本体</span></div>
+    <h1 class="anim" style="--d:.9s">业务本体：让系统听懂业务说法</h1>
+    <p class="lede anim" style="--d:1.6s">四类资产<b>建模</b> · 圈表<b>加权</b> · 四段<b>注入</b> · 仲裁<b>兜底</b></p>
+
+    <!-- 时间轴按 m8d.vtt 校准：句1（0.1-7.5s）总起 / 句2（7.5-31.4s）四类资产 / 句3（31.4-57.1s）快照·加权·四段 / 句4（57.1-76.6s）仲裁 / 句5（76.6-87.2s）留痕与验证 / 句6（87.2-95.3s）结论 -->
+    <div class="grid">
+      <!-- 左：四类业务资产 -->
+      <section class="panel left anim" style="--d:7.8s">
+        <div class="panel-head">
+          <div class="panel-title">四类业务资产</div>
+          <div class="kicker">系统管理 → 规则治理 → 业务本体</div>
+        </div>
+        <div class="assets">
+          <div class="asset anim" style="--d:8.2s">
+            <span class="idx">01</span>
+            <div><div class="an">实体与绑定</div><div class="ad">业务词 + 别名 → 库表与字段<br>例：「机构」→ <code>org_id</code></div></div>
+          </div>
+          <div class="asset anim" style="--d:12.4s">
+            <span class="idx">02</span>
+            <div><div class="an">值域释义</div><div class="ad">字段取值的业务含义<br>例：<code>BB = 1</code> → 核算版</div></div>
+          </div>
+          <div class="asset join anim" style="--d:16.6s">
+            <span class="idx">03</span>
+            <div><div class="an">关联路径</div><div class="ad">真实可用的表间 JOIN<br>优先命中，避免臆造关联</div></div>
+          </div>
+          <div class="asset anim" style="--d:20.8s">
+            <span class="idx">04</span>
+            <div><div class="an">业务层级</div><div class="ad">总部 → 团队的口径统一<br>层级问法不再各说各话</div></div>
+          </div>
+        </div>
+        <div class="formula anim" style="--d:26.2s">四段说明按<b>命中表列裁剪</b>生成 · 默认预算 <b>1500 token</b></div>
+        <div class="example anim" style="--d:28.4s">
+          <div class="ex-t">命中示例</div>
+          <div class="ex-b">问「各机构收入」→ 实体「机构」绑定 <code>org_id</code> · 关联路径 <code>orders.org_id = org.id</code> → 两张表加权入圈</div>
+        </div>
+      </section>
+
+      <!-- 右：从本体到提示词（外框与左栏同步出现，步骤按旁白顺序点亮） -->
+      <section class="panel right anim" style="--d:8.0s">
+        <div class="panel-head">
+          <div class="panel-title">从本体到提示词</div>
+          <div class="kicker">快照 → 加权 → 四段 → 仲裁</div>
+        </div>
+        <ul class="steps">
+          <li class="step anim" style="--d:32.0s">
+            <span class="idx">1</span>
+            <div><div class="st">加载本体快照</div><div class="sd">提问时读取已发布资产，未登记则零注入</div></div>
+          </li>
+          <li class="step anim" style="--d:35.8s">
+            <span class="idx">2</span>
+            <div><div class="st">实体命中 · 圈表加权</div><div class="sd">标识 <em>+8</em> · 关联键 <em>+4</em> · 属性 <em>+3</em> · 单表封顶 <em>+15</em></div></div>
+          </li>
+          <li class="step anim" style="--d:44.0s">
+            <span class="idx">3</span>
+            <div><div class="st">列裁剪 · 四段构建</div><div class="sd">业务实体 · 值域释义 · 关联路径 · 业务层级</div></div>
+          </li>
+          <li class="step anim" style="--d:58.4s">
+            <span class="idx">4</span>
+            <div><div class="st">上下文仲裁 · 统一注入</div><div class="sd">排序 · 跨块去重 · 取值冲突以高优先级为准</div></div>
+          </li>
+        </ul>
+        <div class="order anim" style="--d:63.2s">
+          <span class="k top">铁律</span><span class="gt">&gt;</span>
+          <span class="k">指标</span><span class="gt">&gt;</span>
+          <span class="k">本体</span><span class="gt">&gt;</span>
+          <span class="k">业务口径</span><span class="gt">&gt;</span>
+          <span class="k">知识</span>
+          <span style="margin-left:10px;color:#a7f3d0">总预算 6000 token</span>
+        </div>
+      </section>
+    </div>
+
+    <!-- 句5：留痕、A/B 与评测 -->
+    <div class="proof anim" style="--d:77.4s">
+      <div class="item hot">
+        <div class="pt">trace 逐步回看</div>
+        <div class="pd">本体命中 · 仲裁 token · 各通道条数</div>
+      </div>
+      <div class="item">
+        <div class="pt">单次 A/B 对照</div>
+        <div class="pd">管理端关闭本体，同题对比前后差异</div>
+      </div>
+      <div class="item">
+        <div class="pt">评测双跑门禁</div>
+        <div class="pd">多轮均值 · 跌幅超阈值即拦截</div>
+      </div>
+    </div>
+
+    <!-- 句6：结论 -->
+    <div class="finale anim" style="--d:88.2s">
+      <div class="f-main">没有登记本体，就<b class="violet">零注入、零行为变化</b><span class="sep">｜</span>治理从可选项开始</div>
+      <div class="f-sub">收益持续累积 · 越用越懂业务</div>
+    </div>
+  </div>
+</body>
+</html>
