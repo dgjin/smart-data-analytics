@@ -101,6 +101,8 @@ router.post('/natural-language', rateLimiter, authMiddleware, requireRole('ADMIN
     stream,
     refreshCache: body.refreshCache === true,
     deepAnalysis: body.deepAnalysis === true,
+    // v0.9.110 A/B 开关：仅 ADMIN 可关闭业务本体注入（评测对照用），非 ADMIN 一律忽略
+    disableOntology: body.disableOntology === true && user.role === 'ADMIN',
     planId: typeof body.planId === 'string' ? body.planId : '',
   }, sink);
 

@@ -51,17 +51,34 @@ export interface LineageMetricInput {
   status?: string;
 }
 
+/**
+ * M2 业务本体关联路径（ontology_relations 已登记 JOIN）：
+ * 生成表 ↔ 表的 declared 边，evidence 含 cardinality/join_type/purpose，与 contains/consumes/derives 并存。
+ */
+export interface LineageOntologyRelationInput {
+  dataSourceId: string;
+  fromTable: string;
+  fromColumns: string[];
+  toTable: string;
+  toColumns: string[];
+  joinType?: string;
+  cardinality?: string;
+  purpose?: string;
+}
+
 export interface LineageGraphInput {
   dataSources: LineageDsInput[];
   reports: LineageReportInput[];
   widgets: LineageWidgetInput[];
   metrics: LineageMetricInput[];
+  /** 业务本体已登记关联路径（可选；缺失/空时零影响） */
+  ontologyRelations?: LineageOntologyRelationInput[];
 }
 
 // ============ 输出 ============
 
 export type LineageNodeType = 'datasource' | 'table' | 'metric' | 'report' | 'widget';
-export type LineageEdgeKind = 'contains' | 'consumes' | 'derives';
+export type LineageEdgeKind = 'contains' | 'consumes' | 'derives' | 'joins';
 export type LineageEdgeSource = 'parsed' | 'declared';
 export type LineageEdgeStatus = 'active' | 'stale';
 
@@ -389,6 +406,25 @@ export function buildLineageGraph(
     }
   }
 
+  // ---- M2 业务本体关联路径（表 → 表 declared 边；与 contains/consumes/derives 并存） ----
+  for (const rel of input.ontologyRelations || []) {
+    const ds = dsById.get(rel.dataSourceId);
+    if (!ds) continue; // 数据源已删除：无节点归属，跳过（不产生悬空边）
+    const from = resolveTable(ds.id, rel.fromTable);
+    const to = resolveTable(ds.id, rel.toTable);
+    if (from.nodeId === to.nodeId) continue; // 自关联不产边
+    const detail = [
+      rel.cardinality ? `基数 ${rel.cardinality}` : '',
+      rel.joinType ? `${rel.joinType} JOIN` : '',
+      rel.fromColumns.length > 0 ? `${rel.fromTable}(${rel.fromColumns.join(',')}) = ${rel.toTable}(${rel.toColumns.join(',')})` : '',
+      rel.purpose || '',
+    ]
+      .filter(Boolean)
+      .join('，');
+    const status: LineageEdgeStatus = from.status === 'active' && to.status === 'active' ? 'active' : 'stale';
+    addEdge(from.nodeId, to.nodeId, 'joins', 'declared', `业务本体关联路径：${detail || '已登记 JOIN'}`, undefined, status);
+  }
+
   // ---- 数据源节点计数回填（被引用表数） ----
   for (const ds of input.dataSources) {
     const node = nodes.get(lineageDsNodeId(ds.id));
@@ -397,8 +433,8 @@ export function buildLineageGraph(
     }
   }
 
-  // ---- 统计（消费边口径；contains 为结构边不计入覆盖率） ----
-  const consumeEdges = edges.filter((e) => e.kind !== 'contains');
+  // ---- 统计（消费边口径；contains 结构边与 joins 关联路径不计入覆盖率） ----
+  const consumeEdges = edges.filter((e) => e.kind !== 'contains' && e.kind !== 'joins');
   const parsedEdges = consumeEdges.filter((e) => e.sourceType === 'parsed').length;
   const declaredEdges = consumeEdges.filter((e) => e.sourceType === 'declared').length;
   const staleEdges = edges.filter((e) => e.status === 'stale').length;

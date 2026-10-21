@@ -13,6 +13,7 @@ import {
   type LineageReportInput,
   type LineageWidgetInput,
   type LineageMetricInput,
+  type LineageOntologyRelationInput,
 } from './graph';
 
 const CACHE_TTL_MS = 30_000;
@@ -143,6 +144,39 @@ function toMetricInput(row: MetricRow): LineageMetricInput {
   };
 }
 
+interface OntologyRelationRow extends RowDataPacket {
+  data_source_id: string | null;
+  from_table: string | null;
+  from_columns: string | null;
+  to_table: string | null;
+  to_columns: string | null;
+  join_type: string | null;
+  cardinality: string | null;
+  purpose: string | null;
+}
+
+/** 列清单解析（库里为逗号分隔；脏数据/空值降级为空数组） */
+function splitColumns(raw: unknown): string[] {
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function toOntologyRelationInput(row: OntologyRelationRow): LineageOntologyRelationInput {
+  return {
+    dataSourceId: String(row.data_source_id || ''),
+    fromTable: String(row.from_table || ''),
+    fromColumns: splitColumns(row.from_columns),
+    toTable: String(row.to_table || ''),
+    toColumns: splitColumns(row.to_columns),
+    ...(row.join_type ? { joinType: String(row.join_type) } : {}),
+    ...(row.cardinality ? { cardinality: String(row.cardinality) } : {}),
+    ...(row.purpose ? { purpose: String(row.purpose) } : {}),
+  };
+}
+
 // ============ 查询与缓存 ============
 
 async function loadInput(): Promise<{
@@ -150,6 +184,7 @@ async function loadInput(): Promise<{
   reports: ReportRow[];
   widgets: WidgetRow[];
   metrics: MetricRow[];
+  ontologyRelations: OntologyRelationRow[];
 }> {
   const pool = getPool();
   const [dataSources] = await pool.query<DsRow[]>(
@@ -164,7 +199,11 @@ async function loadInput(): Promise<{
   const [metrics] = await pool.query<MetricRow[]>(
     'SELECT id, name, data_source_id, table_name, expr, status FROM metric_definitions'
   );
-  return { dataSources, reports, widgets, metrics };
+  // M2 业务本体关联路径：已登记 JOIN 作为表级 declared 边并入血缘图（表不存在时自动标 stale）
+  const [ontologyRelations] = await pool.query<OntologyRelationRow[]>(
+    "SELECT data_source_id, from_table, from_columns, to_table, to_columns, join_type, cardinality, purpose FROM ontology_relations WHERE status = 'ACTIVE'"
+  );
+  return { dataSources, reports, widgets, metrics, ontologyRelations };
 }
 
 /** 获取血缘图（30s 进程内缓存；构建失败向上抛错） */
@@ -176,6 +215,7 @@ export async function getLineageGraph(): Promise<LineageGraph> {
     reports: rows.reports.map(toReportInput),
     widgets: rows.widgets.map(toWidgetInput),
     metrics: rows.metrics.map(toMetricInput),
+    ontologyRelations: rows.ontologyRelations.map(toOntologyRelationInput),
   });
   cache = { at: Date.now(), graph };
   return graph;

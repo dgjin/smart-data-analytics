@@ -13,7 +13,7 @@ import type { CSSProperties } from 'react';
 // ============ 血缘图类型（镜像 server/lineage/graph.ts 的 API 输出） ============
 
 export type LineageNodeType = 'datasource' | 'table' | 'metric' | 'report' | 'widget';
-export type LineageEdgeKind = 'contains' | 'consumes' | 'derives';
+export type LineageEdgeKind = 'contains' | 'consumes' | 'derives' | 'joins';
 export type LineageEdgeSource = 'parsed' | 'declared';
 export type LineageEdgeStatus = 'active' | 'stale';
 
@@ -360,6 +360,7 @@ const EDGE_COLORS: Record<LineageEdgeKind, string> = {
   contains: '#64748b', // slate-500：结构包含
   consumes: '#10b981', // emerald-500：表 → 消费物
   derives: '#d946ef', // fuchsia-500：表 → 指标
+  joins: '#06b6d4', // cyan-500：业务本体关联路径（表 ↔ 表）
 };
 const EDGE_DECLARED_COLOR = '#f59e0b'; // amber-500：声明式（待验证）
 const EDGE_STALE_COLOR = '#f43f5e'; // rose-500：失效

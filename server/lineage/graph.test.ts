@@ -209,4 +209,46 @@ describe('buildLineageGraph', () => {
     expect(consumeEdges).toHaveLength(2); // orders + customers，各一条
     expect(graph.stats.parsedEdges).toBe(2);
   });
+
+  it('M2 业务本体关联路径生成 joins declared 边（含基数/用途，不计入覆盖率）', () => {
+    const graph = buildLineageGraph({
+      ...emptyInput,
+      dataSources: [dsCrm],
+      ontologyRelations: [
+        {
+          dataSourceId: 'ds-2',
+          fromTable: 'orders',
+          fromColumns: ['cid'],
+          toTable: 'customers',
+          toColumns: ['id'],
+          joinType: 'LEFT',
+          cardinality: 'N:1',
+          purpose: '订单归属客户',
+        },
+      ],
+    });
+    const join = edgeOf(graph, 'tbl:ds-2:orders', 'tbl:ds-2:customers', 'joins');
+    expect(join?.sourceType).toBe('declared');
+    expect(join?.status).toBe('active');
+    expect(join?.evidence).toContain('基数 N:1');
+    expect(join?.evidence).toContain('LEFT JOIN');
+    expect(join?.evidence).toContain('订单归属客户');
+    // joins 不参与解析覆盖率分母（否则注册路径会「拉低」覆盖率）
+    expect(graph.stats.declaredEdges).toBe(0);
+    expect(graph.stats.parseCoverage).toBe(1);
+  });
+
+  it('关联路径引用不存在表时 joins 边标记 stale；自关联/未知数据源不产边', () => {
+    const graph = buildLineageGraph({
+      ...emptyInput,
+      dataSources: [dsCrm],
+      ontologyRelations: [
+        { dataSourceId: 'ds-2', fromTable: 'orders', fromColumns: ['x'], toTable: 'ghost_table', toColumns: ['id'] },
+        { dataSourceId: 'ds-2', fromTable: 'orders', fromColumns: ['x'], toTable: 'ORDERS', toColumns: ['x'] },
+        { dataSourceId: 'ds-missing', fromTable: 'orders', fromColumns: ['x'], toTable: 'customers', toColumns: ['id'] },
+      ],
+    });
+    expect(edgeOf(graph, 'tbl:ds-2:orders', 'tbl:ds-2:ghost_table', 'joins')?.status).toBe('stale');
+    expect(graph.edges.filter((e) => e.kind === 'joins')).toHaveLength(1);
+  });
 });

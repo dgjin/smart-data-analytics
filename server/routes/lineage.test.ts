@@ -24,12 +24,15 @@ const adminAuth: DbStubRule = { match: 'must_change_password FROM users WHERE id
 /** 以鉴权行开头拼装桩规则 */
 const stubFor = (...rules: DbStubRule[]) => dbStub([adminAuth, ...rules]);
 
-/** data_sources 行（含一条 fct_jc_ 宽表） */
+/** data_sources 行（含一条 fct_jc_ 宽表 + 机构维表） */
 const dsRow = () => ({
   id: 'ds-1',
   name: '数据资源',
   type: 'greenplum',
-  schema_json: JSON.stringify([{ name: 'fct_jc_asset', tableType: 'TABLE' }]),
+  schema_json: JSON.stringify([
+    { name: 'fct_jc_asset', tableType: 'TABLE' },
+    { name: 'dim_jg', tableType: 'TABLE' },
+  ]),
   updated_at: '2026-09-20T00:00:00.000Z',
 });
 
@@ -93,6 +96,21 @@ describe('GET /api/lineage/graph：全量血缘图', () => {
             { id: 11, name: '投放金额', data_source_id: 'ds-1', table_name: 'fct_jc_asset', expr: 'SUM(tfje)', status: 'ACTIVE' },
           ],
         },
+        {
+          match: 'FROM ontology_relations',
+          rows: () => [
+            {
+              data_source_id: 'ds-1',
+              from_table: 'fct_jc_asset',
+              from_columns: 'jg_id',
+              to_table: 'dim_jg',
+              to_columns: 'id',
+              join_type: 'LEFT',
+              cardinality: 'N:1',
+              purpose: '资产归属机构',
+            },
+          ],
+        },
       ),
     );
 
@@ -109,6 +127,11 @@ describe('GET /api/lineage/graph：全量血缘图', () => {
     expect(res.body.nodes.some((n: { id: string }) => n.id === 'ds:ds-1')).toBe(true);
     expect(res.body.nodes.some((n: { id: string }) => n.id === 'tbl:ds-1:fct_jc_asset')).toBe(true);
     expect(res.body.nodes.some((n: { id: string }) => n.id === 'metric:11')).toBe(true);
+    // M2 业务本体关联路径 → joins declared 边（label 含基数与用途）
+    const joinEdge = res.body.edges.find((e: { kind: string }) => e.kind === 'joins');
+    expect(joinEdge).toBeTruthy();
+    expect(joinEdge.evidence).toContain('基数 N:1');
+    expect(joinEdge.evidence).toContain('资产归属机构');
     // 内置图表按数据资源库推演归属
     const widgetEdge = res.body.edges.find(
       (e: { to: string; sourceType: string }) => e.to === 'widget:widget-1' && e.sourceType === 'declared',
@@ -123,6 +146,7 @@ describe('GET /api/lineage/graph：全量血缘图', () => {
         { match: 'FROM saved_reports', rows: () => [] },
         { match: 'FROM dashboard_widgets', rows: () => [] },
         { match: 'FROM metric_definitions', rows: () => [] },
+        { match: 'FROM ontology_relations', rows: () => [] },
       ),
     );
     const res = await request(app)

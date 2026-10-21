@@ -39,19 +39,40 @@ function tableScore(table: SchemaTable, question: string): number {
 }
 
 /**
+ * 本体绑定加权取值（M2）：表名大小写不敏感兜底；无 boosts 时零影响。
+ * 权重由 ontology.tableBoostsFromBindings 计算（IDENTITY+8 / RELATION_KEY+4 / ATTRIBUTE+3，单表封顶 15）。
+ */
+function boostFor(boosts: Map<string, number> | undefined, tableName: string): number {
+  if (!boosts || boosts.size === 0 || !tableName) return 0;
+  const direct = boosts.get(tableName);
+  if (typeof direct === 'number') return direct;
+  const lower = tableName.toLowerCase();
+  for (const [key, value] of boosts) {
+    if (key.toLowerCase() === lower) return value;
+  }
+  return 0;
+}
+
+/**
  * 圈定与问题最相关的表（保持原 schema 中的相对顺序返回，保证 prompt 稳定）。
  * 所有表得分为 0 时退化为前 maxTables 张（原顺序），行为可预期。
+ * boosts（M2 业务本体）：已登记实体绑定表的加权分，叠加在关键词得分上；默认无。
  */
 export function selectRelevantTables(
   schema: SchemaTable[],
   question: string,
-  maxTables: number = MAX_TABLES_IN_PROMPT
+  maxTables: number = MAX_TABLES_IN_PROMPT,
+  boosts?: Map<string, number>
 ): SchemaTable[] {
   const tables = Array.isArray(schema) ? schema.filter(Boolean) : [];
   if (tables.length <= maxTables) return tables;
 
   const q = String(question || '');
-  const scored = tables.map((t, idx) => ({ t, idx, score: tableScore(t, q) }));
+  const scored = tables.map((t, idx) => ({
+    t,
+    idx,
+    score: tableScore(t, q) + boostFor(boosts, String(t?.name || '')),
+  }));
   scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
   const picked = new Set(scored.slice(0, maxTables).map((s) => s.idx));
   return tables.filter((_, idx) => picked.has(idx));
@@ -145,17 +166,23 @@ async function prefillTableEmbeddings(tables: SchemaTable[]): Promise<void> {
  * 增强版圈表：关键词粗排候选 + embedding 语义精排（语义权重 × 12）。
  * 表多时先粗排到 2×maxTables 再精排，控制 embedding 调用次数；
  * embedding 全部不可用时等价于纯关键词版（行为不退化）。
+ * boosts（M2 业务本体）：叠加进 kw 粗排分，随精排链路自然传导；默认无。
  */
 export async function selectRelevantTablesAsync(
   schema: SchemaTable[],
   question: string,
-  maxTables: number = MAX_TABLES_IN_PROMPT
+  maxTables: number = MAX_TABLES_IN_PROMPT,
+  boosts?: Map<string, number>
 ): Promise<SchemaTable[]> {
   const tables = Array.isArray(schema) ? schema.filter(Boolean) : [];
   if (tables.length <= maxTables) return tables;
 
   const q = String(question || '');
-  const preScored = tables.map((t, idx) => ({ t, idx, kw: tableScore(t, q) }));
+  const preScored = tables.map((t, idx) => ({
+    t,
+    idx,
+    kw: tableScore(t, q) + boostFor(boosts, String(t?.name || '')),
+  }));
   // 粗排候选：表特别多时取 2×maxTables，其余全量参与精排
   const candidateCount = tables.length > maxTables * 2 ? maxTables * 2 : tables.length;
   const candidates = [...preScored].sort((a, b) => b.kw - a.kw || a.idx - b.idx).slice(0, candidateCount);

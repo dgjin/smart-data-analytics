@@ -61,6 +61,11 @@ export interface NaturalLanguageParams {
   stream: boolean;
   refreshCache: boolean;
   deepAnalysis: boolean;
+  /**
+   * v0.9.110 A/B 开关：关闭业务本体注入（路由层已按 ADMIN 角色收敛，非 ADMIN 恒 false）。
+   * 进缓存变体键，避免 on/off 两组实验互相复用缓存结果。
+   */
+  disableOntology: boolean;
   /** M2 计划模式已批准 planId（缺失 → ''） */
   planId: string;
 }
@@ -138,8 +143,9 @@ export async function runNaturalLanguageQuery(
     writeAudit({ ...auditBase, question: query, status: 'DENIED_INPUT', detail: `非法金额单位：${String(params.amountUnit).slice(0, 20)}`, durationMs: Date.now() - startedAt });
     return { kind: 'json', status: 400, body: { code: ERROR_CODES.INVALID_INPUT, error: '金额单位仅支持：亿元、百万元、万元、元' } };
   }
-  // 单位进缓存键：显式选单位与不选（依赖知识库默认口径）分别缓存，防口径互串
-  const cacheVariant = [modelVariant, amountUnit || ''].filter(Boolean).join(':');
+  // 单位进缓存键：显式选单位与不选（依赖知识库默认口径）分别缓存，防口径互串；
+  // 本体 A/B 开关同样进键：disableOntology 与默认注入分别缓存，防实验组结果互相污染
+  const cacheVariant = [modelVariant, amountUnit || '', params.disableOntology ? 'noonto' : ''].filter(Boolean).join(':');
 
   // L5 频率层：每用户 20 次/小时滑动窗口
   const limit = await checkUserQueryLimit(user.id);
@@ -244,6 +250,7 @@ export async function runNaturalLanguageQuery(
         allowIntrospection: ctx.allowIntrospection,
         approvedPlan,
         deepAnalysis: params.deepAnalysis,
+        disableOntology: params.disableOntology,
         amountUnit,
         userId: user.id,
         traceId,

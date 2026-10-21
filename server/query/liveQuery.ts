@@ -23,10 +23,21 @@ import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { searchExternalKnowledge } from '../knowledge/externalKnowledge';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
 import { loadActiveIronRules, buildIronRulesPrompt } from './ironRules';
+// v0.9.110 M1/M2 业务本体：实体/绑定/值域/关系/层级软注入
+import {
+  loadActiveOntology,
+  matchEntities,
+  rerankEntitiesAsync,
+  tableBoostsFromBindings,
+  buildOntologyPrompt,
+  findRelationPaths,
+} from './ontology';
+import { ontologyEnabled, ontologyTokenBudget } from './ontologyConfig';
+import { arbitrateContext, arbiterTraceSummary, type ContextBlockKind } from './contextArbiter';
 // v0.9.106 统一记忆体：8 通道统一召回（off/shadow/on 三态，失败不阻断）
 import { recallMemory } from '../memory';
 import type { SchemaTable } from './schemaTypes';
-import { budgetText, budgetHistory, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
+import { budgetText, budgetHistory, approxTokens, KNOWLEDGE_TOKEN_BUDGET } from '../llm/promptBudget';
 import { serializeSchemaForPrompt } from './schemaGuidance';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
 import type { TraceStep } from './queryTrace';
@@ -68,6 +79,7 @@ import {
 } from './liveQueryParsers';
 import {
   buildStage1System,
+  buildStage1SystemV2,
   buildStage2System,
   candidatePrompt,
   dialectPromptOf,
@@ -115,6 +127,11 @@ export interface LiveQueryInput {
   userRole?: 'ADMIN' | 'ANALYST' | 'VIEWER';
   /** 金额输出单位（亿元/百万元/万元/元）：阶段一 SQL 生成按除数换算，白名单外不生效 */
   amountUnit?: string;
+  /**
+   * v0.9.110 A/B 开关：关闭业务本体注入（仅 ADMIN 评测生效，路由层按角色收敛）。
+   * 默认 false；无本体数据时零注入、零行为变化。
+   */
+  disableOntology?: boolean;
 }
 
 export interface LiveQuerySuccess {
@@ -179,6 +196,7 @@ export {
 export type { Clarification, ClarificationOption } from './liveQueryParsers';
 export {
   buildStage1System,
+  buildStage1SystemV2,
   buildStage2System,
   candidatePrompt,
   dialectPromptOf,
@@ -212,9 +230,17 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       durationMs: Date.now() - t0,
     });
   }
+  // M2 业务本体（v0.9.110）：圈表前加载 ACTIVE 本体，命中实体后给出表级加权（IDENTITY/RELATION_KEY/ATTRIBUTE）；
+  // 默认由 ONTOLOGY_ENABLED 控制，ADMIN 评测可传 disableOntology 做 A/B 对照；加载失败本体为空、链路不受影响
+  const ontologyAt = Date.now();
+  const ontologyActive = !input.disableOntology && ontologyEnabled();
+  const ontologySnapshot = ontologyActive ? await loadActiveOntology(dataSourceId) : null;
+  let entityHits = ontologySnapshot ? matchEntities(query, ontologySnapshot.entities) : [];
+  if (entityHits.length > 1) entityHits = await rerankEntitiesAsync(query, entityHits);
+  const ontologyBoosts = ontologySnapshot ? tableBoostsFromBindings(entityHits, ontologySnapshot.bindings) : undefined;
   // Schema Linking（借鉴 Chat2DB AI 数据集）：大 schema 时只把相关表注入 prompt（P2-9 关键词粗排 + embedding 精排）；
   // 安全白名单（executeSafeSql）仍用全量 schema，召回遗漏不会误杀合法 SQL
-  const promptSchemaBase = await selectRelevantTablesAsync(schema, query);
+  const promptSchemaBase = await selectRelevantTablesAsync(schema, query, undefined, ontologyBoosts);
   trace({
     stepType: 'linking',
     title: 'Schema 圈表：选定相关表',
@@ -325,6 +351,36 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
       durationMs: Date.now() - t0,
     });
   }
+  // M1/M2 本体提示词：实体/值域释义/关联路径/业务层级四段，按圈定表过滤 + token 预算；
+  // 无实体命中时零注入（不改变既有行为）；路径只作推荐，最终仍受 Schema 表白名单约束
+  const promptTableNames = promptSchema.map((t) => String(t?.name || ''));
+  const ontologyPrompt =
+    ontologySnapshot && entityHits.length > 0
+      ? buildOntologyPrompt({
+          entityHits,
+          bindings: ontologySnapshot.bindings,
+          valueNotes: ontologySnapshot.valueNotes,
+          relations: ontologySnapshot.relations,
+          hierarchies: ontologySnapshot.hierarchies,
+          promptTables: promptTableNames,
+          budgetTokens: ontologyTokenBudget(),
+        })
+      : '';
+  if (ontologyActive && ontologySnapshot) {
+    let pathCount = 0;
+    for (let i = 0; i < promptTableNames.length; i++) {
+      for (let j = i + 1; j < promptTableNames.length; j++) {
+        pathCount += findRelationPaths(promptTableNames[i], promptTableNames[j], ontologySnapshot.relations).length;
+      }
+    }
+    trace({
+      stepType: 'ontology',
+      title: '业务本体命中',
+      inputSummary: query,
+      outputSummary: `实体命中 ${entityHits.length} 个${entityHits.length > 0 ? `（${entityHits.map((h) => h.entity.name).join('、')}）` : ''}；加权表 ${ontologyBoosts?.size || 0} 张；关联路径 ${pathCount} 条；注入 ${approxTokens(ontologyPrompt)} tokens`,
+      durationMs: Date.now() - ontologyAt,
+    });
+  }
   // M3 中间表清洗链：复杂度评估自动触发（multi-step）或「深度分析」开关强制；
   // 清洗结果落库应用库中间表，阶段一可引用（仅引用 ait_* 时改在应用库执行）
   let chainTables: IntermediateTableInfo[] = [];
@@ -352,7 +408,40 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
     if (chain) chainTables = chain.tables;
   }
   const negativeExamplesForPrompt = memoryBundle ? memoryBundle.negativeExamples : negativePairs;
-  const stage1System = buildStage1System(promptSchema, guidance, knowledge + externalSnippet, effectiveFewShot.length, dsType, Boolean(input.allowIntrospection), input.approvedPlan, chainTables, metricPrompt, negativeExamplesForPrompt, input.dataSourceName, ironRulesPrompt);
+  // P1-1 上下文仲裁（v0.9.110）：铁律 > 指标 > 本体 > 业务口径 > 知识；
+  // 跨块去重 + `表.列 = 值` 冲突裁剪 + 总预算（默认 6000 tokens）从最低优先级尾部裁剪，统计写入 trace
+  const arbitrated = arbitrateContext({
+    iron: ironRulesPrompt,
+    metric: metricPrompt,
+    ontology: ontologyPrompt,
+    guidance,
+    knowledge: `${knowledge}${externalSnippet}`,
+  });
+  const arbitratedBlock = (kind: ContextBlockKind) => arbitrated.blocks.find((b) => b.kind === kind)?.text || '';
+  // 仲裁块去尾空白后按原段落间距补分隔（保持既有 prompt 版式）
+  const withGap = (text: string) => (text ? `${text}\n\n` : '');
+  trace({
+    stepType: 'ontology',
+    title: '上下文仲裁',
+    inputSummary: '优先级：铁律 > 指标 > 本体 > 业务口径 > 知识',
+    outputSummary: arbiterTraceSummary(arbitrated.stats),
+    durationMs: Date.now() - t0,
+  });
+  const stage1System = buildStage1SystemV2({
+    schema: promptSchema,
+    guidance: arbitratedBlock('guidance'),
+    knowledge: arbitratedBlock('knowledge'),
+    fewShotCount: effectiveFewShot.length,
+    dsType,
+    introspectionEnabled: Boolean(input.allowIntrospection),
+    approvedPlan: input.approvedPlan,
+    chainTables,
+    metricPrompt: withGap(arbitratedBlock('metric')),
+    negativeExamples: negativeExamplesForPrompt,
+    dataSourceName: input.dataSourceName,
+    ironRulesPrompt: withGap(arbitratedBlock('iron')),
+    ontologyPrompt: withGap(arbitratedBlock('ontology')),
+  });
   // 多轮历史按 token 预算截断（保留最近轮次），与 few-shot 消息对拼接后注入阶段一
   const budgetedHistory = budgetHistory(history);
   // 专家角色路由：库化配置按 sortOrder 升序关键词匹配（仅 ADMIN 维护，v0.9.40），库异常时回退内置常量

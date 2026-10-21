@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { candidatePrompt, selfCorrectCandidates, resultSignature, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats, buildStage1System, buildStage2System } from './liveQuery';
+import { candidatePrompt, selfCorrectCandidates, resultSignature, VALID_STAGE1_CHARTS, normalizeAmountUnit, AMOUNT_UNIT_OPTIONS, buildAmountUnitPrompt, buildFallbackAnalysis, buildColumnStats, buildStage1System, buildStage1SystemV2, buildStage2System } from './liveQuery';
 
 describe('normalizeAmountUnit: 金额单位白名单', () => {
   it('四个白名单单位原样返回', () => {
@@ -80,6 +80,35 @@ describe('buildStage2System: 金额单位口径注入（v0.9.41）', () => {
     process.env.QUERY_RESULT_ROWS_MAX = '0';
     expect(buildStage1System([], '')).toContain('上限 100000 行');
     delete process.env.QUERY_RESULT_ROWS_MAX;
+  });
+});
+
+describe('buildStage1SystemV2: 本体注入与拼接顺序（v0.9.110）', () => {
+  it('本体段位于指标之后、业务口径之前；铁律先于指标', () => {
+    const p = buildStage1SystemV2({
+      schema: [],
+      ironRulesPrompt: '【铁律规则】X\n\n',
+      metricPrompt: '【语义指标层定义】Y\n\n',
+      ontologyPrompt: '【业务实体】Z\n\n',
+      guidance: '维度摘要 G',
+      knowledge: '知识片段 K',
+    });
+    const idxIron = p.indexOf('【铁律规则】');
+    const idxMetric = p.indexOf('【语义指标层定义】');
+    const idxOntology = p.indexOf('【业务实体】');
+    const idxGuidance = p.indexOf('维度摘要 G');
+    const idxKnowledge = p.indexOf('知识片段 K');
+    for (const i of [idxIron, idxMetric, idxOntology, idxGuidance, idxKnowledge]) expect(i).toBeGreaterThan(-1);
+    expect(idxIron).toBeLessThan(idxMetric);
+    expect(idxMetric).toBeLessThan(idxOntology);
+    expect(idxOntology).toBeLessThan(idxGuidance);
+    expect(idxGuidance).toBeLessThan(idxKnowledge);
+  });
+
+  it('无本体段时输出与 V1 位置参数版一致（零行为变化）', () => {
+    const v2 = buildStage1SystemV2({ schema: [], guidance: '口径' });
+    expect(v2).toEqual(buildStage1System([], '口径'));
+    expect(v2).not.toContain('【业务实体】');
   });
 });
 

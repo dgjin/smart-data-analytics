@@ -13,6 +13,7 @@ export type TraceStepType =
   | 'linking'
   | 'knowledge'
   | 'metrics'
+  | 'ontology'
   | 'introspection'
   | 'plan'
   | 'intermediate'

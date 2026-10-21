@@ -219,6 +219,14 @@ export const DataLineageView: React.FC = () => {
             <Layers className="w-3 h-3" />
             parsed {graph.stats.parsedEdges} · declared {graph.stats.declaredEdges}
           </span>
+          {/* 图例（v0.9.110）：补充 M2「关联路径」joins 边，不新增交互 */}
+          <span className="text-[10px] text-slate-500 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-slate-500" />结构包含</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-emerald-500" />消费</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-fuchsia-500" />指标派生</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-cyan-500" />关联路径</span>
+            <span className="flex items-center gap-1"><span className="w-3 border-t border-dashed border-amber-500" />声明式</span>
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

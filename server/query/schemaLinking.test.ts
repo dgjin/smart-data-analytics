@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+// 异步圈表的 embedding 精排在测试环境不可用：统一 mock 为失败，走纯关键词降级分支
+vi.mock('../llm/llmClient', () => ({
+  callEmbedding: vi.fn().mockRejectedValue(new Error('embedding unavailable in test')),
+  callEmbeddingBatch: vi.fn().mockRejectedValue(new Error('embedding unavailable in test')),
+  currentEmbedModelId: () => 'mock-embed',
+}));
 import {
   selectRelevantTables,
+  selectRelevantTablesAsync,
   MAX_TABLES_IN_PROMPT,
   pruneWideTableColumns,
   extractExprColumns,
@@ -56,6 +63,36 @@ describe('selectRelevantTables: Schema Linking 自动圈表', () => {
   it('空 schema 与非数组输入安全返回空', () => {
     expect(selectRelevantTables([], '问题')).toEqual([]);
     expect(selectRelevantTables(null as any, '问题')).toEqual([]);
+  });
+});
+
+describe('selectRelevantTables: M2 业务本体加权（boosts）', () => {
+  it('无 boosts 时行为不变（默认零影响）', () => {
+    const schema = [...Array.from({ length: 10 }, (_, i) => makeTable(`t${i}`, `表${i}`))];
+    expect(selectRelevantTables(schema, 'zzz', undefined, undefined)).toEqual(selectRelevantTables(schema, 'zzz'));
+    expect(selectRelevantTables(schema, 'zzz', undefined, new Map())).toEqual(selectRelevantTables(schema, 'zzz'));
+  });
+
+  it('绑定表加权后可挤进 top-N，且表名大小写不敏感', () => {
+    const schema = [
+      makeTable('T1', '客户表', ['客户类型']),
+      ...Array.from({ length: 9 }, (_, i) => makeTable(`t${i + 2}`, `无关表${i}`)),
+    ];
+    // 关键词全 0 分时默认取前 N 张（T1 在前，自然入选）；构造反向场景验证加权：
+    // 把 T1 放到末尾并用大写 key 加权，仍应被选中
+    const reordered = [...schema.slice(1), schema[0]];
+    const boosts = new Map<string, number>([['t1', 12]]);
+    const picked = selectRelevantTables(reordered, 'zzz 完全无关', 2, boosts);
+    expect(picked.map((t) => t.name)).toContain('T1');
+  });
+
+  it('异步圈表在 embedding 不可用时叠加 boosts（降级为关键词加权）', async () => {
+    const schema = [
+      ...Array.from({ length: 10 }, (_, i) => makeTable(`u${i + 2}`, `杂表${i}`)),
+      makeTable('JGXX', '机构信息表'),
+    ];
+    const picked = await selectRelevantTablesAsync(schema, 'zzz 无关问题', 2, new Map([['JGXX', 10]]));
+    expect(picked.map((t) => t.name)).toContain('JGXX');
   });
 });
 
