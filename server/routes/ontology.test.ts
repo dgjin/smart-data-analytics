@@ -3,7 +3,7 @@
  * 鉴权（401/403）、参数校验（400）、业务错误码（404/409）、列表/写入/版本/path/summary 成功路径。
  * DB 走 routeTestKit.dbStub（按 SQL 片段分派），不依赖真实 MySQL。
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { applyTestEnv, activeUserRow, tokenFor, dbStub, buildApp } from './routeTestKit';
 import type { DbStubRule } from './routeTestKit';
@@ -452,6 +452,51 @@ describe('自动搭建（auto-build）', () => {
     expect(res.status).toBe(200);
     expect(res.body.applied.entitiesCreated).toBe(2);
     expect(res.body.applied.skippedExisting).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('全局开关（v0.9.113）', () => {
+  const original = process.env.ONTOLOGY_ENABLED;
+  afterEach(() => {
+    if (original === undefined) delete process.env.ONTOLOGY_ENABLED;
+    else process.env.ONTOLOGY_ENABLED = original;
+  });
+
+  it('GET /settings 缺省启用并返回预算；PUT 关闭写 env_config 并热更 process.env', async () => {
+    delete process.env.ONTOLOGY_ENABLED;
+    querySpy.mockImplementation(
+      dbStub([adminAuth, { match: 'INSERT INTO env_config', rows: () => resultSet({ affectedRows: 1 }) }])
+    );
+
+    const before = await get('/api/ontology/settings');
+    expect(before.status).toBe(200);
+    expect(before.body.enabled).toBe(true);
+    expect(before.body.budgetTokens).toBeGreaterThanOrEqual(200);
+
+    const off = await put('/api/ontology/settings', { enabled: false });
+    expect(off.status).toBe(200);
+    expect(off.body.enabled).toBe(false);
+    expect(process.env.ONTOLOGY_ENABLED).toBe('0');
+    const insert = querySpy.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO env_config'));
+    expect(insert).toBeTruthy();
+    const params = (insert?.[1] || []) as unknown[];
+    expect(params[0]).toBe('ONTOLOGY_ENABLED');
+    expect(params[1]).toBe('0');
+
+    const on = await put('/api/ontology/settings', { enabled: true });
+    expect(on.status).toBe(200);
+    expect(on.body.enabled).toBe(true);
+    expect(process.env.ONTOLOGY_ENABLED).toBe('1');
+  });
+
+  it('enabled 非布尔 → 400；ANALYST → 403', async () => {
+    querySpy.mockImplementation(dbStub([adminAuth]));
+    const bad = await put('/api/ontology/settings', { enabled: 'yes' });
+    expect(bad.status).toBe(400);
+
+    querySpy.mockImplementation(dbStub([analystAuth]));
+    const forbidden = await put('/api/ontology/settings', { enabled: false }, ANALYST_TOKEN);
+    expect(forbidden.status).toBe(403);
   });
 });
 

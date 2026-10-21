@@ -44,6 +44,8 @@ import { getErrorMessage } from '../infra/errorUtils';
 import { logger } from '../infra/logger';
 import { getPool } from '../infra/db';
 import { buildOntologyDraft, type AutoBuildTable } from '../query/ontologyAutoBuild';
+import { ontologyEnabled, ontologyTokenBudget } from '../query/ontologyConfig';
+import { applyEnvConfigToProcess } from '../infra/envConfigCatalog';
 
 const router = Router();
 
@@ -445,6 +447,47 @@ router.get('/path', authMiddleware, async (req, res) => {
   } catch (err) {
     logger.error('[Ontology Path Error]', err);
     res.status(500).json({ error: `路径检索失败：${getErrorMessage(err) || '未知错误'}` });
+  }
+});
+
+// ---------- 全局开关（v0.9.113） ----------
+
+/**
+ * GET /api/ontology/settings —— 本体软注入全局开关与预算（ADMIN）。
+ * 开关值来源 process.env.ONTOLOGY_ENABLED（缺省启用），与「环境配置」面板同源。
+ */
+router.get('/settings', ...adminOnly, (_req, res) => {
+  res.json({
+    ok: true,
+    enabled: ontologyEnabled(),
+    budgetTokens: ontologyTokenBudget(),
+    raw: process.env.ONTOLOGY_ENABLED || '',
+  });
+});
+
+/**
+ * PUT /api/ontology/settings —— body: { enabled: boolean }
+ * 写 env_config 并即时热更 process.env：无需重启，下一问立即生效；
+ * 面板值重启后由启动合并继续优先（envConfigSync）。
+ */
+router.put('/settings', ...adminOnly, async (req, res) => {
+  const enabled = req.body?.enabled;
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled 必须是布尔值' });
+  }
+  const value = enabled ? '1' : '0';
+  const actor = req.user?.id ?? null;
+  try {
+    await getPool().query(
+      'INSERT INTO env_config (`key`, `value`, updated_by, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE `value`=?, updated_by=?, updated_at=NOW()',
+      ['ONTOLOGY_ENABLED', value, actor, value, actor]
+    );
+    applyEnvConfigToProcess([{ key: 'ONTOLOGY_ENABLED', value }]);
+    logger.info(`[Ontology] 全局开关${enabled ? '开启' : '关闭'}（by ${req.user?.username || 'unknown'}）`);
+    res.json({ ok: true, enabled: ontologyEnabled(), updatedBy: req.user?.username || '' });
+  } catch (err) {
+    logger.error('[Ontology Settings Error]', err);
+    res.status(500).json({ error: `开关更新失败：${getErrorMessage(err) || '未知错误'}` });
   }
 });
 

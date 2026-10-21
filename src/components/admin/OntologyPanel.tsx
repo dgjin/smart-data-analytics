@@ -2146,12 +2146,54 @@ export const OntologyPanel: React.FC = () => {
   // 版本回滚后强制重挂载四个子面板，使其重新拉取最新资产
   const [refreshToken, setRefreshToken] = useState(0);
   const [autoBuildOpen, setAutoBuildOpen] = useState(false);
+  // v0.9.113 全局开关：ADMIN 在面板直接启停本体软注入（写 env_config 并热更，无需重启）
+  const [ontologyOn, setOntologyOn] = useState<boolean | null>(null);
+  const [togglingOntology, setTogglingOntology] = useState(false);
 
   const showNotice = useCallback((type: 'success' | 'error', text: string) => setNotice({ type, text }), []);
   const openVersions = useCallback(
     (assetType: OntologyAssetType, id: number, title: string) => setVersionTarget({ assetType, id, title }),
     []
   );
+
+  // 开关初值来自 /api/ontology/settings（与「环境配置」面板同源）；读取失败时禁用开关，不影响资产浏览
+  useEffect(() => {
+    let cancelled = false;
+    callApi<{ ok: boolean; enabled: boolean }>('/api/ontology/settings')
+      .then((r) => {
+        if (!cancelled) setOntologyOn(r?.enabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setOntologyOn(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggleOntology = useCallback(async () => {
+    if (ontologyOn === null || togglingOntology) return;
+    const next = !ontologyOn;
+    setTogglingOntology(true);
+    try {
+      const r = await callApi<{ ok: boolean; enabled: boolean }>('/api/ontology/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+      setOntologyOn(r?.enabled === true);
+      showNotice(
+        'success',
+        next
+          ? '本体注入已开启：命中实体参与圈表加权，并注入四段提示词'
+          : '本体注入已关闭：不再参与圈表加权与提示词注入（已登记资产保留，可随时重新开启）'
+      );
+    } catch (err) {
+      showNotice('error', getErrorMessage(err));
+    } finally {
+      setTogglingOntology(false);
+    }
+  }, [ontologyOn, togglingOntology, showNotice]);
 
   useEffect(() => {
     if (!notice) return;
@@ -2233,12 +2275,49 @@ export const OntologyPanel: React.FC = () => {
             <Sparkles className="w-3.5 h-3.5" />
             <span>智能预填</span>
           </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={ontologyOn === true}
+            aria-label="本体注入开关"
+            onClick={() => void toggleOntology()}
+            disabled={ontologyOn === null || togglingOntology}
+            title={
+              ontologyOn
+                ? '已开启：命中实体参与圈表加权并注入四段提示词；点击关闭（即时生效）'
+                : '已关闭：圈表不加权、提示词不注入；点击开启（即时生效）'
+            }
+            className={`flex items-center space-x-1.5 rounded-lg border px-2.5 py-1.5 transition-colors disabled:opacity-40 ${
+              ontologyOn
+                ? 'border-emerald-700/60 bg-emerald-950/30 text-emerald-200 hover:bg-emerald-900/40'
+                : 'border-slate-700 bg-slate-950/60 text-slate-400 hover:bg-slate-900'
+            }`}
+          >
+            <span
+              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                ontologyOn ? 'bg-emerald-500' : 'bg-slate-600'
+              }`}
+            >
+              <span
+                className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                  ontologyOn ? 'translate-x-3.5' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+            <span>{ontologyOn === null ? '本体注入…' : ontologyOn ? '本体注入已开启' : '本体注入已关闭'}</span>
+          </button>
           <button onClick={() => void loadSummary()} disabled={isSummaryLoading} className="flex items-center space-x-1 text-slate-400 hover:text-slate-200 disabled:opacity-50">
             <RefreshCw className={`w-3.5 h-3.5 ${isSummaryLoading ? 'animate-spin' : ''}`} />
             <span>刷新概览</span>
           </button>
           <span className="text-[10px] text-slate-500">命中实体 → 圈表加权 + 四段提示词软注入；执行层 Schema 白名单不变</span>
         </div>
+        {ontologyOn === false && (
+          <div className="flex items-center space-x-1.5 rounded-lg border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-200">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span>本体注入已关闭：问数不再使用实体加权与四段提示词；已登记资产与版本历史保留，重新开启后立即恢复。</span>
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           {counters.map((c) => {
             const activeTab = c.tab !== undefined && c.tab === tab;

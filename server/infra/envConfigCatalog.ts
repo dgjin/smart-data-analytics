@@ -62,6 +62,7 @@ export const ENV_CONFIG_SEED: readonly EnvConfigSeedItem[] = [
   { key: 'JWT_EXPIRES_IN', category: 'auth', description: '登录态有效期（默认 12h）' },
   // ---- 系统参数 ----
   { key: 'USER_QUERY_RATE_MAX', category: 'system', description: '每用户问数限流上限（默认 20；填 0 = 取消次数限制，不限次数）' },
+  { key: 'ONTOLOGY_ENABLED', category: 'system', description: '业务本体软注入总开关（1=启用 / 0=关闭；关闭后圈表不加权、提示词不注入，已登记资产保留，保存后即时生效）' },
   { key: 'QUERY_RESULT_ROWS_MAX', category: 'system', description: '问数结果行数上限（默认 500；填 0 = 不限制，明细/全量类提问按需给足，硬上限 10 万行）' },
   { key: 'APP_URL', category: 'system', description: '应用托管地址（部署/链接相关）' },
 ];

@@ -114,6 +114,13 @@ function mockRoutes() {
     const reply = (data: unknown) => ({ ok: true, json: async () => data }) as unknown as Response;
 
     if (u.includes('/versions')) return reply({ versions: versionRows });
+    if (u.includes('/api/ontology/settings')) {
+      if (method === 'PUT') {
+        const body = JSON.parse(String(init?.body || '{}'));
+        return reply({ ok: true, enabled: body.enabled === true });
+      }
+      return reply({ ok: true, enabled: true, budgetTokens: 1500, raw: '' });
+    }
     if (u.includes('/api/ontology/auto-build')) {
       if (String(init?.body || '').includes('"apply":true')) {
         return reply({
@@ -244,6 +251,25 @@ describe('OntologyPanel 易用性', () => {
     expect((await screen.findAllByText(/机构 · SUBJECT · 别名 JGMC/)).length).toBe(2);
     expect(screen.getByText('最新')).toBeTruthy();
     expect(screen.getByText('当前版本')).toBeTruthy();
+  });
+
+  it('本体注入全局开关：默认开启，点击后 PUT 关闭并显示停用提示', async () => {
+    render(<OntologyPanel />);
+    await screen.findByText('机构');
+
+    const sw = await screen.findByRole('switch', { name: '本体注入开关' });
+    await waitFor(() => expect((sw as HTMLButtonElement).disabled).toBe(false));
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+
+    fireEvent.click(sw);
+    await waitFor(() =>
+      expect(mockedApiFetch).toHaveBeenCalledWith(
+        '/api/ontology/settings',
+        expect.objectContaining({ method: 'PUT', body: JSON.stringify({ enabled: false }) })
+      )
+    );
+    expect(await screen.findByText('本体注入已关闭')).toBeTruthy();
+    expect(screen.getByText(/问数不再使用实体加权/)).toBeTruthy();
   });
 
   it('智能预填：打开弹窗先预览草案，不携带 apply 直接写库', async () => {

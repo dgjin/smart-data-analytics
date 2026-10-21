@@ -8875,6 +8875,61 @@
         }
       }
     },
+    "/api/ontology/settings": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "getOntologySettings",
+        "summary": "读取业务本体全局开关与注入预算（仅 ADMIN）",
+        "description": "开关与「环境配置」面板的 ONTOLOGY_ENABLED 同源：缺省启用，'0' 关闭；关闭后圈表不加权、提示词不注入，已登记资产保留。",
+        "responses": {
+          "200": {
+            "description": "enabled=true 启用 / false 关闭；budgetTokens 为提示词注入预算；raw 为环境变量原值"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "updateOntologySettings",
+        "summary": "切换业务本体全局开关（仅 ADMIN，写 env_config 并即时热更，无需重启）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "enabled"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "true=启用；false=关闭（圈表不加权、提示词不注入）"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "切换后的开关状态（下一问立即生效）"
+          },
+          "400": {
+            "description": "enabled 非布尔值"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/api/ontology/auto-build": {
       "post": {
         "tags": [
