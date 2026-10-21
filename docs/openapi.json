@@ -120,6 +120,10 @@
     {
       "name": "Ratings",
       "description": "v0.9.107 评价体系（问数星级评价 + 全站满意度，独立于 query_feedback）"
+    },
+    {
+      "name": "Ontology",
+      "description": "v0.9.110 业务本体（M1 实体/绑定/值域 + M2 关联路径/层级）：读接口登录可用，写接口仅 ADMIN；本体仅作问数软注入，不改变执行层 Schema 白名单"
     }
   ],
   "x-legacy-aliases": [
@@ -1909,6 +1913,10 @@
                   "refreshCache": {
                     "type": "boolean",
                     "description": "true 时跳过 L1/L2 缓存读取强制重新查询（P1-6 语义缓存命中后的用户刷新入口）"
+                  },
+                  "disableOntology": {
+                    "type": "boolean",
+                    "description": "v0.9.110 仅 ADMIN 生效：true 时本次问数跳过业务本体（圈表加权与四段提示词均不注入），用于 A/B 对照；非 ADMIN 传入被静默忽略"
                   }
                 }
               }
@@ -8863,6 +8871,823 @@
           },
           "Internal": {
             "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/ontology/summary": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "ontologySummary",
+        "summary": "业务本体概览计数（实体/绑定/值域/关系/层级，仅 ACTIVE；登录可读）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "各资产 ACTIVE 计数"
+          }
+        }
+      }
+    },
+    "/api/ontology/entities": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyEntities",
+        "summary": "业务实体列表（含表列绑定聚合；登录可读）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "实体列表（含 bindings）"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "createOntologyEntity",
+        "summary": "新建业务实体（创建即 ACTIVE，写版本快照；仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/entities/{id}": {
+      "put": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "updateOntologyEntity",
+        "summary": "更新业务实体（version+1 并留快照；数据源归属不可变；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "实体 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "实体不存在"
+          },
+          "409": {
+            "description": "名称冲突"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "deleteOntologyEntity",
+        "summary": "删除业务实体（连带绑定，留 DELETE 快照；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "实体 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "实体不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/entities/{id}/bindings": {
+      "put": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "replaceOntologyBindings",
+        "summary": "实体绑定整组替换（仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "实体 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "实体不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/entities/{id}/versions": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyEntityVersions",
+        "summary": "业务实体版本历史（仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "实体 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "版本快照列表"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/entities/{id}/restore": {
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "restoreOntologyEntityVersion",
+        "summary": "业务实体回滚到指定版本（body.version；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "实体 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "实体或版本不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/value-notes": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyValueNotes",
+        "summary": "值域释义列表（可按 tableName 过滤；登录可读）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tableName",
+            "in": "query",
+            "description": "按表名过滤（可选）",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "值域释义列表"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "upsertOntologyValueNote",
+        "summary": "新增或按唯一键更新值域释义（表.列 = 值 → 含义；仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/value-notes/{id}": {
+      "put": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "updateOntologyValueNote",
+        "summary": "行内编辑值域释义（含义/状态；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "值域释义 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "值域释义不存在"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "deleteOntologyValueNote",
+        "summary": "删除值域释义（仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "值域释义 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "值域释义不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/relations": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyRelations",
+        "summary": "已登记 JOIN 关联路径列表（登录可读）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "关联路径列表"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "createOntologyRelation",
+        "summary": "登记关联路径（起止表列 / JOIN 类型 / 基数 / 用途；仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/relations/{id}": {
+      "put": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "updateOntologyRelation",
+        "summary": "更新关联路径（version+1 并留快照；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "关联路径 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "关联路径不存在"
+          },
+          "409": {
+            "description": "重复路径"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "deleteOntologyRelation",
+        "summary": "删除关联路径（留 DELETE 快照；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "关联路径 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "关联路径不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/relations/{id}/versions": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyRelationVersions",
+        "summary": "关联路径版本历史（仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "关联路径 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "版本快照列表"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/relations/{id}/restore": {
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "restoreOntologyRelationVersion",
+        "summary": "关联路径回滚到指定版本（body.version；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "关联路径 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "关联路径或版本不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/hierarchies": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyHierarchies",
+        "summary": "业务层级列表（登录可读）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "业务层级列表"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "createOntologyHierarchy",
+        "summary": "新建业务层级（levels 由粗到细；仅 ADMIN）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/hierarchies/{id}": {
+      "put": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "updateOntologyHierarchy",
+        "summary": "更新业务层级（version+1 并留快照；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "业务层级 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "业务层级不存在"
+          },
+          "409": {
+            "description": "名称冲突"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "deleteOntologyHierarchy",
+        "summary": "删除业务层级（留 DELETE 快照；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "业务层级 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "业务层级不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/hierarchies/{id}/versions": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "listOntologyHierarchyVersions",
+        "summary": "业务层级版本历史（仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "业务层级 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "版本快照列表"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ontology/hierarchies/{id}/restore": {
+      "post": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "restoreOntologyHierarchyVersion",
+        "summary": "业务层级回滚到指定版本（body.version；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "业务层级 ID",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "操作结果"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "业务层级或版本不存在"
+          }
+        }
+      }
+    },
+    "/api/ontology/path": {
+      "get": {
+        "tags": [
+          "Ontology"
+        ],
+        "operationId": "findOntologyRelationPath",
+        "summary": "已登记 JOIN 最短路预览（内存 BFS ≤3 跳；登录可读）",
+        "parameters": [
+          {
+            "name": "dataSourceId",
+            "in": "query",
+            "description": "数据源 ID（必填）",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "起点表名",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "终点表名",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "路径列表（tables / edges / hops）"
+          },
+          "400": {
+            "description": "缺少 from/to"
           }
         }
       }

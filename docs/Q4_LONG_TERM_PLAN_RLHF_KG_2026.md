@@ -651,6 +651,18 @@ class FewShotPromptBuilder {
 
 ## 🔗 方向三：知识图谱扩展 - Schema Linking + Entity Disambiguation
 
+> **实施状态修订（2026-10-21，v0.9.110）**：本方向的「Schema Linking + Entity Disambiguation」已先以 **MySQL 原生业务本体**落地（M1 实体/别名/表列绑定/值域释义 + M2 关联路径/业务层级，见《系统功能说明书》3.27），包含圈表加权、四段提示词软注入、最短路 BFS 与「治理与审核 › 业务本体」管理面板。**Neo4j / NebulaGraph 改为按阈值触发**，不再作为前置依赖。
+>
+> **引入图库的触发条件（任一满足再立项）**：
+> 1. **跨源联邦**：单次问数需要联合 JOIN 两个及以上数据源的实体（MySQL 本体按 `data_source_id` 隔离，无法跨源建路径）；
+> 2. **单源表数 > 100**：关系量级进入千级、需要索引加速多跳检索（当前内存 BFS + ≤3 跳在数十条关系下开销可忽略）；
+> 3. **多跳检索占比显著**：评测或 trace 显示 ≥20% 的问数依赖 ≥2 跳路径，或 4 跳以上路径预览需求常态化。
+>
+> **从 M2 表结构到 Cypher 的可平移字段**（迁移时 MySQL 仍为 source of truth，图库仅作检索副本，允许最终一致）：
+> `ontology_entities` → `(:Entity {name, aliases, entityType, dataSourceId})`；`ontology_bindings` → `(:Entity)-[:REFERENCES {role}]->(:Column TABLE.column)`；`ontology_relations` → `(:Table)-[:JOINS {fromColumns, toColumns, joinType, cardinality, purpose}]->(:Table)`；`ontology_hierarchies.levels_json` → 层级属性（或 `(:Level)-[:ROLLUP_TO]->(:Level)`）。
+>
+> **本期不做**：图库部署、OWL/RDF、推理机与 M3 软校验 / 漂移联动 / 演化闭环（已在 v0.9.110 计划中明确排除）。
+
 ### 3.1 技术蓝图
 
 #### Neo4j 图模型设计
@@ -701,8 +713,8 @@ sequenceDiagram
 ### 3.2 实施路线图 (8 Weeks)
 
 **Week 1-2**: Graph Schema Design & Import
-- [ ] Install Neo4j / NebulaGraph
-- [ ] Define graph schema (see above)
+- [ ] （条件项：仅在触发条件满足时执行）Install Neo4j / NebulaGraph
+- [ ] （已由 v0.9.110 MySQL 本体覆盖）Define graph schema (see above)
 - [ ] Build import pipeline from pg_catalog / MySQL information_schema
 - [ ] Populate initial nodes from existing metadata
 
