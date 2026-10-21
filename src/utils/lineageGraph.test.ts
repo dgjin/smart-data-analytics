@@ -311,6 +311,25 @@ describe('toFlowGraph：React Flow 转换', () => {
     expect(stale?.label).toBe('⚠');
   });
 
+  it('关联路径边保持青色虚线（declared 证据不套用琥珀色）', () => {
+    const joinFlow = toFlowGraph({
+      ...graph,
+      edges: [
+        {
+          id: 'j1',
+          from: 'tbl:ds-a:orders',
+          to: 'tbl:ds-a:users',
+          kind: 'joins',
+          sourceType: 'declared',
+          evidence: '业务本体关联路径：1:N LEFT',
+          status: 'active',
+        },
+      ],
+    });
+    expect(joinFlow.edges[0]?.style?.stroke).toBe('#06b6d4');
+    expect(joinFlow.edges[0]?.style?.strokeDasharray).toBe('6 4');
+  });
+
   it('高亮边加粗、变暗边降透明度', () => {
     const flow = toFlowGraph(graph, { hoveredId: 'ds:ds-a' });
     const highlighted = flow.edges.find((e) => e.id === 'e4');

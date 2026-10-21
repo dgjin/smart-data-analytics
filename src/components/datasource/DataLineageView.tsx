@@ -224,7 +224,7 @@ export const DataLineageView: React.FC = () => {
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-slate-500" />结构包含</span>
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-emerald-500" />消费</span>
             <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-fuchsia-500" />指标派生</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 rounded bg-cyan-500" />关联路径</span>
+            <span className="flex items-center gap-1"><span className="w-3 border-t border-dashed border-cyan-500" />关联路径</span>
             <span className="flex items-center gap-1"><span className="w-3 border-t border-dashed border-amber-500" />声明式</span>
           </span>
         </div>

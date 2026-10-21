@@ -355,7 +355,7 @@ export interface FlowGraphContext {
   visibleIds?: Set<string> | null;
 }
 
-/** 边基础配色（复用项目现有色系 500 档；declared 覆写 amber、stale 覆写 rose） */
+/** 边基础配色（复用项目现有色系 500 档；declared 覆写 amber、stale 覆写 rose；joins 保持青色） */
 const EDGE_COLORS: Record<LineageEdgeKind, string> = {
   contains: '#64748b', // slate-500：结构包含
   consumes: '#10b981', // emerald-500：表 → 消费物
@@ -371,9 +371,11 @@ function edgeStyleOf(edge: LineageEdge, visual: LineageVisual): CSSProperties {
   const color =
     edge.status === 'stale'
       ? EDGE_STALE_COLOR
-      : edge.sourceType === 'declared'
-        ? EDGE_DECLARED_COLOR
-        : EDGE_COLORS[edge.kind];
+      : edge.kind === 'joins'
+        ? EDGE_COLORS.joins // 关联路径虽是 declared 证据，仍保留青色语义，避免与普通声明式边混淆
+        : edge.sourceType === 'declared'
+          ? EDGE_DECLARED_COLOR
+          : EDGE_COLORS[edge.kind];
   const width =
     edge.kind === 'contains' ? (visual === 'highlighted' ? 1.8 : 1.2) : visual === 'highlighted' ? 2.5 : 1.8;
   return {
