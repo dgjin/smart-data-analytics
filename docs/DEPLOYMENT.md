@@ -350,6 +350,12 @@ DEEPSEEK_API_KEY=sk-your-key
 | `APP_POOL_MAX` | 应用元数据库连接池上限（显式配置优先于公式 ceil(并发/2)，clamp 10-50） | 公式推导（默认 10） |
 | `METRICS_TOKEN` | `/metrics` 访问令牌（生产建议配置；不配置则端点公开并在启动时告警） | 无 |
 | `SHUTDOWN_TIMEOUT_MS` | 优雅停机排空限时（毫秒，区间 [1000, 120000]） | `10000` |
+| `ONTOLOGY_ENABLED` | 业务本体注入总开关（v0.9.110）：`0` 关闭后圈表不加权、prompt 不注入，等价于全局 disableOntology | `1` |
+| `ONTOLOGY_TOKEN_BUDGET` | 本体四段注入预算（token，低于 200 按 200 处理） | `1500` |
+| `ONTOLOGY_EMBEDDING_ENABLED` | 实体 embedding 精排开关：`0` 显式关闭可省一次 embedding 往返，无向量模型的本地环境建议关闭 | 随 embedding 可用性自动启停 |
+| `CONTEXT_ARBITER_TOKEN_BUDGET` | 上下文仲裁总预算（token）：铁律 / 指标 / 本体 / 业务口径 / 知识等文本块统一排序去重后超出时，从最低优先级块尾部裁剪 | `6000` |
+
+> 业务本体零新增外部依赖：`ontology_*` 六张表由 `initSchema` 幂等创建（无需迁移脚本），无本体数据时零注入，默认开启不改变既有问数行为。单次问数 A/B 由 ADMIN 在请求体传 `disableOntology: true` 触发（非 ADMIN 忽略），结果缓存按 `noonto` 变体键隔离，避免两组结果互相污染。
 
 ### 4.5 健康检查与优雅停机（v0.9.47）
 
