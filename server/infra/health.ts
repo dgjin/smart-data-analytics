@@ -7,8 +7,8 @@
  * 探测彼此并行且各自限时（默认单探测 2s），慢依赖不会互相拖累；
  * 超时/异常统一收敛为 { ok:false, error }，不向调用方抛错。
  *
- * 另有 GET /api/health/persistence 单项巡检（Redis 落盘陈旧/保存失败），独立于 ready 判定，
- * 避免落盘告警触发上游摘流量。
+ * 另有 GET /api/health/persistence 单项巡检（Redis RDB 落盘陈旧/保存失败 + AOF 写盘/重写失败），
+ * 独立于 ready 判定，避免落盘告警触发上游摘流量。
  */
 import { getPool } from './db';
 import { getRedisClient, getStateStore, isRedisEnabled } from './stateStore';
@@ -104,6 +104,14 @@ export interface RedisPersistenceSnapshot {
   savesConsecutiveFailures: number;
   /** 最近一次 BGSAVE 结果：ok / err */
   lastBgsaveStatus: string;
+  /** AOF 是否开启（appendonly yes）；未开启时以下 AOF 字段不参与判定 */
+  aofEnabled: boolean;
+  /** AOF 最近一次写盘结果：ok / err（err 期间 Redis 拒绝写命令） */
+  aofLastWriteStatus: string;
+  /** AOF 连续重写失败次数 */
+  aofRewritesConsecutiveFailures: number;
+  /** AOF 最近一次后台重写结果：ok / err */
+  aofLastBgrewriteStatus: string;
 }
 
 export interface RedisPersistenceReport extends Partial<RedisPersistenceSnapshot> {
@@ -113,6 +121,8 @@ export interface RedisPersistenceReport extends Partial<RedisPersistenceSnapshot
   skipped?: boolean;
   stale: boolean;
   failed: boolean;
+  /** 失败是否来自 AOF（开启时）；stale 与 RDB 相关 */
+  aofFailed?: boolean;
   thresholdSec: number;
   lastSaveAgeSec?: number;
   error?: string;
@@ -140,19 +150,31 @@ export function parseInfoPersistence(raw: string): RedisPersistenceSnapshot | nu
     changesSinceLastSave: Math.max(0, Number(fields.get('rdb_changes_since_last_save')) || 0),
     savesConsecutiveFailures: Math.max(0, Number(fields.get('rdb_saves_consecutive_failures')) || 0),
     lastBgsaveStatus: fields.get('rdb_last_bgsave_status') || 'unknown',
+    aofEnabled: fields.get('aof_enabled') === '1',
+    aofLastWriteStatus: fields.get('aof_last_write_status') || 'unknown',
+    aofRewritesConsecutiveFailures: Math.max(0, Number(fields.get('aof_rewrites_consecutive_failures')) || 0),
+    aofLastBgrewriteStatus: fields.get('aof_last_bgrewrite_status') || 'unknown',
   };
 }
 
-/** 纯判定：超阈值且仍有未落盘写入才算陈旧；保存失败单独计 */
+/**
+ * 纯判定：RDB 超阈值且仍有未落盘写入才算陈旧；持久化失败单独计。
+ * AOF 仅在其开启时参与判定——写盘失败意味着 Redis 拒绝写命令，重写失败会持续膨胀 AOF。
+ */
 export function evaluateRedisPersistence(
   snapshot: RedisPersistenceSnapshot,
   nowSec: number,
   thresholdSec: number,
-): { ok: boolean; stale: boolean; failed: boolean; lastSaveAgeSec: number } {
+): { ok: boolean; stale: boolean; failed: boolean; aofFailed: boolean; lastSaveAgeSec: number } {
   const lastSaveAgeSec = Math.max(0, nowSec - snapshot.lastSaveAt);
   const stale = snapshot.changesSinceLastSave > 0 && lastSaveAgeSec > thresholdSec;
-  const failed = snapshot.savesConsecutiveFailures > 0 || snapshot.lastBgsaveStatus === 'err';
-  return { ok: !stale && !failed, stale, failed, lastSaveAgeSec };
+  const rdbFailed = snapshot.savesConsecutiveFailures > 0 || snapshot.lastBgsaveStatus === 'err';
+  const aofFailed =
+    snapshot.aofEnabled &&
+    (snapshot.aofLastWriteStatus === 'err' ||
+      snapshot.aofRewritesConsecutiveFailures > 0 ||
+      snapshot.aofLastBgrewriteStatus === 'err');
+  return { ok: !stale && !rdbFailed && !aofFailed, stale, failed: rdbFailed || aofFailed, aofFailed, lastSaveAgeSec };
 }
 
 /** 读取 Redis INFO persistence（未启用 Redis 返回 null） */

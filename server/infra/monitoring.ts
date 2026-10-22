@@ -216,6 +216,18 @@ export const redisRdbSavesConsecutiveFailures = new client.Gauge({
   registers: [metricsRegister],
 });
 
+export const redisAofEnabled = new client.Gauge({
+  name: 'redis_aof_enabled',
+  help: 'Redis AOF 是否开启（1=开启，0=关闭；关闭会导致重启最多丢失一个 RDB 周期数据）',
+  registers: [metricsRegister],
+});
+
+export const redisAofLastWriteStatusOk = new client.Gauge({
+  name: 'redis_aof_last_write_status_ok',
+  help: 'Redis AOF 最近一次写盘是否成功（1=ok，0=err；err 期间 Redis 拒绝写命令）',
+  registers: [metricsRegister],
+});
+
 /** 抓取前刷新落盘指标（观测类 fail-open：读取失败保持旧值，不影响其他指标） */
 export async function refreshRedisPersistenceMetrics(): Promise<void> {
   try {
@@ -224,6 +236,10 @@ export async function refreshRedisPersistenceMetrics(): Promise<void> {
     redisRdbLastSaveAge.set(r.lastSaveAgeSec ?? 0);
     redisRdbChangesSinceSave.set(r.changesSinceLastSave ?? 0);
     redisRdbSavesConsecutiveFailures.set(r.savesConsecutiveFailures ?? 0);
+    if (r.aofEnabled !== undefined) {
+      redisAofEnabled.set(r.aofEnabled ? 1 : 0);
+      redisAofLastWriteStatusOk.set(r.aofLastWriteStatus === 'err' ? 0 : 1);
+    }
   } catch { /* 静默 */ }
 }
 

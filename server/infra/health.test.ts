@@ -1,6 +1,7 @@
 /**
  * P1-3 健康检查单测：就绪聚合（全通过/单失败/超时/并行）、默认探测集构建按配置分流；
  * v0.9.116 追加 Redis 落盘巡检（INFO 解析、陈旧/失败判定、未启用跳过、读取失败 fail-open）。
+ * v0.9.117 追加 AOF 巡检（写盘/重写失败判定，未开启时不参与）。
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -11,6 +12,7 @@ import {
   probeRedisPersistence,
   redisPersistenceStaleSec,
   type HealthProbe,
+  type RedisPersistenceSnapshot,
 } from './health';
 
 const okProbe = (name: string, ms = 0): HealthProbe => ({
@@ -83,11 +85,15 @@ describe('buildDefaultProbes 默认探测集', () => {
 });
 
 describe('Redis 落盘巡检', () => {
-  const snapshot = (over: Partial<Parameters<typeof evaluateRedisPersistence>[0]> = {}) => ({
+  const snapshot = (over: Partial<RedisPersistenceSnapshot> = {}): RedisPersistenceSnapshot => ({
     lastSaveAt: 1_000_000,
     changesSinceLastSave: 10,
     savesConsecutiveFailures: 0,
     lastBgsaveStatus: 'ok',
+    aofEnabled: true,
+    aofLastWriteStatus: 'ok',
+    aofRewritesConsecutiveFailures: 0,
+    aofLastBgrewriteStatus: 'ok',
     ...over,
   });
   const HOUR = 3600;
@@ -115,7 +121,7 @@ describe('Redis 落盘巡检', () => {
     expect(evaluateRedisPersistence(snapshot({ lastBgsaveStatus: 'err' }), 1_000_000, 2 * HOUR).failed).toBe(true);
   });
 
-  it('INFO 文本解析：取持久化字段，忽略注释与其他段', () => {
+  it('INFO 文本解析：取持久化字段（含 AOF），忽略注释与其他段', () => {
     const raw = [
       '# Persistence',
       'loading:0',
@@ -125,6 +131,10 @@ describe('Redis 落盘巡检', () => {
       'rdb_last_bgsave_status:ok',
       'rdb_saves:2',
       'rdb_saves_consecutive_failures:0',
+      'aof_enabled:1',
+      'aof_last_write_status:ok',
+      'aof_rewrites_consecutive_failures:0',
+      'aof_last_bgrewrite_status:ok',
       '',
     ].join('\r\n');
     expect(parseInfoPersistence(raw)).toEqual({
@@ -132,7 +142,38 @@ describe('Redis 落盘巡检', () => {
       changesSinceLastSave: 60,
       savesConsecutiveFailures: 0,
       lastBgsaveStatus: 'ok',
+      aofEnabled: true,
+      aofLastWriteStatus: 'ok',
+      aofRewritesConsecutiveFailures: 0,
+      aofLastBgrewriteStatus: 'ok',
     });
+  });
+
+  it('未开启 AOF 的 INFO（无 aof_* 行）→ aofEnabled=false 且其余字段取默认', () => {
+    const parsed = parseInfoPersistence('rdb_last_save_time:1000\n');
+    expect(parsed).toMatchObject({
+      aofEnabled: false,
+      aofLastWriteStatus: 'unknown',
+      aofRewritesConsecutiveFailures: 0,
+      aofLastBgrewriteStatus: 'unknown',
+    });
+  });
+
+  it('AOF 写盘 err 或重写连续失败 → failed 且 aofFailed=true', () => {
+    const writeErr = evaluateRedisPersistence(snapshot({ aofLastWriteStatus: 'err' }), 1_000_000, 2 * HOUR);
+    expect(writeErr).toMatchObject({ ok: false, failed: true, aofFailed: true, stale: false });
+    const rewriteErr = evaluateRedisPersistence(snapshot({ aofRewritesConsecutiveFailures: 2 }), 1_000_000, 2 * HOUR);
+    expect(rewriteErr.failed).toBe(true);
+    expect(rewriteErr.aofFailed).toBe(true);
+  });
+
+  it('AOF 未开启时忽略其失败字段（不因历史 err 误判）', () => {
+    const r = evaluateRedisPersistence(
+      snapshot({ aofEnabled: false, aofLastWriteStatus: 'err', aofLastBgrewriteStatus: 'err', aofRewritesConsecutiveFailures: 3 }),
+      1_000_000,
+      2 * HOUR,
+    );
+    expect(r).toMatchObject({ ok: true, failed: false, aofFailed: false });
   });
 
   it('缺少 rdb_last_save_time 或为 0 → 不可判定（null）', () => {
@@ -191,7 +232,8 @@ describe('Redis 落盘巡检', () => {
       const r = await probeRedisPersistence({
         nowSec: 1_000_000 + 3 * HOUR,
         thresholdSec: 2 * HOUR,
-        readInfo: async () => 'rdb_last_save_time:1000000\nrdb_changes_since_last_save:5\nrdb_saves_consecutive_failures:0\nrdb_last_bgsave_status:ok\n',
+        readInfo: async () =>
+          'rdb_last_save_time:1000000\nrdb_changes_since_last_save:5\nrdb_saves_consecutive_failures:0\nrdb_last_bgsave_status:ok\naof_enabled:1\naof_last_write_status:ok\n',
       });
       expect(r).toMatchObject({
         enabled: true,
@@ -202,6 +244,8 @@ describe('Redis 落盘巡检', () => {
         changesSinceLastSave: 5,
         lastSaveAgeSec: 3 * HOUR,
         thresholdSec: 2 * HOUR,
+        aofEnabled: true,
+        aofLastWriteStatus: 'ok',
       });
     } finally {
       if (saved === undefined) delete process.env.REDIS_URL;

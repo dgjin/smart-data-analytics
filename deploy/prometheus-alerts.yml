@@ -51,6 +51,22 @@ groups:
           summary: "Redis BGSAVE 连续失败"
           description: "实例 {{ $labels.instance }} 连续 {{ $value }} 次 BGSAVE 失败（磁盘/fork/权限），写入可能被 stop-writes-on-bgsave-error 拒绝。"
 
+      - alert: RedisAofDisabled
+        expr: redis_aof_enabled == 0
+        for: 30m
+        labels: { severity: warning, service: redis, aiops_demo: "true" }
+        annotations:
+          summary: "Redis AOF 未开启（重启最多丢失一个 RDB 周期数据）"
+          description: "实例 {{ $labels.instance }} 的 appendonly 为 no，检查 /opt/homebrew/etc/redis.conf 与运行期 CONFIG GET appendonly 是否被回退。"
+
+      - alert: RedisAofWriteFailed
+        expr: redis_aof_last_write_status_ok == 0
+        for: 5m
+        labels: { severity: critical, service: redis, aiops_demo: "true" }
+        annotations:
+          summary: "Redis AOF 写盘失败（写命令将被拒绝）"
+          description: "实例 {{ $labels.instance }} 的 aof_last_write_status 为 err，检查磁盘容量/权限，恢复前所有写命令返回 MISCONF。"
+
   - name: nl2sql-business
     rules:
       # 问数成功率骤降（基线：SUCCESS+CACHE 占比；排除拒答/澄清等正常业务终态之外的 ERROR/FALLBACK 侵蚀）
