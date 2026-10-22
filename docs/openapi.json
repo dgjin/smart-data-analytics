@@ -9829,6 +9829,81 @@
           }
         }
       }
+    },
+    "/api/ops/traces": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "listOpsTraces",
+        "summary": "P2-1 链路追踪：最近请求链路摘要（按开始时间倒序；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 500
+            },
+            "description": "返回条数上限（进程内缓冲最多 500 条）"
+          },
+          {
+            "name": "minDurationMs",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            },
+            "description": "最小总耗时过滤（毫秒），用于只看慢请求"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "链路摘要列表（traceId/路由/状态码/耗时/span 数）"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/api/ops/traces/{traceId}": {
+      "get": {
+        "tags": [
+          "Ops"
+        ],
+        "operationId": "getOpsTrace",
+        "summary": "P2-1 链路追踪：单链路 span 瀑布（span 按开始时间升序；仅 ADMIN）",
+        "parameters": [
+          {
+            "name": "traceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "description": "32 位十六进制链路 ID（响应头 traceparent 或日志 traceId 字段）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "链路瀑布（含 http.request/llm.call/sql.execute/memory.recall 各阶段耗时）"
+          },
+          "400": {
+            "description": "traceId 格式非法"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "链路不存在或已超出缓冲窗口"
+          }
+        }
+      }
     }
   },
   "components": {

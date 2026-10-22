@@ -27,6 +27,8 @@ import { llmEngineLabel, llmEngineInfo, listAvailableModels, startOllamaHealthCh
 import { summarizeLlmUsage, summarizeLlmUsageByUser } from './server/llm/llmUsage';
 import { startChainCleanupScheduler, cleanupExpiredIntermediateTables } from './server/query/analysisChain';
 import { requestLogger } from './server/infra/requestLogger';
+// P2-1 轻量分布式追踪：requestId 之上的 span 树（/api/* 根 span + 阶段埋点）
+import { traceMiddleware } from './server/infra/trace';
 import { metricsHandler, httpRequestDuration } from './server/infra/monitoring';
 import authRoutes from './server/routes/auth';
 // v0.9.104 用户信息维护（REQ-16/REQ-18）：GET/PUT /api/user/personal
@@ -68,6 +70,8 @@ import flexQueryRoutes from './server/routes/flexQueries';
 // P0-4 在线准确率度量看板（北极星指标聚合，仅 ADMIN）
 import opsMetricsRoutes from './server/routes/opsMetrics';
 import opsDriftRoutes from './server/routes/opsDrift';
+// P2-1 链路追踪查询（仅 ADMIN：最近链路摘要 / 单链路 span 瀑布）
+import opsTracesRoutes from './server/routes/opsTraces';
 // v0.9.2 异步任务队列（改进计划 2-1）
 import taskRoutes from './server/routes/tasks';
 import { startTaskWorker, stopTaskWorker } from './server/infra/taskQueue';
@@ -248,6 +252,8 @@ async function startServer() {
 
   // P2 可观测性：requestId + API 访问日志（位于鉴权之前，被拒请求同样有留痕）
   app.use(requestLogger);
+  // P2-1 追踪根 span：须在 requestLogger 后（复用 requestId 落链路摘要）
+  app.use(traceMiddleware);
 
   // Prometheus：/api/* 接口耗时直方图（仅 API 前缀——开发态 Vite 静态资源路径多，全量会撑爆 label 基数）；
   // route label 用匹配到的路由模式（/api/datasources/:id），无匹配归入 unmatched
@@ -441,6 +447,8 @@ async function startServer() {
   app.use('/api/ops', opsDriftRoutes);
   // v0.9.93 自动运维 API：事件流查询/确认 + 服务日志尾读（见 server/routes/opsEvents.ts）
   app.use('/api/ops', opsEventsRoutes);
+  // P2-1 链路追踪查询：最近链路摘要 / 单链路 span 瀑布（见 server/routes/opsTraces.ts）
+  app.use('/api/ops', opsTracesRoutes);
   // P2-11 权限申请审批流（见 server/routes/accessRequests.ts）
   app.use('/api/access-requests', accessRequestRoutes);
   // v0.9.98 需求收集与意见反馈（提交 → 管理员评估 → 基线管理 → 标准导出供 AIOps 主动分析）

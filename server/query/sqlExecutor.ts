@@ -14,6 +14,7 @@ import pg from 'pg';
 import sqlParserPkg from 'node-sql-parser';
 import { getPool } from '../infra/db';
 import { observeSqlExec, observeExplainGuard } from '../infra/monitoring';
+import { recordSpan } from '../infra/trace';
 import { decryptSecret } from '../infra/secretsCrypto';
 import { logger } from '../infra/logger';
 import { getFilePhysicalTable } from './fileDataSource';
@@ -755,7 +756,7 @@ export function getDsPool(dataSourceId: string, dialect: SqlDialect, config: Rec
  * （mysql / postgresql / greenplum），否则返回 UNSUPPORTED_DS_TYPE（调用方走演示模式）。
  * rowFilters：P1-3 行级权限（实际表名 → 谓词），白名单校验通过后 AST 强制注入。
  */
-/** Prometheus 埋点包装：计时 + 成败 label，真实实现见 executeSafeSqlImpl */
+/** Prometheus 埋点包装：计时 + 成败 label，真实实现见 executeSafeSqlImpl；P2-1 同步补录 sql.execute span */
 export async function executeSafeSql(
   dataSourceId: string,
   rawSql: unknown,
@@ -768,10 +769,21 @@ export async function executeSafeSql(
   const t0 = Date.now();
   try {
     const out = await executeSafeSqlImpl(dataSourceId, rawSql, allowedTables, sensitiveColumns, maxRows, rowFilters, scenario);
-    observeSqlExec(Date.now() - t0, out.ok === true);
+    const durationMs = Date.now() - t0;
+    observeSqlExec(durationMs, out.ok === true);
+    recordSpan('sql.execute', durationMs, out.ok === true ? 'ok' : 'error', {
+      'sql.data_source_id': dataSourceId,
+      'sql.scenario': scenario,
+      ...(out.ok === true ? {} : { 'sql.error': String((out as { error?: unknown }).error ?? '').slice(0, 200) }),
+    });
     return out;
   } catch (err) {
-    observeSqlExec(Date.now() - t0, false);
+    const durationMs = Date.now() - t0;
+    observeSqlExec(durationMs, false);
+    recordSpan('sql.execute', durationMs, 'error', {
+      'sql.data_source_id': dataSourceId,
+      'sql.scenario': scenario,
+    });
     throw err;
   }
 }

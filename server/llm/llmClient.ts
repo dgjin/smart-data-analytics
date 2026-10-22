@@ -7,6 +7,7 @@
  */
 import { AsyncLocalStorage } from 'async_hooks';
 import { recordLlmUsage } from './llmUsage';
+import { recordSpan } from '../infra/trace';
 import {
   getOllamaBackendStates,
   isAbortErr,
@@ -248,10 +249,18 @@ export function getLlmUserContext(): { userId?: number; username?: string } {
   return o ? { userId: o.userId, username: o.username } : {};
 }
 
-/** 带请求用户上下文的用量埋点：避免逐调用点手动取 store */
+/** 带请求用户上下文的用量埋点：避免逐调用点手动取 store；P2-1 同步补录 llm.call span */
 export function recordUsage(entry: Parameters<typeof recordLlmUsage>[0]): void {
   const ctx = getLlmUserContext();
   recordLlmUsage({ ...entry, userId: ctx.userId, username: ctx.username });
+  // 补录型 span：调用方已持有耗时（含流式累计），仅做时间轴记账，不改调用语义
+  recordSpan('llm.call', entry.durationMs, entry.ok ? 'ok' : 'error', {
+    'llm.engine': entry.engine,
+    'llm.model': entry.model,
+    'llm.channel': entry.channel,
+    'llm.prompt_tokens': entry.promptTokens,
+    'llm.completion_tokens': entry.completionTokens,
+  });
 }
 
 /** 当前上下文生效的模型名（仅当覆盖引擎与目标通道一致时生效） */

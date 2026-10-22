@@ -4,7 +4,8 @@
  *
  * - 默认 JSON Lines（每行一个 JSON 对象，供自动运维智能体 / jq / Loki 消费）：
  *   ts/level/msg 必带；requestId/userId/username/taskId/taskType 由 asyncContext
- *   （AsyncLocalStorage）自动注入；Error 对象提取为 err{name,message,code,errno,stack}；
+ *   （AsyncLocalStorage）自动注入；traceId/spanId 由 trace（P2-1）自动注入，
+ *   日志行因此可直接跳转链路瀑布（/api/ops/traces/:traceId）；Error 对象提取为 err{name,message,code,errno,stack}；
  *   msg 的 [Module] 前缀（现有约定，如 [TaskQueue]/[HTTP]）提取为 module 字段供按模块过滤；
  *   其余实参经安全序列化（截断超长、循环引用兜底）进 args 字段。
  * - 输出格式自适应：LOG_FORMAT=json|pretty 显式指定；未指定时按 stdout 是否 TTY——
@@ -18,6 +19,7 @@
  */
 import fs from 'node:fs';
 import { getLogContext } from './asyncContext';
+import { getTraceContext } from './trace';
 
 type Level = 'debug' | 'info' | 'warn' | 'error';
 
@@ -94,7 +96,7 @@ export function safeValue(value: unknown, depth = 0): unknown {
 /**
  * 构建结构化日志记录（导出供单测直接断言字段，不经 IO）。
  * 字段协议（自动运维智能体消费契约）：
- * ts(ISO) / level / msg / module? / requestId? / userId? / username? / taskId? / taskType? / err? / args?
+ * ts(ISO) / level / msg / module? / requestId? / userId? / username? / taskId? / taskType? / traceId? / spanId? / err? / args?
  */
 export function buildLogRecord(level: Level, msg: unknown, args: unknown[]): Record<string, unknown> {
   const record: Record<string, unknown> = {
@@ -113,6 +115,12 @@ export function buildLogRecord(level: Level, msg: unknown, args: unknown[]): Rec
     if (ctx.username) record.username = ctx.username;
     if (ctx.taskId) record.taskId = ctx.taskId;
     if (ctx.taskType) record.taskType = ctx.taskType;
+  }
+  // P2-1：链路字段随 span 上下文自动切换（嵌套 span 内日志归属当前 span）
+  const trace = getTraceContext();
+  if (trace) {
+    record.traceId = trace.traceId;
+    record.spanId = trace.spanId;
   }
   const errors = args.filter((a): a is Error => a instanceof Error);
   const rest = args.filter((a) => !(a instanceof Error));

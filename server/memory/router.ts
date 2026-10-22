@@ -9,6 +9,7 @@
  */
 import { approxTokens, budgetText } from '../llm/promptBudget';
 import { observeMemoryRecall } from '../infra/monitoring';
+import { recordSpan } from '../infra/trace';
 import { normalizeSql } from '../query/queryFeedback';
 import {
   MEMORY_BUDGETS,
@@ -243,7 +244,9 @@ export async function recallMemory(ctx: RecallContext): Promise<MemoryRecallBund
     memoryRecallTimeoutMs()
   );
   if (!results) {
-    observeMemoryRecall({ mode, ok: false, durationMs: Date.now() - started, injectedTokens: 0, channelHits: {} });
+    const durationMs = Date.now() - started;
+    observeMemoryRecall({ mode, ok: false, durationMs, injectedTokens: 0, channelHits: {} });
+    recordSpan('memory.recall', durationMs, 'error', { 'memory.mode': mode, 'memory.timeout': true });
     return null;
   }
 
@@ -256,6 +259,12 @@ export async function recallMemory(ctx: RecallContext): Promise<MemoryRecallBund
     durationMs: bundle.stats.elapsedMs,
     injectedTokens: bundle.stats.injectedTokens,
     channelHits: bundle.stats.channelHits,
+  });
+  // P2-1 链路埋点：与 Prometheus 指标同源，命中数便于对比「召回耗时高但无产出」的空转
+  recordSpan('memory.recall', bundle.stats.elapsedMs, 'ok', {
+    'memory.mode': mode,
+    'memory.injected_tokens': bundle.stats.injectedTokens,
+    'memory.hits': Object.values(bundle.stats.channelHits).reduce<number>((sum, n) => sum + (n || 0), 0),
   });
   void persistMemoryUsage(ctx, bundle, shadow).catch(() => undefined);
   return shadow ? null : bundle;
