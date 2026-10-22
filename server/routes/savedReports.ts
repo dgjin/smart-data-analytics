@@ -193,7 +193,6 @@ router.put('/:reportId', authMiddleware, requireRole('ADMIN', 'ANALYST'), async 
 
 // PUT /api/saved-reports/:reportId/comments - 仅更新批注字段（所有登录用户可协同批注）
 router.put('/:reportId/comments', authMiddleware, async (req, res) => {
-  const user = req.user!;
   const { reportId } = req.params;
   const comments = req.body?.comments;
   if (!Array.isArray(comments)) {

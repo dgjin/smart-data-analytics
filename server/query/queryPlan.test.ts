@@ -20,7 +20,7 @@ import { callLLMJson } from '../llm/llmClient';
 
 const TTL = 10 * 60 * 1000;
 
-function samplePlan(id: string, now: number): QueryPlan {
+function samplePlan(id: string, _now: number): QueryPlan {
   return {
     planId: id,
     question: '各部门销售额对比',

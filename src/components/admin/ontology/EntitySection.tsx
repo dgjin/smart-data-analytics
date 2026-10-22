@@ -4,7 +4,8 @@ import {
   ChevronDown, ChevronRight, Search, Power, PowerOff, RotateCcw, Sparkles,
 } from 'lucide-react';
 import { getErrorMessage } from '../../../utils/errorUtils';
-import { SchemaInput, useEscapeKey, listFromText } from '../ontologyUi';
+import { SchemaInput } from '../ontologyUi';
+import { useEscapeKey, listFromText } from '../ontologyHelpers';
 import {
   ENTITY_TYPE_META, BINDING_ROLE_META, ONTOLOGY_STATUS_META,
   type OntologyBindingItem, type OntologyBindingRole,

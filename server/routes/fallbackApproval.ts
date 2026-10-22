@@ -4,24 +4,10 @@ import { getPool } from '../infra/db.js';
 import { logger } from '../infra/logger.js';
 import { authMiddleware, requireRole } from '../auth/auth.js';
 import { injectFewShotSamples } from '../utils/fewShotService.js';
-import { prioritizePendingSamples, SamplePriorityScore } from '../utils/activeLearning.js';
+import { prioritizePendingSamples } from '../utils/activeLearning.js';
 import { getErrorMessage } from '../infra/errorUtils';
 
 const router = Router();
-
-/** 困难样本类型定义 */
-interface AdversarialSample {
-  id: number;
-  original_query: string;
-  original_sql: string;
-  error_message: string;
-  data_source_id: string;
-  user_id: number;
-  annotation_status: 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
-  expected_sql: string | null;
-  resolved_strategy: string | null;
-  created_at: Date;
-}
 
 /** 列表查询（管理员） - 按优先级分数排序 */
 router.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {

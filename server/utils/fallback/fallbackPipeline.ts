@@ -19,23 +19,12 @@ const FALLBACK_STRATEGIES: FallbackStrategy[] = ['rule_based', 'simpler_prompt',
 
 // 占位：真正的 logger 由调用者传入
 const noopLogger = {
-  info: (...args: unknown[]) => {},
+  info: (..._args: unknown[]) => {},
   warn: (...args: unknown[]) => console.warn('[Fallback]', ...args),
   error: (...args: unknown[]) => console.error('[Fallback]', ...args)
 };
 
 type LoggerType = typeof noopLogger;
-
-/**
- * 解析错误原因分类
- */
-function classifyError(error: string): 'syntax_error' | 'semantic_error' | 'permission_denied' | 'unknown' {
-  const errorMsg = error.toLowerCase();
-  if (errorMsg.includes('syntax') || errorMsg.includes('parse')) return 'syntax_error';
-  if (errorMsg.includes('permission') || errorMsg.includes('access denied')) return 'permission_denied';
-  if (errorMsg.includes('column') || errorMsg.includes('table') || errorMsg.includes('undefined')) return 'semantic_error';
-  return 'unknown';
-}
 
 /**
  * 主入口：解决阶段二解读失败

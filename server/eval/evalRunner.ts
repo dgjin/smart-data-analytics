@@ -82,16 +82,19 @@ export function loadEvalCases(path?: string): EvalSuite {
   if (!existsSync(file)) throw new Error(`评测集不存在: ${file}`);
   const raw = JSON.parse(readFileSync(file, 'utf-8'));
   const dataSourceId = typeof raw?.dataSourceId === 'string' ? raw.dataSourceId : '';
-  const cases = (Array.isArray(raw?.cases) ? raw.cases : [])
-    .filter(
-      (c: any) =>
-        c && typeof c.id === 'string' && typeof c.question === 'string' && c.question.trim() &&
-        typeof c.goldenSql === 'string' && /^select/i.test(c.goldenSql.trim())
-    )
-    .map((c: any) => ({
-      id: c.id,
-      question: c.question.trim(),
-      goldenSql: c.goldenSql.trim(),
+  const cases = (Array.isArray(raw?.cases) ? (raw.cases as unknown[]) : [])
+    .filter((c): c is Record<string, unknown> => {
+      if (!c || typeof c !== 'object') return false;
+      const o = c as Record<string, unknown>;
+      return (
+        typeof o.id === 'string' && typeof o.question === 'string' && o.question.trim() !== '' &&
+        typeof o.goldenSql === 'string' && /^select/i.test(o.goldenSql.trim())
+      );
+    })
+    .map((c) => ({
+      id: c.id as string,
+      question: (c.question as string).trim(),
+      goldenSql: (c.goldenSql as string).trim(),
       ordered: c.ordered === true,
       category: typeof c.category === 'string' && c.category ? c.category : 'single_agg',
       expect: c.expect === 'clarify' || c.expect === 'refuse' ? (c.expect as 'clarify' | 'refuse') : ('result' as const),
@@ -103,7 +106,7 @@ export function loadEvalCases(path?: string): EvalSuite {
 }
 
 /** 单元格归一化：数值保留 6 位小数（容忍浮点误差），字符串 trim，空值统一 '' */
-export function normalizeCell(v: any): string {
+export function normalizeCell(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)))) {
     const n = Number(v);
@@ -113,9 +116,10 @@ export function normalizeCell(v: any): string {
 }
 
 /** 单行归一化为「排序后的取值元组」：忽略列别名与列顺序差异 */
-export function normalizeRow(row: any): string {
+export function normalizeRow(row: unknown): string {
   if (!row || typeof row !== 'object') return normalizeCell(row);
-  return JSON.stringify(Object.keys(row).map((k) => normalizeCell(row[k])).sort());
+  const obj = row as Record<string, unknown>;
+  return JSON.stringify(Object.keys(obj).map((k) => normalizeCell(obj[k])).sort());
 }
 
 /**
@@ -123,7 +127,7 @@ export function normalizeRow(row: any): string {
  * 容差取 max(0.005, 相对 1e-9)：吸收系统常用的 ROUND(x,2) 金额写法与全精度 golden 的差（半分钱内），
  * 而口径错误（锁错快照期/漏版本过滤）造成的差异以千万计，远超容差，不会被误判通过。
  */
-export function cellsEqual(a: any, b: any): boolean {
+export function cellsEqual(a: unknown, b: unknown): boolean {
   const sa = a === null || a === undefined ? '' : String(a).trim();
   const sb = b === null || b === undefined ? '' : String(b).trim();
   const na = Number(sa);
@@ -135,10 +139,11 @@ export function cellsEqual(a: any, b: any): boolean {
 }
 
 /** 行规范化：排序键（6 位小数字符串元组，用于多重集对齐）+ 同序原始取值（用于容差比较） */
-function canonRow(row: any): { key: string; raws: any[] } {
+function canonRow(row: unknown): { key: string; raws: unknown[] } {
   if (!row || typeof row !== 'object') return { key: normalizeCell(row), raws: [row] };
-  const pairs = Object.keys(row)
-    .map((k) => ({ norm: normalizeCell(row[k]), raw: row[k] }))
+  const obj = row as Record<string, unknown>;
+  const pairs = Object.keys(obj)
+    .map((k) => ({ norm: normalizeCell(obj[k]), raw: obj[k] }))
     .sort((x, y) => (x.norm < y.norm ? -1 : x.norm > y.norm ? 1 : 0));
   return { key: JSON.stringify(pairs.map((p) => p.norm)), raws: pairs.map((p) => p.raw) };
 }
@@ -149,7 +154,7 @@ function canonRow(row: any): { key: string; raws: any[] } {
  * - ordered=true 时按行序比较（行内取值仍排序，容忍列序差异）
  * - 数值单元格按 cellsEqual 容差比较（吸收 ROUND(x,2) 写法差）
  */
-export function compareRowSets(a: any[], b: any[], ordered = false): boolean {
+export function compareRowSets(a: unknown[], b: unknown[], ordered = false): boolean {
   if (!Array.isArray(a) || !Array.isArray(b)) return false;
   if (a.length !== b.length) return false;
   const na = a.map(canonRow);
@@ -176,7 +181,7 @@ export function extractTableNames(sql: string): string[] {
 }
 
 /** 执行 golden SQL（经安全执行层，与问数链路同口径） */
-export async function executeGoldenSql(dataSourceId: string, sql: string): Promise<{ ok: true; rows: any[] } | { ok: false; reason: string }> {
+export async function executeGoldenSql(dataSourceId: string, sql: string): Promise<{ ok: true; rows: unknown[] } | { ok: false; reason: string }> {
   const tables = extractTableNames(sql).map((name) => ({ name }));
   const res = await executeSafeSql(dataSourceId, sql, tables, [], undefined, {}, 'chain');
   if (res.ok === false) return { ok: false, reason: res.reason };
@@ -364,7 +369,14 @@ async function runSuiteOnce(ctx: SuiteRunContext): Promise<{ summary: EvalSummar
         result.status = 'error';
         result.reason = `HTTP ${res.status}`;
       } else {
-        const data: any = await res.json();
+        const data = (await res.json()) as {
+          needClarification?: boolean;
+          refused?: boolean;
+          success?: boolean;
+          error?: string;
+          executedSql?: string;
+          result?: { rows?: unknown; finalSql?: string; generatedSQL?: string };
+        };
         if (c.expect === 'clarify') {
           // 需澄清用例：期望返回 needClarification（歧义澄清，不执行 SQL）
           if (data?.needClarification === true) {
@@ -402,9 +414,10 @@ async function runSuiteOnce(ctx: SuiteRunContext): Promise<{ summary: EvalSummar
           }
         }
       }
-    } catch (err: any) {
+    } catch (err) {
+      const e = err as { name?: string; message?: string };
       result.status = 'error';
-      result.reason = err?.name === 'AbortError' ? `超时（>${Math.round(timeoutMs / 1000)}s）` : String(err?.message || err);
+      result.reason = e?.name === 'AbortError' ? `超时（>${Math.round(timeoutMs / 1000)}s）` : String(e?.message || err);
     }
     result.durationMs = Date.now() - startedAt;
     results.push(result);

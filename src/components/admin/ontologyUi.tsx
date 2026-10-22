@@ -5,12 +5,11 @@
  * - 层级编辑器统一创建 / 编辑体验（增删 + 上下移 + 预览）；
  * - Esc 关闭弹层。所有控件保持受控，值仍是字符串，接口契约不变。
  */
-import React, { useEffect } from 'react';
+import React from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import type { TableSchema } from '../../types/analytics';
-
-/** 面板内四种识别色（与各 Tab 主色一致，类名静态书写供 Tailwind 扫描） */
-export type OntologyAccent = 'cyan' | 'amber' | 'emerald' | 'violet';
+import type { OntologyAccent } from './ontologyHelpers';
+import { columnsOf, listFromText } from './ontologyHelpers';
 
 const FOCUS_BORDER: Record<OntologyAccent, string> = {
   cyan: 'focus:border-cyan-500',
@@ -25,39 +24,6 @@ const ACTIVE_CHIP: Record<OntologyAccent, string> = {
   emerald: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200',
   violet: 'border-violet-500/50 bg-violet-500/15 text-violet-200',
 };
-
-/** 逗号/顿号/分号/换行分隔 → 去空数组（表列名、别名、层级共用） */
-export function listFromText(text: string): string[] {
-  return String(text || '')
-    .split(/[,，、;；\n]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/** 按 Schema 取列名（表名大小写不敏感；表不存在返回空数组） */
-export function columnsOf(tables: TableSchema[], tableName: string): string[] {
-  const key = tableName.trim().toLowerCase();
-  const t = tables.find((x) => x.name.toLowerCase() === key);
-  return Array.isArray(t?.columns) ? t.columns.map((c) => c.name) : [];
-}
-
-/** 表名是否存在于当前数据源 Schema */
-export function tableInSchema(tables: TableSchema[], tableName: string): boolean {
-  const key = tableName.trim().toLowerCase();
-  return tables.some((t) => t.name.toLowerCase() === key);
-}
-
-/** Esc 关闭弹层（enabled=false 时不绑定，弹层关闭后自动解绑） */
-export function useEscapeKey(enabled: boolean, onEscape: () => void): void {
-  useEffect(() => {
-    if (!enabled) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onEscape();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [enabled, onEscape]);
-}
 
 interface SchemaInputProps {
   kind: 'table' | 'column';

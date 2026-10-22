@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Sparkles, X, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronRight, Boxes, Tag, GitBranch, Layers3 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
-import { useEscapeKey } from './ontologyUi';
+import { useEscapeKey } from './ontologyHelpers';
 
 /**
  * 业务本体「智能预填」弹窗（v0.9.112）：

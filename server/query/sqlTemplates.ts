@@ -44,7 +44,7 @@ const yearOverYear: AnalysisTemplate<YoYParams> = {
   label: '同比对比',
   description: '两期对比（本年 vs 去年），使用 LEFT JOIN 派生表计算同期数据',
   paramSchema: {} as YoYParams,
-  buildSql(params, dialect = 'mysql'): string {
+  buildSql(params, _dialect = 'mysql'): string {
     const { dimension, filterYear, prevYear } = params;
     return `SELECT r.${dimension}, r.sum_curr AS curr_${filterYear}, COALESCE(p.sum_prev, 0) AS prev_${prevYear} FROM (SELECT ${dimension}, SUM(amt) sum_curr FROM t WHERE yr = ${filterYear} GROUP BY ${dimension}) r LEFT JOIN (SELECT ${dimension}, SUM(amt) sum_prev FROM t WHERE yr = ${prevYear} GROUP BY ${dimension}) p ON r.${dimension} = p.${dimension} ORDER BY r.sum_curr DESC LIMIT 100`;
   },
@@ -55,7 +55,7 @@ const monthOverMonth: AnalysisTemplate<MoMParams> = {
   label: '环比对比',
   description: '相邻月度对比（本月 vs 上月），按月聚合后 JOIN',
   paramSchema: {} as MoMParams,
-  buildSql(params, dialect = 'mysql'): string {
+  buildSql(params, _dialect = 'mysql'): string {
     const { dimension, currentMonth, prevMonth } = params;
     return `SELECT r.${dimension}, r.sum_curr AS curr_month, COALESCE(p.sum_prev, 0) AS prev_month FROM (SELECT ${dimension}, SUM(amt) sum_curr FROM t WHERE dt >= '${currentMonth}-01' AND dt < '${currentMonth}.02' GROUP BY ${dimension}) r LEFT JOIN (SELECT ${dimension}, SUM(amt) sum_prev FROM t WHERE dt >= '${prevMonth}-01' AND dt < '${prevMonth}.02' GROUP BY ${dimension}) p ON r.${dimension} = p.${dimension} ORDER BY r.sum_curr DESC LIMIT 100`;
   },
@@ -66,7 +66,7 @@ const topNWithPct: AnalysisTemplate<TopNWithPctParams> = {
   label: 'TOP-N 占比',
   description: '统计 TOP-N 维度及其合计占比（ROUND 保留两位小数）',
   paramSchema: {} as TopNWithPctParams,
-  buildSql(params, dialect = 'mysql'): string {
+  buildSql(params, _dialect = 'mysql'): string {
     const { metricAlias, dimension, topN, sortBy } = params;
     const order = sortBy === 'DESC' ? 'DESC' : 'ASC';
     return `WITH ranked AS (SELECT ${dimension}, SUM(amt) AS ${metricAlias}, RANK() OVER (ORDER BY SUM(amt) ${order}) AS rn FROM t GROUP BY ${dimension}) SELECT ${dimension}, ${metricAlias}, ROUND(${metricAlias}*100.0/(SELECT SUM(amt) FROM t), 2) AS pct FROM ranked WHERE rn <= ${topN} ORDER BY ${metricAlias} ${order} LIMIT ${topN}`;
@@ -78,7 +78,7 @@ const crossTab: AnalysisTemplate<CrossTabParams> = {
   label: '条件聚合交叉表',
   description: '横向展开多维度指标（CASE WHEN + SUM）生成交叉表',
   paramSchema: {} as CrossTabParams,
-  buildSql(params, dialect = 'mysql'): string {
+  buildSql(params, _dialect = 'mysql'): string {
     const { rows, cols } = params;
     const caseCols = cols.map((c) => `SUM(CASE WHEN yr = ${c.value} THEN amt ELSE 0 END) AS amt_${c.value}`).join(', ');
     const years = cols.map((c) => c.value).join(',');

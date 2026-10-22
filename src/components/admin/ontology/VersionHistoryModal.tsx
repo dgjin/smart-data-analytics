@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { History, RefreshCw, X } from 'lucide-react';
 import { getErrorMessage } from '../../../utils/errorUtils';
-import { useEscapeKey } from '../ontologyUi';
+import { useEscapeKey } from '../ontologyHelpers';
 import type { OntologyAssetType, OntologyVersionItem } from '../../../types/ontology';
 import { callApi, summarizeSnapshot, ACTION_LABELS, type VersionTarget } from './shared';
 

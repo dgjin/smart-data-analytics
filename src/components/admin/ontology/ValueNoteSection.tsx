@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, Trash2, Pencil, X, Power, PowerOff, Sparkles, Tag } from 'lucide-react';
 import { getErrorMessage } from '../../../utils/errorUtils';
-import { SchemaInput, useEscapeKey } from '../ontologyUi';
+import { SchemaInput } from '../ontologyUi';
+import { useEscapeKey } from '../ontologyHelpers';
 import { ONTOLOGY_STATUS_META, type OntologyValueNoteItem } from '../../../types/ontology';
 import { callApi, type SectionProps } from './shared';
 

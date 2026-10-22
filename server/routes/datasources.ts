@@ -19,7 +19,6 @@ import {
   MAX_FILE_BYTES,
   createFileTable,
   dropFileTable,
-  getFilePhysicalTable,
   getFilePhysicalTables,
   inferFileColumnTypes,
   parseFileContent,
@@ -30,7 +29,6 @@ import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
 import { IDENT_RE } from '../driftDetector';
 import { executeAutoConfig } from '../datasource/autoConfig';
-import type { AnomalyCapabilities } from '../datasource/autoConfig';
 import { runAutoKnowledgeSync } from '../knowledge/autoKnowledgeSync';
 
 /** P0-2：data_sources 表行（SELECT * 动态列，仅声明取用字段） */
@@ -350,11 +348,6 @@ async function extractDbSchema(type: string, config: DbConnConfig) {
   }
   // PostgreSQL / Greenplum
   return extractPgSchema(type as 'postgresql' | 'greenplum', config);
-}
-
-/** 判断是否为 PostgreSQL / Greenplum */
-function isPostgresLike(type: string): boolean {
-  return type === 'postgresql' || type === 'greenplum';
 }
 
 function safeJson<T>(text: unknown, fallback: T): T {

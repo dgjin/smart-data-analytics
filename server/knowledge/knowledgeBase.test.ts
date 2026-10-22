@@ -5,7 +5,6 @@ import {
   rankChunks,
   formatKnowledgeSnippets,
   KnowledgeChunk,
-  TOP_K_CHUNKS,
   GUIDED_DOC_KEYWORDS,
   knowledgeMinScore,
   knowledgeRankStrategy,

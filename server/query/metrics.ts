@@ -309,7 +309,7 @@ export async function approveMetric(id: number, actor: string): Promise<{ ok: tr
 }
 
 /** ADMIN 驳回：PENDING → REJECTED（不进生产 linking，提议人可修改后重新提议） */
-export async function rejectMetric(id: number, actor: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+export async function rejectMetric(id: number, _actor: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const cur = await findMetricById(id);
   if (!cur) return { ok: false, status: 404, error: '指标不存在' };
   if (cur.status !== 'PENDING') return { ok: false, status: 400, error: '该指标不在待审批状态' };
@@ -318,7 +318,7 @@ export async function rejectMetric(id: number, actor: string): Promise<{ ok: tru
 }
 
 /** 被驳回指标重新提议：REJECTED → PENDING（由提议人修改后再次进入审批） */
-export async function reproposeMetric(id: number, actor: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+export async function reproposeMetric(id: number, _actor: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const cur = await findMetricById(id);
   if (!cur) return { ok: false, status: 404, error: '指标不存在' };
   if (cur.status !== 'REJECTED') return { ok: false, status: 400, error: '仅被驳回的指标可重新提议' };

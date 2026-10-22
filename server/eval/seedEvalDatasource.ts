@@ -76,8 +76,19 @@ function pad(n: number, w = 2): string {
 }
 
 // ============ 确定性数据构造（i 均为 1 起） ============
-function buildClients(): any[] {
-  const rows: any[] = [];
+interface SeedClient {
+  id: number; name: string; industry: string; region: string;
+  clientType: string; listCategory: string; isKeyAccount: number; team: string; ownerId: number;
+}
+interface SeedVisit {
+  id: number; clientId: number; type: string; sentiment: string; date: string; ownerName: string;
+}
+interface SeedUser {
+  id: number; name: string; status: string; departmentId: number; roleId: number;
+}
+
+function buildClients(): SeedClient[] {
+  const rows: SeedClient[] = [];
   for (let i = 1; i <= CLIENT_COUNT; i++) {
     rows.push({
       id: i,
@@ -95,8 +106,8 @@ function buildClients(): any[] {
   return rows;
 }
 
-function buildVisits(clients: any[]): any[] {
-  const rows: any[] = [];
+function buildVisits(clients: SeedClient[]): SeedVisit[] {
+  const rows: SeedVisit[] = [];
   let v = 0;
   for (const c of clients) {
     for (let k = 0; k < clientQuota(c.id); k++) {
@@ -115,8 +126,8 @@ function buildVisits(clients: any[]): any[] {
   return rows;
 }
 
-function buildUsers(): any[] {
-  const rows: any[] = [];
+function buildUsers(): SeedUser[] {
+  const rows: SeedUser[] = [];
   for (let i = 1; i <= USER_COUNT; i++) {
     rows.push({
       id: i,
@@ -276,7 +287,7 @@ async function main() {
   console.log(`[eval-seed] 数据就绪：clients=${clients.length} visits=${visits.length} users=${users.length} departments=${DEPARTMENT_NAMES.length} roles=${ROLE_NAMES.length}`);
 
   // 4. 唯一性自检（Top-N 用例无并列的保障）
-  async function topN(sql: string, n: number): Promise<any[]> {
+  async function topN(sql: string, n: number): Promise<mysql.RowDataPacket[]> {
     const [rows] = await crm.query<mysql.RowDataPacket[]>(sql);
     return rows.slice(0, n);
   }
@@ -289,7 +300,7 @@ async function main() {
   const clientTop = await topN('SELECT clientId, COUNT(*) c FROM visits GROUP BY clientId ORDER BY c DESC, clientId', 4);
   assert(
     clientTop.length === 4 && clientTop[0].c > clientTop[1].c && clientTop[1].c > clientTop[2].c && clientTop[2].c > clientTop[3].c,
-    `客户拜访次数 Top4 须严格递减（现 ${clientTop.map((r: any) => r.c).join(' > ')}）`
+    `客户拜访次数 Top4 须严格递减（现 ${clientTop.map((r) => r.c).join(' > ')}）`
   );
   const [noVisit] = await crm.query<mysql.RowDataPacket[]>('SELECT COUNT(*) c FROM clients WHERE id NOT IN (SELECT clientId FROM visits)');
   assert(noVisit[0].c === 8, `无拜访记录客户数须为 8（现 ${noVisit[0].c}）`);
@@ -347,8 +358,8 @@ async function main() {
     try {
       await crm.query(c.goldenSql);
       verified += 1;
-    } catch (err: any) {
-      failures.push(`${c.id}: ${err?.message || err}`);
+    } catch (err) {
+      failures.push(`${c.id}: ${(err as Error)?.message || String(err)}`);
     }
   }
   if (failures.length > 0) {

@@ -3,7 +3,8 @@ import {
   RefreshCw, Plus, Trash2, Pencil, X, History, ChevronRight, Search, Power, PowerOff, Sparkles,
 } from 'lucide-react';
 import { getErrorMessage } from '../../../utils/errorUtils';
-import { LevelEditor, useEscapeKey } from '../ontologyUi';
+import { LevelEditor } from '../ontologyUi';
+import { useEscapeKey } from '../ontologyHelpers';
 import { ONTOLOGY_STATUS_META, type OntologyHierarchyItem } from '../../../types/ontology';
 import { callApi, type SectionProps } from './shared';
 

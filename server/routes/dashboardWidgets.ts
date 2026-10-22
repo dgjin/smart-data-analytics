@@ -133,7 +133,6 @@ router.put('/order', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req
 
 // PUT /api/dashboard-widgets/:widgetId —— 整体替换（标题/布局调整、v0.4.8 自动重放快照更新）
 router.put('/:widgetId', authMiddleware, requireRole('ADMIN', 'ANALYST'), async (req, res) => {
-  const user = req.user!;
   const widgetId = String(req.params.widgetId || '');
   const parsed = normalizeDashboardWidgetPayload(req.body?.widget ?? req.body);
   if (parsed.ok === false) {

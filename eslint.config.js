@@ -27,7 +27,7 @@ export default tseslint.config(
       // 仅两个 logger 实现文件与 fallbackPipeline 保留 console（见下方永久豁免）。
       '@typescript-eslint/no-explicit-any': 'error',
       'no-console': 'error',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       // react-hooks v6 引入的 React Compiler 级规则：props→state 镜像同步与事件
       // 处理器内的 Date.now() 在本项目是既有合法模式，降级为 warn 作为渐进改进提示，
       // 避免阻塞 lint 门禁；rules-of-hooks 等核心规则仍保持 error。
@@ -52,12 +52,14 @@ export default tseslint.config(
     },
   },
   // 永久豁免：CLI 评测脚本、单测、E2E、脚本的 console 输出即用户界面/调试信息，属合法用途。
+  // any 在这些区域同样豁免：单测需构造不完整 mock、评测/脚本需解析动态响应体，
+  // 强类型化收益低而维护成本高；业务代码（src/ + server/ 非测试）仍由上方 error 全量保护。
   {
     files: ['server/eval/**/*.ts', '**/*.test.ts', '**/*.test.tsx', 'tests/**/*.ts', 'scripts/**/*.ts', 'scripts/**/*.mjs'],
     plugins: { '@typescript-eslint': tseslint.plugin },
     rules: {
       'no-console': 'off',
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   }
 );

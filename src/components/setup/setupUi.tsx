@@ -16,15 +16,6 @@ export const SetupStatusIcon: React.FC<{ level: StepLevel; className?: string }>
   return <Circle className={`${className} text-slate-600 shrink-0`} />;
 };
 
-/** 子任务/检查项状态 → 图标等级 */
-export function subtaskLevel(state: string): StepLevel {
-  if (state === 'success') return 'ok';
-  if (state === 'failed') return 'block';
-  if (state === 'skipped') return 'warn';
-  if (state === 'running') return 'running';
-  return 'pending';
-}
-
 /** 描边次级按钮 */
 export const outlineBtn =
   'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors';

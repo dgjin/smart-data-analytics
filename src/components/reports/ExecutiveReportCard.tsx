@@ -13,27 +13,19 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  FileText,
   Calendar,
   AlertTriangle,
   CheckCircle2,
-  Info,
   Sparkles,
-  Download,
   Printer,
-  Share2,
   Zap,
   ShieldAlert,
-  TrendingUp,
-  TrendingDown,
   Activity,
   RefreshCw,
   Palette,
   FileDown,
   Loader2,
-  Check,
   X,
-  Sliders,
   CheckSquare,
   Square,
   FileCheck2,
@@ -60,13 +52,14 @@ import { logger } from '../../utils/logger';
 interface ExecutiveReportCardProps {
   /** 报告完整数据（含标题/摘要/KPI/洞察/图表/批注/异常） */
   report: SavedReport;
-  /** 删除回调（历史报表维护入口，v0.9.22 起在历史列表暴露） */
+  /** 删除回调（历史报表维护入口，v0.9.22 起在历史列表暴露）；卡片内暂未渲染删除按钮，由列表侧承接 */
   onDelete?: () => void;
 }
 
 export const ExecutiveReportCard: React.FC<ExecutiveReportCardProps> = ({
   report,
-  onDelete,
+  // 保留契约：调用方已传入，卡片内暂未渲染删除入口（列表侧另有删除操作）
+  onDelete: _onDelete,
 }) => {
   const [activeReport, setActiveReport] = useState<SavedReport>(report);
   const [isScanning, setIsScanning] = useState(false);

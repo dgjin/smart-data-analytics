@@ -347,7 +347,7 @@ export async function runNaturalLanguageQuery(
             },
             // v0.9.47 P0：策略成功审计真实落库 fallback_audit_log
             logFallbackAudit: async (_sql: string, params: unknown[]) => {
-              const [dsId, q, sql, strategy] = params;
+              const [_dsId, q, sql, strategy] = params;
               await getPool().query(
                 `INSERT INTO fallback_audit_log (trace_id, query, failed_sql, used_strategy, latency_ms, success)
                  VALUES (?, ?, ?, ?, ?, 1)`,

@@ -89,7 +89,7 @@ export function detectAggregationIntent(query: string): {
  */
 export function generateTimeRangeSQL(
   query: string,
-  dataSourceId: string
+  _dataSourceId: string
 ): { sql: string; explanation: string } {
   const timeInfo = detectTimeRange(query);
   
@@ -133,8 +133,8 @@ export async function applyRuleBasedResolution(
       throw new Error('未检测到时间范围模式');
     }
 
-    // Step 2: 检测聚合意图
-    const aggInfo = detectAggregationIntent(query);
+    // Step 2: 检测聚合意图（结果暂未参与 SQL 模板选择，保留检测以便后续扩展）
+    detectAggregationIntent(query);
 
     // Step 3: 生成 SQL
     const dsId = context.dsId || 'unknown';

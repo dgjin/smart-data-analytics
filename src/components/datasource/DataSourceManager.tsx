@@ -4,11 +4,9 @@ import {
   Plus,
   CheckCircle2,
   HardDrive,
-  Globe,
   Upload,
   RefreshCw,
   Server,
-  Layers,
   Sparkles,
   GitFork,
   ScanSearch,
@@ -66,6 +64,31 @@ function TipAction({ tip, children }: { tip: string; children: React.ReactNode }
       </span>
     </div>
   );
+}
+
+/**
+ * 非数据库类型构造一张占位表（数据库类型返回空数组，由服务端真实连接并提取完整 Schema）。
+ * 提为模块级函数：时间戳/随机数属事件期副作用，不应在组件体内被 React 编译器视为渲染期调用。
+ */
+function buildPlaceholderTables(dsType: DataSourceType, dsName: string): TableSchema[] {
+  if (DB_TYPES.includes(dsType)) return [];
+  const now = Date.now();
+  return [
+    {
+      id: `tbl_${now}`,
+      name: `custom_analytics_${String(now).slice(-4)}`,
+      displayName: `${dsName} 关联主数据表`,
+      description: `来自 ${dsType.toUpperCase()} 外部接入源的数据表`,
+      rowCount: Math.floor(Math.random() * 5000) + 1200,
+      columns: [
+        { name: 'id', type: 'number', description: '主键ID', isPrimaryKey: true },
+        { name: 'created_at', type: 'date', description: '记录产生时间', isDimension: true },
+        { name: 'region', type: 'category', description: '区域', isDimension: true },
+        { name: 'total_amount', type: 'number', description: '业务金额', isMetric: true },
+        { name: 'status', type: 'string', description: '状态标识', isDimension: true },
+      ],
+    },
+  ];
 }
 
 export const DataSourceManager: React.FC = () => {
@@ -199,25 +222,7 @@ export const DataSourceManager: React.FC = () => {
     if (!dsName.trim() || isSaving) return;
 
     // 非数据库类型构造一张占位表；数据库类型由服务端真实连接并提取完整 Schema
-    const placeholderTables: TableSchema[] =
-      DB_TYPES.includes(dsType)
-        ? []
-        : [
-            {
-              id: `tbl_${Date.now()}`,
-              name: `custom_analytics_${Date.now().toString().slice(-4)}`,
-              displayName: `${dsName} 关联主数据表`,
-              description: `来自 ${dsType.toUpperCase()} 外部接入源的数据表`,
-              rowCount: Math.floor(Math.random() * 5000) + 1200,
-              columns: [
-                { name: 'id', type: 'number', description: '主键ID', isPrimaryKey: true },
-                { name: 'created_at', type: 'date', description: '记录产生时间', isDimension: true },
-                { name: 'region', type: 'category', description: '区域', isDimension: true },
-                { name: 'total_amount', type: 'number', description: '业务金额', isMetric: true },
-                { name: 'status', type: 'string', description: '状态标识', isDimension: true },
-              ],
-            },
-          ];
+    const placeholderTables = buildPlaceholderTables(dsType, dsName);
 
     setIsSaving(true);
     try {

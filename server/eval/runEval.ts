@@ -64,8 +64,8 @@ function parseArgs(argv: string[]) {
 (async () => {
   try {
     await initSchema();
-  } catch (err: any) {
-    console.warn('[eval] 数据库初始化失败（golden SQL 将逐条报错）:', err?.message || err);
+  } catch (err) {
+    console.warn('[eval] 数据库初始化失败（golden SQL 将逐条报错）:', (err as Error)?.message || String(err));
   }
   return runEval(parseArgs(process.argv.slice(2)));
 })()

@@ -483,7 +483,6 @@ export function useFlexQueryState() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------- 字段添加 ----------
@@ -631,6 +630,8 @@ export function useFlexQueryState() {
   const abortRef = useRef<AbortController | null>(null);
   /** v0.9.76：最近一次成功执行的 SQL（下钻 AST 改写复用；后台执行同样记录） */
   const executedSqlRef = useRef('');
+  /** 运行序号：连点「强制刷新」时旧请求被中止，其取消/收尾不得覆盖新请求的加载态、误报错误或回写旧结果 */
+  const runSeqRef = useRef(0);
 
   /** 写入最近查询历史（按配置去重，上限 8 条；v0.9.76 自 runQuery 抽取供同步/后台路径复用） */
   const pushHistory = (dsId: string) => {
@@ -667,6 +668,7 @@ export function useFlexQueryState() {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    const seq = ++runSeqRef.current;
     setExecuting(true);
     setExecError(null);
     setResultCached(false);
@@ -688,6 +690,8 @@ export function useFlexQueryState() {
           signal: ac.signal,
           onProgress: (progress, status) => setAsyncProgress(`${status === 'PENDING' ? '排队中' : '执行中'}：${progress}`),
         });
+        // 旧请求被新请求（如再次点击强制刷新）抢占后返回：丢弃结果，避免旧数据覆盖新数据
+        if (seq !== runSeqRef.current) return;
         const payload = (task.result ?? null) as { rows?: Record<string, unknown>[]; truncated?: boolean; executionTimeMs?: number } | null;
         const rows = Array.isArray(payload?.rows) ? payload.rows : [];
         const cols = rows.length ? Object.keys(rows[0]) : [];
@@ -704,6 +708,8 @@ export function useFlexQueryState() {
         signal: ac.signal,
       });
       const data = await res.json().catch(() => null);
+      // 旧请求被新请求抢占后返回（响应已到达但已被中止）：丢弃，避免旧结果/旧错误覆盖刷新结果
+      if (seq !== runSeqRef.current) return;
       if (res.ok && data?.success && Array.isArray(data.rows)) {
         const cols = data.rows.length ? Object.keys(data.rows[0]) : [];
         executedSqlRef.current = sql;
@@ -718,6 +724,8 @@ export function useFlexQueryState() {
         setExecError(data?.error || `执行失败（HTTP ${res.status}）`);
       }
     } catch (err) {
+      // 已被新请求抢占的旧请求：静默让位（其取消不应误报为刷新失败/取消）
+      if (seq !== runSeqRef.current) return;
       const msg = getErrorMessage(err) || '';
       const errName = (err as { name?: string })?.name;
       if (ac.signal.aborted || errName === 'AbortError' || msg.includes('已取消')) {
@@ -727,8 +735,11 @@ export function useFlexQueryState() {
       }
     } finally {
       if (abortRef.current === ac) abortRef.current = null;
-      setExecuting(false);
-      setAsyncProgress(null);
+      // 旧请求收尾不得提前清掉新请求的加载态
+      if (seq === runSeqRef.current) {
+        setExecuting(false);
+        setAsyncProgress(null);
+      }
     }
   };
 

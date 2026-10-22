@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Settings, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAuthStore } from '../../hooks/useAuthStore';
-import { UserRole } from '../../types/analytics';
 import { getErrorMessage } from '../../utils/errorUtils';
 
 interface EnvConfigItem {

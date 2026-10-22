@@ -48,15 +48,12 @@ import {
   extractAitRefs,
   getRegisteredAitNames,
   executeOnAppDb,
-  describeIntermediateTables,
   IntermediateTableInfo,
 } from './analysisChain';
 import { AVAILABLE_TEMPLATES, validateTemplateParams } from './sqlTemplates';
 import type { TemplateId } from './sqlTemplates';
 import { logger } from '../infra/logger';
 import {
-  AMOUNT_UNIT_OPTIONS,
-  VALID_STAGE1_CHARTS,
   buildAmountUnitPrompt,
   buildColumnNames,
   buildColumnStats,
@@ -78,12 +75,9 @@ import {
   type Stage1Plan,
 } from './liveQueryParsers';
 import {
-  buildStage1System,
   buildStage1SystemV2,
   buildStage2System,
   candidatePrompt,
-  dialectPromptOf,
-  extractBusinessNotes,
 } from './liveQueryPrompts';
 import { getErrorMessage } from '../infra/errorUtils';
 

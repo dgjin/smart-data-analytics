@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Eye, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Eye, RefreshCw, Search, X } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
 
@@ -152,7 +152,6 @@ export const FallbackApprovalPanel: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [selectedItem, setSelectedItem] = useState<ApprovalWorkItem | null>(null);
-  const [batchAction, setBatchAction] = useState<'approve' | 'reject' | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
 
   // 加载样本列表
@@ -210,10 +209,8 @@ export const FallbackApprovalPanel: React.FC = () => {
 
   // 批量审批/拒绝
   const handleBatchAction = async (action: 'approve' | 'reject') => {
-    setBatchAction(action);
     const sampleCount = checkedIds.size;
     if (!window.confirm(`即将对 ${sampleCount} 个样本执行「${action === 'approve' ? '采纳' : '拒绝'}」操作，是否继续？`)) {
-      setBatchAction(null);
       return;
     }
     
@@ -279,11 +276,6 @@ export const FallbackApprovalPanel: React.FC = () => {
       rejected: items.filter(i => i.annotation_status === 'REJECTED').length,
     };
   }, [items]);
-  
-  // 优先级信息
-  const avgScore = filtered.length > 0 
-    ? Math.round(filtered.reduce((sum, i) => sum + (i.total_score || 0), 0) / filtered.length)
-    : 0;
 
   return (
     <div className="space-y-4">

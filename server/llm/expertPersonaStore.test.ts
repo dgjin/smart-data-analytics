@@ -20,7 +20,6 @@ import {
   BUILTIN_PERSONA_CONTENT_VERSION,
   sanitizePersonaInput,
   resolveExpertPersonaAsync,
-  createPersona,
   updatePersona,
   deletePersona,
   ensureExpertPersonasSeeded,

@@ -9,7 +9,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Play } from 'lucide-react';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
 import { SetupApiError, setupGet, setupPost } from './setupApi';
-import { SetupStatusIcon, primaryBtn, outlineBtn, subtaskLevel } from './setupUi';
+import { SetupStatusIcon, primaryBtn, outlineBtn } from './setupUi';
+import { subtaskLevel } from './setupHelpers';
 import { formatCounters, isPipelineFinished } from './setupLogic';
 import { DEMO_DATA_SOURCE_ID, type PipelineProgress, type SetupStepProps } from './setupTypes';
 

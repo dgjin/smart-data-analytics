@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   Database,
-  BarChart3,
   FileSpreadsheet,
   Plus,
-  RefreshCw,
   CheckCircle2,
   LogOut,
   Sun,
@@ -93,8 +91,6 @@ export const Header: React.FC = () => {
       setRequestSubmitting(false);
     }
   };
-
-  const activeDS = accessibleSources.find((ds) => ds.id === activeDataSourceId) || dataSources.find((ds) => ds.id === activeDataSourceId);
 
   // 深浅色主题切换：监听全局主题事件，保证多处入口状态一致
   const [themeMode, setThemeMode] = useState<UIThemeMode>(getUITheme);

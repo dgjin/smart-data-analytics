@@ -102,7 +102,7 @@ describe('RedisStateStore（命令参数校验，fake client 注入）', () => {
   });
 
   it('getDel 优先 GETDEL，失败回退 GET+DEL', async () => {
-    const ok = makeFakeClient({ call: (...args: any[]) => Promise.resolve('v1') });
+    const ok = makeFakeClient({ call: (..._args: any[]) => Promise.resolve('v1') });
     expect(await new RedisStateStore(ok.client).getDel('qp:1')).toBe('v1');
     expect(ok.calls[0]).toEqual({ method: 'call', args: ['GETDEL', 'qp:1'] });
 

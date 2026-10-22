@@ -45,15 +45,12 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  Sliders,
   MoveHorizontal,
   Palette,
   Sparkles,
-  Printer,
   Percent,
   GitCompare,
   TrendingUp,
-  TrendingDown,
 } from 'lucide-react';
 import { CHART_THEMES, getAutoOptimizedColors, ChartTheme } from '../../utils/chartThemes';
 import { detectTemporalAxis } from '../../utils/temporalAxis';
@@ -129,7 +126,7 @@ export const DynamicChart: React.FC<DynamicChartProps> = ({
 }) => {
   const [startIndex, setStartIndex] = useState<number>(0);
   const [endIndex, setEndIndex] = useState<number>(Math.max(0, (data?.length || 1) - 1));
-  const [showBrush, setShowBrush] = useState<boolean>(true);
+  const [showBrush] = useState<boolean>(true);
   const [activeThemeId, setActiveThemeId] = useState<string>(globalThemeId);
   const [isAutoContrast, setIsAutoContrast] = useState<boolean>(autoOptimizeContrast);
   const [showThemePicker, setShowThemePicker] = useState<boolean>(false);

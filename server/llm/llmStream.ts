@@ -102,7 +102,6 @@ export async function callLLMTextStream(
       const textDecoder = new TextDecoder();
       const reader = res.body!.getReader();
 
-      let fullContent = '';
 
       while (true) {
         const { done: doneReading, value } = await reader.read();
@@ -130,12 +129,11 @@ export async function callLLMTextStream(
                   const content = delta.content || '';
                   
                   if (content) {
-                    fullContent += content;
                     // 直接推送原始 token（打字机效果）
                     writer.write({ type: 'chunk', content });
                   }
                 }
-              } catch (e) {
+              } catch {
                 // 忽略解析错误（可能是截断的 JSON）
               }
             }
@@ -179,7 +177,6 @@ export async function callLLMTextStream(
       const textDecoder = new TextDecoder();
       const reader = res.body!.getReader();
 
-      let fullContent = '';
 
       while (true) {
         const { done: doneReading, value } = await reader.read();
@@ -197,7 +194,6 @@ export async function callLLMTextStream(
                 // Ollama SSE 格式：{ "message": { "content": "xxx" }, "done": false }
                 if (parsed.message?.content) {
                   const content = parsed.message.content;
-                  fullContent += content;
                   // 直接推送原始 token（打字机效果）
                   writer.write({ type: 'chunk', content });
                 }
@@ -205,7 +201,7 @@ export async function callLLMTextStream(
                 if (parsed.done) {
                   writer.write({ type: 'chunk', content: '', done: true });
                 }
-              } catch (e) {
+              } catch {
                 // 忽略解析错误
               }
             }
@@ -233,13 +229,11 @@ export async function callLLMTextStream(
         contents: [{ role: 'user', parts: [{ text: system + '\n\n' + user }] }],
       });
 
-      let fullContent = '';
       
       // 订阅 Stream 事件
       for await (const item of response) {
         if (item.text) {
           const content = item.text;
-          fullContent += content;
           writer.write({ type: 'chunk', content });
         }
         

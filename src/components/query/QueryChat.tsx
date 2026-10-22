@@ -77,7 +77,6 @@ export const QueryChat: React.FC = () => {
     setStreamPreviewSql,
     streamingContent,
     setStreamingContent,
-    isReceivingStream,
     setIsReceivingStream,
     liveTraceSteps,
     setLiveTraceSteps,

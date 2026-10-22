@@ -83,7 +83,7 @@ export async function readSseStream(response: Response, handlers: SseStreamHandl
           if (chunkData.error) {
             logger.error('[P1-2 Stream] Error:', chunkData.error);
           }
-        } catch (e) {
+        } catch {
           // 忽略解析错误
         }
         continue;

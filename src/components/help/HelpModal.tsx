@@ -18,6 +18,8 @@
  * v0.9.101：由静态 SVG 图切换为 archify 自包含交互式 HTML 视图器——服务端注入 data-embed
  * 嵌入标记，前端以 iframe srcDoc 渲染（独立文档上下文且同源：图内缩放 / 主题切换 / 导出 /
  * 链接均可直接使用）；卡片内嵌预览，「全屏查看」进入全屏继续使用同一视图器。
+ * v0.9.106：右上角刷新按钮增强——加底色 / 描边 / 放大图标与 hover 高亮，更醒目易识别；
+ * 加载中图标旋转 + 脉冲光环，请求结束自动复位（仍由页签各自 loading 态驱动）。
  * 内置轻量 Markdown 渲染器（标题/表格/列表/代码块/引用/加粗/行内代码），
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
@@ -632,7 +634,6 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     setSearchLoading(true);
     const timer = window.setTimeout(() => void runSearch(q), 250);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   // 搜索跳转：目标页签文档就绪后，滚动到对应模块并短暂高亮
@@ -653,7 +654,6 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (highlightTimer.current) window.clearTimeout(highlightTimer.current);
     highlightTimer.current = window.setTimeout(() => setHighlightKey(null), 2000);
     setPendingScroll(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingScroll, tab, contents]);
 
   const runSearch = async (q: string) => {
@@ -716,6 +716,8 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   const current = contents[tab];
   const searchActive = query.trim().length > 0;
+  // 刷新按钮加载态：文档页签走 load、架构图页签走 loadDiagrams，请求结束后自动复位（v0.9.106）
+  const refreshing = tab === 'diagrams' ? diagramsLoading : loading;
   const sections = useMemo(() => (current ? splitDocForAccordion(current.markdown) : []), [current]);
   const moduleTitles = useMemo(() => sections.filter((s) => s.title).map((s) => s.title as string), [sections]);
   const allExpanded = moduleTitles.length > 0 && moduleTitles.every((t) => expanded.has(`${tab}::${t}`));
@@ -772,10 +774,21 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               {tab !== 'ask' && (
                 <button
                   onClick={() => (tab === 'diagrams' ? void loadDiagrams(true) : void load(tab, true))}
+                  disabled={refreshing}
                   title="重新加载"
-                  className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                  className={`relative p-1.5 rounded-lg border shadow-sm transition-all duration-200 active:scale-90 disabled:cursor-wait ${
+                    refreshing
+                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
+                      : 'bg-slate-800 border-cyan-600/50 text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-400 hover:text-cyan-200 hover:shadow-md hover:shadow-cyan-500/20'
+                  }`}
                 >
-                  <RefreshCw className={`w-4 h-4 ${(tab === 'diagrams' ? diagramsLoading : loading) ? 'animate-spin' : ''}`} />
+                  {refreshing && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-0 rounded-lg ring-2 ring-cyan-400/60 animate-ping pointer-events-none"
+                    />
+                  )}
+                  <RefreshCw className={`w-[18px] h-[18px] ${refreshing ? 'animate-spin' : ''}`} />
                 </button>
               )}
               <button

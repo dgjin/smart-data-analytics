@@ -4,7 +4,8 @@ import {
   Power, PowerOff, ArrowLeftRight, Sparkles,
 } from 'lucide-react';
 import { getErrorMessage } from '../../../utils/errorUtils';
-import { SchemaInput, SchemaColumnsInput, useEscapeKey, listFromText } from '../ontologyUi';
+import { SchemaInput, SchemaColumnsInput } from '../ontologyUi';
+import { useEscapeKey, listFromText } from '../ontologyHelpers';
 import type { TableSchema } from '../../../types/analytics';
 import {
   ONTOLOGY_STATUS_META,
