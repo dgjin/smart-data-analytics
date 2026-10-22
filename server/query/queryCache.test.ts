@@ -237,3 +237,47 @@ describe('queryCache: v0.9.76 P1-9 SQL 结果缓存', () => {
     }
   });
 });
+
+describe('queryCache: Redis 断连降级（P2-2 混沌演练的 CI 化断言）', () => {
+  /** 最小 StateStore 桩：所有命令抛连接错误，模拟 Redis 断连 */
+  function brokenStore() {
+    const boom = async () => { throw new Error('connect ECONNREFUSED'); };
+    return {
+      get: boom,
+      setEx: boom,
+      getDel: boom,
+      deleteByPrefix: boom,
+      incrWindow: boom,
+      acquireLock: boom,
+      releaseLock: boom,
+    };
+  }
+
+  it('读缓存异常 → 按未命中返回 null，不向上抛错（缓存 fail-open）', async () => {
+    const { setStateStoreForTest } = await import('../infra/stateStore');
+    const original = process.env.REDIS_URL;
+    process.env.REDIS_URL = 'redis://127.0.0.1:6379';
+    setStateStoreForTest(brokenStore());
+    try {
+      await expect(getCachedQuery('ds-down::问题')).resolves.toBeNull();
+    } finally {
+      setStateStoreForTest(null);
+      if (original === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = original;
+    }
+  });
+
+  it('写缓存异常 → 静默忽略，不影响主链路', async () => {
+    const { setStateStoreForTest } = await import('../infra/stateStore');
+    const original = process.env.REDIS_URL;
+    process.env.REDIS_URL = 'redis://127.0.0.1:6379';
+    setStateStoreForTest(brokenStore());
+    try {
+      await expect(setCachedQuery('ds-down::问题', { rows: [] })).resolves.toBeUndefined();
+    } finally {
+      setStateStoreForTest(null);
+      if (original === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = original;
+    }
+  });
+});
