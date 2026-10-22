@@ -47,6 +47,52 @@ export function getPool(): mysql.Pool {
   return pool;
 }
 
+/** 事务内连接（与 Pool 的 query 签名一致，可直接替换使用） */
+export type TxConn = mysql.PoolConnection;
+
+/**
+ * 事务中止信号：携带业务返回值，withTransaction 捕获后回滚并把该值原样返回。
+ * 用途——多表写在中途发现业务失败（如目标行已被并发删除）时，
+ * 需要撤销此前已执行的写操作并返回 { ok: false }，而非抛出 500。
+ */
+class TxAbort {
+  constructor(readonly value: unknown) {}
+}
+
+/** 在事务内标记回滚并返回业务结果（类型与 withTransaction 的返回值保持一致） */
+export function abortTransaction<T>(value: T): never {
+  throw new TxAbort(value);
+}
+
+/**
+ * v0.9.114 P1-1 通用事务封装（多表写的原子性保障）。
+ *
+ * 语义：回调正常返回 → COMMIT；回调抛错 → ROLLBACK 后继续抛（交由路由映射 500）；
+ * 回调调用 abortTransaction(值) → ROLLBACK 并返回该值（业务失败路径，如并发删除）。
+ * 连接必定 release；rollback 自身失败只记日志，不掩盖原始错误。
+ *
+ * 注意：回调内必须使用传入的 conn 执行所有 SQL，用 getPool() 会绕过事务。
+ */
+export async function withTransaction<T>(fn: (conn: TxConn) => Promise<T>): Promise<T> {
+  const conn = await getPool().getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await fn(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    try {
+      await conn.rollback();
+    } catch (rbErr) {
+      logger.warn('[DB] 事务回滚失败（忽略，保留原始错误）：', getErrorMessage(rbErr));
+    }
+    if (err instanceof TxAbort) return err.value as T;
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 /** P1-2 优雅停机：关闭连接池（幂等；未初始化时静默返回，供 shutdown 的 closeResources 步骤调用） */
 export async function closePool(): Promise<void> {
   if (!pool || poolClosed) return;

@@ -10,7 +10,7 @@
  * 关系 BFS 在内存完成（关系量级「数十条」），避免递归 CTE 的事务开销。
  */
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
-import { getPool } from '../infra/db';
+import { getPool, withTransaction, abortTransaction, type TxConn } from '../infra/db';
 import { logger } from '../infra/logger';
 import { approxTokens } from '../llm/promptBudget';
 import { callEmbedding, callEmbeddingBatch } from '../llm/llmClient';
@@ -716,7 +716,13 @@ export function buildOntologyPrompt(input: OntologyPromptInput): string {
 
 // ---------- 版本与写入 ----------
 
+/**
+ * 写入版本快照。
+ * conn 必传（v0.9.114 P1-1）：快照必须与资产写入同事务，否则主表已改而快照缺失，
+ * 回滚能力被破坏。查询类调用方自行用 getPool()。
+ */
 async function recordVersion(
+  conn: TxConn,
   assetType: OntologyAssetType,
   assetId: number,
   version: number,
@@ -724,7 +730,7 @@ async function recordVersion(
   action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE',
   actor: string
 ): Promise<void> {
-  await getPool().query(
+  await conn.query(
     'INSERT INTO ontology_versions (asset_type, asset_id, version, snapshot_json, action, actor) VALUES (?, ?, ?, ?, ?, ?)',
     [assetType, assetId, version, JSON.stringify(snapshot), action, actor]
   );
@@ -757,19 +763,21 @@ export async function createEntity(
   entity: Omit<OntologyEntity, 'id' | 'version' | 'createdBy'>,
   actor: string
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
-  const pool = getPool();
-  const [dup] = await pool.query<RowDataPacket[]>(
-    'SELECT id FROM ontology_entities WHERE data_source_id = ? AND name = ? LIMIT 1',
-    [entity.dataSourceId, entity.name]
-  );
-  if (dup.length > 0) return { ok: false, error: '同名业务实体已存在' };
-  const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO ontology_entities (data_source_id, name, entity_type, aliases_json, description, status, version, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
-    [entity.dataSourceId, entity.name, entity.entityType, JSON.stringify(entity.aliases), entity.description, entity.status, actor]
-  );
-  await recordVersion('entity', result.insertId, 1, { ...entity }, 'CREATE', actor);
-  return { ok: true, id: result.insertId };
+  // v0.9.114 P1-1：主表 INSERT 与版本快照同事务，避免「实体已建但快照缺失」
+  return withTransaction(async (conn) => {
+    const [dup] = await conn.query<RowDataPacket[]>(
+      'SELECT id FROM ontology_entities WHERE data_source_id = ? AND name = ? LIMIT 1',
+      [entity.dataSourceId, entity.name]
+    );
+    if (dup.length > 0) return { ok: false, error: '同名业务实体已存在' };
+    const [result] = await conn.query<ResultSetHeader>(
+      `INSERT INTO ontology_entities (data_source_id, name, entity_type, aliases_json, description, status, version, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+      [entity.dataSourceId, entity.name, entity.entityType, JSON.stringify(entity.aliases), entity.description, entity.status, actor]
+    );
+    await recordVersion(conn, 'entity', result.insertId, 1, { ...entity }, 'CREATE', actor);
+    return { ok: true, id: result.insertId };
+  });
 }
 
 export async function updateEntity(
@@ -778,51 +786,59 @@ export async function updateEntity(
   actor = '',
   action: 'UPDATE' | 'RESTORE' = 'UPDATE'
 ): Promise<{ ok: true } | { ok: false; error: string; notFound?: boolean }> {
-  const row = await findById('ontology_entities', id);
-  if (!row) return { ok: false, error: '业务实体不存在', notFound: true };
-  const cur = rowToEntity(row);
-  const pool = getPool();
-  const [dup] = await pool.query<RowDataPacket[]>(
-    'SELECT id FROM ontology_entities WHERE data_source_id = ? AND name = ? AND id <> ? LIMIT 1',
-    [cur.dataSourceId, entity.name, id]
-  );
-  if (dup.length > 0) return { ok: false, error: '同名业务实体已存在' };
-  const nextVersion = (cur.version || 1) + 1;
-  await pool.query(
-    'UPDATE ontology_entities SET name = ?, entity_type = ?, aliases_json = ?, description = ?, status = ?, version = ? WHERE id = ?',
-    [entity.name, entity.entityType, JSON.stringify(entity.aliases), entity.description, entity.status, nextVersion, id]
-  );
-  await recordVersion('entity', id, nextVersion, { ...entity, dataSourceId: cur.dataSourceId }, action, actor);
-  return { ok: true };
+  // v0.9.114 P1-1：UPDATE 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_entities WHERE id = ? LIMIT 1', [id]);
+    if (rows.length === 0) return { ok: false, error: '业务实体不存在', notFound: true };
+    const cur = rowToEntity(rows[0]);
+    const [dup] = await conn.query<RowDataPacket[]>(
+      'SELECT id FROM ontology_entities WHERE data_source_id = ? AND name = ? AND id <> ? LIMIT 1',
+      [cur.dataSourceId, entity.name, id]
+    );
+    if (dup.length > 0) return { ok: false, error: '同名业务实体已存在' };
+    const nextVersion = (cur.version || 1) + 1;
+    await conn.query(
+      'UPDATE ontology_entities SET name = ?, entity_type = ?, aliases_json = ?, description = ?, status = ?, version = ? WHERE id = ?',
+      [entity.name, entity.entityType, JSON.stringify(entity.aliases), entity.description, entity.status, nextVersion, id]
+    );
+    await recordVersion(conn, 'entity', id, nextVersion, { ...entity, dataSourceId: cur.dataSourceId }, action, actor);
+    return { ok: true };
+  });
 }
 
 export async function deleteEntity(id: number, actor = ''): Promise<boolean> {
-  const row = await findById('ontology_entities', id);
-  if (!row) return false;
-  const cur = rowToEntity(row);
-  const pool = getPool();
-  await pool.query('DELETE FROM ontology_bindings WHERE entity_id = ?', [id]);
-  const [result] = await pool.query<ResultSetHeader>('DELETE FROM ontology_entities WHERE id = ?', [id]);
-  if (result.affectedRows > 0) await recordVersion('entity', id, (cur.version || 1) + 1, { ...cur }, 'DELETE', actor);
-  return result.affectedRows > 0;
+  // v0.9.114 P1-1：级联删绑定 + 删实体 + 版本快照同事务；
+  // 并发下实体已被他人删除时 abortTransaction 撤销已删的绑定
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_entities WHERE id = ? LIMIT 1', [id]);
+    if (rows.length === 0) return false;
+    const cur = rowToEntity(rows[0]);
+    await conn.query('DELETE FROM ontology_bindings WHERE entity_id = ?', [id]);
+    const [result] = await conn.query<ResultSetHeader>('DELETE FROM ontology_entities WHERE id = ?', [id]);
+    if (result.affectedRows === 0) abortTransaction(false);
+    await recordVersion(conn, 'entity', id, (cur.version || 1) + 1, { ...cur }, 'DELETE', actor);
+    return true;
+  });
 }
 
-/** 绑定整组替换（先删后插）；绑定不单独版本化，实体快照保留定义部分 */
+/** 绑定整组替换（先删后插，单事务）；绑定不单独版本化，实体快照保留定义部分 */
 export async function replaceBindings(
   entityId: number,
   bindings: Omit<OntologyBinding, 'id'>[]
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const row = await findById('ontology_entities', entityId);
-  if (!row) return { ok: false, error: '业务实体不存在' };
-  const pool = getPool();
-  await pool.query('DELETE FROM ontology_bindings WHERE entity_id = ?', [entityId]);
-  for (const b of bindings) {
-    await pool.query(
-      'INSERT INTO ontology_bindings (entity_id, data_source_id, table_name, column_name, role) VALUES (?, ?, ?, ?, ?)',
-      [b.entityId, b.dataSourceId, b.tableName, b.columnName, b.role]
-    );
-  }
-  return { ok: true };
+  // v0.9.114 P1-1：先删后插必须原子，否则中途失败会丢失原有绑定
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_entities WHERE id = ? LIMIT 1', [entityId]);
+    if (rows.length === 0) return { ok: false, error: '业务实体不存在' };
+    await conn.query('DELETE FROM ontology_bindings WHERE entity_id = ?', [entityId]);
+    for (const b of bindings) {
+      await conn.query(
+        'INSERT INTO ontology_bindings (entity_id, data_source_id, table_name, column_name, role) VALUES (?, ?, ?, ?, ?)',
+        [b.entityId, b.dataSourceId, b.tableName, b.columnName, b.role]
+      );
+    }
+    return { ok: true };
+  });
 }
 
 export async function restoreEntityVersion(
@@ -904,19 +920,21 @@ export async function createRelation(
   relation: Omit<OntologyRelation, 'id' | 'version' | 'createdBy'>,
   actor: string
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
-  const pool = getPool();
-  const [dup] = await pool.query<RowDataPacket[]>(
-    'SELECT id FROM ontology_relations WHERE data_source_id = ? AND from_table = ? AND from_columns = ? AND to_table = ? AND to_columns = ? LIMIT 1',
-    [relation.dataSourceId, relation.fromTable, relation.fromColumns.join(','), relation.toTable, relation.toColumns.join(',')]
-  );
-  if (dup.length > 0) return { ok: false, error: '同一方向的关联路径已登记' };
-  const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO ontology_relations (data_source_id, from_table, from_columns, to_table, to_columns, join_type, cardinality, purpose, status, version, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-    [relation.dataSourceId, relation.fromTable, relation.fromColumns.join(','), relation.toTable, relation.toColumns.join(','), relation.joinType, relation.cardinality, relation.purpose, relation.status, actor]
-  );
-  await recordVersion('relation', result.insertId, 1, { ...relation }, 'CREATE', actor);
-  return { ok: true, id: result.insertId };
+  // v0.9.114 P1-1：主表 INSERT 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [dup] = await conn.query<RowDataPacket[]>(
+      'SELECT id FROM ontology_relations WHERE data_source_id = ? AND from_table = ? AND from_columns = ? AND to_table = ? AND to_columns = ? LIMIT 1',
+      [relation.dataSourceId, relation.fromTable, relation.fromColumns.join(','), relation.toTable, relation.toColumns.join(',')]
+    );
+    if (dup.length > 0) return { ok: false, error: '同一方向的关联路径已登记' };
+    const [result] = await conn.query<ResultSetHeader>(
+      `INSERT INTO ontology_relations (data_source_id, from_table, from_columns, to_table, to_columns, join_type, cardinality, purpose, status, version, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      [relation.dataSourceId, relation.fromTable, relation.fromColumns.join(','), relation.toTable, relation.toColumns.join(','), relation.joinType, relation.cardinality, relation.purpose, relation.status, actor]
+    );
+    await recordVersion(conn, 'relation', result.insertId, 1, { ...relation }, 'CREATE', actor);
+    return { ok: true, id: result.insertId };
+  });
 }
 
 export async function updateRelation(
@@ -925,25 +943,32 @@ export async function updateRelation(
   actor = '',
   action: 'UPDATE' | 'RESTORE' = 'UPDATE'
 ): Promise<{ ok: true } | { ok: false; error: string; notFound?: boolean }> {
-  const row = await findById('ontology_relations', id);
-  if (!row) return { ok: false, error: '关联路径不存在', notFound: true };
-  const cur = rowToRelation(row);
-  const nextVersion = (cur.version || 1) + 1;
-  await getPool().query(
-    'UPDATE ontology_relations SET from_table = ?, from_columns = ?, to_table = ?, to_columns = ?, join_type = ?, cardinality = ?, purpose = ?, status = ?, version = ? WHERE id = ?',
-    [relation.fromTable, relation.fromColumns.join(','), relation.toTable, relation.toColumns.join(','), relation.joinType, relation.cardinality, relation.purpose, relation.status, nextVersion, id]
-  );
-  await recordVersion('relation', id, nextVersion, { ...relation, dataSourceId: cur.dataSourceId }, action, actor);
-  return { ok: true };
+  // v0.9.114 P1-1：UPDATE 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_relations WHERE id = ? LIMIT 1', [id]);
+    if (rows.length === 0) return { ok: false, error: '关联路径不存在', notFound: true };
+    const cur = rowToRelation(rows[0]);
+    const nextVersion = (cur.version || 1) + 1;
+    await conn.query(
+      'UPDATE ontology_relations SET from_table = ?, from_columns = ?, to_table = ?, to_columns = ?, join_type = ?, cardinality = ?, purpose = ?, status = ?, version = ? WHERE id = ?',
+      [relation.fromTable, relation.fromColumns.join(','), relation.toTable, relation.toColumns.join(','), relation.joinType, relation.cardinality, relation.purpose, relation.status, nextVersion, id]
+    );
+    await recordVersion(conn, 'relation', id, nextVersion, { ...relation, dataSourceId: cur.dataSourceId }, action, actor);
+    return { ok: true };
+  });
 }
 
 export async function deleteRelation(id: number, actor = ''): Promise<boolean> {
-  const row = await findById('ontology_relations', id);
-  if (!row) return false;
-  const cur = rowToRelation(row);
-  const [result] = await getPool().query<ResultSetHeader>('DELETE FROM ontology_relations WHERE id = ?', [id]);
-  if (result.affectedRows > 0) await recordVersion('relation', id, (cur.version || 1) + 1, { ...cur }, 'DELETE', actor);
-  return result.affectedRows > 0;
+  // v0.9.114 P1-1：DELETE 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_relations WHERE id = ? LIMIT 1', [id]);
+    if (rows.length === 0) return false;
+    const cur = rowToRelation(rows[0]);
+    const [result] = await conn.query<ResultSetHeader>('DELETE FROM ontology_relations WHERE id = ?', [id]);
+    if (result.affectedRows === 0) abortTransaction(false);
+    await recordVersion(conn, 'relation', id, (cur.version || 1) + 1, { ...cur }, 'DELETE', actor);
+    return true;
+  });
 }
 
 export async function restoreRelationVersion(
@@ -979,19 +1004,21 @@ export async function createHierarchy(
   hierarchy: Omit<OntologyHierarchy, 'id' | 'version' | 'createdBy'>,
   actor: string
 ): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
-  const pool = getPool();
-  const [dup] = await pool.query<RowDataPacket[]>(
-    'SELECT id FROM ontology_hierarchies WHERE data_source_id = ? AND name = ? LIMIT 1',
-    [hierarchy.dataSourceId, hierarchy.name]
-  );
-  if (dup.length > 0) return { ok: false, error: '同名业务层级已存在' };
-  const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO ontology_hierarchies (data_source_id, name, levels_json, status, version, created_by)
-     VALUES (?, ?, ?, ?, 1, ?)`,
-    [hierarchy.dataSourceId, hierarchy.name, JSON.stringify(hierarchy.levels), hierarchy.status, actor]
-  );
-  await recordVersion('hierarchy', result.insertId, 1, { ...hierarchy }, 'CREATE', actor);
-  return { ok: true, id: result.insertId };
+  // v0.9.114 P1-1：主表 INSERT 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [dup] = await conn.query<RowDataPacket[]>(
+      'SELECT id FROM ontology_hierarchies WHERE data_source_id = ? AND name = ? LIMIT 1',
+      [hierarchy.dataSourceId, hierarchy.name]
+    );
+    if (dup.length > 0) return { ok: false, error: '同名业务层级已存在' };
+    const [result] = await conn.query<ResultSetHeader>(
+      `INSERT INTO ontology_hierarchies (data_source_id, name, levels_json, status, version, created_by)
+       VALUES (?, ?, ?, ?, 1, ?)`,
+      [hierarchy.dataSourceId, hierarchy.name, JSON.stringify(hierarchy.levels), hierarchy.status, actor]
+    );
+    await recordVersion(conn, 'hierarchy', result.insertId, 1, { ...hierarchy }, 'CREATE', actor);
+    return { ok: true, id: result.insertId };
+  });
 }
 
 export async function updateHierarchy(
@@ -1000,31 +1027,37 @@ export async function updateHierarchy(
   actor = '',
   action: 'UPDATE' | 'RESTORE' = 'UPDATE'
 ): Promise<{ ok: true } | { ok: false; error: string; notFound?: boolean }> {
-  const row = await findById('ontology_hierarchies', id);
-  if (!row) return { ok: false, error: '业务层级不存在', notFound: true };
-  const cur = rowToHierarchy(row);
-  const pool = getPool();
-  const [dup] = await pool.query<RowDataPacket[]>(
-    'SELECT id FROM ontology_hierarchies WHERE data_source_id = ? AND name = ? AND id <> ? LIMIT 1',
-    [cur.dataSourceId, hierarchy.name, id]
-  );
-  if (dup.length > 0) return { ok: false, error: '同名业务层级已存在' };
-  const nextVersion = (cur.version || 1) + 1;
-  await pool.query(
-    'UPDATE ontology_hierarchies SET name = ?, levels_json = ?, status = ?, version = ? WHERE id = ?',
-    [hierarchy.name, JSON.stringify(hierarchy.levels), hierarchy.status, nextVersion, id]
-  );
-  await recordVersion('hierarchy', id, nextVersion, { ...hierarchy, dataSourceId: cur.dataSourceId }, action, actor);
-  return { ok: true };
+  // v0.9.114 P1-1：UPDATE 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_hierarchies WHERE id = ? LIMIT 1', [id]);
+    if (rows.length === 0) return { ok: false, error: '业务层级不存在', notFound: true };
+    const cur = rowToHierarchy(rows[0]);
+    const [dup] = await conn.query<RowDataPacket[]>(
+      'SELECT id FROM ontology_hierarchies WHERE data_source_id = ? AND name = ? AND id <> ? LIMIT 1',
+      [cur.dataSourceId, hierarchy.name, id]
+    );
+    if (dup.length > 0) return { ok: false, error: '同名业务层级已存在' };
+    const nextVersion = (cur.version || 1) + 1;
+    await conn.query(
+      'UPDATE ontology_hierarchies SET name = ?, levels_json = ?, status = ?, version = ? WHERE id = ?',
+      [hierarchy.name, JSON.stringify(hierarchy.levels), hierarchy.status, nextVersion, id]
+    );
+    await recordVersion(conn, 'hierarchy', id, nextVersion, { ...hierarchy, dataSourceId: cur.dataSourceId }, action, actor);
+    return { ok: true };
+  });
 }
 
 export async function deleteHierarchy(id: number, actor = ''): Promise<boolean> {
-  const row = await findById('ontology_hierarchies', id);
-  if (!row) return false;
-  const cur = rowToHierarchy(row);
-  const [result] = await getPool().query<ResultSetHeader>('DELETE FROM ontology_hierarchies WHERE id = ?', [id]);
-  if (result.affectedRows > 0) await recordVersion('hierarchy', id, (cur.version || 1) + 1, { ...cur }, 'DELETE', actor);
-  return result.affectedRows > 0;
+  // v0.9.114 P1-1：DELETE 与版本快照同事务
+  return withTransaction(async (conn) => {
+    const [rows] = await conn.query<RowDataPacket[]>('SELECT * FROM ontology_hierarchies WHERE id = ? LIMIT 1', [id]);
+    if (rows.length === 0) return false;
+    const cur = rowToHierarchy(rows[0]);
+    const [result] = await conn.query<ResultSetHeader>('DELETE FROM ontology_hierarchies WHERE id = ?', [id]);
+    if (result.affectedRows === 0) abortTransaction(false);
+    await recordVersion(conn, 'hierarchy', id, (cur.version || 1) + 1, { ...cur }, 'DELETE', actor);
+    return true;
+  });
 }
 
 export async function restoreHierarchyVersion(

@@ -9,7 +9,51 @@ import { applyTestEnv, activeUserRow, tokenFor, dbStub, buildApp } from './route
 import type { DbStubRule } from './routeTestKit';
 
 const querySpy = vi.fn();
-vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: unknown[]) => querySpy(...args) }) }));
+/** v0.9.114 P1-1 事务事件轨迹：断言 begin/commit/rollback/release 顺序 */
+const txEvents: string[] = [];
+// 注：withTransaction 在真实模块内经模块私有 getPool 取连接，mock 导出对象拦不住；
+// 故此处提供语义等价实现（真实现的 commit/rollback/release/abort 行为由 infra/db.test.ts 覆盖）。
+vi.mock('../infra/db', () => {
+  const conn = () => ({
+    query: (...args: unknown[]) => querySpy(...args),
+    beginTransaction: async () => {
+      txEvents.push('begin');
+    },
+    commit: async () => {
+      txEvents.push('commit');
+    },
+    rollback: async () => {
+      txEvents.push('rollback');
+    },
+    release: () => {
+      txEvents.push('release');
+    },
+  });
+  return {
+    getPool: () => ({ query: (...args: unknown[]) => querySpy(...args), getConnection: async () => conn() }),
+    withTransaction: async <T>(fn: (c: ReturnType<typeof conn>) => Promise<T>): Promise<T> => {
+      const c = conn();
+      try {
+        await c.beginTransaction();
+        const result = await fn(c);
+        await c.commit();
+        return result;
+      } catch (err) {
+        await c.rollback();
+        if (err && (err as { __txAbort?: boolean }).__txAbort) return (err as { value: T }).value;
+        throw err;
+      } finally {
+        c.release();
+      }
+    },
+    abortTransaction: (value: unknown): never => {
+      const err = new Error('__tx_abort__') as Error & { __txAbort: boolean; value: unknown };
+      err.__txAbort = true;
+      err.value = value;
+      throw err;
+    },
+  };
+});
 
 import ontologyRoutes from './ontology';
 
@@ -500,3 +544,119 @@ describe('全局开关（v0.9.113）', () => {
   });
 });
 
+
+/**
+ * v0.9.114 P1-1 写库事务覆盖：
+ * 验证多表写（主表 + ontology_versions、级联删绑定）在同一事务内，
+ * 失败时整体回滚、成功时整体提交；并发删除走 abort 撤销已执行的级联删。
+ */
+describe('写库事务覆盖（P1-1）', () => {
+  beforeEach(() => {
+    txEvents.length = 0;
+  });
+
+  it('创建实体：主表 INSERT 与版本快照同事务，提交顺序 begin → commit → release', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        adminAuth,
+        { match: 'SELECT id FROM ontology_entities', rows: () => [] },
+        { match: 'INSERT INTO ontology_entities', rows: () => resultSet({ insertId: 11 }) },
+        { match: 'INSERT INTO ontology_versions', rows: () => resultSet({}) },
+      ])
+    );
+    const res = await post('/api/ontology/entities', validEntity);
+    expect(res.status).toBe(200);
+    expect(txEvents).toEqual(['begin', 'commit', 'release']);
+  });
+
+  it('版本快照写失败 → 整体回滚（主表 INSERT 被撤销）并返回 500', async () => {
+    querySpy.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes('must_change_password FROM users WHERE id')) return [[activeUserRow('ADMIN', 1)]];
+      if (text.includes('SELECT id FROM ontology_entities')) return [[]];
+      if (text.includes('INSERT INTO ontology_entities')) return [resultSet({ insertId: 11 })];
+      if (text.includes('INSERT INTO ontology_versions')) throw new Error('versions table unavailable');
+      throw new Error(`[routeTestKit] 未匹配的 SQL: ${text.slice(0, 120)}`);
+    });
+    const res = await post('/api/ontology/entities', validEntity);
+    expect(res.status).toBe(500);
+    expect(txEvents).toEqual(['begin', 'rollback', 'release']);
+    // 主表 INSERT 与失败快照 INSERT 都发生在回滚前
+    const sqls = querySpy.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('INSERT INTO ontology_entities'))).toBe(true);
+    expect(sqls.some((s) => s.includes('INSERT INTO ontology_versions'))).toBe(true);
+  });
+
+  it('绑定整组替换：先删后插同事务，中途失败回滚保住原有绑定', async () => {
+    querySpy.mockImplementation(async (sql: unknown) => {
+      const text = String(sql);
+      if (text.includes('must_change_password FROM users WHERE id')) return [[activeUserRow('ADMIN', 1)]];
+      if (text.includes('FROM ontology_entities WHERE id')) return [[entityRow()]];
+      if (text.includes('DELETE FROM ontology_bindings')) return [resultSet({ affectedRows: 2 })];
+      if (text.includes('INSERT INTO ontology_bindings')) throw new Error('insert bindings failed');
+      throw new Error(`[routeTestKit] 未匹配的 SQL: ${text.slice(0, 120)}`);
+    });
+    const res = await put('/api/ontology/entities/1/bindings', {
+      dataSourceId: 'ds_m1',
+      bindings: [{ tableName: 'JGXX', columnName: 'JGMC', role: 'IDENTITY' }],
+    });
+    expect(res.status).toBe(500);
+    expect(txEvents).toEqual(['begin', 'rollback', 'release']);
+  });
+
+  it('删除实体并发竞争（affectedRows=0）→ abort 回滚级联删，返回 404', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        adminAuth,
+        { match: 'DELETE FROM ontology_bindings', rows: () => resultSet({ affectedRows: 1 }) },
+        { match: 'DELETE FROM ontology_entities', rows: () => resultSet({ affectedRows: 0 }) },
+        { match: 'FROM ontology_entities WHERE id', rows: () => [entityRow()] },
+      ])
+    );
+    const res = await del('/api/ontology/entities/1');
+    expect(res.status).toBe(404);
+    // abort 路径：rollback 而非 commit
+    expect(txEvents).toEqual(['begin', 'rollback', 'release']);
+    // 且不应写入 DELETE 快照
+    const sqls = querySpy.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('INSERT INTO ontology_versions'))).toBe(false);
+  });
+
+  it('删除实体成功：级联删绑定 + 删实体 + DELETE 快照同事务提交', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        adminAuth,
+        { match: 'DELETE FROM ontology_bindings', rows: () => resultSet({ affectedRows: 1 }) },
+        { match: 'DELETE FROM ontology_entities', rows: () => resultSet({ affectedRows: 1 }) },
+        { match: 'FROM ontology_entities WHERE id', rows: () => [entityRow()] },
+        { match: 'INSERT INTO ontology_versions', rows: () => resultSet({}) },
+      ])
+    );
+    const res = await del('/api/ontology/entities/1');
+    expect(res.status).toBe(200);
+    expect(txEvents).toEqual(['begin', 'commit', 'release']);
+  });
+
+  it('创建关联路径：主表与版本快照同事务', async () => {
+    querySpy.mockImplementation(
+      dbStub([
+        adminAuth,
+        { match: 'SELECT id FROM ontology_relations', rows: () => [] },
+        { match: 'INSERT INTO ontology_relations', rows: () => resultSet({ insertId: 3 }) },
+        { match: 'INSERT INTO ontology_versions', rows: () => resultSet({}) },
+      ])
+    );
+    const res = await post('/api/ontology/relations', {
+      dataSourceId: 'ds_m1',
+      fromTable: 'A',
+      fromColumns: ['ID'],
+      toTable: 'B',
+      toColumns: ['A_ID'],
+      joinType: 'LEFT',
+      cardinality: '1:N',
+      purpose: '',
+    });
+    expect(res.status).toBe(200);
+    expect(txEvents).toEqual(['begin', 'commit', 'release']);
+  });
+});

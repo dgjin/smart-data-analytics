@@ -11,7 +11,36 @@ const querySpy = vi.fn(async (..._args: any[]) => {
   if (!next) throw new Error('ontology.test: 队列为空，SQL 调用次数超出预期');
   return next;
 });
-vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: any[]) => querySpy(...args) }) }));
+vi.mock('../infra/db', () => {
+  // v0.9.114 P1-1：写库改走 withTransaction；此处提供等价实现，事务控制语句不消耗 SQL 队列
+  const connOf = () => ({
+    query: (...args: any[]) => querySpy(...args),
+    beginTransaction: async () => undefined,
+    commit: async () => undefined,
+    rollback: async () => undefined,
+    release: () => undefined,
+  });
+  return {
+    getPool: () => ({ query: (...args: any[]) => querySpy(...args), getConnection: async () => connOf() }),
+    withTransaction: async <T>(fn: (c: ReturnType<typeof connOf>) => Promise<T>): Promise<T> => {
+      const c = connOf();
+      try {
+        return await fn(c);
+      } catch (err) {
+        if (err && (err as { __txAbort?: boolean }).__txAbort) return (err as { value: T }).value;
+        throw err;
+      } finally {
+        c.release();
+      }
+    },
+    abortTransaction: (value: unknown): never => {
+      const err = new Error('__tx_abort__') as Error & { __txAbort: boolean; value: unknown };
+      err.__txAbort = true;
+      err.value = value;
+      throw err;
+    },
+  };
+});
 vi.mock('../llm/llmClient', () => ({
   callEmbedding: vi.fn(async () => [1, 0]),
   callEmbeddingBatch: vi.fn(async () => [[1, 0], [0, 1]]),
