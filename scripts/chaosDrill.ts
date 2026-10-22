@@ -630,6 +630,12 @@ async function main(): Promise<number> {
     console.log('\n  完整演练示例：');
     console.log(`    npm run chaos:drill -- --scenario=${scenario} --execute --yes \\`);
     console.log(`      --inject-cmd="${suggested.inject}" --recover-cmd="${suggested.recover}"\n`);
+    // Redis 启用认证后（v0.9.118 起本机默认 requirepass），直连 redis-cli 会 NOAUTH：
+    // 用 REDISCLI_AUTH 传递密码，避免密码进入命令历史与 --inject-cmd 参数（会被写入演练报告）
+    if (scenario !== 'mysql' && (process.env.REDIS_URL || '').includes('@')) {
+      console.log('  提示：REDIS_URL 含认证信息，执行上面的 redis-cli 前先导出密码环境变量');
+      console.log('        export REDISCLI_AUTH=<密码>   # 取值见 .env.local 的 REDIS_URL\n');
+    }
   } else {
     commands.inject = injectCmd;
     commands.recover = recoverCmd;
