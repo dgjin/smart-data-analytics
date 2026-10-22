@@ -15,6 +15,8 @@ import { checkDataSourceAccess, grantUserAccess } from '../auth/accessControl';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
+import { validateBody } from '../infra/validate';
+import { createAccessRequestSchema, decideNoteSchema } from './schemas/accessRequestsSchema';
 
 const router = Router();
 router.use(authMiddleware);
@@ -39,10 +41,10 @@ function rowToRequest(row: RowDataPacket) {
 // POST /api/access-requests { dataSourceId, reason }
 router.post('/', rateLimiter, async (req, res) => {
   const user = req.user!;
-  const dataSourceId = String(req.body?.dataSourceId || '').trim();
-  const reason = String(req.body?.reason || '').trim().slice(0, 500);
-  if (!dataSourceId) return res.status(400).json({ error: 'dataSourceId 必填' });
-  if (!reason) return res.status(400).json({ error: '请填写申请理由' });
+  // v0.9.114：输入契约改走 zod schema（替代手写 String().trim() 判空）
+  const parsed = validateBody(createAccessRequestSchema, req.body);
+  if (parsed.ok !== true) return res.status(400).json({ error: parsed.error });
+  const { dataSourceId, reason } = parsed.data;
 
   try {
     const [dsRows] = await getPool().query<RowDataPacket[]>('SELECT id FROM data_sources WHERE id = ? LIMIT 1', [dataSourceId]);
@@ -109,7 +111,10 @@ router.get('/', requireRole('ADMIN'), async (req, res) => {
 async function decide(req: Request, res: Response, action: 'APPROVED' | 'REJECTED') {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: '申请 ID 无效' });
-  const note = String(req.body?.note || '').trim().slice(0, 300);
+  // v0.9.114：决策备注改走 zod schema（可选，≤300）
+  const parsed = validateBody(decideNoteSchema, req.body);
+  if (parsed.ok !== true) return res.status(400).json({ error: parsed.error });
+  const note = parsed.data.note;
 
   try {
     const [rows] = await getPool().query<RowDataPacket[]>('SELECT * FROM permission_requests WHERE id = ? LIMIT 1', [id]);
