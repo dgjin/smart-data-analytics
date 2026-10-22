@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import type { AuditEntry } from './auditLog';
 import type { LlmUsageEntry } from '../llm/llmUsage';
 import { getErrorMessage } from './errorUtils';
+import { probeRedisPersistence } from './health';
 
 export const metricsRegister = new client.Registry();
 client.collectDefaultMetrics({ register: metricsRegister });
@@ -192,6 +193,40 @@ export function observeMemoryRecall(entry: {
   } catch { /* 静默 */ }
 }
 
+// ---------- Redis 落盘巡检（v0.9.116）：/metrics 抓取时实时读取 INFO persistence ----------
+//
+// 背景：Redis 自动保存规则被运行期 CONFIG SET save "" 清空时不写任何日志，只能靠
+// rdb_last_save_time 年龄 + 未落盘写入数发现（详见《混沌工程演练手册》复盘）。
+
+export const redisRdbLastSaveAge = new client.Gauge({
+  name: 'redis_rdb_last_save_age_seconds',
+  help: 'Redis 最近一次 RDB 落盘距今秒数（未启用 Redis 或读取失败时不更新）',
+  registers: [metricsRegister],
+});
+
+export const redisRdbChangesSinceSave = new client.Gauge({
+  name: 'redis_rdb_changes_since_last_save',
+  help: 'Redis 距上次落盘的写命令累计数（>0 表示有未落盘数据）',
+  registers: [metricsRegister],
+});
+
+export const redisRdbSavesConsecutiveFailures = new client.Gauge({
+  name: 'redis_rdb_saves_consecutive_failures',
+  help: 'Redis 连续 BGSAVE 失败次数（>0 触发告警）',
+  registers: [metricsRegister],
+});
+
+/** 抓取前刷新落盘指标（观测类 fail-open：读取失败保持旧值，不影响其他指标） */
+export async function refreshRedisPersistenceMetrics(): Promise<void> {
+  try {
+    const r = await probeRedisPersistence();
+    if (!r.enabled || r.error) return;
+    redisRdbLastSaveAge.set(r.lastSaveAgeSec ?? 0);
+    redisRdbChangesSinceSave.set(r.changesSinceLastSave ?? 0);
+    redisRdbSavesConsecutiveFailures.set(r.savesConsecutiveFailures ?? 0);
+  } catch { /* 静默 */ }
+}
+
 // ---------- /metrics 端点（不走 JWT；可选 METRICS_TOKEN 保护） ----------
 
 /** 定长摘要后恒时比较：消除明文比较的计时侧信道（摘要后长度恒定，timingSafeEqual 不会因长度差异抛错） */
@@ -211,6 +246,7 @@ export async function metricsHandler(req: Request, res: Response): Promise<void>
     }
   }
   try {
+    await refreshRedisPersistenceMetrics();
     res.set('Content-Type', metricsRegister.contentType);
     res.end(await metricsRegister.metrics());
   } catch (err) {

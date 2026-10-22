@@ -105,6 +105,11 @@ const RELEASE_LOCK_LUA = `if redis.call("GET", KEYS[1]) == ARGV[1] then return r
 export class RedisStateStore implements StateStore {
   constructor(private client: Redis) {}
 
+  /** 供健康巡检读取服务端 INFO（如持久化状态）；业务代码不应直接使用 */
+  getClient(): Redis {
+    return this.client;
+  }
+
   async get(key: string): Promise<string | null> {
     const v = await this.client.get(key);
     return v === null ? null : v;
@@ -215,4 +220,10 @@ export async function warmStateStore(maxWaitMs = 5000): Promise<boolean> {
 /** 当前是否启用 Redis 外置（供健康检查/文档展示） */
 export function isRedisEnabled(): boolean {
   return Boolean(process.env.REDIS_URL && process.env.REDIS_URL.trim());
+}
+
+/** 当前 Redis 原始客户端（仅 REDIS_URL 启用时非空）；供落盘巡检读取 INFO，业务代码勿用 */
+export function getRedisClient(): Redis | null {
+  const store = getStateStore();
+  return store instanceof RedisStateStore ? store.getClient() : null;
 }

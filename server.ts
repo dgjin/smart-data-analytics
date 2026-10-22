@@ -76,7 +76,7 @@ import opsTracesRoutes from './server/routes/opsTraces';
 import taskRoutes from './server/routes/tasks';
 import { startTaskWorker, stopTaskWorker } from './server/infra/taskQueue';
 import { installGracefulShutdown } from './server/infra/shutdown';
-import { runReadiness, buildDefaultProbes } from './server/infra/health';
+import { runReadiness, buildDefaultProbes, probeRedisPersistence } from './server/infra/health';
 import { registerBuiltinTaskHandlers } from './server/taskHandlers';
 // P2-5 SSE 断线续传：重放缓冲周期清扫（改进计划 2-5）
 import { startSseReplaySweeper } from './server/query/sseReplayBuffer';
@@ -351,6 +351,12 @@ async function startServer() {
       return;
     }
     const report = await runReadiness(buildDefaultProbes());
+    res.status(report.ok ? 200 : 503).json(report);
+  });
+  // v0.9.116 Redis 落盘巡检：有未落盘写入却超过阈值（REDIS_RDB_STALE_MINUTES，默认 120）未
+  // 触发 BGSAVE，或 BGSAVE 连续失败时 503。独立端点——落盘告警不应触发上游摘流量。
+  app.get('/api/health/persistence', async (_req, res) => {
+    const report = await probeRedisPersistence();
     res.status(report.ok ? 200 : 503).json(report);
   });
 

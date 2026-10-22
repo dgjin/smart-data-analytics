@@ -181,6 +181,24 @@
         }
       }
     },
+    "/api/health/persistence": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "operationId": "healthPersistence",
+        "summary": "Redis 落盘巡检（有未落盘写入却长期未保存或 BGSAVE 连续失败返回 503；未启用 Redis 时跳过）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "落盘正常或未启用 Redis（skipped）"
+          },
+          "503": {
+            "description": "落盘陈旧（stale）或保存失败（failed）"
+          }
+        }
+      }
+    },
     "/api/system/engine": {
       "get": {
         "tags": [

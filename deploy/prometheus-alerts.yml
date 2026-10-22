@@ -32,6 +32,25 @@ groups:
           summary: "Redis 缓存层不可达"
           description: "redis-exporter 已连续 2 分钟抓取失败；应用将回退进程内缓存（多实例语义缓存/限流共享状态失效）。"
 
+      # Redis 自动落盘停摆（v0.9.116，2026-10-22 复盘：save 规则被 CONFIG SET save "" 清空时
+      # 不写任何日志，只能靠落盘年龄 + 未落盘写入数发现）。阈值 7200s 与 REDIS_RDB_STALE_MINUTES 默认值一致，
+      # 调整环境变量时须同步本规则。
+      - alert: RedisRdbSaveStale
+        expr: redis_rdb_last_save_age_seconds > 7200 and redis_rdb_changes_since_last_save > 0
+        for: 10m
+        labels: { severity: warning, service: redis, aiops_demo: "true" }
+        annotations:
+          summary: "Redis 自动落盘停摆（超过 2 小时未保存且存在未落盘写入）"
+          description: "实例 {{ $labels.instance }} 已 {{ $value | humanizeDuration }} 未落盘且仍有写入，检查 CONFIG GET save 是否被清空、rdb_last_bgsave_status 是否 err（对照 /api/health/persistence）。"
+
+      - alert: RedisRdbSaveFailures
+        expr: redis_rdb_saves_consecutive_failures > 0
+        for: 5m
+        labels: { severity: critical, service: redis, aiops_demo: "true" }
+        annotations:
+          summary: "Redis BGSAVE 连续失败"
+          description: "实例 {{ $labels.instance }} 连续 {{ $value }} 次 BGSAVE 失败（磁盘/fork/权限），写入可能被 stop-writes-on-bgsave-error 拒绝。"
+
   - name: nl2sql-business
     rules:
       # 问数成功率骤降（基线：SUCCESS+CACHE 占比；排除拒答/澄清等正常业务终态之外的 ERROR/FALLBACK 侵蚀）
