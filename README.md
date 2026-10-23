@@ -4,7 +4,7 @@
 
 > 使用帮助见 [docs/核心文档/用户使用指南.md](docs/核心文档/用户使用指南.md)（系统内「帮助」按钮实时读取该文档，帮助面板内置「智能问答」页签——基于帮助文档 + 大模型快速问答，v0.9.88；文档按模块抽屉折叠展示 + 关键词搜索快速定位，v0.9.89；帮助面板另有「架构图」页签——实时读取 docs/diagrams/ 下智能问数推导过程图 / 系统功能流程图 / 完整系统架构图三张核心图，内嵌交互式 HTML 视图器（缩放 / 主题切换 / 查找节点 / 导出）+ 全屏查看，v0.9.100 / v0.9.101）；各版本更新内容见 [docs/核心文档/更新日志.md](docs/核心文档/更新日志.md)（帮助面板「更新日志」页签实时读取）；完整功能规格见 [docs/核心文档/系统功能说明书.md](docs/核心文档/系统功能说明书.md)。
 >
-> **新项目部署后**：数据源接入与数据配置（含问数质量保障）见 [docs/数据源配置与问数质量保障指导手册.md](docs/数据源配置与问数质量保障指导手册.md)——按数据源类型逐类讲解配置项与质量影响；质量运营（样例库/指标库/知识库/评测集/铁律等）见 [docs/数据资源库智能问数质量提升实操手册.md](docs/数据资源库智能问数质量提升实操手册.md)。
+> **新项目部署后**：数据源接入与数据配置（含问数质量保障）见 [docs/数据源配置与问数质量保障指导手册.md](docs/数据源配置与问数质量保障指导手册.md)——按数据源类型逐类讲解配置项与质量影响；质量运营（样例库/指标库/知识库/评测集/铁律等）见 [docs/数据资源库智能问数质量提升实操手册.md](docs/数据资源库智能问数质量提升实操手册.md)；从零到可用的完整顺序与验收清单见 [docs/系统初始化手册.md](docs/系统初始化手册.md)。
 
 ## 核心特性
 
@@ -88,7 +88,7 @@
 
 ```bash
 ollama pull qwen3.8:27b-mlx      # 主推理模型（MLX 优化版；勿用 deepseek-r1 等推理模型，思考链分钟级会导致问数超时）
-ollama pull nomic-embed-text     # embedding 模型（圈表精排用，可选）
+ollama pull qwen3-embedding:8b   # embedding 模型（圈表精排 / 知识检索；中文推荐 4096 维，nomic-embed-text 中文相似度塌缩已被评测否决）
 ```
 
 - Python 3 + ReportLab（报告 PDF 导出，可选）：
@@ -113,6 +113,10 @@ cp .env.example .env.local       # 按实际环境修改
 npm run dev          # 或手动开发模式（tsx 直跑，前端 Vite 内嵌）
 # 打开 http://127.0.0.1:3000
 ```
+
+首次启动自动完成：建库建表（55 张，幂等 `initSchema`）→ 写入种子（默认管理员、内置技能、预设报告模板、出厂看板、env 配置键位）→ 加密存量密码。
+
+**首启初始化向导**：管理员首次登录自动进入五步向导（环境自检 → 模型服务 → 自动初始化 → 待办确认 → 完成引导）。「自动初始化」针对所选数据源执行六步流水线（Schema 采集 → 画像与能力 → 知识骨架 → 知识向量化 → Schema 向量化 → 样例种子）；「待办确认」跟踪铁律、指标阈值、**业务本体**、Embedding、知识条目与样例库六项。无自有数据源时可一键加载内置演示数据集（926 行）先体验；完成后可在「系统管理 → 治理与审核 → 系统体检」随时打开向导重进。
 
 ### 生产构建
 
@@ -149,10 +153,10 @@ docker run -d -p 3000:3000 \
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | 系统元数据库连接 | 127.0.0.1:3306 / smart_analytics |
-| `LLM_MODEL` | Ollama 主模型（推荐 qwen3.8:27b-mlx；勿用 deepseek-r1 系列推理模型，思考链分钟级会致问数超时） | deepseek-r1:32b |
+| `LLM_MODEL` | Ollama 主模型（推荐 qwen3.8:27b-mlx；勿用 deepseek-r1 系列推理模型，思考链分钟级会致问数超时） | qwen3.8:27b-mlx |
 | `OLLAMA_URL` | Ollama 服务地址 | http://localhost:11434 |
 | `OLLAMA_TIMEOUT_MS` | LLM 推理超时（毫秒） | 180000 |
-| `EMBED_MODEL` | embedding 模型 | nomic-embed-text |
+| `EMBED_MODEL` | embedding 模型（中文推荐 4096 维 `qwen3-embedding:8b`；换模型后须 `npm run reembed:embeddings` 重嵌存量向量） | qwen3-embedding:8b |
 | `AI_ENGINE` | 引擎显式选择：ollama / gemini / qwen / deepseek | 按密钥存在性自动 |
 | `QWEN_API_KEY` | 通义千问百炼 API Key | — |
 | `QWEN_URL` | 百炼端点（Coding Plan 需专属端点） | https://dashscope.aliyuncs.com/compatible-mode/v1 |
@@ -177,6 +181,15 @@ docker run -d -p 3000:3000 \
 | `LOG_FILE` / `LOG_FORMAT` / `OPS_API_TOKEN` | v0.9.93 运行日志落盘路径（默认 `logs/app_server.log`，配合启动脚本重定向 stdout/stderr，供 `/api/ops/logs` 尾读）/ 日志格式（json\|pretty，未设按 TTY 自适应）/ 运维 API 机器令牌（供自动运维智能体 Bearer 直连 `/api/ops/*` 与 `/api/requirements/export`，不设则仅 ADMIN JWT 可用） | logs/app_server.log |
 | `LOG_KEEP_MIN` / `LOG_KEEP_DAYS` / `LOG_QUIET_PATHS` | v0.9.94 归档保底份数（最近 N 份不作年龄清理）/ 归档保留天数（超龄删除）/ 高频轮询端点访问日志降噪清单（空串=关闭；默认 `/api/health,/api/system/models`） | 5 / 14 / 默认清单 |
 | `OPS_AGENT_WEBHOOK_URL` / `LOG_DIR` | v0.9.94 Alertmanager 智能体旁路 webhook（未配置自动裁剪该路由，推拉互备的「推」通道）/ Loki 采集栈宿主日志目录（须在 Docker VM 共享范围内，如 colima 仅共享 $HOME，禁止 macOS /tmp） | — / ./logs |
+| `REDIS_URL` / `REDIS_RDB_STALE_MINUTES` | 状态外置（计划/缓存/配额/并发槽/限流/上传 state）：`redis://[:密码@]host:port`；密码含 `/ + =` 须 percent-encode，推荐 hex 密码 / 落盘陈旧阈值（分钟，配合 `/api/health/persistence` 与 `RedisRdbSaveStale` 告警） | 无（进程内存）/ 120 |
+| `ONTOLOGY_ENABLED` / `ONTOLOGY_TOKEN_BUDGET` / `ONTOLOGY_EMBEDDING_ENABLED` / `CONTEXT_ARBITER_TOKEN_BUDGET` | 业务本体（v0.9.110）：总开关（`0` 关闭）/ 本体段注入预算 / 实体 embedding 精排（`0` 关闭省一次往返）/ 上下文仲裁总预算 | 1 / 1500 / 自动 / 6000 |
+| `MEMORY_ROUTER_ENABLED` / `MEMORY_ROUTER_ROLLOUT_PCT` | 统一记忆体（v0.9.114）：`off`（默认）/ `shadow`（只召回不注入）/ `on`（按用户哈希灰度）；灰度比例 0-100 | off / 20 |
+| `TRACE_ENABLED` / `TRACE_SAMPLE_RATE` / `TRACE_BUFFER_SIZE` | 轻量链路追踪（v0.9.114）：总开关 / 根链路采样率 / 进程内环形缓冲条数；`GET /api/ops/traces` 查询 | 1 / 1 / 500 |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_DEFAULT_ROLE` | 统一身份认证（授权码 + JIT 建号）：未配前两项则登录页不显示 SSO；默认角色 VIEWER | — / — / — / VIEWER |
+| `DLP_ENABLED` / `DLP_EXEMPT_ADMIN` / `DLP_EXPORT_APPROVE_ROWS` / `DLP_EXPORT_MAX_ROWS` | 数据防泄漏：结果敏感字段掩码总开关 / ADMIN 豁免 / CSV 导出免审批阈值 / 单次导出上限 | 开启 / 豁免 / 5000 / 100000 |
+| `LLM_RETRY_MAX` / `LLM_MAX_CONCURRENT` / `LLM_BREAKER_FAILS` / `LLM_BREAKER_COOLDOWN_MS` | LLM 调用韧性：重试次数 / 每引擎并发 / 熔断阈值 / 冷却毫秒 | 2 / 4 / 3 / 30000 |
+
+> 完整变量清单（含缓存 TTL、后台调度、日志归档、评测脚本等）见 [.env.example](.env.example)；部署侧逐项说明见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 第四章。
 
 > v0.9.61 起，「系统管理 → 系统配置」面板可在线修改以上多数参数并**即时生效、无需重启**（面板保存值优先于 .env.local 且重启后保持；输入框留空=该项跟随 .env.local / 默认值）；每项配置显示「运行时」实际生效值供对账。例外：`MYSQL_*` 连接参数属于启动自举配置，不参与在线修改，需改 .env.local 并重启（面板仅登记）。
 

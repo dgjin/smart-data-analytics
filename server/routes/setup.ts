@@ -175,7 +175,7 @@ router.get('/pipeline/:taskId', authMiddleware, requireRole('ADMIN'), async (req
   }
 });
 
-// GET /api/setup/checklist —— 待办确认清单（Step④；五项动态状态 + 深链）
+// GET /api/setup/checklist —— 待办确认清单（Step④；六项动态状态 + 深链）
 router.get('/checklist', authMiddleware, requireRole('ADMIN'), async (_req, res) => {
   try {
     const items = await buildChecklist();

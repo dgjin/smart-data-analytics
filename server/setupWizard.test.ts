@@ -1,6 +1,6 @@
 /**
  * v0.9.84 首启初始化向导业务层单测（server/setupWizard.ts）：
- * 状态读写（单行表/断点快照）/ 探测降级（LLM 与 Embedding 失败不抛错）/ 环境汇总 / 待办清单五项组装。
+ * 状态读写（单行表/断点快照）/ 探测降级（LLM 与 Embedding 失败不抛错）/ 环境汇总 / 待办清单六项组装。
  * mock 约定与 autoKnowledgeSync.test.ts 一致（vi.mock infra 与 llm 模块，查询桩按 SQL 分派）。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -170,27 +170,29 @@ describe('collectEnvSummary：环境汇总（GET /state env 字段）', () => {
   });
 });
 
-describe('buildChecklist：待办清单五项组装', () => {
-  const checklistPool = (over: { rules?: number; chunks?: number; entries?: number; examples?: number; cap?: unknown[] } = {}) =>
+describe('buildChecklist：待办清单六项组装', () => {
+  const checklistPool = (over: { rules?: number; chunks?: number; entries?: number; examples?: number; cap?: unknown[]; entities?: number; bindings?: number } = {}) =>
     mockPool((sql) => {
       if (sql.includes('FROM iron_rules')) return [[{ cnt: over.rules ?? 0 }]];
       if (sql.includes('FROM knowledge_base_entries')) return [[{ cnt: over.entries ?? 0 }]];
       if (sql.includes('FROM knowledge_base')) return [[{ cnt: over.chunks ?? 0 }]];
       if (sql.includes('FROM sql_examples')) return [[{ cnt: over.examples ?? 0 }]];
       if (sql.includes('anomaly_capabilities_json')) return [over.cap ?? []];
+      if (sql.includes('FROM ontology_entities')) return [[{ cnt: over.entities ?? 0 }]];
+      if (sql.includes('FROM ontology_bindings')) return [[{ cnt: over.bindings ?? 0 }]];
       return undefined;
     });
 
-  it('空态：无待确认铁律=done，阈值/知识=todo，Embedding/样例=warn', async () => {
+  it('空态：无待确认铁律=done，阈值/本体/知识=todo，Embedding/样例=warn', async () => {
     callEmbeddingMock.mockRejectedValue(new Error('未安装 embedding 模型'));
     checklistPool();
     const items = await buildChecklist();
     const byKey = Object.fromEntries(items.map((i) => [i.key, i.status]));
-    expect(byKey).toEqual({ iron_rules: 'done', thresholds: 'todo', embedding: 'warn', knowledge: 'todo', examples: 'warn' });
+    expect(byKey).toEqual({ iron_rules: 'done', thresholds: 'todo', ontology: 'todo', embedding: 'warn', knowledge: 'todo', examples: 'warn' });
     expect(items.find((i) => i.key === 'embedding')?.detail).toContain('未安装 embedding 模型');
   });
 
-  it('就绪态：阈值启用/有知识有样例/Embedding 可用 → 正确映射', async () => {
+  it('就绪态：阈值启用/本体已登记/有知识有样例/Embedding 可用 → 正确映射', async () => {
     callEmbeddingMock.mockResolvedValue([0.1, 0.2]);
     checklistPool({
       rules: 2,
@@ -198,11 +200,14 @@ describe('buildChecklist：待办清单五项组装', () => {
       entries: 4,
       examples: 6,
       cap: [{ anomaly_capabilities_json: JSON.stringify({ domainThresholds: { enabled: true } }) }],
+      entities: 3,
+      bindings: 8,
     });
     const items = await buildChecklist();
     const byKey = Object.fromEntries(items.map((i) => [i.key, i.status]));
-    expect(byKey).toEqual({ iron_rules: 'todo', thresholds: 'done', embedding: 'done', knowledge: 'done', examples: 'done' });
+    expect(byKey).toEqual({ iron_rules: 'todo', thresholds: 'done', ontology: 'done', embedding: 'done', knowledge: 'done', examples: 'done' });
     expect(items.find((i) => i.key === 'iron_rules')?.title).toContain('2 条');
+    expect(items.find((i) => i.key === 'ontology')?.title).toContain('3 个实体 / 8 条绑定');
   });
 
   it('样例存在但向量切片为空 → examples 降级 warn', async () => {

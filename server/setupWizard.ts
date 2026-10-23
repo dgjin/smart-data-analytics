@@ -2,7 +2,7 @@
  * v0.9.84 首启初始化向导 - 状态与探测服务（设计见 docs/首启初始化向导交互设计20260929.md §6）：
  * - 向导状态：全局单行表 setup_wizard_state（id 恒为 1），读写 + 断点续做快照；
  * - 环境探测：readiness 探针 + LLM 最小对话探测 + embedding ping + 数据源/知识库统计；
- * - 待办清单：Step④ 数据组装（铁律 / 阈值 / 向量化 / 知识 / 样例五项）。
+ * - 待办清单：Step④ 数据组装（铁律 / 阈值 / 业务本体 / 向量化 / 知识 / 样例六项）。
  * 路由层见 server/routes/setup.ts；自动初始化流水线 handler 见 taskHandlers（setup_pipeline）。
  */
 import mysql from 'mysql2/promise';
@@ -285,20 +285,25 @@ function thresholdEnabled(raw: unknown): boolean {
   }
 }
 
-/** Step④ 待办清单：五项动态组装（铁律 / 阈值 / Embedding / 业务知识 / 样例库） */
+/** Step④ 待办清单：六项动态组装（铁律 / 阈值 / 业务本体 / Embedding / 业务知识 / 样例库） */
 export async function buildChecklist(): Promise<ChecklistItem[]> {
   const pool = getPool();
-  const [[ironRows], [kbRows], [entryRows], [exRows], [capRows]] = await Promise.all([
+  const [[ironRows], [kbRows], [entryRows], [exRows], [capRows], [ontoRows], [bindRows]] = await Promise.all([
     pool.query<mysql.RowDataPacket[]>("SELECT COUNT(*) AS cnt FROM iron_rules WHERE status = 'PENDING'"),
     pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM knowledge_base'),
     pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM knowledge_base_entries'),
     pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM sql_examples'),
     pool.query<mysql.RowDataPacket[]>('SELECT anomaly_capabilities_json FROM data_sources WHERE anomaly_capabilities_json IS NOT NULL'),
+    // v0.9.118：业务本体（v0.9.110）纳入首启引导——无实体时问数无法把业务词映射到表
+    pool.query<mysql.RowDataPacket[]>("SELECT COUNT(*) AS cnt FROM ontology_entities WHERE status = 'ACTIVE'"),
+    pool.query<mysql.RowDataPacket[]>('SELECT COUNT(*) AS cnt FROM ontology_bindings'),
   ]);
   const pendingRules = Number(ironRows[0]?.cnt) || 0;
   const chunks = Number(kbRows[0]?.cnt) || 0;
   const entries = Number(entryRows[0]?.cnt) || 0;
   const examples = Number(exRows[0]?.cnt) || 0;
+  const ontologyEntities = Number(ontoRows[0]?.cnt) || 0;
+  const ontologyBindings = Number(bindRows[0]?.cnt) || 0;
   const thresholdOn = capRows.some((r) => thresholdEnabled(r.anomaly_capabilities_json));
   const embed = await probeEmbedding();
 
@@ -309,6 +314,9 @@ export async function buildChecklist(): Promise<ChecklistItem[]> {
     thresholdOn
       ? { key: 'thresholds', title: '语义指标阈值', detail: '已启用领域阈值检测', status: 'done', link: 'admin:thresholds' }
       : { key: 'thresholds', title: '语义指标阈值未启用', detail: '启用后长龄化率、逾期金额等领域指标可参与异常检测', status: 'todo', link: 'admin:thresholds' },
+    ontologyEntities > 0
+      ? { key: 'ontology', title: `业务本体 ${ontologyEntities} 个实体 / ${ontologyBindings} 条绑定`, detail: '可继续补值域释义、关联路径与业务层级（「智能预填」可生成草案后人工复核）', status: 'done', link: 'admin:ontology' }
+      : { key: 'ontology', title: '业务本体未登记', detail: '登记实体与表列绑定后，问数才能把「机构」等业务词映射到正确表；可先运行「智能预填」再人工复核', status: 'todo', link: 'admin:ontology' },
     embed.ok
       ? { key: 'embedding', title: `Embedding 模型（${embed.model}）`, detail: `可用 · 维度 ${embed.dims}`, status: 'done', link: 'setup:step2' }
       : { key: 'embedding', title: 'Embedding 模型未就绪', detail: `${embed.error || '探测失败'}——知识向量检索将退化为词法匹配，建议补齐后重跑向导第③步`, status: 'warn', link: 'setup:step2' },

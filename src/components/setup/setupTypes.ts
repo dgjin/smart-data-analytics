@@ -82,7 +82,7 @@ export interface SetupChecklistItem {
   title: string;
   detail: string;
   status: 'todo' | 'done' | 'warn';
-  /** 深链标识：'admin:rules' / 'admin:thresholds' / 'admin:knowledge' / 'admin:examples' / 'setup:step2' */
+  /** 深链标识：'admin:rules' / 'admin:thresholds' / 'admin:ontology' / 'admin:knowledge' / 'admin:examples' / 'setup:step2' */
   link?: string;
 }
 
@@ -103,6 +103,6 @@ export const SETUP_STEPS = [
   { key: 'env', title: '环境自检', desc: '数据库 / 模型 / 演示数据' },
   { key: 'model', title: '模型服务', desc: '对话与向量引擎探测' },
   { key: 'init', title: '自动初始化', desc: '数据源接入 + 六步流水线' },
-  { key: 'checklist', title: '待办确认', desc: '铁律 / 阈值 / 知识样例' },
+  { key: 'checklist', title: '待办确认', desc: '铁律 / 阈值 / 本体 / 知识样例' },
   { key: 'finish', title: '完成引导', desc: '就绪判定与首次问数' },
 ] as const;

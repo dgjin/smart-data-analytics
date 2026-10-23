@@ -273,13 +273,13 @@ cp .env.example .env.local
 
 ```bash
 OLLAMA_URL=http://localhost:11434
-LLM_MODEL=deepseek-r1:32b        # 主推理模型
-EMBED_MODEL=nomic-embed-text     # 圈表精排 embedding（可选）
+LLM_MODEL=qwen3.8:27b-mlx        # 主推理模型（MLX 优化版；勿用 deepseek-r1 等推理模型，思考链分钟级会超时）
+EMBED_MODEL=qwen3-embedding:8b   # 圈表精排 / 知识检索（中文推荐 4096 维）
 OLLAMA_TIMEOUT_MS=180000         # 推理超时（毫秒）
 
 # 阶段二快速路由（可选，提速解读）
 LLM_ANALYSIS_ENGINE=ollama
-LLM_ANALYSIS_MODEL=deepseek-r1:8b
+LLM_ANALYSIS_MODEL=qwen3:8b
 ```
 
 前置要求：
@@ -288,9 +288,11 @@ LLM_ANALYSIS_MODEL=deepseek-r1:8b
 curl -fsSL https://ollama.com/install.sh | sh
 
 # 拉取模型
-ollama pull deepseek-r1:32b
-ollama pull nomic-embed-text
+ollama pull qwen3.8:27b-mlx
+ollama pull qwen3-embedding:8b
 ```
+
+> 切换 `EMBED_MODEL` 后必须重嵌存量向量：`EMBED_MODEL=<模型> npm run reembed:embeddings`；否则旧向量与新查询不在同一空间，检索质量会明显下降。
 
 #### 方案 B：通义千问（百炼平台）
 
@@ -338,7 +340,7 @@ DEEPSEEK_API_KEY=sk-your-key
 |------|------|--------|
 | `PORT` | 服务端口 | `3000` |
 | `HOST` | 监听地址 | `127.0.0.1`（生产设为 `0.0.0.0`） |
-| `REDIS_URL` | 状态外置（多实例扩展） | 无（进程内存） |
+| `REDIS_URL` / `REDIS_RDB_STALE_MINUTES` | 状态外置（多实例扩展；启用认证时密码含 `/ + =` 须 percent-encode，推荐 hex 密码）/ 落盘陈旧阈值（分钟，`/api/health/persistence` 与 `RedisRdbSaveStale` 告警共用） | 无（进程内存）/ `120` |
 | `RATE_LIMIT_MAX` | 全局限流阈值 | `100` |
 | `USER_QUERY_RATE_MAX` | 每用户查询限流（每用户每小时最大问数；填 `0` = 取消次数限制，不限次数，同用户并发互斥仍生效） | `20` |
 | `QUERY_RESULT_ROWS_MAX` | 问数结果行数上限（「提取全部/所有明细」类提问的返回行数；填 `0` = 不限制，仅受系统硬上限 10 万行约束） | `500` |
@@ -354,6 +356,24 @@ DEEPSEEK_API_KEY=sk-your-key
 | `ONTOLOGY_TOKEN_BUDGET` | 本体四段注入预算（token，低于 200 按 200 处理） | `1500` |
 | `ONTOLOGY_EMBEDDING_ENABLED` | 实体 embedding 精排开关：`0` 显式关闭可省一次 embedding 往返，无向量模型的本地环境建议关闭 | 随 embedding 可用性自动启停 |
 | `CONTEXT_ARBITER_TOKEN_BUDGET` | 上下文仲裁总预算（token）：铁律 / 指标 / 本体 / 业务口径 / 知识等文本块统一排序去重后超出时，从最低优先级块尾部裁剪 | `6000` |
+| `SQL_CACHE_TTL_MINUTES` | 结果缓存（execute-sql / 灵活查询）TTL（分钟；写操作自动失效） | `10` |
+| `CONVERSATION_RETENTION` | 每用户每数据源保留的对话历史条数（`0` = 不清理） | `500` |
+| `AB_TEST_ENABLED` | 多引擎 / Prompt A/B 实验分流开关（仅 `true` 开启） | 关闭 |
+| `LLM_RETRY_MAX` | 单次 LLM 调用最大重试次数（不含首次，0-3；仅超时 / 5xx / 网络错误重试，4xx 立即失败） | `2` |
+| `LLM_MAX_CONCURRENT` | 单引擎并发上限（超出排队，避免打爆本地推理进程） | `4` |
+| `LLM_BREAKER_FAILS` / `LLM_BREAKER_COOLDOWN_MS` | 连续失败开路阈值 / 熔断冷却期（毫秒，过后半开单探测） | `3` / `30000` |
+| `LLM_ADAPTIVE_TIMEOUT` | 自适应超时开关：置 `0` 关闭（默认按近期成功 P95×3 收紧配置上限） | 开启 |
+| `MEMORY_ROUTER_ENABLED` | 统一记忆体总开关（P2-10）：`off`（默认，行为不变）/ `shadow`（完整召回并留痕，不注入 prompt）/ `on`（按用户哈希灰度注入） | `off` |
+| `MEMORY_ROUTER_ROLLOUT_PCT` | 记忆体灰度比例（0-100，按用户稳定哈希分流） | `20` |
+| `TRACE_ENABLED` / `TRACE_SAMPLE_RATE` / `TRACE_BUFFER_SIZE` | 链路追踪总开关（`0` 后 `withSpan` 直通零开销）/ 根链路采样率 / 进程内环形缓冲条数 | `1` / `1` / `500` |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 企业 SSO（授权码 + PKCE）：两者同时配置后登录页出现 SSO 入口 | 无（不启用） |
+| `OIDC_REDIRECT_URI` / `OIDC_DEFAULT_ROLE` | 回调地址（缺省按 `HOST`/`PORT` 推导）/ JIT 建号默认角色 | 推导 / `VIEWER` |
+| `DLP_ENABLED` / `DLP_EXEMPT_ADMIN` | 数据脱敏（P2-12）总开关 / ADMIN 豁免（`0` = 取消豁免，ADMIN 也脱敏） | 开启 / 豁免 |
+| `DLP_EXPORT_APPROVE_ROWS` / `DLP_EXPORT_MAX_ROWS` | 非 ADMIN 导出行数超过该值转下载审批（一次性授权）/ 单次导出硬上限 | `5000` / `100000` |
+| `DATA_RESOURCE_HOST` / `_PORT` / `_DB` / `_USER` / `_PASS` | 数据资源库（统一挂接样例库 / 指标库 / 知识库业务表，供 `scripts/init-data-resource.ts` 初始化） | 无（不启用） |
+| `PATROL_SCHEDULER_INTERVAL_MS` / `PATROL_TICK_BATCH` | 异常巡检后台调度 tick（毫秒，下限 1000）/ 单 tick 领取计划数上限 | `60000` / `5` |
+| `FLEX_SUB_INTERVAL_MS` / `FLEX_SUB_TICK_BATCH` / `FLEX_SUB_MAX_ROWS` | 灵活查询订阅调度 tick / 单 tick 领取上限 / 订阅结果行数上限 | `60000` / `3` / `1000` |
+| `DRIFT_SCAN_INTERVAL_MS` | 知识漂移扫描周期（毫秒） | `86400000`（24h） |
 
 > 业务本体零新增外部依赖：`ontology_*` 六张表由 `initSchema` 幂等创建（无需迁移脚本），无本体数据时零注入，默认开启不改变既有问数行为。单次问数 A/B 由 ADMIN 在请求体传 `disableOntology: true` 触发（非 ADMIN 忽略），结果缓存按 `noonto` 变体键隔离，避免两组结果互相污染。
 
@@ -406,7 +426,7 @@ open http://localhost:3000
 - 写入种子数据（默认管理员账号 + 演示数据源）
 - 加密存量明文密码
 
-> **首启初始化向导（v0.9.84–87）**：全新部署时，管理员**首次登录自动进入五步初始化向导**（环境自检 → 模型服务 → 自动初始化 → 待办确认 → 完成引导），无需手动逐步配置即可「接入即就绪」；暂无自有数据源时可**一键加载演示数据集**（销售 / 营销 / 库存三张表、926 行确定性样本）先行体验。完成后可随时在「系统管理」首屏「系统体检」卡片点「打开初始化向导」重进（支持跳步回看与重跑，不影响系统正常使用）。
+> **首启初始化向导（v0.9.84–87，v0.9.118 对齐）**：全新部署时，管理员**首次登录自动进入五步初始化向导**（环境自检 → 模型服务 → 自动初始化 → 待办确认 → 完成引导），无需手动逐步配置即可「接入即就绪」；暂无自有数据源时可**一键加载演示数据集**（销售 / 营销 / 库存三张表、926 行确定性样本）先行体验。Step④「待办确认」跟踪六项：铁律、指标阈值、**业务本体**、Embedding、知识条目、样例库（本体项统计 ACTIVE 实体数与绑定数，未登记时点「去处理」直达「系统管理 → 业务本体」）。完成后可随时在「系统管理」首屏「系统体检」卡片点「打开初始化向导」重进（支持跳步回看与重跑，不影响系统正常使用）。
 
 ### 5.2 Docker 部署（推荐生产）
 
@@ -429,9 +449,12 @@ docker run -d -p 3000:3000 \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=$(openssl rand -hex 16) \
   -e OLLAMA_URL=http://ollama-host:11434 \
-  -e LLM_MODEL=deepseek-r1:32b \
+  -e LLM_MODEL=qwen3.8:27b-mlx \
+  -e EMBED_MODEL=qwen3-embedding:8b \
   smart-data-analytics
 ```
+
+> 主模型勿用 `deepseek-r1` 等推理模型（思考链分钟级会致问数超时）；embedding 中文推荐 `qwen3-embedding:8b`（`nomic-embed-text` 中文相似度塌缩已被评测否决）。切换模型前先在 Ollama 侧 `pull`，切换 `EMBED_MODEL` 后必须执行 `npm run reembed:embeddings` 重嵌存量向量，否则新旧向量混用会导致检索质量下降。
 
 **docker-compose 完整栈**（含 MySQL + Ollama + 应用）：
 
@@ -487,8 +510,8 @@ services:
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       OLLAMA_URL: http://ollama:11434
-      LLM_MODEL: deepseek-r1:32b
-      EMBED_MODEL: nomic-embed-text
+      LLM_MODEL: qwen3.8:27b-mlx
+      EMBED_MODEL: qwen3-embedding:8b
     depends_on:
       mysql:
         condition: service_healthy
@@ -535,8 +558,8 @@ sudo mysql -e "FLUSH PRIVILEGES;"
 
 # 4. 安装 Ollama（如使用本地模型）
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull deepseek-r1:32b
-ollama pull nomic-embed-text
+ollama pull qwen3.8:27b-mlx
+ollama pull qwen3-embedding:8b
 
 # 5. 部署应用
 git clone <repo-url> /opt/smart-data-analytics
@@ -558,8 +581,8 @@ MYSQL_DATABASE=smart_analytics
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=<initial-strong-password>
 OLLAMA_URL=http://127.0.0.1:11434
-LLM_MODEL=deepseek-r1:32b
-EMBED_MODEL=nomic-embed-text
+LLM_MODEL=qwen3.8:27b-mlx
+EMBED_MODEL=qwen3-embedding:8b
 EOF
 
 # 7. 构建

@@ -1,5 +1,5 @@
 /**
- * 向导 Step④ 待办确认清单：GET /api/setup/checklist 五项动态状态 + 深链处理。
+ * 向导 Step④ 待办确认清单：GET /api/setup/checklist 六项动态状态 + 深链处理。
  * 无硬门槛（均可稍后处理）；首次加载成功即写入步骤快照，供断点续做定位。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
