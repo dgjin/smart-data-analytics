@@ -16,6 +16,8 @@
     "test:e2e": "playwright test",
     "docs:check": "node scripts/checkOpenapi.mjs",
     "state:check": "tsx scripts/check-stateless.ts",
+    "db:sql": "node scripts/generate-schema-sql.mjs",
+    "db:sql:check": "node scripts/generate-schema-sql.mjs --check",
     "metrics:reconcile": "tsx scripts/reconcile-metrics.ts",
     "chaos:drill": "tsx scripts/chaosDrill.ts",
     "logs:reconcile": "tsx scripts/reconcile-logs.ts",

@@ -52,6 +52,17 @@
 
 服务启动时由 `server/infra/db.ts` 自动执行 `initSchema()`，完成建库、建表、迁移、种子数据写入。
 
+> **手工升级（可选）**：受限权限、离线交付或需要审计留档时，可执行仓库内的累计式幂等脚本 `deploy/sql/upgrade.sql`，其内容等价于启动时的「建表 + 存量列/索引迁移」：
+>
+> ```bash
+> mysql -h <host> -P <port> -u <user> -p <库名> < deploy/sql/upgrade.sql
+> ```
+>
+> - 全部语句幂等：建表用 `CREATE TABLE IF NOT EXISTS`，加列/加索引用 `information_schema` 判重后再动态执行，可对同一库重复运行；
+> - 只做结构，不写种子数据、不做明文凭据加密（这两步仍由应用启动时的 `seedInitialData` / `migrateData` 完成）；文件上传表 `upl_*`、清洗中间表 `ait_*` 由运行时按需创建；
+> - 执行账号需具备目标库的 `CREATE` / `ALTER` / `INDEX` 权限；脚本用 `PREPARE` 动态执行，不创建存储过程，无需 `CREATE ROUTINE`；
+> - 脚本由 `npm run db:sql` 从 `schema.ts` / `migration.ts` 等源码生成，`npm run db:sql:check` 校验产物是否与源码同步（`npm test` 已内置该用例，源码改动未重新生成会直接失败）。
+
 ### 2.1 用户与权限
 
 #### `users` — 系统账号表
