@@ -1,6 +1,7 @@
 /**
  * 帮助文档读取（文档定位与读取的唯一入口，v0.9.88 自 routes/help.ts 迁出）：
  * - 用户使用指南（面向终端用户回答「系统怎么用」），缺失时回退《系统功能说明书》；
+ * - 业务本体操作手册（v0.9.119 帮助中心「业务本体」页签，管理员配置本体的完整步骤）；
  * - 更新日志（按版本记录主要更新内容，供用户备查）；
  * - 架构图（v0.9.100 帮助中心「架构图」页签；v0.9.101 起改用 docs/diagrams/ 下 archify 生成的
  *   自包含交互式 HTML 视图器为单一事实源，前端 iframe 内嵌，可缩放 / 切换主题 / 导出）。
@@ -20,6 +21,7 @@ const __dirname = path.dirname(typeof __filename !== 'undefined' ? __filename : 
 
 // 按优先级排列：用户使用指南（面向操作）优先，功能说明书（面向规格）兜底
 export const MANUAL_FILENAMES = ['用户使用指南.md', '系统功能说明书.md'];
+export const ONTOLOGY_MANUAL_FILENAME = '业务本体功能与操作手册.md';
 export const CHANGELOG_FILENAME = '更新日志.md';
 
 // 候选路径：server/help -> server -> 项目根；以及打包后 dist -> 项目根。
@@ -55,6 +57,11 @@ export function readDoc(paths: string[]): { markdown: string; updatedAt: string 
 
 export function readManual(): { markdown: string; updatedAt: string } | null {
   return readDoc(candidatePaths());
+}
+
+/** 业务本体操作手册（v0.9.119 帮助中心「业务本体」页签；缺失返回 null 由路由兜底 404） */
+export function readOntologyManual(): { markdown: string; updatedAt: string } | null {
+  return readDoc(candidatePathsFor(ONTOLOGY_MANUAL_FILENAME));
 }
 
 // ---------- 架构图（v0.9.100 帮助中心「架构图」页签） ----------

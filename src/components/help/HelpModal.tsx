@@ -1,6 +1,8 @@
 /**
- * 系统帮助弹窗：实时读取 docs/核心文档 下帮助文档（GET /api/help/manual、/api/help/changelog）并渲染。
+ * 系统帮助弹窗：实时读取 docs/核心文档 下帮助文档（GET /api/help/manual、/api/help/ontology、/api/help/changelog）并渲染。
  * 「使用指南」面向终端用户回答「系统怎么用」（服务端在指南缺失时回退功能说明书）；
+ * 「业务本体」（v0.9.119）实时读取《业务本体功能与操作手册》——实体/绑定/值域/关联路径/业务层级
+ * 的配置步骤、验收方法与排障清单，与搜索 / 智能问答共用同一份检索语料；
  * 「更新日志」按版本记录主要更新内容，供用户备查（v0.9.36）。
  * v0.9.89：
  * - 文档按 ## 模块以「抽屉」收缩展示（默认展开首个模块，支持全部展开/收起）；
@@ -24,7 +26,7 @@
  * 不引入第三方 markdown 依赖，保证与文档文件始终一致。
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send, Search, ChevronDown, Network, Maximize2 } from 'lucide-react';
+import { X, BookOpen, RefreshCw, FileText, History, Sparkles, Send, Search, ChevronDown, Network, Boxes, Maximize2 } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { getErrorMessage } from '../../utils/errorUtils';
 import { splitDocForAccordion } from '../../utils/markdownAccordion';
@@ -351,6 +353,7 @@ const ASK_SUGGESTIONS = [
   '怎么导入 Excel / CSV 数据？',
   '金额单位在哪里设置？',
   '如何导出报表 PDF / Word？',
+  '怎么登记业务本体？',
 ];
 
 const AskPanel: React.FC = () => {
@@ -399,7 +402,7 @@ const AskPanel: React.FC = () => {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center mb-3">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <p className="text-xs text-slate-400 mb-1">向 AI 提问系统使用问题，基于「使用指南 / 更新日志」快速作答</p>
+            <p className="text-xs text-slate-400 mb-1">向 AI 提问系统使用问题，基于「使用指南 / 业务本体 / 更新日志」快速作答</p>
             <p className="text-[11px] text-slate-500 mb-4">支持追问，回答会附上参考章节</p>
             <div className="flex flex-wrap justify-center gap-2 max-w-md">
               {ASK_SUGGESTIONS.map((q) => (
@@ -495,13 +498,20 @@ const AskPanel: React.FC = () => {
 
 // ---------- 帮助弹窗 ----------
 
-type HelpTab = 'manual' | 'changelog' | 'diagrams' | 'ask';
+type HelpTab = 'manual' | 'ontology' | 'changelog' | 'diagrams' | 'ask';
 
 const TAB_META: Record<HelpTab, { title: string; endpoint?: string; icon: typeof BookOpen }> = {
   manual: { title: '使用指南', endpoint: '/api/help/manual', icon: BookOpen },
+  ontology: { title: '业务本体', endpoint: '/api/help/ontology', icon: Boxes },
   changelog: { title: '更新日志', endpoint: '/api/help/changelog', icon: History },
   diagrams: { title: '架构图', icon: Network },
   ask: { title: '智能问答', icon: Sparkles },
+};
+
+/** 搜索命中来源 → 目标页签（服务端 source 标签在此映射；未知来源回退使用指南） */
+const SOURCE_TAB: Record<string, HelpTab> = {
+  业务本体操作手册: 'ontology',
+  更新日志: 'changelog',
 };
 
 interface DocContent {
@@ -704,7 +714,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 
   /** 搜索结果点击：切页签 + 展开命中模块（### 命中时定位其父 ## 模块）并滚动定位 */
   const jumpToHit = (r: HelpSearchHit) => {
-    const targetTab: HelpTab = r.source === '更新日志' ? 'changelog' : 'manual';
+    const targetTab: HelpTab = SOURCE_TAB[r.source] ?? 'manual';
     const parentTitle = r.title.split(' · ')[0];
     clearSearch();
     setTab(targetTab);
@@ -759,11 +769,11 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <h2 className="text-sm font-semibold text-slate-100">帮助中心</h2>
                 <p className="text-[11px] text-slate-500">
                   {tab === 'ask'
-                    ? '由 AI 基于使用指南与更新日志实时作答'
+                    ? '由 AI 基于使用指南、业务本体手册与更新日志实时作答'
                     : tab === 'diagrams'
                       ? '推导过程 / 功能流程 / 系统架构，内嵌交互式视图，可缩放 / 切换主题'
                       : searchActive
-                        ? '跨「使用指南 / 更新日志」搜索章节'
+                        ? '跨「使用指南 / 业务本体 / 更新日志」搜索章节'
                         : current?.updatedAt
                           ? `文档更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}`
                           : '实时读取最新文档'}
@@ -801,7 +811,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </div>
           </div>
 
-          {/* 页签 + 搜索框（搜索跨使用指南与更新日志） */}
+          {/* 页签 + 搜索框（搜索跨使用指南 / 业务本体 / 更新日志） */}
           <div className="flex items-end justify-between gap-3 mt-3">
             <div className="flex space-x-1">
               {(Object.keys(TAB_META) as HelpTab[]).map((key) => {
@@ -812,7 +822,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   <button
                     key={key}
                     onClick={() => switchTab(key)}
-                    className={`flex items-center space-x-1.5 px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${
+                    className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${
                       active
                         ? 'text-cyan-300 border-cyan-400 bg-slate-800/60'
                         : 'text-slate-500 border-transparent hover:text-slate-300 hover:bg-slate-800/40'
@@ -824,7 +834,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 );
               })}
             </div>
-            {(tab === 'manual' || tab === 'changelog') && (
+            {(tab === 'manual' || tab === 'ontology' || tab === 'changelog') && (
               <div className="relative mb-0.5">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
                 <input
@@ -836,7 +846,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   }}
                   placeholder="搜索帮助内容…"
                   aria-label="搜索帮助内容"
-                  className="w-56 pl-8 pr-7 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
+                  className="w-48 pl-8 pr-7 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-600/70"
                 />
                 {query && (
                   <button
@@ -914,7 +924,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
         )}
         {/* 文档视图：搜索时仅隐藏不卸载（保留 DOM 与滚动位置），清空搜索后原样恢复展示（v0.9.90） */}
-        {(tab === 'manual' || tab === 'changelog') && (
+        {(tab === 'manual' || tab === 'ontology' || tab === 'changelog') && (
           <div ref={scrollRef} className={`flex-1 overflow-y-auto px-6 py-5 ${searchActive ? 'hidden' : ''}`}>
             {loading && !current && (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
@@ -971,7 +981,7 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           </div>
         )}
         {/* 搜索结果视图：加载中保留上次结果（stale-while-revalidate），避免结果与加载态反复替换闪烁（v0.9.90） */}
-        {(tab === 'manual' || tab === 'changelog') && searchActive && (
+        {(tab === 'manual' || tab === 'ontology' || tab === 'changelog') && searchActive && (
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {!searchError && (searchResults === null || (searchLoading && searchResults.length === 0)) && (
               <div className="flex flex-col items-center justify-center py-16 text-slate-500">
@@ -1038,12 +1048,14 @@ export const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             {tab === 'diagrams'
               ? '实时读取 docs/diagrams 交互式图产物（自包含 HTML 视图器），点「全屏查看」全屏浏览'
               : searchActive
-                ? '搜索范围：使用指南 + 更新日志，点击结果跳转对应模块'
+                ? '搜索范围：使用指南 + 业务本体 + 更新日志，点击结果跳转对应模块'
                 : tab === 'manual'
                   ? '面向使用者的操作指南，随功能更新同步维护'
-                  : tab === 'changelog'
-                    ? '按版本记录主要更新内容，供备查'
-                    : 'AI 回答基于帮助文档节选，仅供参考'}
+                  : tab === 'ontology'
+                    ? '完整操作手册：智能预填、实体绑定、值域释义、关联路径、业务层级与排障'
+                    : tab === 'changelog'
+                      ? '按版本记录主要更新内容，供备查'
+                      : 'AI 回答基于帮助文档节选，仅供参考'}
           </span>
           <button
             onClick={onClose}

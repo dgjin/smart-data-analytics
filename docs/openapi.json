@@ -3360,6 +3360,24 @@
         }
       }
     },
+    "/api/help/ontology": {
+      "get": {
+        "tags": [
+          "Help"
+        ],
+        "operationId": "getOntologyManual",
+        "summary": "业务本体操作手册（帮助中心「业务本体」页签，实时读取 docs/核心文档/业务本体功能与操作手册.md）",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "手册内容与最后更新时间"
+          },
+          "404": {
+            "description": "业务本体操作手册文件不存在"
+          }
+        }
+      }
+    },
     "/api/help/changelog": {
       "get": {
         "tags": [
@@ -3460,7 +3478,7 @@
           "Help"
         ],
         "operationId": "searchHelp",
-        "summary": "帮助中心关键词搜索（跨使用指南与更新日志检索章节，返回命中章节与摘要片段）",
+        "summary": "帮助中心关键词搜索（跨使用指南、业务本体手册与更新日志检索章节，返回命中章节与摘要片段）",
         "parameters": [
           {
             "name": "q",

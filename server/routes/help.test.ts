@@ -1,8 +1,9 @@
 /**
  * help 路由契约测试（v0.9.88 帮助中心「智能问答」；v0.9.89 补充 GET /search；v0.9.100 补充 GET /diagrams；
- * v0.9.101 起 /diagrams 透传交互式 HTML 视图器，字段由 svg 更名为 html）：
+ * v0.9.101 起 /diagrams 透传交互式 HTML 视图器，字段由 svg 更名为 html；v0.9.119 补充 GET /ontology）：
  * 鉴权守卫（登录即可用，不限角色）+ 参数校验（400）+ 成功透传（含历史清洗）+ 业务异常兜底（502）；
  * 同时覆盖既有 GET /manual、GET /changelog 的透传与 404 分支，GET /search 的参数校验与命中/缺失分支，
+ * GET /ontology 的透传与 404 分支（业务本体手册纳入搜索语料），
  * 以及 GET /diagrams 的透传 / 单图缺失仍 200 / 全缺 404 分支。
  * 文档读取（helpDocs）与问答业务（helpAsk.answerHelpQuestion）mock，仅验证 HTTP 契约。
  */
@@ -16,14 +17,16 @@ vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: unknown[]) =>
 vi.mock('../infra/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 /** 文档读取桩（不读真实文件，404 分支可控） */
-const docs = vi.hoisted(() => ({ readManual: vi.fn(), readDoc: vi.fn(), readDiagrams: vi.fn() }));
+const docs = vi.hoisted(() => ({ readManual: vi.fn(), readOntologyManual: vi.fn(), readDoc: vi.fn(), readDiagrams: vi.fn() }));
 vi.mock('../help/helpDocs', () => ({
   readManual: docs.readManual,
+  readOntologyManual: docs.readOntologyManual,
   readDoc: docs.readDoc,
   readDiagrams: docs.readDiagrams,
   candidatePaths: () => ['/nonexistent/用户使用指南.md'],
   candidatePathsFor: () => ['/nonexistent/更新日志.md'],
   CHANGELOG_FILENAME: '更新日志.md',
+  ONTOLOGY_MANUAL_FILENAME: '业务本体功能与操作手册.md',
   MANUAL_FILENAMES: ['用户使用指南.md', '系统功能说明书.md'],
 }));
 
@@ -50,6 +53,7 @@ beforeEach(() => {
   querySpy.mockReset();
   querySpy.mockImplementation(dbStub([viewerAuth]));
   docs.readManual.mockReset();
+  docs.readOntologyManual.mockReset();
   docs.readDoc.mockReset();
   docs.readDiagrams.mockReset();
   h.answerHelpQuestion.mockReset();
@@ -97,6 +101,32 @@ describe('GET /manual 与 /changelog：文档透传与缺失分支', () => {
     docs.readDoc.mockReturnValue(null);
     res = await request(app).get('/api/help/changelog').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /ontology：业务本体手册契约（v0.9.119）', () => {
+  it('命中 → 200 原样返回 markdown 与 updatedAt（VIEWER 也可读）', async () => {
+    docs.readOntologyManual.mockReturnValue({
+      markdown: '# 业务本体功能与操作手册\n## 0. 一分钟了解',
+      updatedAt: '2026-10-23T00:00:00.000Z',
+    });
+    const res = await request(app).get('/api/help/ontology').set('Authorization', `Bearer ${VIEWER_TOKEN}`);
+    expect(res.status).toBe(200);
+    expect(res.body.markdown).toContain('# 业务本体功能与操作手册');
+    expect(res.body.updatedAt).toBe('2026-10-23T00:00:00.000Z');
+  });
+
+  it('手册缺失 → 404 提示文案', async () => {
+    docs.readOntologyManual.mockReturnValue(null);
+    const res = await request(app).get('/api/help/ontology').set('Authorization', `Bearer ${ADMIN_TOKEN}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('业务本体操作手册不存在，请联系管理员');
+  });
+
+  it('未登录 → 401，不读取手册文件', async () => {
+    const res = await request(app).get('/api/help/ontology');
+    expect(res.status).toBe(401);
+    expect(docs.readOntologyManual).not.toHaveBeenCalled();
   });
 });
 
@@ -166,7 +196,21 @@ describe('GET /search：帮助文档关键词搜索契约', () => {
     expect(typeof res.body.results[0].snippet).toBe('string');
   });
 
-  it('使用指南与更新日志均缺失 → 404', async () => {
+  it('业务本体手册参与检索：命中章节来源标注「业务本体操作手册」（v0.9.119）', async () => {
+    docs.readManual.mockReturnValue({ markdown: '## 数据源管理\n在数据管理页签新增数据源。', updatedAt: 'x' });
+    docs.readOntologyManual.mockReturnValue({
+      markdown: '## 5. 操作步骤\n### 5.2 第一步：智能预填\n选中数据源后点「智能预填」生成四类资产草案。',
+      updatedAt: 'x',
+    });
+    const res = await get({ q: '智能预填' });
+    expect(res.status).toBe(200);
+    expect(res.body.results[0]).toMatchObject({
+      title: '5. 操作步骤 · 5.2 第一步：智能预填',
+      source: '业务本体操作手册',
+    });
+  });
+
+  it('使用指南 / 业务本体手册 / 更新日志均缺失 → 404', async () => {
     const res = await get({ q: '数据源' });
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('帮助文档缺失，请联系管理员');

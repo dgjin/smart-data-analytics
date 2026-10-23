@@ -1,12 +1,14 @@
 /**
- * 帮助文档读取（helpDocs）测试（v0.9.100 架构图读取；v0.9.101 切换为交互式 HTML 视图器）：
+ * 帮助文档读取（helpDocs）测试（v0.9.100 架构图读取；v0.9.101 切换为交互式 HTML 视图器；
+ * v0.9.119 业务本体操作手册读取）：
  * - DIAGRAM_SPECS 元数据契约：id 顺序（推导过程 → 功能流程 → 系统架构）与字段完整；
  * - readDiagrams 读取仓库真实产物：vitest 下候选路径即项目仓 docs/diagrams/，
- *   三张核心图均已入库（git 跟踪），直接断言 available / html 视图器与 data-embed 注入 / updatedAt。
+ *   三张核心图均已入库（git 跟踪），直接断言 available / html 视图器与 data-embed 注入 / updatedAt；
+ * - readOntologyManual 读取仓库真实手册：断言标题与关键章节（帮助面板「业务本体」页签内容源）。
  * 文档（manual/changelog）读取分支较薄（readDoc 容错逐路径回退），此处不重复覆盖。
  */
 import { describe, it, expect } from 'vitest';
-import { DIAGRAM_SPECS, readDiagrams } from './helpDocs';
+import { DIAGRAM_SPECS, ONTOLOGY_MANUAL_FILENAME, readDiagrams, readOntologyManual } from './helpDocs';
 
 describe('DIAGRAM_SPECS：架构图元数据契约', () => {
   it('三张核心图按推导过程 → 功能流程 → 系统架构顺序，字段完整', () => {
@@ -38,5 +40,19 @@ describe('readDiagrams：读取仓库真实产物', () => {
       expect(openTag).toContain('data-embed="true"');
       expect(item.updatedAt).toBeTruthy();
     }
+  });
+});
+
+describe('readOntologyManual：业务本体操作手册（帮助中心「业务本体」页签内容源）', () => {
+  it('读取仓库真实手册：文件名与标题正确，含智能预填 / 排障等关键章节', () => {
+    expect(ONTOLOGY_MANUAL_FILENAME).toBe('业务本体功能与操作手册.md');
+    const doc = readOntologyManual();
+    expect(doc, 'docs/核心文档/业务本体功能与操作手册.md 应存在').not.toBeNull();
+    const markdown = doc?.markdown ?? '';
+    expect(markdown.startsWith('# 业务本体功能与操作手册')).toBe(true);
+    for (const heading of ['## 0. 一分钟了解', '## 5. 操作步骤', '## 9. 排障与常见问题']) {
+      expect(markdown).toContain(heading);
+    }
+    expect(doc?.updatedAt).toBeTruthy();
   });
 });

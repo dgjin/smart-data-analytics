@@ -1,8 +1,9 @@
 /**
  * 系统帮助路由：实时读取 docs/核心文档 下帮助文档并返回给前端渲染。
  * - GET /manual：用户使用指南（面向终端用户回答「系统怎么用」），缺失时回退《系统功能说明书》；
+ * - GET /ontology：业务本体操作手册（v0.9.119 帮助中心「业务本体」页签，管理员配置本体的完整步骤）；
  * - GET /changelog：更新日志（按版本记录主要更新内容，供用户备查，v0.9.36）；
- * - GET /search：帮助中心关键词搜索（v0.9.89）——?q= 跨「使用指南 / 更新日志」检索章节，纯本地计算；
+ * - GET /search：帮助中心关键词搜索（v0.9.89）——?q= 跨「使用指南 / 业务本体手册 / 更新日志」检索章节，纯本地计算；
  * - GET /diagrams：帮助中心「架构图」页签（v0.9.100）——三张核心图（推导过程 / 功能流程 / 系统架构）的元数据与 SVG 内容；
  * - POST /ask：帮助中心「智能问答」（v0.9.88）——基于帮助文档章节检索 + LLM 快速作答。
  * 文档读取与检索/问答业务分别下沉到 server/help/helpDocs.ts / helpSearch.ts / helpAsk.ts，
@@ -14,7 +15,7 @@ import { rateLimiter } from '../infra/rateLimiter';
 import { ERROR_CODES } from '../infra/errorCodes';
 import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
-import { CHANGELOG_FILENAME, candidatePathsFor, readDiagrams, readDoc, readManual } from '../help/helpDocs';
+import { CHANGELOG_FILENAME, candidatePathsFor, readDiagrams, readDoc, readManual, readOntologyManual } from '../help/helpDocs';
 import { MAX_QUESTION_CHARS, answerHelpQuestion, normalizeHelpHistory } from '../help/helpAsk';
 import { MAX_SEARCH_CHARS, searchHelpDocs } from '../help/helpSearch';
 
@@ -29,6 +30,15 @@ router.get('/manual', authMiddleware, (_req, res) => {
   return res.json(manual);
 });
 
+// GET /api/help/ontology —— 返回业务本体操作手册 Markdown 与最后更新时间（v0.9.119 帮助中心「业务本体」页签）
+router.get('/ontology', authMiddleware, (_req, res) => {
+  const ontology = readOntologyManual();
+  if (!ontology) {
+    return res.status(404).json({ error: '业务本体操作手册不存在，请联系管理员' });
+  }
+  return res.json(ontology);
+});
+
 // GET /api/help/changelog —— 返回更新日志 Markdown 与最后更新时间（v0.9.36）
 router.get('/changelog', authMiddleware, (_req, res) => {
   const changelog = readDoc(candidatePathsFor(CHANGELOG_FILENAME));
@@ -38,7 +48,7 @@ router.get('/changelog', authMiddleware, (_req, res) => {
   return res.json(changelog);
 });
 
-// GET /api/help/search —— 帮助中心关键词搜索（v0.9.89）：?q= 跨使用指南与更新日志检索章节，返回命中列表
+// GET /api/help/search —— 帮助中心关键词搜索（v0.9.89）：?q= 跨使用指南、业务本体手册与更新日志检索章节，返回命中列表
 // 纯本地词法计算（不调用 LLM），登录用户即可用
 router.get('/search', authMiddleware, (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -48,10 +58,12 @@ router.get('/search', authMiddleware, (req, res) => {
   if (q.length > MAX_SEARCH_CHARS) {
     return res.status(400).json({ code: ERROR_CODES.INVALID_INPUT, error: `关键词过长（不超过 ${MAX_SEARCH_CHARS} 字）` });
   }
-  // 与智能问答同源装配检索语料：使用指南（缺失时服务端已回退说明书）+ 更新日志
+  // 与智能问答同源装配检索语料：使用指南（缺失时服务端已回退说明书）+ 业务本体手册 + 更新日志
   const sources: { label: string; markdown: string }[] = [];
   const manual = readManual();
   if (manual) sources.push({ label: '用户使用指南', markdown: manual.markdown });
+  const ontology = readOntologyManual();
+  if (ontology) sources.push({ label: '业务本体操作手册', markdown: ontology.markdown });
   const changelog = readDoc(candidatePathsFor(CHANGELOG_FILENAME));
   if (changelog) sources.push({ label: '更新日志', markdown: changelog.markdown });
   if (sources.length === 0) {

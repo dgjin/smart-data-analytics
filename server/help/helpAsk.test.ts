@@ -1,5 +1,5 @@
 /**
- * 帮助问答业务测试（v0.9.88 帮助中心「智能问答」）：
+ * 帮助问答业务测试（v0.9.88 帮助中心「智能问答」；v0.9.119 业务本体手册纳入语料）：
  * 历史清洗（非法项剔除 / 超长截断 / 仅保留最近 6 条）与提示词装配
  * （命中章节注入 system、history 拼入 user、文档缺失与空回答抛错、无命中如实标注「未检索到」）。
  * LLM 通道与文档读取全量 mock，不触网、不读真实文件。
@@ -9,12 +9,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const h = vi.hoisted(() => ({ callLLMText: vi.fn() }));
 vi.mock('../llm/llmClient', () => ({ callLLMText: h.callLLMText }));
 
-const docs = vi.hoisted(() => ({ readManual: vi.fn(), readDoc: vi.fn() }));
+const docs = vi.hoisted(() => ({ readManual: vi.fn(), readOntologyManual: vi.fn(), readDoc: vi.fn() }));
 vi.mock('./helpDocs', () => ({
   readManual: docs.readManual,
+  readOntologyManual: docs.readOntologyManual,
   readDoc: docs.readDoc,
   candidatePathsFor: () => ['/nonexistent/更新日志.md'],
   CHANGELOG_FILENAME: '更新日志.md',
+  ONTOLOGY_MANUAL_FILENAME: '业务本体功能与操作手册.md',
 }));
 
 import { answerHelpQuestion, normalizeHelpHistory } from './helpAsk';
@@ -33,8 +35,10 @@ const MANUAL_DOC = {
 beforeEach(() => {
   h.callLLMText.mockReset();
   docs.readManual.mockReset();
+  docs.readOntologyManual.mockReset();
   docs.readDoc.mockReset();
   docs.readManual.mockReturnValue(MANUAL_DOC);
+  docs.readOntologyManual.mockReturnValue(null);
   docs.readDoc.mockReturnValue(null);
 });
 
@@ -106,9 +110,22 @@ describe('answerHelpQuestion：检索装配与 LLM 调用', () => {
 
   it('帮助文档全部缺失 → 抛错（由路由兜底 502）', async () => {
     docs.readManual.mockReturnValue(null);
+    docs.readOntologyManual.mockReturnValue(null);
     docs.readDoc.mockReturnValue(null);
     await expect(answerHelpQuestion('怎么用')).rejects.toThrow('帮助文档缺失');
     expect(h.callLLMText).not.toHaveBeenCalled();
+  });
+
+  it('业务本体手册作为来源参与检索时标注来源（v0.9.119）', async () => {
+    docs.readOntologyManual.mockReturnValue({
+      markdown: '## 5. 操作步骤\n### 5.2 第一步：智能预填\n选中数据源后点「智能预填」生成四类资产草案，确认后应用。',
+      updatedAt: 'x',
+    });
+    h.callLLMText.mockResolvedValue('见业务本体手册。');
+    const out = await answerHelpQuestion('智能预填怎么用？');
+    expect(out.sections.some((s) => s.startsWith('业务本体操作手册 · '))).toBe(true);
+    const [system] = h.callLLMText.mock.calls[0] as [string, string];
+    expect(system).toContain('【业务本体操作手册 · 5. 操作步骤 · 5.2 第一步：智能预填】');
   });
 
   it('LLM 返回空内容 → 抛错', async () => {
