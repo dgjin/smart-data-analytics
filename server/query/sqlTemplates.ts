@@ -13,6 +13,8 @@ export interface AnalysisTemplate<T extends object = object> {
   description: string;
   paramSchema: T;
   buildSql(params: T, dialect?: 'mysql' | 'pg'): string;
+  /** 模板输出中的金额列别名：服务端据此做单位换算兜底（缺省表示模板无金额列） */
+  amountAliases?(params: T): string[];
 }
 
 interface YoYParams {
@@ -48,6 +50,9 @@ const yearOverYear: AnalysisTemplate<YoYParams> = {
     const { dimension, filterYear, prevYear } = params;
     return `SELECT r.${dimension}, r.sum_curr AS curr_${filterYear}, COALESCE(p.sum_prev, 0) AS prev_${prevYear} FROM (SELECT ${dimension}, SUM(amt) sum_curr FROM t WHERE yr = ${filterYear} GROUP BY ${dimension}) r LEFT JOIN (SELECT ${dimension}, SUM(amt) sum_prev FROM t WHERE yr = ${prevYear} GROUP BY ${dimension}) p ON r.${dimension} = p.${dimension} ORDER BY r.sum_curr DESC LIMIT 100`;
   },
+  amountAliases(params) {
+    return [`curr_${params.filterYear}`, `prev_${params.prevYear}`];
+  },
 };
 
 const monthOverMonth: AnalysisTemplate<MoMParams> = {
@@ -58,6 +63,9 @@ const monthOverMonth: AnalysisTemplate<MoMParams> = {
   buildSql(params, _dialect = 'mysql'): string {
     const { dimension, currentMonth, prevMonth } = params;
     return `SELECT r.${dimension}, r.sum_curr AS curr_month, COALESCE(p.sum_prev, 0) AS prev_month FROM (SELECT ${dimension}, SUM(amt) sum_curr FROM t WHERE dt >= '${currentMonth}-01' AND dt < '${currentMonth}.02' GROUP BY ${dimension}) r LEFT JOIN (SELECT ${dimension}, SUM(amt) sum_prev FROM t WHERE dt >= '${prevMonth}-01' AND dt < '${prevMonth}.02' GROUP BY ${dimension}) p ON r.${dimension} = p.${dimension} ORDER BY r.sum_curr DESC LIMIT 100`;
+  },
+  amountAliases() {
+    return ['curr_month', 'prev_month'];
   },
 };
 
@@ -71,6 +79,9 @@ const topNWithPct: AnalysisTemplate<TopNWithPctParams> = {
     const order = sortBy === 'DESC' ? 'DESC' : 'ASC';
     return `WITH ranked AS (SELECT ${dimension}, SUM(amt) AS ${metricAlias}, RANK() OVER (ORDER BY SUM(amt) ${order}) AS rn FROM t GROUP BY ${dimension}) SELECT ${dimension}, ${metricAlias}, ROUND(${metricAlias}*100.0/(SELECT SUM(amt) FROM t), 2) AS pct FROM ranked WHERE rn <= ${topN} ORDER BY ${metricAlias} ${order} LIMIT ${topN}`;
   },
+  amountAliases(params) {
+    return [params.metricAlias];
+  },
 };
 
 const crossTab: AnalysisTemplate<CrossTabParams> = {
@@ -83,6 +94,9 @@ const crossTab: AnalysisTemplate<CrossTabParams> = {
     const caseCols = cols.map((c) => `SUM(CASE WHEN yr = ${c.value} THEN amt ELSE 0 END) AS amt_${c.value}`).join(', ');
     const years = cols.map((c) => c.value).join(',');
     return `SELECT ${rows}, ${caseCols} FROM t WHERE yr IN (${years}) GROUP BY ${rows} ORDER BY amt_${cols[0]?.value || 0} DESC LIMIT 100`;
+  },
+  amountAliases(params) {
+    return params.cols.map((c) => `amt_${c.value}`);
   },
 };
 

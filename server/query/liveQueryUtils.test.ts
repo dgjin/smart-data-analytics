@@ -4,7 +4,14 @@
  * - sanitizeQueryResultChinese 问数结果表头/轴名/解读文案标识符中文化兜底（v0.9.39）
  */
 import { describe, it, expect } from 'vitest';
-import { buildColumnNames, inferChineseHeader, sanitizeQueryResultChinese } from './liveQueryUtils';
+import {
+  applyAmountUnitToRows,
+  buildColumnNames,
+  detectSqlDivisor,
+  inferChineseHeader,
+  isAmountResultColumn,
+  sanitizeQueryResultChinese,
+} from './liveQueryUtils';
 import type { SchemaTable } from './schemaTypes';
 
 const TEST_SCHEMA = [
@@ -133,5 +140,123 @@ describe('sanitizeQueryResultChinese（v0.9.39 铁律兜底）', () => {
     expect(out.aiExplanation).toBe('ok');
     expect(out.kpiMetrics[0]).toBeNull();
     expect(out.kpiMetrics[1].label).toBe('机构名称');
+  });
+});
+
+describe('金额单位确定性换算（v0.9.120 服务端兜底）', () => {
+  it('detectSqlDivisor 只认单位白名单档位', () => {
+    expect(detectSqlDivisor('ROUND(SUM(LJTFJE)/10000, 2)')).toBe(10000);
+    expect(detectSqlDivisor('SUM(x)/1e8')).toBe(100000000);
+    expect(detectSqlDivisor('SUM(x)*0.0001')).toBe(10000);
+    // 非单位常量不动（季度 /3、占比 *100）
+    expect(detectSqlDivisor('SUM(x)/3')).toBeNull();
+    expect(detectSqlDivisor('SUM(x)*100.0')).toBeNull();
+    expect(detectSqlDivisor('SUM(x)')).toBeNull();
+  });
+
+  it('isAmountResultColumn 命中金额列，排除比率列', () => {
+    expect(isAmountResultColumn('ljtfje')).toBe(false); // 拼音缩写靠 amountKeys 声明，不靠关键词
+    expect(isAmountResultColumn('total_amt')).toBe(true);
+    expect(isAmountResultColumn('金额合计', '金额合计')).toBe(true);
+    expect(isAmountResultColumn('profit_rate', '收益率')).toBe(false);
+    expect(isAmountResultColumn('cnt', '笔数')).toBe(false);
+  });
+
+  it('模型漏换算：按界面选定单位补做（此前实测的真实缺陷场景）', () => {
+    const out = applyAmountUnitToRows(
+      [{ jgmc: '济南分行', ljtfje: 54505360000 }],
+      { unit: '亿元', amountKeys: ['ljtfje'], sql: 'SELECT jgmc, ROUND(SUM(LJTFJE), 2) AS ljtfje FROM t GROUP BY jgmc' },
+    );
+    expect(out.applied).toBe(true);
+    expect(out.adjustedColumns).toEqual(['ljtfje']);
+    expect(out.rows[0].ljtfje).toBe(545.05);
+  });
+
+  it('模型已按约定换算：同档不重复除', () => {
+    const out = applyAmountUnitToRows(
+      [{ ljtfje_wan: 545.05 }],
+      { unit: '万元', amountKeys: ['ljtfje_wan'], sql: 'SELECT ROUND(SUM(LJTFJE)/10000, 2) AS ljtfje_wan FROM t' },
+    );
+    expect(out.applied).toBe(true);
+    expect(out.adjustedColumns).toEqual([]);
+    expect(out.rows[0].ljtfje_wan).toBe(545.05);
+  });
+
+  it('模型用了其他档位：按「值 × 已用除数 ÷ 选定除数」纠正', () => {
+    const out = applyAmountUnitToRows(
+      [{ amt: 54505.36 }],
+      { unit: '亿元', amountKeys: ['amt'], sql: 'SELECT ROUND(SUM(AMT)/10000, 2) AS amt FROM t' },
+    );
+    expect(out.adjustedColumns).toEqual(['amt']);
+    expect(out.rows[0].amt).toBe(5.45);
+  });
+
+  it('选「元」时把模型多除的换算还原为原值', () => {
+    const out = applyAmountUnitToRows(
+      [{ amt: 545.05 }],
+      { unit: '元', amountKeys: ['amt'], sql: 'SELECT ROUND(SUM(AMT)/100000000, 2) AS amt FROM t' },
+    );
+    expect(out.rows[0].amt).toBe(54505000000);
+  });
+
+  it('前序列的除数不影响后一列（表达式切片到最近逗号）', () => {
+    const out = applyAmountUnitToRows(
+      [{ dim: 'A', a_wan: 1.5, b: 200000 }],
+      {
+        unit: '万元',
+        amountKeys: ['a_wan', 'b'],
+        sql: 'SELECT dim, ROUND(SUM(a)/10000, 2) AS a_wan, ROUND(SUM(b), 2) AS b FROM t GROUP BY dim',
+      },
+    );
+    expect(out.rows[0].a_wan).toBe(1.5); // 已换算不重复除
+    expect(out.rows[0].b).toBe(20); // 漏换算补除
+    expect(out.adjustedColumns).toEqual(['b']);
+  });
+
+  it('声明 amountKeys 时不再走关键词启发式（防误伤计数/占比）', () => {
+    const out = applyAmountUnitToRows(
+      [{ cnt: 120, total_amt: 500000000 }],
+      { unit: '亿元', amountKeys: ['total_amt'], sql: 'SELECT COUNT(*) AS cnt, ROUND(SUM(AMT), 2) AS total_amt FROM t' },
+    );
+    expect(out.amountColumns).toEqual(['total_amt']);
+    expect(out.rows[0].cnt).toBe(120);
+    expect(out.rows[0].total_amt).toBe(5);
+  });
+
+  it('未声明 amountKeys 时按列名启发式识别，比率列永不换算', () => {
+    const sql = 'SELECT ROUND(SUM(total_amt), 2) AS total_amt, ROUND(SUM(x)*100.0/t.tot, 2) AS pct FROM t GROUP BY t.dim';
+    const out = applyAmountUnitToRows(
+      [{ total_amt: 54505360000, pct: 32.1 }],
+      { unit: '亿元', sql },
+    );
+    expect(out.rows[0].total_amt).toBe(545.05);
+    expect(out.rows[0].pct).toBe(32.1);
+    expect(out.amountColumns).toEqual(['total_amt']);
+  });
+
+  it('amountKeys 大小写不一致时仍按声明匹配', () => {
+    const out = applyAmountUnitToRows(
+      [{ TotalAmt: 500000000, cnt: 3 }],
+      { unit: '亿元', amountKeys: ['totalamt'], sql: 'SELECT ROUND(SUM(AMT), 2) AS TotalAmt, COUNT(*) AS cnt FROM t' },
+    );
+    expect(out.amountColumns).toEqual(['TotalAmt']);
+    expect(out.rows[0].TotalAmt).toBe(5);
+    expect(out.rows[0].cnt).toBe(3);
+  });
+
+  it('amountKeys 全部匹配不上时退回关键词启发式（避免声明失败导致不换算）', () => {
+    const out = applyAmountUnitToRows(
+      [{ total_amt: 500000000 }],
+      { unit: '亿元', amountKeys: ['not_exist_alias'], sql: 'SELECT ROUND(SUM(AMT), 2) AS total_amt FROM t' },
+    );
+    expect(out.amountColumns).toEqual(['total_amt']);
+    expect(out.rows[0].total_amt).toBe(5);
+  });
+
+  it('无单位 / 空行 / 无数值列时原样返回', () => {
+    const rows = [{ dim: 'A', amt: 1 }];
+    expect(applyAmountUnitToRows(rows, {}).rows).toBe(rows);
+    expect(applyAmountUnitToRows([], { unit: '亿元' }).applied).toBe(false);
+    expect(applyAmountUnitToRows([{ dim: 'A' }], { unit: '亿元' }).applied).toBe(false);
   });
 });

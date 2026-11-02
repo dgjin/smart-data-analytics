@@ -21,11 +21,11 @@ export function normalizeAmountUnit(v: unknown): string | undefined {
   return AMOUNT_UNIT_OPTIONS[s] ? s : undefined;
 }
 
-/** 金额单位 prompt 约定：拼在阶段一用户消息首位，指令 SQL 对金额列统一除以除数并带单位后缀；v0.5.2 起导出供报表链路复用；v0.9.41 补优先级声明（界面选定等同用户明确要求，解除与 system 内「金额原值保护」规则的语义冲突） */
+/** 金额单位 prompt 约定：拼在阶段一用户消息首位，指令 SQL 对金额列统一除以除数并带单位后缀；v0.5.2 起导出供报表链路复用；v0.9.41 补优先级声明（界面选定等同用户明确要求，解除与 system 内「金额原值保护」规则的语义冲突）；v0.9.120 起要求 amountKeys 声明，供服务端校验换算是否真的发生 */
 export function buildAmountUnitPrompt(unit?: string): string {
   const opt = unit ? AMOUNT_UNIT_OPTIONS[unit] : undefined;
   if (!opt) return '';
-  return `【金额单位约定】本次查询所有金额类指标统一以「${opt.label}」为单位输出：SQL 中对金额列聚合结果除以 ${opt.divisor} 并用 ROUND 保留两位小数（如 ROUND(SUM(金额列)/${opt.divisor}, 2)），别名带 _${opt.suffix} 后缀，列名/图表/解读沿用该单位。该约定由用户在界面选定，等同于用户明确要求，优先于「金额原值保护」规则。${opt.divisor === 1 ? '「元」为原值口径：直接 ROUND(SUM(金额列), 2)，不要除以 1。' : ''}\n\n`;
+  return `【金额单位约定】本次查询所有金额类指标统一以「${opt.label}」为单位输出：SQL 中对金额列聚合结果除以 ${opt.divisor} 并用 ROUND 保留两位小数（如 ROUND(SUM(金额列)/${opt.divisor}, 2)），别名带 _${opt.suffix} 后缀，列名/图表/解读沿用该单位。该约定由用户在界面选定，等同于用户明确要求，优先于「金额原值保护」规则。必须在 JSON 的 amountKeys 中列出所有金额类结果列别名（数组，与 SQL 的 AS 别名逐字一致；计数/占比/比率列不得列入），服务端据此校验换算是否生效。${opt.divisor === 1 ? '「元」为原值口径：直接 ROUND(SUM(金额列), 2)，不要除以 1。' : ''}\n\n`;
 }
 
 // ---------- 真实 rows 后处理与统计 ----------
@@ -38,6 +38,150 @@ export type ColumnStats = Record<string, {
   最大?: number | string;
   去重取值数?: number;
 }>;
+
+// ---------- 金额单位：结果列确定性换算（模型未按约定换算时的服务端兜底） ----------
+
+/**
+ * 金额类结果列关键词（列别名 + 中文表头同时匹配）：与前端 flexQueryBuilder.AMOUNT_COL_RE 同口径，
+ * 补充金融业务词与英文别名，覆盖 LLM 常见聚合别名（bntfje / ljtfje / dntzsy / amount / amt）。
+ */
+const AMOUNT_COLUMN_RE =
+  /(金额|余额|收入|支出|成本|费用|收益|利息|贷款|存款|保费|赔付|利润|税额|税款|本金|价款|应收|应付|资产|负债|投放|回现|投资|工资|薪酬|amt|amount|balance|income|expense|cost|profit|revenue|sales|loan|deposit|fee|price|salary|wage)/i;
+
+/** 比率/占比类列不参与单位换算（「收益率」命中「收益」但语义是百分比） */
+const RATIO_COLUMN_RE = /(率|占比|比例|百分比|pct|percent|ratio|rate)/i;
+
+/** 判定结果列是否金额类（列名或中文表头命中关键词，且不是比率类） */
+export function isAmountResultColumn(name: string, label?: string): boolean {
+  const text = `${name || ''} ${label || ''}`;
+  if (!text.trim()) return false;
+  if (RATIO_COLUMN_RE.test(name || '')) return false;
+  return AMOUNT_COLUMN_RE.test(name || '') || AMOUNT_COLUMN_RE.test(label || '');
+}
+
+/** 金额单位换算只认这三档常量除数（问数/报表链路共用的白名单） */
+const KNOWN_DIVISORS = new Set([10000, 1000000, 100000000]);
+
+/**
+ * 从 SQL 的列表达式中探测已生效的常量除数：`/10000`、`/1e4`、`*0.0001`。
+ * 只认白名单档位，避免把季度换算 `/3`、占比 `*100.0` 误判为单位换算。
+ */
+export function detectSqlDivisor(expr: string): number | null {
+  if (!expr) return null;
+  for (const m of expr.matchAll(/\/\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?\d+)?)/g)) {
+    const n = Number(m[1]);
+    if (KNOWN_DIVISORS.has(n)) return n;
+  }
+  for (const m of expr.matchAll(/\*\s*(0\.0*1|1e-\d+)/gi)) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n > 0 && n < 1) {
+      const d = Math.round(1 / n);
+      if (KNOWN_DIVISORS.has(d)) return d;
+    }
+  }
+  return null;
+}
+
+/** 定位 SQL 中某输出列的表达式片段（`... AS alias` 前、最近一个顶层逗号/括号之后的片段）；找不到返回空串 */
+function expressionForColumn(sql: string, column: string): string {
+  if (!sql) return '';
+  const esc = column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`\\s+AS\\s+[\`"']?${esc}[\`"']?(?=\\W|$)`, 'i');
+  const m = sql.match(re);
+  if (!m || m.index === undefined) return '';
+  // 从 AS 位置向前回溯到本列表达式起点（顶层逗号），避免把前一列的 /10000 误判为本列换算
+  let depth = 0;
+  let start = 0;
+  for (let i = m.index - 1; i >= 0; i--) {
+    const ch = sql[i];
+    if (ch === ')') depth++;
+    else if (ch === ',') {
+      if (depth === 0) { start = i + 1; break; }
+    } else if (ch === '(') {
+      if (depth === 0) { start = i + 1; break; }
+      depth--;
+    }
+  }
+  let expr = sql.slice(start, m.index);
+  // 子查询场景：只保留最后一个 SELECT 之后的部分
+  const selects = [...expr.matchAll(/\bSELECT\b/gi)];
+  if (selects.length > 0) expr = expr.slice(selects[selects.length - 1].index! + 6);
+  return expr.slice(-400);
+}
+
+export interface AmountUnitApplyResult {
+  rows: Record<string, unknown>[];
+  /** 是否识别到金额列（true 表示结果数值已符合界面选定单位口径） */
+  applied: boolean;
+  /** 本次后端实际改写的列（模型漏换算，或换算档位与界面选定不一致） */
+  adjustedColumns: string[];
+  /** 识别到的金额列（含模型已正确换算的列） */
+  amountColumns: string[];
+}
+
+/**
+ * 金额单位确定性后处理：保证「界面选定的单位」真的落到结果数值上。
+ *
+ * 模型在 SQL 里按约定除以除数时（检测到同档常量除法）保持不变；未换算时由服务端补做；
+ * 模型用了其他档位（如选「亿元」却除以 1e4）时按 `值 × 已用除数 ÷ 选定除数` 纠正。
+ * 仅作用于金额类列（amountKeys 声明优先，其余按列名/中文名启发式），比率列永不换算。
+ */
+export function applyAmountUnitToRows(
+  rows: Record<string, unknown>[],
+  opts: { unit?: string; amountKeys?: string[]; sql?: string; columnNames?: Record<string, string> },
+): AmountUnitApplyResult {
+  const opt = opts.unit ? AMOUNT_UNIT_OPTIONS[opts.unit] : undefined;
+  if (!opt || rows.length === 0) {
+    return { rows, applied: false, adjustedColumns: [], amountColumns: [] };
+  }
+  const divisor = opt.divisor; // 「元」= 1（原值口径，也用于把模型误换算的值还原）
+  const cols = Object.keys(rows[0]);
+  // 模型声明的 amountKeys 与实际结果列按「逐字 → 忽略大小写」匹配；
+  // 全部匹配不上时视为声明无效，退回关键词启发式（否则会因声明失败而完全不换算）
+  const colByLower = new Map(cols.map((c) => [c.toLowerCase(), c]));
+  const declared = new Set<string>();
+  for (const k of opts.amountKeys || []) {
+    if (typeof k !== 'string') continue;
+    const hit = cols.includes(k) ? k : colByLower.get(k.trim().toLowerCase());
+    if (hit) declared.add(hit);
+  }
+  const trustDeclared = declared.size > 0;
+  const amountColumns = cols.filter((c) => {
+    if (declared.has(c)) return true;
+    // 声明有效时只信任声明，避免启发式误伤计数/占比列；声明缺省或无效时按列名/中文名识别
+    if (trustDeclared) return false;
+    const numeric = rows.some((r) => typeof r[c] === 'number');
+    return numeric && isAmountResultColumn(c, opts.columnNames?.[c]);
+  });
+  if (amountColumns.length === 0) {
+    return { rows, applied: false, adjustedColumns: [], amountColumns: [] };
+  }
+
+  const adjusted = new Set<string>();
+  const next = rows.map((r) => {
+    const out: Record<string, unknown> = { ...r };
+    for (const col of amountColumns) {
+      const v = out[col];
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+      const detected = detectSqlDivisor(expressionForColumn(opts.sql || '', col));
+      let converted = v;
+      if (detected && detected !== divisor) {
+        // 模型按另一档位换算过：先还原到原值再按选定档位换算
+        converted = (v * detected) / divisor;
+      } else if (!detected && divisor > 1) {
+        // 模型未换算：服务端补做
+        converted = v / divisor;
+      }
+      if (converted !== v) {
+        out[col] = Math.round(converted * 100) / 100;
+        adjusted.add(col);
+      }
+    }
+    return out;
+  });
+
+  return { rows: next, applied: true, adjustedColumns: [...adjusted], amountColumns };
+}
 
 /** mysql2 将 DECIMAL/聚合值返回为字符串；把可安全转换的列统一转为 number，便于图表与统计 */
 export function coerceNumericColumns(rows: Record<string, unknown>[]): Record<string, unknown>[] {

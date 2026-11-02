@@ -26,6 +26,8 @@ export interface Stage1Plan {
   yAxisKeys: string[];
   yAxisNames?: Record<string, string>;
   columnNames?: Record<string, string>;
+  /** 金额类结果列别名（模型声明）：服务端据此校验并兜底单位换算 */
+  amountKeys?: string[];
   thoughtProcess: string[];
 }
 
@@ -43,6 +45,9 @@ export function parseStage1(text: string): Stage1Plan | null {
       : [],
     yAxisNames: parsed.yAxisNames && typeof parsed.yAxisNames === 'object' ? (parsed.yAxisNames as Record<string, string>) : undefined,
     columnNames: parsed.columnNames && typeof parsed.columnNames === 'object' ? (parsed.columnNames as Record<string, string>) : undefined,
+    amountKeys: Array.isArray(parsed.amountKeys)
+      ? [...new Set(parsed.amountKeys.filter((k: unknown): k is string => typeof k === 'string' && k.trim().length > 0).map((k: string) => k.trim()))].slice(0, 20)
+      : undefined,
     thoughtProcess: Array.isArray(parsed.thoughtProcess)
       ? parsed.thoughtProcess.filter((s: unknown): s is string => typeof s === 'string').slice(0, 6)
       : [],

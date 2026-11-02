@@ -98,7 +98,7 @@ ${serializeSchemaForPrompt(schema)}
 
 ${planSection}${describeIntermediateTables(chainTables || [])}${extractBusinessNotes(schema)}${ironRulesPrompt}${metricPrompt}${ontologyPrompt}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}${knowledge ? `${knowledge}\n` : ''}${fewShotCount > 0 ? `参考样例说明：对话历史开头的 ${fewShotCount} 组问答对是此前经验证正确的高质量样例（先问题后 SQL）。当前问题与样例相似时，优先参考其表选择、聚合口径、别名风格与 WHERE 过滤写法；但必须按当前问题重新生成 SQL，禁止照抄。\n` : ''}${negativeExamples.length > 0 ? `反面教材（以下问题曾被用户确认答案错误，严禁重复同样的错误表选择与统计口径；这里不提供错误 SQL，请自行推导正确口径）:\n${negativeExamples.map((ex) => `错误案例：${ex.question}${ex.wrongTables ? `（错误答案涉及表：${ex.wrongTables}）` : ''}`).join('\n')}\n` : ''}
 【强制约束】仅输出纯 JSON（禁止 markdown 与多余文字），内容为以下${introspectionEnabled ? '四' : '三'}种之一：
-① 正常查询 {"sql","title","chartType","xAxisKey","yAxisKeys","yAxisNames","columnNames","thoughtProcess"}
+① 正常查询 {"sql","title","chartType","xAxisKey","yAxisKeys","yAxisNames","columnNames","amountKeys","thoughtProcess"}
 ② 歧义澄清 {"needClarification":true,"clarification":{"question":"点明歧义的一句中文提问","options":[{"label":"选项简称","query":"按该理解改写、可直接执行的完整问题"}]}}（选项 2-4 个）
 ${introspectionEnabled ? `③ 数据自省 {"needIntrospection":true,"intermediateSql":"SELECT DISTINCT 列 FROM 表 [WHERE ...] LIMIT 30","note":"一句自省目的"}——过滤条件的实际取值写法（人名/编码/枚举）不确定时先输出此项；仅轻量只读，禁止直接给最终聚合 SQL，系统执行后回喂真实取值再生成最终 SQL
 ④` : '③'} 拒答 {"refuse":true,"reason":"..."}——仅限问题与 Schema 完全无关（闲聊/常识/代码/翻译等），或涉及概念在 Schema 中无任何语义相近表/字段时（禁止强行匹配或编造）。reason 必须用模板「抱歉，我是数据分析助手，仅协助处理数据分析相关工作，无法处理 XXXX」，XXXX 替换为具体请求类型（如天气查询→「无法处理天气查询」、写诗→「无法处理写诗创作」），严禁照抄模板或原样保留 XXXX，一句话完成；数据源暂缺的业务（如「2027 年预算统计」）说明缺失即可
@@ -107,6 +107,7 @@ ${introspectionEnabled ? `③ 数据自省 {"needIntrospection":true,"intermedia
 - 指标用合适的聚合函数（SUM/AVG/MAX/MIN/COUNT），AS 起简洁英文/拼音别名（禁中文、禁空格）；金额、比率、均值类指标用 ROUND(表达式，2) 保留两位小数（除法/换算必须包裹 ROUND），计数/个数类保持整数
 - 结果行数：聚合/排名/趋势类保持精简（≤100 行）；用户明确要求「全部/所有/明细/全量/逐笔/导出」时按其要求给足行数（上限 ${resultRowsMax()} 行），禁止无依据地一律压到 100；SELECT 只含分组维度列与聚合结果列，禁止常量标签列（如'项目总数' AS category）
 - 金额原值保护：除非用户明确要求换算单位（如「换算成亿元」「以万元为单位」；用户消息开头的【金额单位约定】即为用户明确要求，此时必须按约定换算），禁止对金额列做除法换算，直接输出聚合原值
+- 金额单位自检：用户消息带【金额单位约定】时，SQL 中每个金额聚合列都必须真实带除数换算，同时在 amountKeys 中逐字列出这些结果列别名（与 AS 别名一致）；系统会按 amountKeys 校验并在漏换算时纠正，谎报 amountKeys 会被识别
 ${dialect.rules}
 【复杂分析范式（v0.4.15 新增，本地算力前提全量注入）】
 - 同比环比：两期对比可用 LEFT JOIN 派生表（FROM (SELECT dim, SUM(amt) FROM t WHERE yr=? GROUP BY dim) r LEFT JOIN (SELECT dim, SUM(amt) FROM t WHERE yr=? GROUP BY dim) p ON r.dim=p.dim）
@@ -161,11 +162,17 @@ export function candidatePrompt(base: string, index: number, total: number): str
  * 阶段二角色设定：按用户问题路由专家 persona（财务/不良/客户/风险/默认金融分析师）。
  * v0.9.41 起注入金额单位口径：此前阶段二不知单位，LLM 会按数字规模自行换算表述
  * （如把元原值写成「百万」），与界面选定口径冲突；现显式告知并禁止改写单位。
+ * v0.9.120 起按「是否真的换算」分别表述：unitApplied=false 时不得声称已换算（避免单位与数值不一致）。
  */
-export function buildStage2System(rolePrompt: string, amountUnit?: string): string {
+export function buildStage2System(rolePrompt: string, amountUnit?: string, unitApplied = true): string {
   const unitRule = amountUnit
-    ? `\n- 【金额单位口径】本次查询的所有金额数值均已按「${amountUnit}」口径输出（SQL 已完成换算）：aiExplanation/keyInsights/kpiMetrics 中引用金额必须逐字沿用「${amountUnit}」表述，禁止任何换算或进位改写（包括但不限于 万/百万/万亿/元，如 54505.36亿元 不得写作 5.45万亿元），禁止自行猜测单位`
+    ? unitApplied
+      ? `\n- 【金额单位口径】本次查询的所有金额数值均已按「${amountUnit}」口径输出（SQL 已完成换算）：aiExplanation/keyInsights/kpiMetrics 中引用金额必须逐字沿用「${amountUnit}」表述，禁止任何换算或进位改写（包括但不限于 万/百万/万亿/元，如 54505.36亿元 不得写作 5.45万亿元），禁止自行猜测单位`
+      : `\n- 【金额单位口径】界面选定单位为「${amountUnit}」，但本次结果未识别到可换算的金额列，数值为数据库原值：引用金额时必须注明「原值」或「元」，严禁声称已按「${amountUnit}」换算，也禁止自行换算或改写单位`
     : '';
+  const kpiUnitRule = amountUnit
+    ? `金额单位带「${amountUnit}」`
+    : '金额字段须按数据实际口径表述，不得自行添加单位';
   return `${rolePrompt}你将收到一次真实数据库查询的结果（SQL、行数、列统计与数据样本）。基于这些真实数据输出分析解读。
 
 【强制约束】
@@ -173,7 +180,7 @@ export function buildStage2System(rolePrompt: string, amountUnit?: string): stri
 - 所有数值必须来自给定的真实数据与列统计，严禁编造任何数字${unitRule}
 - aiExplanation: 专业易懂的中文分析结论（120 字以内），须概括数据反映的核心事实
 - keyInsights: 3 条洞察数组，每条须引用真实维度值与指标数值
-- kpiMetrics: 2-4 个 KPI 卡片 [{"label","value","change","trend","subtext"}]；value 必须由真实数据计算得出（总计/均值/最大等，可引用列统计，金额单位带「${amountUnit || '万'}」）；change 仅当数据支持对比时给出（如时间序列首末期变化百分比），否则省略该字段；trend 从 up/down/neutral 选择
+- kpiMetrics: 2-4 个 KPI 卡片 [{"label","value","change","trend","subtext"}]；value 必须由真实数据计算得出（总计/均值/最大等，可引用列统计，${kpiUnitRule}）；change 仅当数据支持对比时给出（如时间序列首末期变化百分比），否则省略该字段；trend 从 up/down/neutral 选择
 - suggestedQuestions: 3 个后续追问，围绕当前 Schema 尚未充分利用的维度或指标
 - 所有文案（aiExplanation/keyInsights/kpiMetrics 标签/suggestedQuestions）一律使用中文表述，禁止出现英文表名/列名/字段标识符（如 dn_tzsy、JGMC），需要引用时用业务中文名
 - 若数据样本不足以支撑某结论，明确说明"基于当前返回数据"

@@ -54,6 +54,7 @@ import { AVAILABLE_TEMPLATES, validateTemplateParams } from './sqlTemplates';
 import type { TemplateId } from './sqlTemplates';
 import { logger } from '../infra/logger';
 import {
+  applyAmountUnitToRows,
   buildAmountUnitPrompt,
   buildColumnNames,
   buildColumnStats,
@@ -167,12 +168,15 @@ export type LiveQueryOutcome = LiveQuerySuccess | LiveQueryFailure | LiveQueryCl
 export {
   AMOUNT_UNIT_OPTIONS,
   VALID_STAGE1_CHARTS,
+  applyAmountUnitToRows,
   buildAmountUnitPrompt,
   buildColumnNames,
   buildColumnStats,
   buildFallbackAnalysis,
   buildIdentifierNameMap,
   coerceNumericColumns,
+  detectSqlDivisor,
+  isAmountResultColumn,
   normalizeAmountUnit,
   rectifyChartKeys,
   replaceIdentifiersWithChinese,
@@ -471,6 +475,7 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   // 背景：本地开源模型自由生成复杂 SQL（窗口函数/同比环比）可靠性弱于云端旗舰，确定性模板零偏差兜底
   let templateSql: string | null = null;
   let matchedTemplateId: string | null = null;
+  let templateAmountKeys: string[] | undefined;
   if (!input.approvedPlan && AVAILABLE_TEMPLATES.length > 0) {
     try {
       // 轻量 LLM 调用：输出 {templateId,params}；未命中时返回 null
@@ -494,6 +499,12 @@ Schema: ${serializeSchemaForPrompt(schema)}
           if (template) {
             templateSql = template.buildSql(validation.params, dsType === 'postgresql' || dsType === 'greenplum' ? 'pg' : 'mysql');
             matchedTemplateId = matchResult.templateId;
+            // 模板输出列别名由模板自身声明，服务端据此做金额单位换算兜底（模板 SQL 不含单位约定）
+            try {
+              templateAmountKeys = template.amountAliases?.(validation.params);
+            } catch {
+              templateAmountKeys = undefined;
+            }
             trace({ stepType: 'template_match', title: '模板命中', inputSummary: query, outputSummary: `模板:${matchedTemplateId}`, status: 'ok' });
           }
         }
@@ -521,6 +532,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
         chartType: 'bar',
         xAxisKey: '',
         yAxisKeys: [],
+        ...(templateAmountKeys && templateAmountKeys.length > 0 ? { amountKeys: templateAmountKeys } : {}),
         thoughtProcess: [`命中「${matchedTemplateId}」分析模板，由模板引擎确定性拼装 SQL（本地模型复杂语法生成能力的零偏差兜底）`],
       });
     } else {
@@ -741,10 +753,20 @@ Schema: ${serializeSchemaForPrompt(schema)}
     return { ok: false, error: 'SQL 契约校验失败', executedSql: exec.result.finalSql };
   }
 
-  const rows = coerceNumericColumns(exec.result.rows);
+  const unit = normalizeAmountUnit(input.amountUnit);
+  const rawRows = coerceNumericColumns(exec.result.rows);
   const finalSql = exec.result.finalSql;
+  const columnNames = buildColumnNames(rawRows, schema, plan.yAxisNames, plan.columnNames);
+  // v0.9.120：单位换算确定性兜底——模型漏换算时由服务端按界面所选单位改写 rows，
+  // 避免「界面选亿元、SQL 与结果仍是元」的口径错配（此前仅靠 prompt 约定，实测模型普遍不执行）
+  const unitApply = applyAmountUnitToRows(rawRows, {
+    unit,
+    amountKeys: plan.amountKeys,
+    sql: finalSql,
+    columnNames,
+  });
+  const rows = unitApply.rows;
   const keys = rectifyChartKeys(rows, plan.xAxisKey, plan.yAxisKeys);
-  const columnNames = buildColumnNames(rows, schema, plan.yAxisNames, plan.columnNames);
   // 图表轴名中文化：yAxisNames 缺失的指标用 columnNames 补齐（图例/tooltip 不再出现英文列名），并补维度中文名
   const yAxisNames: Record<string, string> = {};
   for (const k of keys.yAxisKeys) {
@@ -784,13 +806,16 @@ Schema: ${serializeSchemaForPrompt(schema)}
   // 阶段二：真实 rows 摘要回喂 LLM 生成解读
   input.onStage?.('analyzing');
   const analyzeAt = Date.now();
-  // v0.9.41：金额单位口径注入阶段二（system 禁令 + user 事实行双保险），防 LLM 按数字规模自行换算表述
-  const stage2Unit = normalizeAmountUnit(input.amountUnit);
+  // v0.9.41：金额单位口径注入阶段二；v0.9.120 起按实际换算结果表述（未识别到金额列时不得声称已换算）
+  const stage2Unit = unit;
+  const stage2Applied = unitApply.applied;
   const stats = buildColumnStats(rows);
   const sample = rows.slice(0, SAMPLE_ROWS_FOR_LLM);
   const stage2User = [
     `用户问题：${query}`,
-    ...(stage2Unit ? [`金额单位口径：所有金额数值均已按「${stage2Unit}」输出（SQL 已换算），解读与 KPI 必须沿用该单位`] : []),
+    ...(stage2Unit
+      ? [`金额单位口径：${stage2Applied ? `所有金额数值均已按「${stage2Unit}」输出（服务端已校验换算）` : `界面选定「${stage2Unit}」，但本次结果未识别到可换算的金额列，数值为数据库原值`}，解读与 KPI 必须沿用该口径`]
+      : []),
     '',
     `真实查询结果：`,
     `- SQL: ${finalSql}`,
@@ -804,7 +829,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
   let analysisFailed = false;
   try {
     // 阶段二解读支持快速模型路由（LLM_ANALYSIS_ENGINE/LLM_ANALYSIS_MODEL）；未配置时用主模型保证质量
-    const text2 = await callLLMJson(buildStage2System(persona.rolePrompt, stage2Unit), stage2User, [], { route: analysisStageRoute() });
+    const text2 = await callLLMJson(buildStage2System(persona.rolePrompt, stage2Unit, stage2Applied), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
   } catch (err) {
     analysis = {};
@@ -854,6 +879,8 @@ Schema: ${serializeSchemaForPrompt(schema)}
         ? analysis.suggestedQuestions.filter((s: unknown): s is string => typeof s === 'string').slice(0, 5)
         : [],
       expertPersona: persona.label,
+      // v0.9.120：单位口径随结果下发（前端展示「金额单位」并据此判断数值是否已换算）
+      ...(stage2Unit ? { amountUnit: stage2Unit, amountUnitApplied: stage2Applied } : {}),
     }, schema),
   };
 }

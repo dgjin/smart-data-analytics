@@ -15,7 +15,7 @@
 import { analysisStageRoute, callLLMJson } from '../llm/llmClient';
 import { executeSafeSql, QueryScenario } from '../query/sqlExecutor';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
-import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese } from '../query/liveQuery';
+import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese, applyAmountUnitToRows, normalizeAmountUnit } from '../query/liveQuery';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from '../query/metrics';
 import { loadActiveIronRules, buildIronRulesPrompt } from '../query/ironRules';
@@ -103,6 +103,8 @@ interface ReportQueryPlan {
   xAxisKey: string;
   yAxisKeys: string[];
   columnNames?: Record<string, string>;
+  /** 金额类结果列别名（模型声明）：服务端据此做单位换算兜底 */
+  amountKeys?: string[];
   purpose: string;
 }
 export type { ReportQueryPlan };
@@ -281,8 +283,9 @@ ${serializeSchemaForPrompt(schema)}
 
 ${extractBusinessNotes(schema)}${guidance ? `可用维度与指标摘要:\n${guidance}\n` : ''}
 ${metricPrompt}${ironRulesPrompt}${knowledgePrompt}【强制约束】
-- 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","purpose"}]}
+- 仅输出 JSON 对象: {"reportTitle":"报表标题","queries":[{"title","sql","chartType","xAxisKey","yAxisKeys","columnNames","amountKeys","purpose"}]}
 - columnNames: 该查询 SQL 输出每一列的中文表头映射 {"列名/别名": "中文名"}，维度列与聚合别名都要覆盖
+- amountKeys: 该查询中所有金额类聚合结果的列别名数组（与 SQL 的 AS 别名逐字一致；计数/占比/比率列不得列入），服务端据此校验并兜底金额单位换算
 - 每条 sql 为单条 SELECT；表名逐字取自 Schema 表 name，列名逐字取自 columns 数组第 1 项，严禁添加 tbl_/t_ 等前缀、后缀或编造不存在的表/列；指标用聚合函数并用 AS 起英文/拼音别名
 ${dialect.rules}- queries 之间应选择不同维度（如时间趋势、类别对比、结构占比），避免重复
 - chartType 从 bar/line/area/pie/donut/radar/treemap/heatmap 选择（时间趋势用 line/area，类别对比用 bar，占比结构用 pie/donut，层级占比用 treemap，多指标横向对照用 heatmap）；xAxisKey 与 yAxisKeys 必须与 SQL 输出列严格一致
@@ -301,6 +304,9 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
   const plans: ReportQueryPlan[] = [];
   for (const q of queries) {
     if (!q || typeof q.sql !== 'string' || !q.sql.trim()) continue;
+    const amountKeys: string[] | undefined = Array.isArray(q.amountKeys)
+      ? Array.from(new Set<string>(q.amountKeys.filter((k: unknown): k is string => typeof k === 'string' && k.trim().length > 0).map((k: string) => k.trim()))).slice(0, 20)
+      : undefined;
     plans.push({
       title: typeof q.title === 'string' && q.title.trim() ? q.title : '数据图表',
       sql: q.sql,
@@ -308,6 +314,7 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
       xAxisKey: typeof q.xAxisKey === 'string' ? q.xAxisKey : '',
       yAxisKeys: Array.isArray(q.yAxisKeys) ? q.yAxisKeys.filter((k: unknown): k is string => typeof k === 'string') : [],
       columnNames: q.columnNames && typeof q.columnNames === 'object' ? q.columnNames : undefined,
+      amountKeys,
       purpose: typeof q.purpose === 'string' ? q.purpose : '',
     });
     if (plans.length >= MAX_REPORT_QUERIES) break;
@@ -319,14 +326,17 @@ function parseReportPlans(text: string): { reportTitle: string; plans: ReportQue
   };
 }
 
-export function buildReportStage2System(schema: SchemaTable[], amountUnit?: string): string {
+export function buildReportStage2System(schema: SchemaTable[], amountUnit?: string, unitApplied = true): string {
   const nameMap = buildIdentifierNameMap(schema);
   const nameMapText = Object.entries(nameMap)
     .map(([en, cn]) => `${en} = ${cn}`)
     .join('；');
-  // v0.9.41 金额单位口径注入（与问数阶段二同一规则）：防 LLM 按数字规模自行换算表述
+  // v0.9.41 金额单位口径注入（与问数阶段二同一规则）：防 LLM 按数字规模自行换算表述；
+  // v0.9.120 起按实际换算结果表述，未识别到金额列时不得声称已换算
   const unitRule = amountUnit
-    ? `\n- 【金额单位口径】所有图表的金额数值均已按「${amountUnit}」口径输出（SQL 已完成换算）：summary/insights/kpiList/commentaries 中引用金额必须逐字沿用「${amountUnit}」表述，禁止任何换算或进位改写（包括但不限于 万/百万/万亿/元，如 54505.36亿元 不得写作 5.45万亿元）`
+    ? unitApplied
+      ? `\n- 【金额单位口径】所有图表的金额数值均已按「${amountUnit}」口径输出（SQL 已完成换算）：summary/insights/kpiList/commentaries 中引用金额必须逐字沿用「${amountUnit}」表述，禁止任何换算或进位改写（包括但不限于 万/百万/万亿/元，如 54505.36亿元 不得写作 5.45万亿元）`
+      : `\n- 【金额单位口径】界面选定单位为「${amountUnit}」，但本次各图表未识别到可换算的金额列，数值为数据库原值：引用金额时必须注明「原值」或「元」，严禁声称已按「${amountUnit}」换算`
     : '';
   return `你是资深数据分析总监。你将收到一组真实数据库查询结果（各图表的 SQL、行数、列统计与数据样本）。基于这些真实数据撰写高管报表内容。
 
@@ -377,10 +387,20 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   const charts: Record<string, unknown>[] = [];
   const chartDigests: string[] = [];
   let totalRows = 0;
+  const reportUnit = normalizeAmountUnit(amountUnit);
+  let anyUnitApplied = false;
   for (const item of execResults) {
     if (!item) continue;
     const { plan, result } = item;
-    const rows = coerceNumericColumns(result.rows);
+    // v0.9.120 金额单位确定性兜底：模型漏换算时按界面所选单位改写 rows（与问数链路同一函数）
+    const unitApply = applyAmountUnitToRows(coerceNumericColumns(result.rows), {
+      unit: reportUnit,
+      amountKeys: plan.amountKeys,
+      sql: result.finalSql,
+      columnNames: plan.columnNames,
+    });
+    const rows = unitApply.rows;
+    if (unitApply.applied) anyUnitApplied = true;
     executedSqls.push(result.finalSql);
     totalRows += result.rowCount;
 
@@ -429,7 +449,13 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   const stage2User = [
     `报表主题：${templateType}`,
     `额外要求：${customPrompt}`,
-    ...(amountUnit ? [`金额单位口径：所有图表金额数值均已按「${amountUnit}」输出（SQL 已换算），文案必须沿用该单位`] : []),
+    ...(reportUnit
+      ? [
+          anyUnitApplied
+            ? `金额单位口径：所有图表金额数值均已按「${reportUnit}」输出（SQL 已换算），文案必须沿用该单位`
+            : `金额单位口径：界面选定「${reportUnit}」，但本次未识别到可换算的金额列，数值为数据库原值，文案不得声称已按该单位换算`,
+        ]
+      : []),
     '',
     '以下为各图表的真实查询结果：',
     ...chartDigests,
@@ -439,7 +465,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   try {
     // v0.9.20 阶段二接入快速模型路由（对照问数链路 v0.3.6：解读类任务 LLM_ANALYSIS_* 可大幅提速；
     // 未配置时 analysisStageRoute() 返回 undefined 保持主模型，口径不变可一键回退）
-    const text2 = await callLLMJson(buildReportStage2System(schema, amountUnit), stage2User, [], { route: analysisStageRoute() });
+    const text2 = await callLLMJson(buildReportStage2System(schema, reportUnit, anyUnitApplied), stage2User, [], { route: analysisStageRoute() });
     analysis = safeParseJson(text2) || {};
     if (Object.keys(analysis).length === 0) {
       logger.warn('[LiveReport] 阶段二 LLM 输出解析为空对象（kpiList/insights 将缺失），原始输出前 200 字:', String(text2).slice(0, 200));

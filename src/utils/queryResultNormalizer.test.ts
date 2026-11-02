@@ -141,6 +141,15 @@ describe('normalizeQueryResult', () => {
     });
     expect(result!.suggestedQuestions).toHaveLength(5);
   });
+
+  it('金额单位口径透传（v0.9.120），白名单外丢弃', () => {
+    const ok = normalizeQueryResult({ ...baseValid, amountUnit: '亿元', amountUnitApplied: true });
+    expect(ok!.amountUnit).toBe('亿元');
+    expect(ok!.amountUnitApplied).toBe(true);
+    const bad = normalizeQueryResult({ ...baseValid, amountUnit: '万亿元' });
+    expect(bad!.amountUnit).toBeUndefined();
+    expect(bad!.amountUnitApplied).toBeUndefined();
+  });
 });
 
 describe('normalizeReport', () => {

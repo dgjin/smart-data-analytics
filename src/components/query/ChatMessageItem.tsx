@@ -7,6 +7,7 @@ import {
   Bot,
   CheckCircle,
   Code2,
+  Coins,
   Copy,
   Download,
   FileText,
@@ -207,6 +208,31 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
     if (!qr) return null;
     return (
       <>
+        {/* v0.9.120 金额单位口径徽标：让用户直接看到结果数值按哪个单位输出、是否真的换算 */}
+        {qr.amountUnit && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-900/70 border border-slate-800">
+            <span className="flex items-center gap-1.5 text-[11px] text-slate-400 min-w-0">
+              <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              金额单位
+            </span>
+            <span
+              className={`text-[11px] font-semibold shrink-0 ${
+                qr.amountUnitApplied || qr.amountUnit === '元' ? 'text-emerald-300' : 'text-amber-300'
+              }`}
+              title={
+                qr.amountUnitApplied
+                  ? '结果数值已按所选单位完成换算'
+                  : qr.amountUnit === '元'
+                    ? '原值口径，无需换算'
+                    : '未识别到可换算的金额列，数值为数据库原值'
+              }
+            >
+              {qr.amountUnit}
+              {qr.amountUnitApplied ? '（已换算）' : qr.amountUnit === '元' ? '（原值）' : '（原值·未换算）'}
+            </span>
+          </div>
+        )}
+
         {/* KPI Cards */}
         {qr.kpiMetrics && <KPIStats metrics={qr.kpiMetrics} />}
 

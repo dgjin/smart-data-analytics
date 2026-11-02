@@ -100,6 +100,26 @@ export const Header: React.FC = () => {
     return () => window.removeEventListener(UI_THEME_EVENT, onThemeChange);
   }, []);
 
+  // v0.9.120 个人偏好金额单位：登录后应用一次，保证换设备/清缓存后与用户设置一致（空值 = 跟随本地全局）
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    apiFetch('/api/user/personal')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const unit = data?.preferences?.amountUnit;
+        if (!cancelled && typeof unit === 'string' && AMOUNT_UNITS.includes(unit as AmountUnit)) {
+          setGlobalAmountUnit(unit as AmountUnit);
+        }
+      })
+      .catch(() => {
+        // 偏好读取失败不阻断页面（沿用本地全局设置）
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, setGlobalAmountUnit]);
+
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 text-slate-100 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-md">
       {/* Brand & Title */}

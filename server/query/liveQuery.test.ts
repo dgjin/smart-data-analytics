@@ -62,10 +62,18 @@ describe('buildStage2System: 金额单位口径注入（v0.9.41）', () => {
     expect(p).toContain('金额单位带「亿元」');
   });
 
-  it('不带单位时无口径条款，KPI 单位引导回退为「万」', () => {
+  it('不带单位时无口径条款，KPI 不得自行添加单位（v0.9.120 去掉硬编码「万」）', () => {
     const p = buildStage2System('你是风险专家。');
     expect(p).not.toContain('【金额单位口径】');
-    expect(p).toContain('金额单位带「万」');
+    expect(p).not.toContain('金额单位带「万」');
+    expect(p).toContain('金额字段须按数据实际口径表述，不得自行添加单位');
+  });
+
+  it('unitApplied=false 时禁止声称已换算（v0.9.120）', () => {
+    const p = buildStage2System('你是风险专家。', '亿元', false);
+    expect(p).toContain('未识别到可换算的金额列');
+    expect(p).toContain('严禁声称已按「亿元」换算');
+    expect(p).not.toContain('SQL 已完成换算');
   });
 
   it('阶段一金额原值保护条款声明单位约定例外（v0.9.41）', () => {

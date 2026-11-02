@@ -69,6 +69,10 @@ export interface NormalizedQueryResult {
   suggestedQuestions: string[];
   /** 本次回答使用的专家角色标签（按问题关键词路由，见 server/expertPersona.ts） */
   expertPersona?: string;
+  /** v0.9.120 金额输出单位（亿元/百万元/万元/元）；未选择时缺省 */
+  amountUnit?: string;
+  /** 结果数值是否已按 amountUnit 完成换算（服务端校验/兜底后置位） */
+  amountUnitApplied?: boolean;
 }
 
 /**
@@ -145,6 +149,12 @@ export function normalizeQueryResult(raw: unknown): NormalizedQueryResult | null
       ? src.suggestedQuestions.filter((s): s is string => typeof s === 'string').slice(0, 5)
       : [],
     expertPersona: typeof src.expertPersona === 'string' ? src.expertPersona : undefined,
+    // v0.9.120 金额单位口径：单位白名单外不透传，避免前端展示错误口径
+    amountUnit:
+      typeof src.amountUnit === 'string' && ['亿元', '百万元', '万元', '元'].includes(src.amountUnit)
+        ? src.amountUnit
+        : undefined,
+    amountUnitApplied: typeof src.amountUnitApplied === 'boolean' ? src.amountUnitApplied : undefined,
   };
 }
 

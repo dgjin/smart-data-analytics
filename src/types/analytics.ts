@@ -192,6 +192,10 @@ export interface QueryResultData {
   keyInsights?: string[];
   suggestedQuestions?: string[];
   chartConfig?: ChartConfig;
+  /** v0.9.120 金额输出单位（亿元/百万元/万元/元）；未选择时缺省 */
+  amountUnit?: string;
+  /** 结果数值是否已按 amountUnit 完成换算（服务端校验/兜底后置位） */
+  amountUnitApplied?: boolean;
   kpiMetrics?: {
     label: string;
     value: string | number;

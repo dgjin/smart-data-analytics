@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { ImagePlus, UserCog, X } from 'lucide-react';
 import { apiFetch } from '../../api/client';
 import { useAnalyticsStore } from '../../hooks/useAnalyticsStore';
-import { AMOUNT_UNITS } from '../../hooks/useAmountUnitStore';
+import { AMOUNT_UNITS, useAmountUnitStore } from '../../hooks/useAmountUnitStore';
 import { applyUITheme } from '../../utils/uiTheme';
 import { getErrorMessage } from '../../utils/errorUtils';
 import {
@@ -113,6 +113,10 @@ export const UserPersonalModal: React.FC<{ onClose: () => void }> = ({ onClose }
       // 主题偏好即时生效；system 交由系统深浅色逻辑跟随，不在此覆盖
       if (saved.preferences.theme === 'light' || saved.preferences.theme === 'dark') {
         applyUITheme(saved.preferences.theme);
+      }
+      // v0.9.120 金额单位偏好即时生效：非空即写入全局口径（空 = 跟随当前全局，不覆盖）
+      if (saved.preferences.amountUnit) {
+        useAmountUnitStore.getState().setGlobalUnit(saved.preferences.amountUnit);
       }
       setNotice({ type: 'success', text: '个性化信息已保存' });
     } catch (err) {
