@@ -99,3 +99,116 @@ html.light .react-flow__attribution a {
 html.light .react-flow__background {
   opacity: 0.8;
 }
+
+/* ---- 国产双核浏览器（360 极速版等）显示降级 ----
+   Tailwind v4 的内置色板以 oklch() 输出，需要 Chromium 111+。360 极速浏览器 X 存在大量
+   Chromium 99~110 的存量内核：这类内核把 oklch 判为无效值，导致 color / background-color /
+   border-color 上引用 var(--color-*) 的声明整条失效（文字与底色回落成默认黑/白、面板边框消失）。
+   下面按 Tailwind v4 色板逐个给出 oklch → sRGB 的等价 hex，并包在特性查询里：
+   支持 oklch 的浏览器（Chrome 111+ / Safari 15.4+）条件不成立，样式零改动。
+   /opacity 透明修饰类无需处理：Tailwind 已为每个类生成 8 位 hex 兜底
+   （如 .bg-indigo-600\/90 先给 #4f39f6e6），仅在 @supports (color: color-mix(...)) 成立时才覆盖。
+   html.light 的变量重映射特异性更高（0,1,1 > 0,1,0），浅色主题不受本块影响。 */
+@supports not (color: oklch(0 0 0)) {
+  :root,
+  :host {
+    /* 红 / 橙 / 琥珀 */
+    --color-red-300: #ffa2a2;
+    --color-red-800: #9f0712;
+    --color-orange-200: #ffd6a7;
+    --color-orange-300: #ffb86a;
+    --color-orange-400: #ff8904;
+    --color-orange-500: #ff6900;
+    --color-amber-100: #fef3c6;
+    --color-amber-200: #fee685;
+    --color-amber-300: #ffd230;
+    --color-amber-400: #ffb900;
+    --color-amber-500: #fe9a00;
+    --color-amber-600: #e17100;
+    --color-amber-700: #bb4d00;
+    --color-amber-800: #973c00;
+    --color-amber-900: #7b3306;
+    --color-amber-950: #461901;
+    /* 绿 / 青 / 天蓝 / 蓝 */
+    --color-emerald-200: #a4f4cf;
+    --color-emerald-300: #5ee9b5;
+    --color-emerald-400: #00d492;
+    --color-emerald-500: #00bc7d;
+    --color-emerald-600: #009966;
+    --color-emerald-700: #007a55;
+    --color-emerald-800: #006045;
+    --color-emerald-900: #004f3b;
+    --color-emerald-950: #002c22;
+    --color-teal-500: #00bba7;
+    --color-teal-600: #009689;
+    --color-cyan-100: #cefafe;
+    --color-cyan-200: #a2f4fd;
+    --color-cyan-300: #53eafd;
+    --color-cyan-400: #00d3f2;
+    --color-cyan-500: #00b8db;
+    --color-cyan-600: #0092b8;
+    --color-cyan-700: #007595;
+    --color-cyan-800: #005f78;
+    --color-cyan-900: #104e64;
+    --color-cyan-950: #053345;
+    --color-sky-200: #b8e6fe;
+    --color-sky-300: #74d4ff;
+    --color-sky-400: #00bcff;
+    --color-sky-500: #00a6f4;
+    --color-sky-600: #0084d1;
+    --color-sky-800: #00598a;
+    --color-sky-900: #024a70;
+    --color-sky-950: #052f4a;
+    --color-blue-300: #8ec5ff;
+    --color-blue-400: #51a2ff;
+    --color-blue-500: #2b7fff;
+    /* 靛蓝 / 紫 / 品红 / 玫红 */
+    --color-indigo-100: #e0e7ff;
+    --color-indigo-200: #c6d2ff;
+    --color-indigo-300: #a3b3ff;
+    --color-indigo-400: #7c86ff;
+    --color-indigo-500: #615fff;
+    --color-indigo-600: #4f39f6;
+    --color-indigo-700: #432dd7;
+    --color-indigo-900: #312c85;
+    --color-indigo-950: #1e1a4d;
+    --color-violet-200: #ddd6ff;
+    --color-violet-300: #c4b4ff;
+    --color-violet-400: #a684ff;
+    --color-violet-500: #8e51ff;
+    --color-violet-600: #7f22fe;
+    --color-violet-800: #5d0ec0;
+    --color-violet-950: #2f0d68;
+    --color-purple-300: #dab2ff;
+    --color-purple-400: #c27aff;
+    --color-purple-500: #ad46ff;
+    --color-fuchsia-200: #f6cfff;
+    --color-fuchsia-300: #f4a8ff;
+    --color-fuchsia-400: #ed6aff;
+    --color-fuchsia-500: #e12afb;
+    --color-fuchsia-600: #c800de;
+    --color-fuchsia-950: #4b004f;
+    --color-pink-400: #fb64b6;
+    --color-rose-100: #ffe4e6;
+    --color-rose-200: #ffccd3;
+    --color-rose-300: #ffa1ad;
+    --color-rose-400: #ff637e;
+    --color-rose-500: #ff2056;
+    --color-rose-600: #ec003f;
+    --color-rose-700: #c70036;
+    --color-rose-800: #a50036;
+    --color-rose-900: #8b0836;
+    --color-rose-950: #4d0218;
+    /* 中性色（深色主题主色板，浅色主题由上方 html.light 覆盖） */
+    --color-slate-100: #f1f5f9;
+    --color-slate-200: #e2e8f0;
+    --color-slate-300: #cad5e2;
+    --color-slate-400: #90a1b9;
+    --color-slate-500: #62748e;
+    --color-slate-600: #45556c;
+    --color-slate-700: #314158;
+    --color-slate-800: #1d293d;
+    --color-slate-900: #0f172b;
+    --color-slate-950: #020618;
+  }
+}

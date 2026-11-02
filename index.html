@@ -2,6 +2,11 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <!-- 国产双核浏览器（360 极速/安全浏览器、QQ 浏览器等）内核选择：
+         renderer=webkit 强制走 Chromium 极速内核，X-UA-Compatible 阻止回落到 IE 兼容内核。
+         缺此声明时双核浏览器可能按域名历史记录落入 IE 内核，React 应用会直接白屏。 -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="renderer" content="webkit" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>智能问数分析系统</title>
     <!-- PWA：可安装性（manifest + 图标 + 主题色）；Chrome 桌面在安全上下文（HTTPS/localhost）下提供「安装应用」 -->

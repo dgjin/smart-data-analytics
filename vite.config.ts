@@ -17,6 +17,12 @@ export default defineConfig(() => {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
     },
     plugins: [react(), tailwindcss()],
+    build: {
+      // 国产双核浏览器兼容：Vite 6 默认 target 为 baseline-widely-available（Chrome 107），
+      // 360 极速浏览器 X / QQ 浏览器等存在 Chromium 95+ 的存量内核，新语法会让整包脚本解析失败（白屏）。
+      // 降到 chrome95 后 ESBuild 只做等价语法降级，现代浏览器行为不变、仅体积微增。
+      target: 'chrome95',
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
