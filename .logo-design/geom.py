@@ -26,6 +26,17 @@ CORE_MD = "#5FE9F6"
 CORE_LO = "#1FC4E4"
 ACCENT = "#22D3EE"
 
+# ---- 深色底透明版：砖退场，笔弧整体提亮，核加高光 ----
+# 背景 slate-900 #0F172A 下：亮端 7.6:1 / 暗端 3.2:1，均过非文本 3:1
+ON_DARK_HI = "#ABA6FC"
+ON_DARK = "#7C74F5"
+ON_DARK_LO = "#5B51E8"
+CORE_DK_HI = "#D9FCFF"
+CORE_DK_MID = "#5FE9F6"
+CORE_DK_LO = "#22D3EE"
+# 无砖时 viewBox 收到笔弧外接框（r78 → 50..206，留 6 边），不再替砖占位
+BARE_VIEWBOX = "44 44 168 168"
+
 
 def defs(prefix=""):
     """三层光泽渐变：笔弧金属 / 砖面瓷面 / 核心球面。同一文档内定义一次即可。
@@ -50,6 +61,25 @@ def defs(prefix=""):
         f'      <stop offset="0%" stop-color="{CORE_HI}"/>\n'
         f'      <stop offset="44%" stop-color="{CORE_MD}"/>\n'
         f'      <stop offset="100%" stop-color="{CORE_LO}"/>\n'
+        '    </radialGradient>\n'
+        '  </defs>'
+    )
+
+
+def defs_on_dark(prefix=""):
+    """深色底的透明版渐变：无砖面，只有提亮的笔弧与更亮的核心。"""
+    p = prefix
+    return (
+        '<defs>\n'
+        f'    <linearGradient id="{p}ink" gradientUnits="userSpaceOnUse" x1="60" y1="52" x2="200" y2="210">\n'
+        f'      <stop offset="0%" stop-color="{ON_DARK_HI}"/>\n'
+        f'      <stop offset="46%" stop-color="{ON_DARK}"/>\n'
+        f'      <stop offset="100%" stop-color="{ON_DARK_LO}"/>\n'
+        '    </linearGradient>\n'
+        f'    <radialGradient id="{p}core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">\n'
+        f'      <stop offset="0%" stop-color="{CORE_DK_HI}"/>\n'
+        f'      <stop offset="44%" stop-color="{CORE_DK_MID}"/>\n'
+        f'      <stop offset="100%" stop-color="{CORE_DK_LO}"/>\n'
         '    </radialGradient>\n'
         '  </defs>'
     )

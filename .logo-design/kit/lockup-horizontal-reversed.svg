@@ -1,26 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256" role="img" aria-label="智能问数 NL2SQL PRO">
-  <title>智能问数 — horizontal lockup (reversed)</title>
-  <!-- 反白横版：白砖瓷面渐变 + 品牌靛蓝笔弧渐变 + 青核 + 白字，用于深色底/照片。
-       与 lockup-horizontal-duo.svg 构成正/反白对。 -->
+  <title>智能问数 — horizontal lockup (on dark)</title>
+  <!-- 深底透明横版：无砖，笔弧提亮 + 青核 + 白字，与顶栏徽章同一形态。
+       符号 180×180 居中于 y=128；文字 x 与 duo 版对齐。 -->
   <defs>
-    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
-      <stop offset="0%" stop-color="#7A73F5"/>
-      <stop offset="46%" stop-color="#4F46E5"/>
-      <stop offset="100%" stop-color="#4033C4"/>
-    </linearGradient>
-    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="58%" stop-color="#FBFBFF"/>
-      <stop offset="100%" stop-color="#EBEEFC"/>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="60" y1="52" x2="200" y2="210">
+      <stop offset="0%" stop-color="#ABA6FC"/>
+      <stop offset="46%" stop-color="#7C74F5"/>
+      <stop offset="100%" stop-color="#5B51E8"/>
     </linearGradient>
     <radialGradient id="core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
-      <stop offset="0%" stop-color="#C7F9FE"/>
+      <stop offset="0%" stop-color="#D9FCFF"/>
       <stop offset="44%" stop-color="#5FE9F6"/>
-      <stop offset="100%" stop-color="#1FC4E4"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
     </radialGradient>
   </defs>
-  <svg x="28" y="32" width="192" height="192" viewBox="0 0 256 256">
-    <path fill="url(#tile)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+  <svg x="34" y="38" width="180" height="180" viewBox="44 44 168 168">
     <path fill="url(#ink)" d="M203.34 148.19
            C197.23 163.86 185.91 177.37 171.36 185.8
            C157.91 193.57 141.9 196.82 126.55 194.48

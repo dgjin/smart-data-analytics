@@ -7,8 +7,8 @@
 """
 import os
 
-from geom import (ACCENT, BAND, CN, CN_FONT, CORE_D, EN, EN_FONT, FAV_BAND, FAV_CORE,
-                  INK, TILE, defs)
+from geom import (ACCENT, BAND, BARE_VIEWBOX, CN, CN_FONT, CORE_D, EN, EN_FONT, FAV_BAND,
+                  FAV_CORE, INK, TILE, defs, defs_on_dark)
 
 os.makedirs("kit", exist_ok=True)
 
@@ -27,7 +27,8 @@ def mark(band, core, fill="currentColor"):
 write("symbol.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="{CN}">
   <title>{CN}</title>
   <!-- 一笔：粗端带宽 40 自右下起笔，逆时针盘绕 305° 收成尖，中心落一颗核（r22）。
-       负形透明（evenodd），砖与笔弧同色；深底反白见 symbol-reversed.svg。 -->
+       负形透明（evenodd），砖与笔弧同色；深底用 symbol-on-dark.svg（无砖透明版），
+       照片/背景杂色用 symbol-reversed.svg（白砖）。 -->
   {mark(BAND, CORE_D)}
 </svg>
 ''')
@@ -57,7 +58,19 @@ write("symbol-reversed.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox
 </svg>
 ''')
 
-# 4) favicon 简化版（间隙 16、核 24，16px 不糊）
+# 4) 透明版（无砖：笔弧提亮 + 更亮的核，直接落在深色背景上）
+write("symbol-on-dark.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="{BARE_VIEWBOX}" role="img" aria-label="{CN}">
+  <title>{CN}</title>
+  <!-- 透明版：不画砖，笔弧与核直接落在深色背景上（顶栏 / 登录页实际使用）。
+       砖退场后靠提亮撑对比度：#ABA6FC→#5B51E8 在 slate-900 上 7.6:1→3.2:1。
+       viewBox 收到笔弧外接框（{BARE_VIEWBOX}），避免无砖后视觉尺寸缩水。 -->
+  {defs_on_dark()}
+  <path fill="url(#ink)" d="{BAND}"/>
+  <path fill="url(#core)" d="{CORE_D}"/>
+</svg>
+''')
+
+# 5) favicon 简化版（间隙 16、核 24，16px 不糊）
 write("favicon-source.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="{CN}">
   <title>{CN} — small size</title>
   <!-- 小尺寸版本：核 24、核与笔弧间隙 16、笔弧略外扩（R80/40）。16–32px 使用。 -->
@@ -68,7 +81,7 @@ write("favicon-source.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox=
 </svg>
 ''')
 
-# 5) 横版锁合
+# 6) 横版锁合
 write("lockup-horizontal.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256" role="img" aria-label="{CN} {EN}">
   <title>{CN} — horizontal lockup</title>
   <!-- 横版：符号 192 + 中文 78/700 + 英文副行 22/700（字距 5）。两行视觉中心对符号中线。
@@ -83,7 +96,7 @@ write("lockup-horizontal.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewB
 </svg>
 ''')
 
-# 6) 竖版锁合
+# 7) 竖版锁合
 write("lockup-vertical.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 420" role="img" aria-label="{CN} {EN}">
   <title>{CN} — vertical lockup</title>
   <!-- 竖版：符号 224 居中，中文 76/700，英文副行 22/700。 -->

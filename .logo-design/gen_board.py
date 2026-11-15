@@ -35,9 +35,9 @@ def label(draw, x, y, text, color=GREY, size=15):
 canvas = Image.new("RGBA", (W, H), BG + (255,))
 d = ImageDraw.Draw(canvas)
 
-# ---- 行 1：符号三态（彩色 / 单色黑 / 反白）----
+# ---- 行 1：符号三态（彩色 / 单色 / 深底透明）----
 y = 40
-label(d, 80, y, "SYMBOL · colour / mono / reversed", INK, 16)
+label(d, 80, y, "SYMBOL · colour / mono / on dark", INK, 16)
 iy = y + 36
 
 canvas.alpha_composite(render("kit/symbol-duo.svg", 200), (80, iy))
@@ -46,11 +46,13 @@ label(d, 80, iy + 206, "symbol-duo.svg")
 canvas.alpha_composite(render("kit/symbol.svg", 200), (330, iy))
 label(d, 330, iy + 206, "symbol.svg (currentColor)")
 
+# 深色块只是「背景样本」，模拟顶栏；符号本身透明，直接叠在上面
+# 132px 让笔弧视觉直径（≈123）与前两枚 200px 砖版的笔弧对齐
 tile = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
 ImageDraw.Draw(tile).rounded_rectangle((0, 0, 199, 199), radius=28, fill=DARK + (255,))
-tile.alpha_composite(render("kit/symbol-reversed.svg", 176), (12, 12))
+tile.alpha_composite(render("kit/symbol-on-dark.svg", 132), (34, 34))
 canvas.alpha_composite(tile, (580, iy))
-label(d, 580, iy + 206, "symbol-reversed.svg")
+label(d, 580, iy + 206, "symbol-on-dark.svg (transparent)")
 
 # ---- 行 2：满版 icon / 横版锁合 / 竖版锁合 ----
 y2 = 350

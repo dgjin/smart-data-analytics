@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="智能问数">
   <title>智能问数</title>
   <!-- 一笔：粗端带宽 40 自右下起笔，逆时针盘绕 305° 收成尖，中心落一颗核（r22）。
-       负形透明（evenodd），砖与笔弧同色；深底反白见 symbol-reversed.svg。 -->
+       负形透明（evenodd），砖与笔弧同色；深底用 symbol-on-dark.svg（无砖透明版），
+       照片/背景杂色用 symbol-reversed.svg（白砖）。 -->
   <path fill="currentColor" fill-rule="evenodd"
           d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z
            M203.34 148.19

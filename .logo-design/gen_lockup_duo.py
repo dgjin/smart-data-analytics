@@ -6,16 +6,20 @@ lockup-*.svg 用 currentColor，跟随上下文（单色印刷、深底反白）
 渐变 id（ink / tile / core）在每个文件内定义一次，嵌套 <svg> 按自身
 256 用户坐标系解析，因此符号缩放后无需改坐标。
 """
-from geom import BAND, CN, CN_FONT, CORE_D, EN, EN_FONT, INK, TILE, defs
+from geom import (BAND, BARE_VIEWBOX, CN, CN_FONT, CORE_D, EN, EN_FONT, INK, TILE, defs,
+                  defs_on_dark)
 
 
 def symbol(x, y, size, flip=False):
-    """三层光泽符号：flip=True 切反白（白砖 + 靛蓝笔弧 + 青核）。"""
-    tile = "url(#tile)" if flip else "url(#ink)"
-    band = "url(#ink)" if flip else "#FFFFFF"
+    """flip=True：无砖透明版（笔弧提亮 + 青核），直接落在深色底上。"""
+    if flip:
+        return (f'<svg x="{x}" y="{y}" width="{size}" height="{size}" viewBox="{BARE_VIEWBOX}">\n'
+                f'    <path fill="url(#ink)" d="{BAND}"/>\n'
+                f'    <path fill="url(#core)" d="{CORE_D}"/>\n'
+                f'  </svg>')
     return (f'<svg x="{x}" y="{y}" width="{size}" height="{size}" viewBox="0 0 256 256">\n'
-            f'    <path fill="{tile}" d="{TILE}"/>\n'
-            f'    <path fill="{band}" d="{BAND}"/>\n'
+            f'    <path fill="url(#ink)" d="{TILE}"/>\n'
+            f'    <path fill="#FFFFFF" d="{BAND}"/>\n'
             f'    <path fill="url(#core)" d="{CORE_D}"/>\n'
             f'  </svg>')
 
@@ -52,11 +56,11 @@ write("lockup-vertical-duo.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" vie
 ''')
 
 write("lockup-horizontal-reversed.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256" role="img" aria-label="{CN} {EN}">
-  <title>{CN} — horizontal lockup (reversed)</title>
-  <!-- 反白横版：白砖瓷面渐变 + 品牌靛蓝笔弧渐变 + 青核 + 白字，用于深色底/照片。
-       与 lockup-horizontal-duo.svg 构成正/反白对。 -->
-  {defs()}
-  {symbol(28, 32, 192, flip=True)}
+  <title>{CN} — horizontal lockup (on dark)</title>
+  <!-- 深底透明横版：无砖，笔弧提亮 + 青核 + 白字，与顶栏徽章同一形态。
+       符号 180×180 居中于 y=128；文字 x 与 duo 版对齐。 -->
+  {defs_on_dark()}
+  {symbol(34, 38, 180, flip=True)}
   <text x="252" y="138" font-family="{CN_FONT}" font-size="78" font-weight="700"
         fill="#FFFFFF" letter-spacing="2">{CN}</text>
   <text x="257" y="190" font-family="{EN_FONT}" font-size="22" font-weight="700"
