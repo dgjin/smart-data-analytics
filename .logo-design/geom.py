@@ -14,39 +14,77 @@ EN = "NL2SQL PRO"
 CN_FONT = "PingFang SC, Hiragino Sans GB, Heiti SC, Source Han Sans SC, sans-serif"
 EN_FONT = "Helvetica Neue, Arial, PingFang SC, sans-serif"
 
-# ---- 品牌色：浅靛 + 光泽（三层渐变，像素小尺寸退回 INK 单色） ----
-INK = "#4F46E5"        # 品牌靛蓝（单色 / 小尺寸 / 渐变中段）
-INK_HI = "#7A73F5"     # 光泽高光端（左上受光）
-INK_LO = "#4033C4"     # 光泽暗端（右下）
+# ---- 品牌色（D 方案：提亮 + 薄光）----
+# 主色明度 65%（原 #4F46E5 为 61%），渐变从 24 档收窄到 13 档——过渡区不再发灰。
+INK = "#6366F1"        # 品牌主色（单色退回 / 渐变中段 / 文字）
+INK_HI = "#918BFF"     # 光泽高光端（左上受光）
+INK_LO = "#5658EA"     # 光泽暗端（右下）
 TILE_HI = "#FFFFFF"    # 瓷面砖：顶部纯白
-TILE_MD = "#FBFBFF"
-TILE_LO = "#EBEEFC"    # 砖底微冷，产生厚度感（不再发灰）
-CORE_HI = "#C7F9FE"    # 核心球面高光（中心偏左上）
-CORE_MD = "#5FE9F6"
-CORE_LO = "#1FC4E4"
+TILE_MD = "#FDFDFF"
+TILE_LO = "#F1F2FF"    # 砖底微冷，产生厚度感（不再发灰）
+CORE_HI = "#EEFFFF"    # 核心球面高光（中心偏左上）
+CORE_MD = "#7BEEFB"
+CORE_LO = "#1FC3E2"
 ACCENT = "#22D3EE"
 
 # ---- 深色底透明版：砖退场，笔弧整体提亮，核加高光 ----
-# 背景 slate-900 #0F172A 下：亮端 7.6:1 / 暗端 3.2:1，均过非文本 3:1
-ON_DARK_HI = "#ABA6FC"
-ON_DARK = "#7C74F5"
-ON_DARK_LO = "#5B51E8"
-CORE_DK_HI = "#D9FCFF"
-CORE_DK_MID = "#5FE9F6"
-CORE_DK_LO = "#22D3EE"
+# 背景 slate-900 #0F172A 下：亮端 10.2:1 / 暗端 3.9:1，全程过非文本 3:1
+ON_DARK_HI = "#C0BBFF"
+ON_DARK = "#8B85FA"
+ON_DARK_LO = "#6C63F0"
+CORE_DK_HI = "#F6FFFF"
+CORE_DK_MID = "#8AF0FC"
+CORE_DK_LO = "#22CEE8"
 # 无砖时 viewBox 收到笔弧外接框（r78 → 50..206，留 6 边），不再替砖占位
 BARE_VIEWBOX = "44 44 168 168"
 
+# ---- 薄光材质：纯渐变实现（禁 filter / 禁位图），强度取 D 方案实测值 ----
+# 再强会压掉亮度（C 方案的教训），再弱就退回平涂。
+SW_HI, SW_LO = 0.24, 0.10  # 砖面斜向扫光：左上提亮 / 右下压暗
+SH_HI, SH_LO = 0.38, 0.12  # 笔弧斜向受光（仅深底透明版——白笔弧叠黑会发灰）
+TOPHL = 0.50              # 砖顶 2px 内高光
+RIM = 0.55                # 核的边缘光（上亮下隐）
+SPEC = 0.70               # 核的镜面高光点
 
-def defs(prefix=""):
-    """三层光泽渐变：笔弧金属 / 砖面瓷面 / 核心球面。同一文档内定义一次即可。
+
+def _material_defs(p):
+    """薄光材质的渐变定义，浅底砖版与深底透明版共用一份。"""
+    return (
+        f'    <linearGradient id="{p}sweep" gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SW_HI}"/>\n'
+        f'      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        f'      <stop offset="100%" stop-color="#000000" stop-opacity="{SW_LO}"/>\n'
+        '    </linearGradient>\n'
+        f'    <linearGradient id="{p}sheen" gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SH_HI}"/>\n'
+        f'      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.05"/>\n'
+        f'      <stop offset="100%" stop-color="#000000" stop-opacity="{SH_LO}"/>\n'
+        '    </linearGradient>\n'
+        f'    <linearGradient id="{p}topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{TOPHL}"/>\n'
+        f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        '    </linearGradient>\n'
+        f'    <linearGradient id="{p}rim" gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{RIM}"/>\n'
+        f'      <stop offset="46%" stop-color="#FFFFFF" stop-opacity="0.16"/>\n'
+        f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        '    </linearGradient>\n'
+        f'    <radialGradient id="{p}spec" gradientUnits="userSpaceOnUse" cx="119" cy="114" r="10">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SPEC}"/>\n'
+        f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        '    </radialGradient>\n'
+    )
+
+
+def defs(prefix="", material=True):
+    """三层光泽渐变：笔弧金属 / 砖面瓷面 / 核心球面，外加薄光材质层。
 
     userSpaceOnUse 坐标按 256 画布给出——嵌套 <svg viewBox="0 0 256 256"> 内引用时
     解析的是元素自身的用户坐标系，因此内外尺寸不同也无需改坐标。
+    material=False 供满版 app icon 使用：构图里没有砖，不需要扫光与边缘光。
     """
     p = prefix
-    return (
-        '<defs>\n'
+    body = (
         f'    <linearGradient id="{p}ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">\n'
         f'      <stop offset="0%" stop-color="{INK_HI}"/>\n'
         f'      <stop offset="46%" stop-color="{INK}"/>\n'
@@ -62,15 +100,16 @@ def defs(prefix=""):
         f'      <stop offset="44%" stop-color="{CORE_MD}"/>\n'
         f'      <stop offset="100%" stop-color="{CORE_LO}"/>\n'
         '    </radialGradient>\n'
-        '  </defs>'
     )
+    if material:
+        body += _material_defs(p)
+    return '<defs>\n' + body + '  </defs>'
 
 
-def defs_on_dark(prefix=""):
+def defs_on_dark(prefix="", material=True):
     """深色底的透明版渐变：无砖面，只有提亮的笔弧与更亮的核心。"""
     p = prefix
-    return (
-        '<defs>\n'
+    body = (
         f'    <linearGradient id="{p}ink" gradientUnits="userSpaceOnUse" x1="60" y1="52" x2="200" y2="210">\n'
         f'      <stop offset="0%" stop-color="{ON_DARK_HI}"/>\n'
         f'      <stop offset="46%" stop-color="{ON_DARK}"/>\n'
@@ -81,8 +120,10 @@ def defs_on_dark(prefix=""):
         f'      <stop offset="44%" stop-color="{CORE_DK_MID}"/>\n'
         f'      <stop offset="100%" stop-color="{CORE_DK_LO}"/>\n'
         '    </radialGradient>\n'
-        '  </defs>'
     )
+    if material:
+        body += _material_defs(p)
+    return '<defs>\n' + body + '  </defs>'
 
 
 def f(v):
@@ -138,3 +179,30 @@ def mark(band, core, fill="currentColor", indent="  "):
 
 BAND, CORE_D = geometry(78, 38, 32, 22)        # 主标
 FAV_BAND, FAV_CORE = geometry(80, 40, 40, 24)  # 16–32px 简化版
+
+
+def symbol_body(prefix="", on_dark=False, invert=False):
+    """符号的完整图层序列（含薄光材质），生成器直接嵌进 <svg> 即可。
+
+    浅底砖版：砖 → 斜扫光 → 砖顶内高光 → 笔弧 → 核 → 边缘光 → 镜面点
+    深底透明版：提亮笔弧 → 笔弧受光 → 核 → 边缘光 → 镜面点
+    invert=True 为反白（白砖 + 品牌主色笔弧），用于照片与深色底/浅底互转的反相场景。
+
+    图层顺序即显隐——后面的盖在前面上；全部用渐变与描边完成，不用 filter。
+    """
+    p = prefix
+    out = []
+    if on_dark:
+        out.append(f'<path fill="url(#{p}ink)" d="{BAND}"/>')
+        out.append(f'<path fill="url(#{p}sheen)" d="{BAND}"/>')
+    else:
+        out.append(f'<path fill="url(#{p}tile)" d="{TILE}"/>' if invert
+                   else f'<path fill="url(#{p}ink)" d="{TILE}"/>')
+        out.append(f'<path fill="url(#{p}sweep)" d="{TILE}"/>')
+        out.append(f'<path fill="none" stroke="url(#{p}topHL)" stroke-width="2" d="{TILE}"/>')
+        out.append(f'<path fill="url(#{p}ink)" d="{BAND}"/>' if invert
+                   else f'<path fill="#FFFFFF" d="{BAND}"/>')
+    out.append(f'<path fill="url(#{p}core)" d="{CORE_D}"/>')
+    out.append(f'<circle cx="128" cy="128" r="21.3" fill="none" stroke="url(#{p}rim)" stroke-width="1.5"/>')
+    out.append(f'<ellipse cx="119" cy="114" rx="9" ry="7" fill="url(#{p}spec)"/>')
+    return "\n  ".join(out)

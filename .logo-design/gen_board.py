@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 BG = (246, 247, 250)
 DARK = (17, 20, 40)
 GREY = (108, 116, 134)
-INK = (79, 70, 229)
+INK = (99, 102, 241)
 
 FONT = "/System/Library/Fonts/Helvetica.ttc"
 W, H = 1600, 1010

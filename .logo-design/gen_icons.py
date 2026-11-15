@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""App icon / maskable：满版靛蓝瓷面渐变底 + 白笔弧 + 球面高光核（内容放大到 ~70%）。
+"""App icon / maskable：满版品牌色瓷面渐变底（含斜扫光）+ 白笔弧 + 球面高光核（内容放大到 ~70%）。
 
 export_variants 的 app-icon 是「mark 叠在色块上」，对实心砖标记会套成两层；
 这里直接按满版构图生成。favicon 保持平面色——16px 上看不出渐变，反而拖累清晰度。
 """
+import io
 import subprocess
 import sys
+
+import cairosvg
+from PIL import Image
 
 from geom import ACCENT, BAND, CORE_D, FAV_BAND, FAV_CORE, INK, TILE, defs
 
@@ -13,10 +17,12 @@ SCALE = 1.15
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="智能问数">
   <title>智能问数 — app icon</title>
-  <!-- 满版构图：靛蓝瓷面渐变底（{INK} 为中段）+ 白笔弧 + 球面高光核，内容缩放 {SCALE}（占画布约 70%，满足 maskable 安全区）。
-       iOS 的圆角由系统裁切，因此不做圆角。 -->
+  <!-- 满版构图：品牌色瓷面渐变底（{INK} 为中段，叠一层斜扫光）+ 白笔弧 + 球面高光核，
+       内容缩放 {SCALE}（占画布约 70%，满足 maskable 安全区）。
+       iOS 的圆角由系统裁切，因此不做圆角；也不加砖顶内高光（会被裁成亮边）。 -->
   {defs()}
   <rect width="256" height="256" fill="url(#ink)"/>
+  <rect width="256" height="256" fill="url(#sweep)"/>
   <g transform="translate(128 128) scale({SCALE}) translate(-128 -128)">
     <path fill="#FFFFFF" d="{BAND}"/>
     <path fill="url(#core)" d="{CORE_D}"/>
@@ -49,3 +55,9 @@ fav = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="2
 '''
 open("kit/export/favicon-color.svg", "w", encoding="utf-8").write(fav)
 print("wrote kit/export/favicon-color.svg")
+
+# 多尺寸 .ico（16/32/48）：从同一份 favicon-color.svg 渲出，保证与标签页图标同源。
+png = cairosvg.svg2png(url="kit/export/favicon-color.svg", output_width=48)
+ico = Image.open(io.BytesIO(png)).convert("RGBA")
+ico.save("kit/export/favicon.ico", sizes=[(48, 48), (32, 32), (16, 16)])
+print("wrote kit/export/favicon.ico")

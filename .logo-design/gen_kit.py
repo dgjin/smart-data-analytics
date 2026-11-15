@@ -8,7 +8,7 @@
 import os
 
 from geom import (ACCENT, BAND, BARE_VIEWBOX, CN, CN_FONT, CORE_D, EN, EN_FONT, FAV_BAND,
-                  FAV_CORE, INK, TILE, defs, defs_on_dark)
+                  FAV_CORE, INK, TILE, defs, defs_on_dark, symbol_body)
 
 os.makedirs("kit", exist_ok=True)
 
@@ -33,28 +33,25 @@ write("symbol.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256
 </svg>
 ''')
 
-# 2) 双色·光泽（砖=斜向瓷面渐变，笔弧=白，核=球面高光）
+# 2) 双色·光泽（砖=斜向瓷面渐变 + 斜扫光 + 砖顶内高光，笔弧=白，核=球面高光 + 边缘光）
 write("symbol-duo.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="{CN}">
   <title>{CN}</title>
-  <!-- 双色·光泽：砖面斜向瓷面渐变（{INK} 为渐变中段）/ 笔弧 #FFFFFF / 核心球面高光。
+  <!-- 双色·光泽（D 方案）：砖面斜向瓷面渐变（{INK} 为渐变中段）/ 白笔弧 / 核心球面高光。
+       薄光材质：砖面斜扫光 + 砖顶 2px 内高光 + 核边缘光 + 镜面高光点——全用渐变，无 filter。
        核是全标唯一的彩色点——数据汇聚成判断，判断被点亮。
        单色场景退回 symbol.svg；16–32px 用 favicon-source.svg 的平面色。 -->
   {defs()}
-  <path fill="url(#ink)" d="{TILE}"/>
-  <path fill="#FFFFFF" d="{BAND}"/>
-  <path fill="url(#core)" d="{CORE_D}"/>
+  {symbol_body()}
 </svg>
 ''')
 
-# 3) 反白·光泽（白砖渐变 + 品牌靛蓝笔弧渐变 + 青核，深底用）
+# 3) 反白·光泽（白砖渐变 + 品牌主色笔弧渐变 + 青核，深底用）
 write("symbol-reversed.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="{CN}">
   <title>{CN}</title>
-  <!-- 反白·光泽：白砖瓷面渐变 + 品牌靛蓝金属渐变笔弧 + 青核球面高光，用于深色底/照片。
+  <!-- 反白·光泽：白砖瓷面渐变 + 品牌主色金属渐变笔弧 + 青核球面高光，用于深色底/照片。
        三层显式上色（不依赖背景透出），与 symbol-duo.svg 构成正/反白对。 -->
   {defs()}
-  <path fill="url(#tile)" d="{TILE}"/>
-  <path fill="url(#ink)" d="{BAND}"/>
-  <path fill="url(#core)" d="{CORE_D}"/>
+  {symbol_body(invert=True)}
 </svg>
 ''')
 
@@ -62,11 +59,11 @@ write("symbol-reversed.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox
 write("symbol-on-dark.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="{BARE_VIEWBOX}" role="img" aria-label="{CN}">
   <title>{CN}</title>
   <!-- 透明版：不画砖，笔弧与核直接落在深色背景上（顶栏 / 登录页实际使用）。
-       砖退场后靠提亮撑对比度：#ABA6FC→#5B51E8 在 slate-900 上 7.6:1→3.2:1。
+       砖退场后靠提亮撑对比度：#C0BBFF→#6C63F0 在 slate-900 上 10.2:1→3.9:1。
+       笔弧叠一层斜向受光 + 核边缘光 + 镜面高光点，保住质感又不压暗。
        viewBox 收到笔弧外接框（{BARE_VIEWBOX}），避免无砖后视觉尺寸缩水。 -->
   {defs_on_dark()}
-  <path fill="url(#ink)" d="{BAND}"/>
-  <path fill="url(#core)" d="{CORE_D}"/>
+  {symbol_body(on_dark=True)}
 </svg>
 ''')
 

@@ -1,18 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="44 44 168 168" role="img" aria-label="智能问数">
   <title>智能问数</title>
   <!-- 透明版：不画砖，笔弧与核直接落在深色背景上（顶栏 / 登录页实际使用）。
-       砖退场后靠提亮撑对比度：#ABA6FC→#5B51E8 在 slate-900 上 7.6:1→3.2:1。
+       砖退场后靠提亮撑对比度：#C0BBFF→#6C63F0 在 slate-900 上 10.2:1→3.9:1。
+       笔弧叠一层斜向受光 + 核边缘光 + 镜面高光点，保住质感又不压暗。
        viewBox 收到笔弧外接框（44 44 168 168），避免无砖后视觉尺寸缩水。 -->
   <defs>
     <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="60" y1="52" x2="200" y2="210">
-      <stop offset="0%" stop-color="#ABA6FC"/>
-      <stop offset="46%" stop-color="#7C74F5"/>
-      <stop offset="100%" stop-color="#5B51E8"/>
+      <stop offset="0%" stop-color="#C0BBFF"/>
+      <stop offset="46%" stop-color="#8B85FA"/>
+      <stop offset="100%" stop-color="#6C63F0"/>
     </linearGradient>
     <radialGradient id="core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
-      <stop offset="0%" stop-color="#D9FCFF"/>
-      <stop offset="44%" stop-color="#5FE9F6"/>
-      <stop offset="100%" stop-color="#22D3EE"/>
+      <stop offset="0%" stop-color="#F6FFFF"/>
+      <stop offset="44%" stop-color="#8AF0FC"/>
+      <stop offset="100%" stop-color="#22CEE8"/>
+    </radialGradient>
+    <linearGradient id="sweep" gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.24"/>
+      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.1"/>
+    </linearGradient>
+    <linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.38"/>
+      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="46%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="spec" gradientUnits="userSpaceOnUse" cx="119" cy="114" r="10">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <path fill="url(#ink)" d="M203.34 148.19
@@ -33,5 +57,25 @@
            C135.45 164.93 143.6 162.55 150.35 157.8
            C157.24 152.95 162.28 145.9 164.71 137.84
            A20 20 0 0 0 203.34 148.19Z"/>
+  <path fill="url(#sheen)" d="M203.34 148.19
+           C197.23 163.86 185.91 177.37 171.36 185.8
+           C157.91 193.57 141.9 196.82 126.55 194.48
+           C112.47 192.34 99.09 185.46 89.46 174.96
+           C80.7 165.41 75.11 152.84 74.3 139.9
+           C73.58 128.26 76.8 116.19 83.59 106.7
+           C89.63 98.26 98.73 91.68 108.76 88.99
+           C117.54 86.63 127.51 87.25 135.77 91.06
+           C142.86 94.33 149.23 100.35 152.51 107.43
+           C148.05 101.72 141.78 97.69 134.74 95.95
+           C127.54 94.18 119.94 94.9 113.18 97.95
+           C106.27 101.08 100.62 106.46 97.12 113.19
+           C93.54 120.06 92.4 127.96 93.83 135.58
+           C95.29 143.36 99.36 150.42 105.32 155.64
+           C111.41 160.96 119.13 164.07 127.2 164.49
+           C135.45 164.93 143.6 162.55 150.35 157.8
+           C157.24 152.95 162.28 145.9 164.71 137.84
+           A20 20 0 0 0 203.34 148.19Z"/>
   <path fill="url(#core)" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z"/>
+  <circle cx="128" cy="128" r="21.3" fill="none" stroke="url(#rim)" stroke-width="1.5"/>
+  <ellipse cx="119" cy="114" rx="9" ry="7" fill="url(#spec)"/>
 </svg>

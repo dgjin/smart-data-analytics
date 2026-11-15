@@ -1,7 +1,8 @@
 /** 智能问数品牌标识（「一笔」）：方砖 + 盘绕笔弧 + 中心一颗点亮核，顶栏与登录页共用。
  *
  * - 符号语义：粗端=涌入的数据，沿绕收细=提炼，中心核=被点亮的判断；
- * - 上色：三层光泽渐变（砖面瓷面 / 笔弧金属 / 核心球面），与小尺寸平面版同色系；
+ * - 上色：三层光泽渐变（砖面瓷面 / 笔弧金属 / 核心球面）+ 薄光材质（砖面斜扫光、砖顶内高光、
+ *   笔弧斜向受光、核边缘光与镜面点），与小尺寸平面版同色系；
  * - tone：dark=深色 UI 上的透明版（默认，无砖／提亮笔弧／高光核）；light=浅底上的砖版；
  * - size：md=顶栏 56px / lg=登录页 80px；pulse 控制核的呼吸（顶栏启用）；
  * - 与智能运维控制台的「脉冲徽章」同源——同一枚徽章，同一处隐藏信号。
@@ -36,16 +37,36 @@ const MARK_BAND = [
 
 /** 核（r22）：全标唯一的彩色点。 */
 const CORE_PATH = 'M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z';
-/** 品牌主色：小尺寸单色场景（favicon）用 BRAND_INK；大尺寸铺三层渐变产生光泽。 */
-const BRAND_INK = '#4F46E5';
-const BRAND_INK_HI = '#7A73F5';
-const BRAND_INK_LO = '#4033C4';
-/** 深色底透明版：砖退场，笔弧提亮到 slate-900 上 7.6:1→3.2:1，核加高光。 */
-const ON_DARK_HI = '#ABA6FC';
-const ON_DARK = '#7C74F5';
-const ON_DARK_LO = '#5B51E8';
-const ON_DARK_CORE_HI = '#D9FCFF';
-const ON_DARK_CORE_LO = '#22D3EE';
+/** 品牌主色（D 方案）：明度 61%→65%，渐变从 24 档收窄到 13 档，过渡区不再发灰。
+ *  小尺寸单色场景（favicon）用 BRAND_INK；大尺寸铺三层渐变产生光泽。 */
+const BRAND_INK = '#6366F1';
+const BRAND_INK_HI = '#918BFF';
+const BRAND_INK_LO = '#5658EA';
+/** 瓷面砖渐变：底部微冷，产生厚度感。 */
+const TILE_HI = '#FFFFFF';
+const TILE_MD = '#FDFDFF';
+const TILE_LO = '#F1F2FF';
+/** 核的球面：高光居中偏左上，边缘回落到青。 */
+const CORE_HI = '#EEFFFF';
+const CORE_MD = '#7BEEFB';
+const CORE_LO = '#1FC3E2';
+/** 深色底透明版：砖退场，笔弧提亮到 slate-900 上 10.2:1 → 3.9:1，核加高光。 */
+const ON_DARK_HI = '#C0BBFF';
+const ON_DARK = '#8B85FA';
+const ON_DARK_LO = '#6C63F0';
+const ON_DARK_CORE_HI = '#F6FFFF';
+const ON_DARK_CORE_MID = '#8AF0FC';
+const ON_DARK_CORE_LO = '#22CEE8';
+
+/** 薄光材质（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
+ *  再强会压掉亮度，再弱就退回平涂——这四个系数是四轮配色实测的结果。 */
+const SWEEP_HI = 0.24; // 砖面斜扫：左上提亮
+const SWEEP_LO = 0.1; // 砖面斜扫：右下压暗
+const SHEEN_HI = 0.38; // 笔弧斜向受光（仅深底——白笔弧叠黑会发灰）
+const SHEEN_LO = 0.12;
+const TOP_HL = 0.5; // 砖顶 2px 内高光
+const RIM = 0.55; // 核边缘光（上亮下隐）
+const SPEC = 0.7; // 核镜面高光点
 
 /** ⌁ PULSE-0（香格里拉）· 未注册数据源：徽章 2.5s 内五连击解锁的隐藏信号卡。
  *  卡片三线索 ☾☼ / LOST HORIZON / N27°49′ E99°42′ 均指向本署名（请勿在卡片中直书）。
@@ -117,20 +138,62 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
             </linearGradient>
             {/* 砖面瓷面：仅浅底砖版使用 */}
             <linearGradient id={`tile-${uid}`} gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
-              <stop offset="0%" stopColor="#FFFFFF" />
-              <stop offset="58%" stopColor="#FBFBFF" />
-              <stop offset="100%" stopColor="#EBEEFC" />
+              <stop offset="0%" stopColor={TILE_HI} />
+              <stop offset="58%" stopColor={TILE_MD} />
+              <stop offset="100%" stopColor={TILE_LO} />
             </linearGradient>
             {/* 核心球面：高光偏左上，边缘回落到青 */}
             <radialGradient id={`core-${uid}`} gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
-              <stop offset="0%" stopColor={onDark ? ON_DARK_CORE_HI : '#C7F9FE'} />
-              <stop offset="44%" stopColor="#5FE9F6" />
-              <stop offset="100%" stopColor={onDark ? ON_DARK_CORE_LO : '#1FC4E4'} />
+              <stop offset="0%" stopColor={onDark ? ON_DARK_CORE_HI : CORE_HI} />
+              <stop offset="44%" stopColor={onDark ? ON_DARK_CORE_MID : CORE_MD} />
+              <stop offset="100%" stopColor={onDark ? ON_DARK_CORE_LO : CORE_LO} />
+            </radialGradient>
+            {/* 薄光材质：砖面斜扫 / 笔弧受光 / 砖顶内高光 / 核边缘光 / 镜面点 */}
+            <linearGradient id={`sweep-${uid}`} gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SWEEP_HI} />
+              <stop offset="38%" stopColor="#FFFFFF" stopOpacity="0" />
+              <stop offset="100%" stopColor="#000000" stopOpacity={SWEEP_LO} />
+            </linearGradient>
+            <linearGradient id={`sheen-${uid}`} gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SHEEN_HI} />
+              <stop offset="38%" stopColor="#FFFFFF" stopOpacity="0.05" />
+              <stop offset="100%" stopColor="#000000" stopOpacity={SHEEN_LO} />
+            </linearGradient>
+            <linearGradient id={`topHL-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={TOP_HL} />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id={`rim-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={RIM} />
+              <stop offset="46%" stopColor="#FFFFFF" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+            <radialGradient id={`spec-${uid}`} gradientUnits="userSpaceOnUse" cx="119" cy="114" r="10">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SPEC} />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </radialGradient>
           </defs>
-          {!onDark && <path fill={tile} d={TILE_PATH} />}
-          <path fill={onDark ? ink : '#FFFFFF'} d={MARK_BAND} />
-          <path fill={core} d={CORE_PATH} className={pulse ? 'animate-pulse' : undefined} />
+          {onDark ? (
+            <>
+              <path fill={ink} d={MARK_BAND} />
+              {/* 笔弧斜向受光：左上提亮、右下压暗，深底上才有体积感 */}
+              <path fill={`url(#sheen-${uid})`} d={MARK_BAND} />
+            </>
+          ) : (
+            <>
+              <path fill={tile} d={TILE_PATH} />
+              <path fill={`url(#sweep-${uid})`} d={TILE_PATH} />
+              {/* 砖顶 2px 内高光：让方砖有厚度，不像一块贴纸 */}
+              <path fill="none" stroke={`url(#topHL-${uid})`} strokeWidth="2" d={TILE_PATH} />
+              <path fill="#FFFFFF" d={MARK_BAND} />
+            </>
+          )}
+          {/* 核与玻璃层一起呼吸：单脉冲核会让高光悬空 */}
+          <g className={pulse ? 'animate-pulse' : undefined}>
+            <path fill={core} d={CORE_PATH} />
+            <circle cx="128" cy="128" r="21.3" fill="none" stroke={`url(#rim-${uid})`} strokeWidth="1.5" />
+            <ellipse cx="119" cy="114" rx="9" ry="7" fill={`url(#spec-${uid})`} />
+          </g>
         </svg>
       </div>
       {signalOpen && <PulseSignal onClose={() => setSignalOpen(false)} />}

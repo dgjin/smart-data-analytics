@@ -61,7 +61,7 @@ for size in (16, 24, 32, 48, 56, 80):
 
 # ---- 浅底资产：砖版 app icon / 双色符号 / 标签页 favicon ----
 d.rectangle((0, 560, W, H), fill=LIGHT_BG + (255,))
-text(d, (120, 578), "ON LIGHT · tiled versions (app icon / symbol / favicon)", 13, (79, 70, 229))
+text(d, (120, 578), "ON LIGHT · tiled versions (app icon / symbol / favicon)", 13, (99, 102, 241))
 bottom = 752
 
 app = render("kit/export/app-icon-1024.png", 150)

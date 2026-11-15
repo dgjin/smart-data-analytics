@@ -6,21 +6,21 @@ lockup-*.svg 用 currentColor，跟随上下文（单色印刷、深底反白）
 渐变 id（ink / tile / core）在每个文件内定义一次，嵌套 <svg> 按自身
 256 用户坐标系解析，因此符号缩放后无需改坐标。
 """
-from geom import (BAND, BARE_VIEWBOX, CN, CN_FONT, CORE_D, EN, EN_FONT, INK, TILE, defs,
-                  defs_on_dark)
+from geom import (BARE_VIEWBOX, CN, CN_FONT, EN, EN_FONT, INK, defs, defs_on_dark,
+                  symbol_body)
 
 
 def symbol(x, y, size, flip=False):
-    """flip=True：无砖透明版（笔弧提亮 + 青核），直接落在深色底上。"""
+    """flip=True：无砖透明版（笔弧提亮 + 青核），直接落在深色底上。
+
+    图层（含薄光材质）来自 geom.symbol_body，与单枚符号、Logo.tsx 同源。
+    """
     if flip:
         return (f'<svg x="{x}" y="{y}" width="{size}" height="{size}" viewBox="{BARE_VIEWBOX}">\n'
-                f'    <path fill="url(#ink)" d="{BAND}"/>\n'
-                f'    <path fill="url(#core)" d="{CORE_D}"/>\n'
+                f'    {symbol_body(on_dark=True)}\n'
                 f'  </svg>')
     return (f'<svg x="{x}" y="{y}" width="{size}" height="{size}" viewBox="0 0 256 256">\n'
-            f'    <path fill="url(#ink)" d="{TILE}"/>\n'
-            f'    <path fill="#FFFFFF" d="{BAND}"/>\n'
-            f'    <path fill="url(#core)" d="{CORE_D}"/>\n'
+            f'    {symbol_body()}\n'
             f'  </svg>')
 
 
@@ -32,7 +32,7 @@ def write(name, text):
 write("lockup-horizontal-duo.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256" role="img" aria-label="{CN} {EN}">
   <title>{CN} — horizontal lockup (colour)</title>
   <!-- 彩色横版：符号 192 + 中文 78/700 + 英文副行 22/700（字距 5）。
-       砖面瓷面渐变 / 笔弧 #FFFFFF / 青核球面高光，文字用品牌靛蓝 {INK}。
+       砖面瓷面渐变（含斜扫光与砖顶内高光）/ 白笔弧 / 青核（含边缘光与镜面点），文字用品牌主色 {INK}。
        单色与反白请用 lockup-horizontal.svg（currentColor）。 -->
   {defs()}
   {symbol(28, 32, 192)}
