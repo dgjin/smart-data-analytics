@@ -1,8 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="智能问数">
   <title>智能问数</title>
-  <!-- 双色：砖 #312E81 / 笔弧 #FFFFFF / 核 #22D3EE。核是全标唯一的彩色点——
-       数据汇聚成判断，判断被点亮。单色场景退回 symbol.svg。 -->
-  <path fill="#312E81" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+  <!-- 双色·光泽：砖面斜向瓷面渐变（#4F46E5 为渐变中段）/ 笔弧 #FFFFFF / 核心球面高光。
+       核是全标唯一的彩色点——数据汇聚成判断，判断被点亮。
+       单色场景退回 symbol.svg；16–32px 用 favicon-source.svg 的平面色。 -->
+  <defs>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
+      <stop offset="0%" stop-color="#7A73F5"/>
+      <stop offset="46%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#4033C4"/>
+    </linearGradient>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="58%" stop-color="#FBFBFF"/>
+      <stop offset="100%" stop-color="#EBEEFC"/>
+    </linearGradient>
+    <radialGradient id="core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
+      <stop offset="0%" stop-color="#C7F9FE"/>
+      <stop offset="44%" stop-color="#5FE9F6"/>
+      <stop offset="100%" stop-color="#1FC4E4"/>
+    </radialGradient>
+  </defs>
+  <path fill="url(#ink)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
   <path fill="#FFFFFF" d="M203.34 148.19
            C197.23 163.86 185.91 177.37 171.36 185.8
            C157.91 193.57 141.9 196.82 126.55 194.48
@@ -21,5 +39,5 @@
            C135.45 164.93 143.6 162.55 150.35 157.8
            C157.24 152.95 162.28 145.9 164.71 137.84
            A20 20 0 0 0 203.34 148.19Z"/>
-  <path fill="#22D3EE" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z"/>
+  <path fill="url(#core)" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z"/>
 </svg>

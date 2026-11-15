@@ -1,10 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256" role="img" aria-label="智能问数 NL2SQL PRO">
   <title>智能问数 — horizontal lockup (reversed)</title>
-  <!-- 反白横版：白砖 + 品牌蓝笔弧 + 青核 + 白字，用于深色底/照片。
+  <!-- 反白横版：白砖瓷面渐变 + 品牌靛蓝笔弧渐变 + 青核 + 白字，用于深色底/照片。
        与 lockup-horizontal-duo.svg 构成正/反白对。 -->
+  <defs>
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
+      <stop offset="0%" stop-color="#7A73F5"/>
+      <stop offset="46%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#4033C4"/>
+    </linearGradient>
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="58%" stop-color="#FBFBFF"/>
+      <stop offset="100%" stop-color="#EBEEFC"/>
+    </linearGradient>
+    <radialGradient id="core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
+      <stop offset="0%" stop-color="#C7F9FE"/>
+      <stop offset="44%" stop-color="#5FE9F6"/>
+      <stop offset="100%" stop-color="#1FC4E4"/>
+    </radialGradient>
+  </defs>
   <svg x="28" y="32" width="192" height="192" viewBox="0 0 256 256">
-    <path fill="#FFFFFF" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
-    <path fill="#312E81" d="M203.34 148.19
+    <path fill="url(#tile)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+    <path fill="url(#ink)" d="M203.34 148.19
            C197.23 163.86 185.91 177.37 171.36 185.8
            C157.91 193.57 141.9 196.82 126.55 194.48
            C112.47 192.34 99.09 185.46 89.46 174.96
@@ -22,7 +39,7 @@
            C135.45 164.93 143.6 162.55 150.35 157.8
            C157.24 152.95 162.28 145.9 164.71 137.84
            A20 20 0 0 0 203.34 148.19Z"/>
-    <path fill="#22D3EE" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z"/>
+    <path fill="url(#core)" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z"/>
   </svg>
   <text x="252" y="138" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, Source Han Sans SC, sans-serif" font-size="78" font-weight="700"
         fill="#FFFFFF" letter-spacing="2">智能问数</text>

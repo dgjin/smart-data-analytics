@@ -1,77 +1,14 @@
 #!/usr/bin/env python3
-"""生成交付 kit：符号（单色/双色/反白）、favicon 简化版、横版与竖版锁合。
+"""生成交付 kit：符号（单色 / 双色·光泽 / 反白·光泽）、favicon 简化版、横版与竖版锁合。
 
-几何：极坐标螺旋笔弧，带宽线性收到 0（收成尖），8 段三次贝塞尔拟合。
+几何与配色全部来自 geom.py（单一真源）：
 - 主标：R 78→38，尖端半径 32，核 22（核与笔弧间隙 10）
 - favicon：R 80→40，尖端半径 40，核 24（间隙 16，小尺寸不糊）
 """
-import math
 import os
 
-CX = CY = 128.0
-TH0 = 15.0
-SWEEP = 305.0
-NSEG = 8
-TILE = ("M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56"
-        "A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z")
-
-CN = "智能问数"
-EN = "NL2SQL PRO"
-CN_FONT = "PingFang SC, Hiragino Sans GB, Heiti SC, Source Han Sans SC, sans-serif"
-EN_FONT = "Helvetica Neue, Arial, PingFang SC, sans-serif"
-
-INK = "#312E81"
-ACCENT = "#22D3EE"
-
-
-def f(v):
-    return f"{v:.2f}".rstrip("0").rstrip(".")
-
-
-def geometry(r_out, r_in, r_tip, core_r):
-    """返回 (笔弧 d, 核 d)。t∈[0,1] 从粗端走到尖端。"""
-    th0, sweep = math.radians(TH0), math.radians(SWEEP)
-
-    def rad(t, outer):
-        base = r_out if outer else r_in
-        return base + (r_tip - base) * t
-
-    def pos(t, outer):
-        r, a = rad(t, outer), th0 + sweep * t
-        return CX + r * math.cos(a), CY + r * math.sin(a)
-
-    def der(t, outer):
-        b = ((r_tip - r_out) if outer else (r_tip - r_in)) / sweep
-        r, a = rad(t, outer), th0 + sweep * t
-        return b * math.cos(a) - r * math.sin(a), b * math.sin(a) + r * math.cos(a)
-
-    def seg(t0, t1, outer):
-        p0, p3 = pos(t0, outer), pos(t1, outer)
-        d0, d3 = der(t0, outer), der(t1, outer)
-        n0, n3 = math.hypot(*d0), math.hypot(*d3)
-        u0 = (d0[0] / n0, d0[1] / n0)
-        u3 = (d3[0] / n3, d3[1] / n3)
-        L = (4.0 / 3.0) * math.tan((t1 - t0) * sweep / 4.0) * rad((t0 + t1) / 2.0, outer)
-        return p0, (p0[0] + u0[0] * L, p0[1] + u0[1] * L), (p3[0] - u3[0] * L, p3[1] - u3[1] * L), p3
-
-    ts = [i / NSEG for i in range(NSEG + 1)]
-    d = [f"M{f(pos(0, True)[0])} {f(pos(0, True)[1])}"]
-    for i in range(NSEG):
-        _, c1, c2, p3 = seg(ts[i], ts[i + 1], True)
-        d.append(f"C{f(c1[0])} {f(c1[1])} {f(c2[0])} {f(c2[1])} {f(p3[0])} {f(p3[1])}")
-    for i in reversed(range(NSEG)):
-        p0, c1, c2, p3 = seg(ts[i], ts[i + 1], False)
-        d.append(f"C{f(c2[0])} {f(c2[1])} {f(c1[0])} {f(c1[1])} {f(p0[0])} {f(p0[1])}")
-    s = pos(0, True)
-    cap = (r_out - r_in) / 2.0
-    d.append(f"A{cap:g} {cap:g} 0 0 0 {f(s[0])} {f(s[1])}Z")
-    core = (f"M{f(CX + core_r)} {f(CY)}A{core_r:g} {core_r:g} 0 1 1 {f(CX - core_r)} {f(CY)}"
-            f"A{core_r:g} {core_r:g} 0 1 1 {f(CX + core_r)} {f(CY)}Z")
-    return "\n           ".join(d), core
-
-
-BAND, CORE_D = geometry(78, 38, 32, 22)
-FAV_BAND, FAV_CORE = geometry(80, 40, 40, 24)
+from geom import (ACCENT, BAND, CN, CN_FONT, CORE_D, EN, EN_FONT, FAV_BAND, FAV_CORE,
+                  INK, TILE, defs)
 
 os.makedirs("kit", exist_ok=True)
 
@@ -95,25 +32,28 @@ write("symbol.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256
 </svg>
 ''')
 
-# 2) 双色（砖=品牌深靛，笔弧=白，核=强调青）
+# 2) 双色·光泽（砖=斜向瓷面渐变，笔弧=白，核=球面高光）
 write("symbol-duo.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="{CN}">
   <title>{CN}</title>
-  <!-- 双色：砖 {INK} / 笔弧 #FFFFFF / 核 {ACCENT}。核是全标唯一的彩色点——
-       数据汇聚成判断，判断被点亮。单色场景退回 symbol.svg。 -->
-  <path fill="{INK}" d="{TILE}"/>
+  <!-- 双色·光泽：砖面斜向瓷面渐变（{INK} 为渐变中段）/ 笔弧 #FFFFFF / 核心球面高光。
+       核是全标唯一的彩色点——数据汇聚成判断，判断被点亮。
+       单色场景退回 symbol.svg；16–32px 用 favicon-source.svg 的平面色。 -->
+  {defs()}
+  <path fill="url(#ink)" d="{TILE}"/>
   <path fill="#FFFFFF" d="{BAND}"/>
-  <path fill="{ACCENT}" d="{CORE_D}"/>
+  <path fill="url(#core)" d="{CORE_D}"/>
 </svg>
 ''')
 
-# 3) 反白（白砖 + 品牌色笔弧 + 青核，深底用）
+# 3) 反白·光泽（白砖渐变 + 品牌靛蓝笔弧渐变 + 青核，深底用）
 write("symbol-reversed.svg", f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="{CN}">
   <title>{CN}</title>
-  <!-- 反白：白砖 + 品牌蓝笔弧 + 青核，用于深色底/照片。
+  <!-- 反白·光泽：白砖瓷面渐变 + 品牌靛蓝金属渐变笔弧 + 青核球面高光，用于深色底/照片。
        三层显式上色（不依赖背景透出），与 symbol-duo.svg 构成正/反白对。 -->
-  <path fill="#FFFFFF" d="{TILE}"/>
-  <path fill="{INK}" d="{BAND}"/>
-  <path fill="{ACCENT}" d="{CORE_D}"/>
+  {defs()}
+  <path fill="url(#tile)" d="{TILE}"/>
+  <path fill="url(#ink)" d="{BAND}"/>
+  <path fill="url(#core)" d="{CORE_D}"/>
 </svg>
 ''')
 

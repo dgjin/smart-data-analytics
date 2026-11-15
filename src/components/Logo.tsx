@@ -1,12 +1,13 @@
 /** 智能问数品牌标识（「一笔」）：方砖 + 盘绕笔弧 + 中心一颗点亮核，顶栏与登录页共用。
  *
  * - 符号语义：粗端=涌入的数据，沿绕收细=提炼，中心核=被点亮的判断；
- * - tone：dark=深色 UI 上的反白砖（默认，白砖 / 深靛笔弧 / 青核）；light=浅底上的正向版；
- * - size：md=顶栏 48px / lg=登录页 64px；pulse 控制核的呼吸（顶栏启用）；
+ * - 上色：三层光泽渐变（砖面瓷面 / 笔弧金属 / 核心球面），与小尺寸平面版同色系；
+ * - tone：dark=深色 UI 上的反白砖（默认，白砖 / 靛蓝笔弧 / 青核）；light=浅底上的正向版；
+ * - size：md=顶栏 56px / lg=登录页 80px；pulse 控制核的呼吸（顶栏启用）；
  * - 与智能运维控制台的「脉冲徽章」同源——同一枚徽章，同一处隐藏信号。
  * - 几何与 .logo-design/kit/symbol.svg 同源（8 段三次贝塞尔拟合），修改请两边同步。
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 
 /** 方砖容器（viewBox 16..240 已裁到砖边）。 */
 const TILE_PATH = 'M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z';
@@ -35,8 +36,10 @@ const MARK_BAND = [
 
 /** 核（r22）：全标唯一的彩色点。 */
 const CORE_PATH = 'M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z';
-const BRAND_INK = '#312E81';
-const BRAND_CORE = '#22D3EE';
+/** 品牌主色：小尺寸单色场景（favicon）用 BRAND_INK；大尺寸铺三层渐变产生光泽。 */
+const BRAND_INK = '#4F46E5';
+const BRAND_INK_HI = '#7A73F5';
+const BRAND_INK_LO = '#4033C4';
 
 /** ⌁ PULSE-0（香格里拉）· 未注册数据源：徽章 2.5s 内五连击解锁的隐藏信号卡。
  *  卡片三线索 ☾☼ / LOST HORIZON / N27°49′ E99°42′ 均指向本署名（请勿在卡片中直书）。
@@ -52,7 +55,7 @@ const PULSE_ROWS: Array<[label: string, value: string]> = [
 ];
 
 interface LogoProps {
-  /** md=顶栏 48px；lg=登录页 64px */
+  /** md=顶栏 56px；lg=登录页 80px */
   size?: 'md' | 'lg';
   /** dark=深色底反白砖（默认）；light=浅底正向版 */
   tone?: 'dark' | 'light';
@@ -64,6 +67,8 @@ interface LogoProps {
 export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = false, className = '' }) => {
   const [signalOpen, setSignalOpen] = useState(false);
   const taps = useRef<number[]>([]);
+  /** 渐变 id 必须页内唯一：顶栏与登录页可能同时挂载。 */
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
 
   /** 徽章连击检测：触发前零暗示，四击即清零；触发后计数复位，可重复观赏。 */
   const registerTap = () => {
@@ -75,8 +80,10 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
     }
   };
 
-  const badgeClass = size === 'lg' ? 'w-16 h-16' : 'w-12 h-12';
+  const badgeClass = size === 'lg' ? 'w-20 h-20' : 'w-14 h-14';
   const reversed = tone === 'dark';
+  const ink = `url(#ink-${uid})`;
+  const core = `url(#core-${uid})`;
 
   return (
     <>
@@ -86,9 +93,29 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
         onClick={registerTap}
       >
         <svg viewBox="16 16 224 224" className="w-full h-full block">
-          <path fill={reversed ? '#FFFFFF' : BRAND_INK} d={TILE_PATH} />
-          <path fill={reversed ? BRAND_INK : '#FFFFFF'} d={MARK_BAND} />
-          <path fill={BRAND_CORE} d={CORE_PATH} className={pulse ? 'animate-pulse' : undefined} />
+          <defs>
+            {/* 笔弧金属：左上受光偏亮，绕到底部收紧为暗端 */}
+            <linearGradient id={`ink-${uid}`} gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
+              <stop offset="0%" stopColor={BRAND_INK_HI} />
+              <stop offset="46%" stopColor={BRAND_INK} />
+              <stop offset="100%" stopColor={BRAND_INK_LO} />
+            </linearGradient>
+            {/* 砖面瓷面：顶白底冷，给出厚度而非灰块 */}
+            <linearGradient id={`tile-${uid}`} gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
+              <stop offset="0%" stopColor="#FFFFFF" />
+              <stop offset="58%" stopColor="#FBFBFF" />
+              <stop offset="100%" stopColor="#EBEEFC" />
+            </linearGradient>
+            {/* 核心球面：高光偏左上，边缘回落到青 */}
+            <radialGradient id={`core-${uid}`} gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
+              <stop offset="0%" stopColor="#C7F9FE" />
+              <stop offset="44%" stopColor="#5FE9F6" />
+              <stop offset="100%" stopColor="#1FC4E4" />
+            </radialGradient>
+          </defs>
+          <path fill={reversed ? `url(#tile-${uid})` : ink} d={TILE_PATH} />
+          <path fill={reversed ? ink : '#FFFFFF'} d={MARK_BAND} />
+          <path fill={core} d={CORE_PATH} className={pulse ? 'animate-pulse' : undefined} />
         </svg>
       </div>
       {signalOpen && <PulseSignal onClose={() => setSignalOpen(false)} />}

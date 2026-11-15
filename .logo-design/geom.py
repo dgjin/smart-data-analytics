@@ -14,8 +14,45 @@ EN = "NL2SQL PRO"
 CN_FONT = "PingFang SC, Hiragino Sans GB, Heiti SC, Source Han Sans SC, sans-serif"
 EN_FONT = "Helvetica Neue, Arial, PingFang SC, sans-serif"
 
-INK = "#312E81"
+# ---- 品牌色：浅靛 + 光泽（三层渐变，像素小尺寸退回 INK 单色） ----
+INK = "#4F46E5"        # 品牌靛蓝（单色 / 小尺寸 / 渐变中段）
+INK_HI = "#7A73F5"     # 光泽高光端（左上受光）
+INK_LO = "#4033C4"     # 光泽暗端（右下）
+TILE_HI = "#FFFFFF"    # 瓷面砖：顶部纯白
+TILE_MD = "#FBFBFF"
+TILE_LO = "#EBEEFC"    # 砖底微冷，产生厚度感（不再发灰）
+CORE_HI = "#C7F9FE"    # 核心球面高光（中心偏左上）
+CORE_MD = "#5FE9F6"
+CORE_LO = "#1FC4E4"
 ACCENT = "#22D3EE"
+
+
+def defs(prefix=""):
+    """三层光泽渐变：笔弧金属 / 砖面瓷面 / 核心球面。同一文档内定义一次即可。
+
+    userSpaceOnUse 坐标按 256 画布给出——嵌套 <svg viewBox="0 0 256 256"> 内引用时
+    解析的是元素自身的用户坐标系，因此内外尺寸不同也无需改坐标。
+    """
+    p = prefix
+    return (
+        '<defs>\n'
+        f'    <linearGradient id="{p}ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">\n'
+        f'      <stop offset="0%" stop-color="{INK_HI}"/>\n'
+        f'      <stop offset="46%" stop-color="{INK}"/>\n'
+        f'      <stop offset="100%" stop-color="{INK_LO}"/>\n'
+        '    </linearGradient>\n'
+        f'    <linearGradient id="{p}tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">\n'
+        f'      <stop offset="0%" stop-color="{TILE_HI}"/>\n'
+        f'      <stop offset="58%" stop-color="{TILE_MD}"/>\n'
+        f'      <stop offset="100%" stop-color="{TILE_LO}"/>\n'
+        '    </linearGradient>\n'
+        f'    <radialGradient id="{p}core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">\n'
+        f'      <stop offset="0%" stop-color="{CORE_HI}"/>\n'
+        f'      <stop offset="44%" stop-color="{CORE_MD}"/>\n'
+        f'      <stop offset="100%" stop-color="{CORE_LO}"/>\n'
+        '    </radialGradient>\n'
+        '  </defs>'
+    )
 
 
 def f(v):
