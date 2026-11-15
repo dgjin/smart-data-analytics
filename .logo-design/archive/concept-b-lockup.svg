@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 256" role="img" aria-label="Gate Cell lockup">
+  <title>Gate Cell lockup</title>
+  <!-- 概念阶段锁合：字标为系统字体临时排布，定稿需转曲或定制字形。 -->
+  <svg x="28" y="28" width="200" height="200" viewBox="48 48 160 160">
+    <g fill="#000">
+      <rect x="48" y="48" width="26" height="160"/>
+      <rect x="48" y="48" width="160" height="26"/>
+      <rect x="182" y="48" width="26" height="160"/>
+    </g>
+    <path fill="#000" fill-rule="evenodd" d="M88 112H168V192H88ZM112 136H144V168H112Z"/>
+  </svg>
+  <text x="268" y="160" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif" font-size="86" font-weight="600" fill="#000" letter-spacing="6">智能问数</text>
+</svg>

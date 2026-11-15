@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Quoted Cell">
+  <title>Quoted Cell</title>
+  <!-- 中文直角引号「」把一个问题引起来，中间是一个数据格：
+       你说的那句话被引用成一个数。括号两臂各长 60，正对数据格的左右边。 -->
+  <g fill="#000">
+    <rect x="40" y="40" width="36" height="176"/>
+    <rect x="40" y="40" width="60" height="36"/>
+    <rect x="180" y="40" width="36" height="176"/>
+    <rect x="156" y="180" width="60" height="36"/>
+  </g>
+  <rect x="100" y="100" width="56" height="56" fill="#000"/>
+</svg>

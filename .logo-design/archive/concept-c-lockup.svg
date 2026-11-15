@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 256" role="img" aria-label="Quoted Cell lockup">
+  <title>Quoted Cell lockup</title>
+  <!-- 概念阶段锁合：字标为系统字体临时排布，定稿需转曲或定制字形。 -->
+  <svg x="28" y="28" width="200" height="200" viewBox="34 34 188 188">
+    <g fill="#000">
+      <rect x="40" y="40" width="36" height="176"/>
+      <rect x="40" y="40" width="60" height="36"/>
+      <rect x="180" y="40" width="36" height="176"/>
+      <rect x="156" y="180" width="60" height="36"/>
+    </g>
+    <rect x="100" y="100" width="56" height="56" fill="#000"/>
+  </svg>
+  <text x="268" y="160" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif" font-size="86" font-weight="600" fill="#000" letter-spacing="6">智能问数</text>
+</svg>

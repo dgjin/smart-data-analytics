@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Gate Cell">
+  <title>Gate Cell</title>
+  <!-- 汉字「问」的几何骨架：门（左竖·上横·右竖，笔宽 26）+ 口（72 外框、壁厚 21，按字形偏下）。
+       口与门之间留 18–20 的白，缩到 16px 仍能分开。 -->
+  <g fill="#000">
+    <rect x="48" y="48" width="26" height="160"/>
+    <rect x="48" y="48" width="160" height="26"/>
+    <rect x="182" y="48" width="26" height="160"/>
+  </g>
+  <path fill="#000" fill-rule="evenodd" d="M92 116H164V188H92ZM113 137H143V167H113Z"/>
+</svg>

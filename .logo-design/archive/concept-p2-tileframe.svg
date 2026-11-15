@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Embrace Square">
+  <title>Embrace Square</title>
+  <!-- 同一理念的方形写法：一个三面围合的方框（U 形，开口在右，壁厚 34）抱住一个方核（42）。
+       方是数据，核是判断；开口朝右，读作「从数据这一侧进入，到判断这一侧出去」。 -->
+  <path fill="#000" fill-rule="evenodd"
+        d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z
+           M52 52H196V86H86V170H196V204H52Z
+           M119 107H161V149H119Z"/>
+</svg>

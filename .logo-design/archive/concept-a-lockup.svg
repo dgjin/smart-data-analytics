@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 256" role="img" aria-label="Ask Hook lockup">
+  <title>Ask Hook lockup</title>
+  <!-- 概念阶段锁合：字标为系统字体临时排布，定稿需转曲或定制字形。 -->
+  <svg x="28" y="28" width="163" height="200" viewBox="50 32 156 191">
+    <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+    <rect x="175" y="108" width="27" height="66" fill="#000"/>
+    <rect x="175" y="194" width="27" height="27" fill="#000"/>
+  </svg>
+  <text x="231" y="160" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif" font-size="86" font-weight="600" fill="#000" letter-spacing="6">智能问数</text>
+</svg>

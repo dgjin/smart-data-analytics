@@ -1,0 +1,32 @@
+{
+  "brand": "智能问数",
+  "tagline": "NL2SQL PRO · 数据驱动 · 智能决策",
+  "brief": "把「数据如何变成判断」画成一个标记：一笔从粗到细，绕成漩涡，落在中心那颗核上。外框沿用参考标识的圆角方砖与白色负形。",
+  "adjectives": ["流动", "收敛", "克制"],
+  "industry": "saas",
+  "mockups": ["website", "favicon-tab", "social", "terminal", "sticker", "badge"],
+  "nav": ["问数", "数据集", "口径", "审计"],
+  "brand_color": "#312E81",
+  "greyscale": false,
+  "final": true,
+  "round": 2,
+  "concepts": [
+    {
+      "name": "一笔 · Brush",
+      "symbol": "kit/symbol.svg",
+      "lockup": "kit/lockup-horizontal-duo.svg",
+      "stacked": "kit/lockup-vertical-duo.svg",
+      "avatar": "kit/app-icon.svg",
+      "symbol_on_tile": "kit/symbol-reversed.svg",
+      "symbol_on_dark": "kit/symbol-reversed.svg",
+      "lockup_on_dark": "kit/lockup-horizontal-reversed.svg",
+      "idea": "一笔从粗到细，绕成漩涡，落在中心那颗核上。",
+      "rationale": [
+        "粗端是涌入的原始数据，收细是提炼，中心那颗核是最终被点亮的判断——一条线讲完一个流程。",
+        "外框沿用参考标识的圆角方砖 + 白色负形 + 一颗实心点，同一套语法，换一种叙事。",
+        "没有任何渐变与装饰：单色可印、反白可用、16px 仍保留缺口与核。"
+      ]
+    }
+  ],
+  "recommendation": "一笔 · Brush 作为主标。品牌深靛 #312E81 做砖，核用强调青 #22D3EE——全标唯一的彩色点，就是「判断」被点亮的位置。单色场景退回纯黑版，深底用反白版。"
+}

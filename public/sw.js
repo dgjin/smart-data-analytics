@@ -37,9 +37,7 @@ const OFFLINE_HTML = `<!doctype html>
          background: #020617; color: #cbd5e1;
          font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
   .box { text-align: center; max-width: 22rem; padding: 2rem; }
-  .badge { width: 3rem; height: 3rem; border-radius: .75rem; margin: 0 auto 1rem;
-           background: linear-gradient(135deg, #4f46e5, #06b6d4);
-           display: flex; align-items: center; justify-content: center; }
+  .badge { width: 3rem; height: 3rem; margin: 0 auto 1rem; }
   h1 { font-size: 1.125rem; color: #e2e8f0; margin: 0 0 .5rem; font-weight: 700; }
   p { font-size: .8125rem; line-height: 1.7; color: #94a3b8; margin: 0; }
 </style>
@@ -47,15 +45,10 @@ const OFFLINE_HTML = `<!doctype html>
 <body>
   <div class="box">
     <div class="badge">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2"
-           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="2" y1="2" x2="22" y2="22" />
-        <path d="M8.5 16.5a5 5 0 0 1 7 0" />
-        <path d="M2 8.82a15 15 0 0 1 4.17-2.65" />
-        <path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76" />
-        <path d="M16.85 11.25a10 10 0 0 1 2.22 1.68" />
-        <path d="M5 12.55a10 10 0 0 1 5.17-2.39" />
-        <line x1="12" y1="20" x2="12.01" y2="20" />
+      <svg viewBox="16 16 224 224" width="48" height="48" aria-hidden="true">
+        <path fill="#312E81" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z" />
+        <path fill="#FFFFFF" d="M203.34 148.19C197.23 163.86 185.91 177.37 171.36 185.8C157.91 193.57 141.9 196.82 126.55 194.48C112.47 192.34 99.09 185.46 89.46 174.96C80.7 165.41 75.11 152.84 74.3 139.9C73.58 128.26 76.8 116.19 83.59 106.7C89.63 98.26 98.73 91.68 108.76 88.99C117.54 86.63 127.51 87.25 135.77 91.06C142.86 94.33 149.23 100.35 152.51 107.43C148.05 101.72 141.78 97.69 134.74 95.95C127.54 94.18 119.94 94.9 113.18 97.95C106.27 101.08 100.62 106.46 97.12 113.19C93.54 120.06 92.4 127.96 93.83 135.58C95.29 143.36 99.36 150.42 105.32 155.64C111.41 160.96 119.13 164.07 127.2 164.49C135.45 164.93 143.6 162.55 150.35 157.8C157.24 152.95 162.28 145.9 164.71 137.84A20 20 0 0 0 203.34 148.19Z" />
+        <path fill="#22D3EE" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z" />
       </svg>
     </div>
     <h1>当前处于离线状态</h1>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Ask Hook">
+  <title>Ask Hook</title>
+  <!-- 几何问号：半圆钩（外 74 / 内 47 / 带 27）+ 等宽带下折成干 + 方点。
+       钩从左下起笔、越过顶点、右端下折，末端落成一个数据格。 -->
+  <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+  <rect x="175" y="108" width="27" height="66" fill="#000"/>
+  <rect x="175" y="194" width="27" height="27" fill="#000"/>
+</svg>

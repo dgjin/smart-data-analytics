@@ -1,10 +1,42 @@
-/** 智能问数品牌标识（「星芒徽章」）：渐变圆角方徽 + Sparkles 星芒，顶栏与登录页共用。
+/** 智能问数品牌标识（「一笔」）：方砖 + 盘绕笔弧 + 中心一颗点亮核，顶栏与登录页共用。
  *
- * - size：md=顶栏 40px / lg=登录页 56px；pulse 控制星芒呼吸动画（顶栏启用）；
+ * - 符号语义：粗端=涌入的数据，沿绕收细=提炼，中心核=被点亮的判断；
+ * - tone：dark=深色 UI 上的反白砖（默认，白砖 / 深靛笔弧 / 青核）；light=浅底上的正向版；
+ * - size：md=顶栏 48px / lg=登录页 64px；pulse 控制核的呼吸（顶栏启用）；
  * - 与智能运维控制台的「脉冲徽章」同源——同一枚徽章，同一处隐藏信号。
+ * - 几何与 .logo-design/kit/symbol.svg 同源（8 段三次贝塞尔拟合），修改请两边同步。
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+
+/** 方砖容器（viewBox 16..240 已裁到砖边）。 */
+const TILE_PATH = 'M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z';
+
+/** 笔弧：粗端带宽 40，逆时针盘绕 305° 收成尖。 */
+const MARK_BAND = [
+  'M203.34 148.19',
+  'C197.23 163.86 185.91 177.37 171.36 185.8',
+  'C157.91 193.57 141.9 196.82 126.55 194.48',
+  'C112.47 192.34 99.09 185.46 89.46 174.96',
+  'C80.7 165.41 75.11 152.84 74.3 139.9',
+  'C73.58 128.26 76.8 116.19 83.59 106.7',
+  'C89.63 98.26 98.73 91.68 108.76 88.99',
+  'C117.54 86.63 127.51 87.25 135.77 91.06',
+  'C142.86 94.33 149.23 100.35 152.51 107.43',
+  'C148.05 101.72 141.78 97.69 134.74 95.95',
+  'C127.54 94.18 119.94 94.9 113.18 97.95',
+  'C106.27 101.08 100.62 106.46 97.12 113.19',
+  'C93.54 120.06 92.4 127.96 93.83 135.58',
+  'C95.29 143.36 99.36 150.42 105.32 155.64',
+  'C111.41 160.96 119.13 164.07 127.2 164.49',
+  'C135.45 164.93 143.6 162.55 150.35 157.8',
+  'C157.24 152.95 162.28 145.9 164.71 137.84',
+  'A20 20 0 0 0 203.34 148.19Z',
+].join('');
+
+/** 核（r22）：全标唯一的彩色点。 */
+const CORE_PATH = 'M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z';
+const BRAND_INK = '#312E81';
+const BRAND_CORE = '#22D3EE';
 
 /** ⌁ PULSE-0（香格里拉）· 未注册数据源：徽章 2.5s 内五连击解锁的隐藏信号卡。
  *  卡片三线索 ☾☼ / LOST HORIZON / N27°49′ E99°42′ 均指向本署名（请勿在卡片中直书）。
@@ -20,14 +52,16 @@ const PULSE_ROWS: Array<[label: string, value: string]> = [
 ];
 
 interface LogoProps {
-  /** md=顶栏 40px；lg=登录页 56px */
+  /** md=顶栏 48px；lg=登录页 64px */
   size?: 'md' | 'lg';
-  /** 星芒呼吸动画（顶栏启用，与既有视觉一致） */
+  /** dark=深色底反白砖（默认）；light=浅底正向版 */
+  tone?: 'dark' | 'light';
+  /** 核的呼吸动画（顶栏启用） */
   pulse?: boolean;
   className?: string;
 }
 
-export const Logo: React.FC<LogoProps> = ({ size = 'md', pulse = false, className = '' }) => {
+export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = false, className = '' }) => {
   const [signalOpen, setSignalOpen] = useState(false);
   const taps = useRef<number[]>([]);
 
@@ -41,17 +75,21 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', pulse = false, classNam
     }
   };
 
-  const badgeClass = size === 'lg' ? 'w-14 h-14 rounded-2xl' : 'w-10 h-10 rounded-xl';
-  const iconClass = size === 'lg' ? 'w-7 h-7' : 'w-5 h-5';
+  const badgeClass = size === 'lg' ? 'w-16 h-16' : 'w-12 h-12';
+  const reversed = tone === 'dark';
 
   return (
     <>
       <div
         aria-hidden="true"
-        className={`${badgeClass} bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 ${className}`}
+        className={`${badgeClass} shrink-0 ${className}`}
         onClick={registerTap}
       >
-        <Sparkles className={`${iconClass} text-white ${pulse ? 'animate-pulse' : ''}`} />
+        <svg viewBox="16 16 224 224" className="w-full h-full block">
+          <path fill={reversed ? '#FFFFFF' : BRAND_INK} d={TILE_PATH} />
+          <path fill={reversed ? BRAND_INK : '#FFFFFF'} d={MARK_BAND} />
+          <path fill={BRAND_CORE} d={CORE_PATH} className={pulse ? 'animate-pulse' : undefined} />
+        </svg>
       </div>
       {signalOpen && <PulseSignal onClose={() => setSignalOpen(false)} />}
     </>

@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1600" height="984" viewBox="0 0 1600 984"><defs><filter id="grey"><feColorMatrix type="saturate" values="0"/></filter></defs><rect width="1600" height="984" fill="#f7f7f4"/><text x="60" y="78" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="40" font-weight="700" fill="#161616">智能问数 · logo 概念三稿</text><text x="60" y="116" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="20" fill="#6b6b6b">纯黑白 · 同一画布 · 64 / 32 / 16 px 真实像素</text><rect x="60" y="150" width="474.667" height="774" rx="18" fill="#fff" stroke="#e4e4e0" stroke-width="1"/><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ask Hook" viewBox="0 0 256 256" x="90" y="190" width="414.667" height="300" preserveAspectRatio="xMidYMid meet">
+  <title>Ask Hook</title>
+  <!-- 几何问号：半圆钩（外 74 / 内 47 / 带 27）+ 等宽带下折成干 + 方点。
+       钩从左下起笔、越过顶点、右端下折，末端落成一个数据格。 -->
+  <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+  <rect x="175" y="108" width="27" height="66" fill="#000"/>
+  <rect x="175" y="194" width="27" height="27" fill="#000"/>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ask Hook lockup" viewBox="0 0 640 256" x="90" y="514" width="414.667" height="120" preserveAspectRatio="xMidYMid meet">
+  <title>Ask Hook lockup</title>
+  <!-- 概念阶段锁合：字标为系统字体临时排布，定稿需转曲或定制字形。 -->
+  <svg x="28" y="28" width="163" height="200" viewBox="50 32 156 191">
+    <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+    <rect x="175" y="108" width="27" height="66" fill="#000"/>
+    <rect x="175" y="194" width="27" height="27" fill="#000"/>
+  </svg>
+  <text x="231" y="160" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif" font-size="86" font-weight="600" fill="#000" letter-spacing="6">智能问数</text>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ask Hook" viewBox="0 0 256 256" x="90" y="660" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <title>Ask Hook</title>
+  <!-- 几何问号：半圆钩（外 74 / 内 47 / 带 27）+ 等宽带下折成干 + 方点。
+       钩从左下起笔、越过顶点、右端下折，末端落成一个数据格。 -->
+  <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+  <rect x="175" y="108" width="27" height="66" fill="#000"/>
+  <rect x="175" y="194" width="27" height="27" fill="#000"/>
+</svg>
+</g><text x="122" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ask Hook" viewBox="0 0 256 256" x="180" y="692" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <title>Ask Hook</title>
+  <!-- 几何问号：半圆钩（外 74 / 内 47 / 带 27）+ 等宽带下折成干 + 方点。
+       钩从左下起笔、越过顶点、右端下折，末端落成一个数据格。 -->
+  <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+  <rect x="175" y="108" width="27" height="66" fill="#000"/>
+  <rect x="175" y="194" width="27" height="27" fill="#000"/>
+</svg>
+</g><text x="196" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ask Hook" viewBox="0 0 256 256" x="238" y="708" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <title>Ask Hook</title>
+  <!-- 几何问号：半圆钩（外 74 / 内 47 / 带 27）+ 等宽带下折成干 + 方点。
+       钩从左下起笔、越过顶点、右端下折，末端落成一个数据格。 -->
+  <path fill="#000" d="M54 108A74 74 0 0 1 202 108L175 108A47 47 0 0 0 81 108Z"/>
+  <rect x="175" y="108" width="27" height="66" fill="#000"/>
+  <rect x="175" y="194" width="27" height="27" fill="#000"/>
+</svg>
+</g><text x="246" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="90.0" y="780" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="26" font-weight="700" fill="#161616">A · Ask Hook</text><text x="90.0" y="814" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="19" fill="#555">问号的钩，收成一个数据格。</text><rect x="562.667" y="150" width="474.667" height="774" rx="18" fill="#fff" stroke="#e4e4e0" stroke-width="1"/><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gate Cell" viewBox="0 0 256 256" x="592.667" y="190" width="414.667" height="300" preserveAspectRatio="xMidYMid meet">
+  <title>Gate Cell</title>
+  <!-- 汉字「问」的几何骨架：门（左竖·上横·右竖，笔宽 26）+ 口（72 外框、壁厚 21，按字形偏下）。
+       口与门之间留 18–20 的白，缩到 16px 仍能分开。 -->
+  <g fill="#000">
+    <rect x="48" y="48" width="26" height="160"/>
+    <rect x="48" y="48" width="160" height="26"/>
+    <rect x="182" y="48" width="26" height="160"/>
+  </g>
+  <path fill="#000" fill-rule="evenodd" d="M92 116H164V188H92ZM113 137H143V167H113Z"/>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gate Cell lockup" viewBox="0 0 660 256" x="592.667" y="514" width="414.667" height="120" preserveAspectRatio="xMidYMid meet">
+  <title>Gate Cell lockup</title>
+  <!-- 概念阶段锁合：字标为系统字体临时排布，定稿需转曲或定制字形。 -->
+  <svg x="28" y="28" width="200" height="200" viewBox="48 48 160 160">
+    <g fill="#000">
+      <rect x="48" y="48" width="26" height="160"/>
+      <rect x="48" y="48" width="160" height="26"/>
+      <rect x="182" y="48" width="26" height="160"/>
+    </g>
+    <path fill="#000" fill-rule="evenodd" d="M88 112H168V192H88ZM112 136H144V168H112Z"/>
+  </svg>
+  <text x="268" y="160" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif" font-size="86" font-weight="600" fill="#000" letter-spacing="6">智能问数</text>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gate Cell" viewBox="0 0 256 256" x="592.667" y="660" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <title>Gate Cell</title>
+  <!-- 汉字「问」的几何骨架：门（左竖·上横·右竖，笔宽 26）+ 口（72 外框、壁厚 21，按字形偏下）。
+       口与门之间留 18–20 的白，缩到 16px 仍能分开。 -->
+  <g fill="#000">
+    <rect x="48" y="48" width="26" height="160"/>
+    <rect x="48" y="48" width="160" height="26"/>
+    <rect x="182" y="48" width="26" height="160"/>
+  </g>
+  <path fill="#000" fill-rule="evenodd" d="M92 116H164V188H92ZM113 137H143V167H113Z"/>
+</svg>
+</g><text x="624.667" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gate Cell" viewBox="0 0 256 256" x="682.667" y="692" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <title>Gate Cell</title>
+  <!-- 汉字「问」的几何骨架：门（左竖·上横·右竖，笔宽 26）+ 口（72 外框、壁厚 21，按字形偏下）。
+       口与门之间留 18–20 的白，缩到 16px 仍能分开。 -->
+  <g fill="#000">
+    <rect x="48" y="48" width="26" height="160"/>
+    <rect x="48" y="48" width="160" height="26"/>
+    <rect x="182" y="48" width="26" height="160"/>
+  </g>
+  <path fill="#000" fill-rule="evenodd" d="M92 116H164V188H92ZM113 137H143V167H113Z"/>
+</svg>
+</g><text x="698.667" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Gate Cell" viewBox="0 0 256 256" x="740.667" y="708" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <title>Gate Cell</title>
+  <!-- 汉字「问」的几何骨架：门（左竖·上横·右竖，笔宽 26）+ 口（72 外框、壁厚 21，按字形偏下）。
+       口与门之间留 18–20 的白，缩到 16px 仍能分开。 -->
+  <g fill="#000">
+    <rect x="48" y="48" width="26" height="160"/>
+    <rect x="48" y="48" width="160" height="26"/>
+    <rect x="182" y="48" width="26" height="160"/>
+  </g>
+  <path fill="#000" fill-rule="evenodd" d="M92 116H164V188H92ZM113 137H143V167H113Z"/>
+</svg>
+</g><text x="748.667" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="592.6666666666667" y="780" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="26" font-weight="700" fill="#161616">B · Gate Cell</text><text x="592.6666666666667" y="814" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="19" fill="#555">品牌名的第一个字，就是标识。</text><rect x="1065.33" y="150" width="474.667" height="774" rx="18" fill="#fff" stroke="#161616" stroke-width="2"/><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quoted Cell" viewBox="0 0 256 256" x="1095.33" y="190" width="414.667" height="300" preserveAspectRatio="xMidYMid meet">
+  <title>Quoted Cell</title>
+  <!-- 中文直角引号「」把一个问题引起来，中间是一个数据格：
+       你说的那句话被引用成一个数。括号两臂各长 60，正对数据格的左右边。 -->
+  <g fill="#000">
+    <rect x="40" y="40" width="36" height="176"/>
+    <rect x="40" y="40" width="60" height="36"/>
+    <rect x="180" y="40" width="36" height="176"/>
+    <rect x="156" y="180" width="60" height="36"/>
+  </g>
+  <rect x="100" y="100" width="56" height="56" fill="#000"/>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quoted Cell lockup" viewBox="0 0 660 256" x="1095.33" y="514" width="414.667" height="120" preserveAspectRatio="xMidYMid meet">
+  <title>Quoted Cell lockup</title>
+  <!-- 概念阶段锁合：字标为系统字体临时排布，定稿需转曲或定制字形。 -->
+  <svg x="28" y="28" width="200" height="200" viewBox="34 34 188 188">
+    <g fill="#000">
+      <rect x="40" y="40" width="36" height="176"/>
+      <rect x="40" y="40" width="60" height="36"/>
+      <rect x="180" y="40" width="36" height="176"/>
+      <rect x="156" y="180" width="60" height="36"/>
+    </g>
+    <rect x="100" y="100" width="56" height="56" fill="#000"/>
+  </svg>
+  <text x="268" y="160" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif" font-size="86" font-weight="600" fill="#000" letter-spacing="6">智能问数</text>
+</svg>
+</g><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quoted Cell" viewBox="0 0 256 256" x="1095.33" y="660" width="64" height="64" preserveAspectRatio="xMidYMid meet">
+  <title>Quoted Cell</title>
+  <!-- 中文直角引号「」把一个问题引起来，中间是一个数据格：
+       你说的那句话被引用成一个数。括号两臂各长 60，正对数据格的左右边。 -->
+  <g fill="#000">
+    <rect x="40" y="40" width="36" height="176"/>
+    <rect x="40" y="40" width="60" height="36"/>
+    <rect x="180" y="40" width="36" height="176"/>
+    <rect x="156" y="180" width="60" height="36"/>
+  </g>
+  <rect x="100" y="100" width="56" height="56" fill="#000"/>
+</svg>
+</g><text x="1127.33" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">64px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quoted Cell" viewBox="0 0 256 256" x="1185.33" y="692" width="32" height="32" preserveAspectRatio="xMidYMid meet">
+  <title>Quoted Cell</title>
+  <!-- 中文直角引号「」把一个问题引起来，中间是一个数据格：
+       你说的那句话被引用成一个数。括号两臂各长 60，正对数据格的左右边。 -->
+  <g fill="#000">
+    <rect x="40" y="40" width="36" height="176"/>
+    <rect x="40" y="40" width="60" height="36"/>
+    <rect x="180" y="40" width="36" height="176"/>
+    <rect x="156" y="180" width="60" height="36"/>
+  </g>
+  <rect x="100" y="100" width="56" height="56" fill="#000"/>
+</svg>
+</g><text x="1201.33" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">32px</text><g filter="url(#grey)"><svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quoted Cell" viewBox="0 0 256 256" x="1243.33" y="708" width="16" height="16" preserveAspectRatio="xMidYMid meet">
+  <title>Quoted Cell</title>
+  <!-- 中文直角引号「」把一个问题引起来，中间是一个数据格：
+       你说的那句话被引用成一个数。括号两臂各长 60，正对数据格的左右边。 -->
+  <g fill="#000">
+    <rect x="40" y="40" width="36" height="176"/>
+    <rect x="40" y="40" width="60" height="36"/>
+    <rect x="180" y="40" width="36" height="176"/>
+    <rect x="156" y="180" width="60" height="36"/>
+  </g>
+  <rect x="100" y="100" width="56" height="56" fill="#000"/>
+</svg>
+</g><text x="1251.33" y="744" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="12" fill="#8a8a8a" text-anchor="middle">16px</text><text x="1095.3333333333335" y="780" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="26" font-weight="700" fill="#161616">C · Quoted Cell</text><text x="1095.3333333333335" y="808" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="15" font-weight="700" fill="#161616" letter-spacing="1.5">RECOMMENDED</text><text x="1095.3333333333335" y="842" font-family="PingFang SC,Hiragino Sans GB,Heiti SC,Noto Sans CJK SC,system-ui,sans-serif" font-size="19" fill="#555">中文引号框住一个数据格。</text></svg>

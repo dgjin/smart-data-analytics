@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 256" role="img" aria-label="Embrace Orbit lockup">
+  <title>Embrace Orbit lockup</title>
+  <!-- 概念阶段锁合：中文名用系统字（PingFang SC Semibold），英文副行加宽字距；定稿需转曲。 -->
+  <svg x="32" y="32" width="192" height="192" viewBox="16 16 224 224">
+    <path fill="#000" fill-rule="evenodd" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z M187.8 178.1A78 78 0 1 1 187.8 77.9A17 17 0 0 1 161.7 99.7A44 44 0 1 0 161.7 156.3A17 17 0 0 1 187.8 178.1Z M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z"/>
+  </svg>
+  <text x="256" y="138" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif"
+        font-size="84" font-weight="700" fill="#000" letter-spacing="2">智能问数</text>
+  <text x="260" y="184" font-family="Helvetica Neue, Arial, PingFang SC, sans-serif"
+        font-size="24" font-weight="600" fill="#000" letter-spacing="6">NL2SQL PRO</text>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 256" role="img" aria-label="Embrace Square lockup">
+  <title>Embrace Square lockup</title>
+  <!-- 概念阶段锁合：中文名用系统字（PingFang SC Semibold），英文副行加宽字距；定稿需转曲。 -->
+  <svg x="32" y="32" width="192" height="192" viewBox="16 16 224 224">
+    <path fill="#000" fill-rule="evenodd" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z M206 148V178A28 28 0 0 1 178 206H78A28 28 0 0 1 50 178V78A28 28 0 0 1 78 50H178A28 28 0 0 1 206 78V108H172V98A14 14 0 0 0 158 84H98A14 14 0 0 0 84 98V158A14 14 0 0 0 98 172H158A14 14 0 0 0 172 158V148Z M116 106H140A10 10 0 0 1 150 116V140A10 10 0 0 1 140 150H116A10 10 0 0 1 106 140V116A10 10 0 0 1 116 106Z"/>
+  </svg>
+  <text x="256" y="138" font-family="PingFang SC, Hiragino Sans GB, Heiti SC, sans-serif"
+        font-size="84" font-weight="700" fill="#000" letter-spacing="2">智能问数</text>
+  <text x="260" y="184" font-family="Helvetica Neue, Arial, PingFang SC, sans-serif"
+        font-size="24" font-weight="600" fill="#000" letter-spacing="6">NL2SQL PRO</text>
+</svg>
