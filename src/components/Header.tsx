@@ -125,7 +125,9 @@ export const Header: React.FC = () => {
       {/* Brand & Title */}
       <div className="flex items-center space-x-3 shrink-0">
         <Logo size="md" pulse />
-        <div>
+        {/* 对齐：两行文字的视觉重心比盒中心高「副标行高/2」。副标 leading-none 即 12px，
+            sm 以上文字块下移 6px，标题中线正好落在徽章中线上。改字号需同步这两个值。 */}
+        <div className="sm:translate-y-1.5">
           <div className="flex items-center space-x-2">
             <h1 className="font-bold text-lg text-slate-100 tracking-tight whitespace-nowrap">
               智能问数分析系统
@@ -134,7 +136,7 @@ export const Header: React.FC = () => {
               {`NL2SQL Pro v${import.meta.env.VITE_APP_VERSION}`}
             </span>
           </div>
-          <p className="text-xs text-slate-400 hidden sm:block whitespace-nowrap">
+          <p className="text-xs leading-none text-slate-400 hidden sm:block whitespace-nowrap">
             多源数据集成 • 自然语言交互 • 自动可视化与决策简报
           </p>
         </div>
