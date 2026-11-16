@@ -1,8 +1,8 @@
 /** 智能问数品牌标识（「一笔」）：方砖 + 盘绕笔弧 + 中心一颗点亮核，顶栏与登录页共用。
  *
  * - 符号语义：粗端=涌入的数据，沿绕收细=提炼，中心核=被点亮的判断；
- * - 上色：三层光泽渐变（砖面瓷面 / 笔弧金属 / 核心球面）+ 薄光材质（砖面斜扫光、砖顶内高光、
- *   笔弧斜向受光、核边缘光与镜面点），与小尺寸平面版同色系；
+ * - 上色：三层光泽渐变（砖面瓷面 / 笔弧金属 / 核心球面）+ 玻璃光效（主光斑、砖底反光、
+ *   外缘暗线、笔弧轮廓光、核边缘光与镜面点），与小尺寸平面版同色系；
  * - tone：dark=深色 UI 上的透明版（默认，无砖／提亮笔弧／高光核）；light=浅底上的砖版；
  * - size：md=顶栏 56px / lg=登录页 80px；pulse 控制核的呼吸（顶栏启用）；
  * - 与智能运维控制台的「脉冲徽章」同源——同一枚徽章，同一处隐藏信号。
@@ -37,36 +37,41 @@ const MARK_BAND = [
 
 /** 核（r22）：全标唯一的彩色点。 */
 const CORE_PATH = 'M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z';
-/** 品牌主色（D 方案）：明度 61%→65%，渐变从 24 档收窄到 13 档，过渡区不再发灰。
+/** 品牌主色（F 方案）：明度 65%→71%。靠拉大受光跨度找回亮度——
+ *  左上接近白紫、右下仍饱和，而不是整体加白（加白会让白笔弧失去对比）。
  *  小尺寸单色场景（favicon）用 BRAND_INK；大尺寸铺三层渐变产生光泽。 */
-const BRAND_INK = '#6366F1';
-const BRAND_INK_HI = '#918BFF';
-const BRAND_INK_LO = '#5658EA';
-/** 瓷面砖渐变：底部微冷，产生厚度感。 */
-const TILE_HI = '#FFFFFF';
-const TILE_MD = '#FDFDFF';
-const TILE_LO = '#F1F2FF';
+const BRAND_INK = '#7B7AF9';
+const BRAND_INK_HI = '#C9C4FF';
+const BRAND_INK_LO = '#5A5CF0';
 /** 核的球面：高光居中偏左上，边缘回落到青。 */
-const CORE_HI = '#EEFFFF';
-const CORE_MD = '#7BEEFB';
-const CORE_LO = '#1FC3E2';
-/** 深色底透明版：砖退场，笔弧提亮到 slate-900 上 10.2:1 → 3.9:1，核加高光。 */
-const ON_DARK_HI = '#C0BBFF';
-const ON_DARK = '#8B85FA';
-const ON_DARK_LO = '#6C63F0';
-const ON_DARK_CORE_HI = '#F6FFFF';
-const ON_DARK_CORE_MID = '#8AF0FC';
-const ON_DARK_CORE_LO = '#22CEE8';
+const CORE_HI = '#F6FFFF';
+const CORE_MD = '#8CF2FE';
+const CORE_LO = '#1FCBE9';
+/** 深色底透明版：砖退场，笔弧提亮到 slate-900 上 13.4:1 → 5.4:1，核加高光。 */
+const ON_DARK_HI = '#E4E0FF';
+const ON_DARK = '#A79FFF';
+const ON_DARK_LO = '#7E75F8';
+const ON_DARK_CORE_HI = '#FFFFFF';
+const ON_DARK_CORE_MID = '#9CF4FF';
+const ON_DARK_CORE_LO = '#22D6EF';
 
-/** 薄光材质（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
- *  再强会压掉亮度，再弱就退回平涂——这四个系数是四轮配色实测的结果。 */
-const SWEEP_HI = 0.24; // 砖面斜扫：左上提亮
-const SWEEP_LO = 0.1; // 砖面斜扫：右下压暗
-const SHEEN_HI = 0.38; // 笔弧斜向受光（仅深底——白笔弧叠黑会发灰）
-const SHEEN_LO = 0.12;
-const TOP_HL = 0.5; // 砖顶 2px 内高光
-const RIM = 0.55; // 核边缘光（上亮下隐）
-const SPEC = 0.7; // 核镜面高光点
+/** 玻璃光效（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
+ *  暗端全部归零——光效只做加法：提亮靠基色，质感靠高光形状。 */
+const SWEEP_HI = 0.34; // 砖面斜扫：左上提亮
+const SWEEP_LO = 0; // 砖面斜扫：右下不压暗（一压就重新变「暗」）
+const SHEEN_HI = 0.46; // 笔弧斜向受光（仅深底——白笔弧叠黑会发灰）
+const SHEEN_LO = 0;
+const TOP_HL = 0.62; // 砖顶 2px 内高光
+const SPOT = 0.24; // 砖面左上主光斑（径向，像玻璃球的聚光区）
+const BOUNCE = 0.22; // 砖底环境反光（冷白，抬厚度）
+const EDGE_HI = 0.8; // 笔弧轮廓光：上缘最亮
+const EDGE_MID = 0.18;
+const LINE_LO = 0.1; // 砖外缘暗线：左上几乎无
+const LINE_HI = 0.38; // 右下压重——把过亮的边界托住
+const BAND_LINE = 0.3; // 白笔弧内缘倒角暗线：左上重、右下无——在亮砖上勾出尖端
+const RIM = 0.88; // 核边缘光（上亮下隐）
+const SPEC = 0.96; // 核镜面高光点（更小更集中）
+const CBOUNCE = 0.5; // 核底反光（背光面的一抹青）
 
 /** ⌁ PULSE-0（香格里拉）· 未注册数据源：徽章 2.5s 内五连击解锁的隐藏信号卡。
  *  卡片三线索 ☾☼ / LOST HORIZON / N27°49′ E99°42′ 均指向本署名（请勿在卡片中直书）。
@@ -110,7 +115,6 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
   const badgeClass = size === 'lg' ? 'w-20 h-20' : 'w-14 h-14';
   const onDark = tone === 'dark';
   const ink = `url(#ink-${uid})`;
-  const tile = `url(#tile-${uid})`;
   const core = `url(#core-${uid})`;
 
   return (
@@ -136,19 +140,13 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <stop offset="46%" stopColor={onDark ? ON_DARK : BRAND_INK} />
               <stop offset="100%" stopColor={onDark ? ON_DARK_LO : BRAND_INK_LO} />
             </linearGradient>
-            {/* 砖面瓷面：仅浅底砖版使用 */}
-            <linearGradient id={`tile-${uid}`} gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
-              <stop offset="0%" stopColor={TILE_HI} />
-              <stop offset="58%" stopColor={TILE_MD} />
-              <stop offset="100%" stopColor={TILE_LO} />
-            </linearGradient>
             {/* 核心球面：高光偏左上，边缘回落到青 */}
             <radialGradient id={`core-${uid}`} gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
               <stop offset="0%" stopColor={onDark ? ON_DARK_CORE_HI : CORE_HI} />
               <stop offset="44%" stopColor={onDark ? ON_DARK_CORE_MID : CORE_MD} />
               <stop offset="100%" stopColor={onDark ? ON_DARK_CORE_LO : CORE_LO} />
             </radialGradient>
-            {/* 薄光材质：砖面斜扫 / 笔弧受光 / 砖顶内高光 / 核边缘光 / 镜面点 */}
+            {/* 玻璃光效：砖面斜扫 / 主光斑 / 砖底反光 / 笔弧轮廓光 / 外缘暗线 / 砖顶内高光 / 核边缘光 / 镜面点 / 核底反光 */}
             <linearGradient id={`sweep-${uid}`} gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SWEEP_HI} />
               <stop offset="38%" stopColor="#FFFFFF" stopOpacity="0" />
@@ -159,40 +157,75 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <stop offset="38%" stopColor="#FFFFFF" stopOpacity="0.05" />
               <stop offset="100%" stopColor="#000000" stopOpacity={SHEEN_LO} />
             </linearGradient>
+            <radialGradient id={`spot-${uid}`} gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SPOT} />
+              <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.07" />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </radialGradient>
+            <linearGradient id={`bounce-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0" />
+              <stop offset="100%" stopColor="#C8DEFF" stopOpacity={BOUNCE} />
+            </linearGradient>
+            <linearGradient id={`edge-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={EDGE_HI} />
+              <stop offset="52%" stopColor="#FFFFFF" stopOpacity={EDGE_MID} />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id={`edgeLine-${uid}`} gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
+              <stop offset="0%" stopColor="#3F3AA8" stopOpacity={LINE_LO} />
+              <stop offset="55%" stopColor="#3F3AA8" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#322D8C" stopOpacity={LINE_HI} />
+            </linearGradient>
+            <linearGradient id={`bandLine-${uid}`} gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
+              <stop offset="0%" stopColor="#4A44A8" stopOpacity={BAND_LINE} />
+              <stop offset="55%" stopColor="#4A44A8" stopOpacity="0.12" />
+              <stop offset="100%" stopColor="#322D8C" stopOpacity="0" />
+            </linearGradient>
             <linearGradient id={`topHL-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={TOP_HL} />
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </linearGradient>
             <linearGradient id={`rim-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={RIM} />
-              <stop offset="46%" stopColor="#FFFFFF" stopOpacity="0.16" />
+              <stop offset="46%" stopColor="#FFFFFF" stopOpacity="0.2" />
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </linearGradient>
-            <radialGradient id={`spec-${uid}`} gradientUnits="userSpaceOnUse" cx="119" cy="114" r="10">
+            <radialGradient id={`spec-${uid}`} gradientUnits="userSpaceOnUse" cx="119" cy="113" r="8">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SPEC} />
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id={`cbounce-${uid}`} gradientUnits="userSpaceOnUse" cx="128" cy="144" r="15">
+              <stop offset="0%" stopColor="#9CF4FF" stopOpacity={CBOUNCE} />
+              <stop offset="100%" stopColor="#9CF4FF" stopOpacity="0" />
             </radialGradient>
           </defs>
           {onDark ? (
             <>
               <path fill={ink} d={MARK_BAND} />
-              {/* 笔弧斜向受光：左上提亮、右下压暗，深底上才有体积感 */}
+              {/* 笔弧受光 + 轮廓光：深底上「立」起来的关键 */}
               <path fill={`url(#sheen-${uid})`} d={MARK_BAND} />
+              <path fill="none" stroke={`url(#edge-${uid})`} strokeWidth="1.4" d={MARK_BAND} />
             </>
           ) : (
             <>
-              <path fill={tile} d={TILE_PATH} />
+              <path fill={ink} d={TILE_PATH} />
               <path fill={`url(#sweep-${uid})`} d={TILE_PATH} />
+              {/* 主光斑 + 底部反光：玻璃球的聚光区与环境回弹 */}
+              <path fill={`url(#spot-${uid})`} d={TILE_PATH} />
+              <path fill={`url(#bounce-${uid})`} d={TILE_PATH} />
+              {/* 外缘暗线托住边界：左上几乎无、右下压重（光从左上来的物理逻辑） */}
+              <path fill="none" stroke={`url(#edgeLine-${uid})`} strokeWidth="1.6" d={TILE_PATH} />
               {/* 砖顶 2px 内高光：让方砖有厚度，不像一块贴纸 */}
               <path fill="none" stroke={`url(#topHL-${uid})`} strokeWidth="2" d={TILE_PATH} />
-              <path fill="#FFFFFF" d={MARK_BAND} />
+              <path fill="#FFFFFF" stroke={`url(#bandLine-${uid})`} strokeWidth="0.9" d={MARK_BAND} />
             </>
           )}
           {/* 核与玻璃层一起呼吸：单脉冲核会让高光悬空 */}
           <g className={pulse ? 'animate-pulse' : undefined}>
             <path fill={core} d={CORE_PATH} />
-            <circle cx="128" cy="128" r="21.3" fill="none" stroke={`url(#rim-${uid})`} strokeWidth="1.5" />
-            <ellipse cx="119" cy="114" rx="9" ry="7" fill={`url(#spec-${uid})`} />
+            <circle cx="128" cy="128" r="21.3" fill="none" stroke={`url(#rim-${uid})`} strokeWidth="1" />
+            <ellipse cx="119" cy="113" rx="7.5" ry="6" fill={`url(#spec-${uid})`} />
+            <ellipse cx="128" cy="141" rx="12" ry="4" fill={`url(#cbounce-${uid})`} />
           </g>
         </svg>
       </div>
