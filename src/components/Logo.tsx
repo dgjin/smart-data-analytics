@@ -3,8 +3,9 @@
  * - 符号语义：粗端=涌入的数据，沿绕收细=提炼，中心核=被点亮的判断；
  * - 上色：品牌色渐变 + 核心球面；质感靠「边」——贴顶柔光、倒角亮线、外缘暗线、
  *   笔弧轮廓光、核边缘光与镜面点（全部纯渐变，不用 filter），与小尺寸平面版同色系；
- * - tone：light=实心砖版（顶栏、登录页、浅底均用它——深色底上带底才立得住）；
- *   dark=透明版（无砖／提亮笔弧／高光核），留给需要「无底色」的深底场景；
+ * - tone：dark=透明版（无砖）——笔弧用品牌紫，亮度由 arc 的两条棱给，
+ *   白底 5.3:1 / 深底 3.4:1 都立得住，顶栏与登录页均用它；
+ *   light=实心砖版，留给需要「徽章底」的场景（如浅色卡片、应用图标语境）；
  * - size：md=顶栏 56px / lg=登录页 80px；pulse 控制核的呼吸（顶栏启用）；
  * - 与智能运维控制台的「脉冲徽章」同源——同一枚徽章，同一处隐藏信号。
  * - 几何与 .logo-design/kit/symbol.svg 同源（8 段三次贝塞尔拟合），修改请两边同步。
@@ -48,13 +49,14 @@ const BRAND_INK_LO = '#332CA8';
 const CORE_HI = '#F2FFFF';
 const CORE_MD = '#8AF0FD';
 const CORE_LO = '#1FC5E6';
-/** 深色底透明版：砖退场，笔弧提亮到 slate-900 上 13.4:1 → 5.4:1，核加高光。 */
-const ON_DARK_HI = '#E4E0FF';
-const ON_DARK = '#A79FFF';
-const ON_DARK_LO = '#7E75F8';
-const ON_DARK_CORE_HI = '#FFFFFF';
-const ON_DARK_CORE_MID = '#9CF4FF';
-const ON_DARK_CORE_LO = '#22D6EF';
+/** 深色底透明版：无砖。早期版本把笔弧整体提亮（#E4E0FF→#7E75F8），
+ *  结果白底上只有 2.3:1、深底上是一团发光体。现在用品牌色，亮度交给「棱」。 */
+/** 透明版的利边：一笔两棱。左上半段白色受光，右下段深靛收口。 */
+const ARC_HI = 0.95;
+const ARC_MID = 0.38;
+const ARC_DARK_OP = 0.36;
+const ARC_DARK = '#0A0626';
+const ARC_W = 1.5;
 
 /** 材质（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
  *  Apple 的三条打光纪律——明暗双向、镜面是窄带、边缘要利。质感全在「边」上：
@@ -65,11 +67,9 @@ const SHADE = 0.14; // 背光面：右下压深——体积的来源
 const BEZEL_END = 32; // 倒角亮线：只亮顶端一段
 const BEZEL_OP = 0.92;
 const BEZEL_W = 1.5;
-const SHEEN_HI = 0.46; // 笔弧斜向受光（仅深底——白笔弧叠黑会发灰）
+const SHEEN_HI = 0.24; // 笔弧斜向受光（仅透明版）：大面积加白会把彩度冲掉
 const SHEEN_LO = 0;
 const BOUNCE = 0.12; // 砖底环境反光（像铝面映地面，很轻）
-const EDGE_HI = 0.8; // 笔弧轮廓光：上缘最亮
-const EDGE_MID = 0.18;
 const LINE_LO = 0.05; // 砖外缘暗线：左上几乎无
 const LINE_HI = 0.28; // 右下压重——把边界切出来
 const RIM = 0.88; // 核边缘光（上亮下隐）
@@ -139,15 +139,15 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               x2={onDark ? 200 : 214}
               y2={onDark ? 210 : 238}
             >
-              <stop offset="0%" stopColor={onDark ? ON_DARK_HI : BRAND_INK_HI} />
-              <stop offset="45%" stopColor={onDark ? ON_DARK : BRAND_INK} />
-              <stop offset="100%" stopColor={onDark ? ON_DARK_LO : BRAND_INK_LO} />
+              <stop offset="0%" stopColor={BRAND_INK_HI} />
+              <stop offset="45%" stopColor={BRAND_INK} />
+              <stop offset="100%" stopColor={BRAND_INK_LO} />
             </linearGradient>
             {/* 核心球面：高光偏左上，边缘回落到青 */}
             <radialGradient id={`core-${uid}`} gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
-              <stop offset="0%" stopColor={onDark ? ON_DARK_CORE_HI : CORE_HI} />
-              <stop offset="44%" stopColor={onDark ? ON_DARK_CORE_MID : CORE_MD} />
-              <stop offset="100%" stopColor={onDark ? ON_DARK_CORE_LO : CORE_LO} />
+              <stop offset="0%" stopColor={CORE_HI} />
+              <stop offset="44%" stopColor={CORE_MD} />
+              <stop offset="100%" stopColor={CORE_LO} />
             </radialGradient>
             {/* 材质：贴顶柔光 / 右下背光面 / 砖底冷反光 / 倒角亮线 / 外缘暗线 / 笔弧轮廓光 / 核边缘光 / 镜面点 / 核底反光 */}
             <linearGradient id={`soft-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2={SOFT_END}>
@@ -168,10 +168,13 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <stop offset="0%" stopColor="#C8DEFF" stopOpacity="0" />
               <stop offset="100%" stopColor="#C8DEFF" stopOpacity={BOUNCE} />
             </linearGradient>
-            <linearGradient id={`edge-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
-              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={EDGE_HI} />
-              <stop offset="52%" stopColor="#FFFFFF" stopOpacity={EDGE_MID} />
-              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            {/* 透明版利边：一笔两棱。描边只有 1.5px——窄到像机加工的棱，不是一层发光 */}
+            <linearGradient id={`arc-${uid}`} gradientUnits="userSpaceOnUse" x1="62" y1="50" x2="206" y2="212">
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={ARC_HI} />
+              <stop offset="24%" stopColor="#FFFFFF" stopOpacity={ARC_MID} />
+              <stop offset="50%" stopColor="#FFFFFF" stopOpacity="0" />
+              <stop offset="72%" stopColor={ARC_DARK} stopOpacity="0" />
+              <stop offset="100%" stopColor={ARC_DARK} stopOpacity={ARC_DARK_OP} />
             </linearGradient>
             <linearGradient id={`edgeLine-${uid}`} gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
               <stop offset="0%" stopColor="#221C6E" stopOpacity={LINE_LO} />
@@ -199,9 +202,11 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
           {onDark ? (
             <>
               <path fill={ink} d={MARK_BAND} />
-              {/* 笔弧受光 + 轮廓光：深底上「立」起来的关键 */}
+              {/* 明暗双向：斜向受光收窄到 .24，右下再压一道背光面，体积才出来 */}
               <path fill={`url(#sheen-${uid})`} d={MARK_BAND} />
-              <path fill="none" stroke={`url(#edge-${uid})`} strokeWidth="1.4" d={MARK_BAND} />
+              <path fill={`url(#shade-${uid})`} d={MARK_BAND} />
+              {/* 利边：左上白（受光棱）、右下深靛（背光棱），一笔描完两条棱 */}
+              <path fill="none" stroke={`url(#arc-${uid})`} strokeWidth={ARC_W} d={MARK_BAND} />
             </>
           ) : (
             <>

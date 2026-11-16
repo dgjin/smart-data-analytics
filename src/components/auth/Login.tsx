@@ -48,8 +48,9 @@ export const Login: React.FC = () => {
       <div className="w-full max-w-sm mx-4">
         {/* Brand */}
         <div className="flex flex-col items-center mb-8 space-y-3">
-          {/* 与顶栏同一枚徽章：实心砖版（tone="light"），深底上带底才立得住 */}
-          <Logo size="lg" tone="light" />
+          {/* 与顶栏同一枚标记：透明版（默认 tone）。笔弧自带受光棱与背光棱，
+              在 slate-950 深底上不靠底部也立得住 */}
+          <Logo size="lg" />
           <div className="text-center">
             <h1 className="text-xl font-extrabold tracking-tight text-slate-100">
               智能问数分析系统

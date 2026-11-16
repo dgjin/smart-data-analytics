@@ -2,10 +2,26 @@
   "brand": "智能问数",
   "tagline": "NL2SQL PRO · 数据驱动 · 智能决策",
   "brief": "把「数据如何变成判断」画成一个标记：一笔从粗到细，绕成漩涡，落在中心那颗核上。外框沿用参考标识的圆角方砖与白色负形。",
-  "adjectives": ["流动", "收敛", "克制"],
+  "adjectives": [
+    "流动",
+    "收敛",
+    "克制"
+  ],
   "industry": "saas",
-  "mockups": ["website", "favicon-tab", "social", "terminal", "sticker", "badge"],
-  "nav": ["问数", "数据集", "口径", "审计"],
+  "mockups": [
+    "website",
+    "favicon-tab",
+    "social",
+    "terminal",
+    "sticker",
+    "badge"
+  ],
+  "nav": [
+    "问数",
+    "数据集",
+    "口径",
+    "审计"
+  ],
   "brand_color": "#5B54F2",
   "greyscale": false,
   "final": true,
@@ -30,5 +46,5 @@
       ]
     }
   ],
-  "recommendation": "一笔 · Brush 作为主标。品牌主色 #5B54F2 做砖，核用强调青 #22D3EE——全标唯一的彩色点，就是「判断」被点亮的位置。浅底用砖版（symbol-duo，白笔弧 + 单一品牌渐变，白弧对比 5.3:1）；深底用透明版（symbol-on-dark，笔弧提亮到 #E4E0FF→#7E75F8，slate-900 上 13.4:1→5.4:1）；单色场景退回纯黑版。材质取 Apple 档（soft .18@y64、shade .14、bezel .92×1.5px@y32、bounce .12、edge .80/.18、edgeLine .05→.28、rim .88、spec .96、cbounce .50）——质感全在「边」上：面上一大面积加白，彩度就掉，越改越灰。"
+  "recommendation": "一笔 · Brush 作为主标。品牌主色 #5B54F2，核用强调青 #22D3EE——全标唯一的彩色点，就是「判断」被点亮的位置。浅底用砖版（symbol-duo，白笔弧 + 单一品牌渐变，白弧对比 5.3:1）；顶栏与登录页用透明版（symbol-on-dark）。透明版不再靠整体提亮——提亮紫（#E4E0FF→#7E75F8）在白底上只有 2.3:1 近乎隐形，在深底上是一团发光体、没有体积。现在改用品牌色 + 三条打光纪律：斜向受光 .24、右下背光面 .14、双棱描边 arc（1.5px，左上白 .95 受光棱 → 右下 #0A0626 .36 背光棱收口），白底 5.3:1 / slate-900 3.4:1 都立得住。砖版材质取 Apple 档（soft .18@y64、shade .14、bezel .92×1.5px@y32、bounce .12、edgeLine .05→.28、rim .88、spec .96、cbounce .50）——质感全在「边」上：面上一大面积加白，彩度就掉，越改越灰。"
 }

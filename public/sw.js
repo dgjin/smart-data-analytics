@@ -38,7 +38,7 @@ const OFFLINE_HTML = `<!doctype html>
          font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
   .box { text-align: center; max-width: 22rem; padding: 2rem; }
   .badge { width: 3rem; height: 3rem; margin: 0 auto 1rem; }
-  /* 与顶栏同源：无砖透明版（笔弧提亮 + 斜向受光 + 轮廓光 + 核边缘光/镜面点/底部反光） */
+  /* 与顶栏同源：无砖透明版（品牌色笔弧 + 斜向受光 + 背光面 + 双棱描边 + 核边缘光/镜面点/底部反光） */
   h1 { font-size: 1.125rem; color: #e2e8f0; margin: 0 0 .5rem; font-weight: 700; }
   p { font-size: .8125rem; line-height: 1.7; color: #94a3b8; margin: 0; }
 </style>
@@ -49,16 +49,19 @@ const OFFLINE_HTML = `<!doctype html>
       <svg viewBox="44 44 168 168" width="48" height="48" aria-hidden="true">
         <defs>
           <linearGradient id="o-ink" gradientUnits="userSpaceOnUse" x1="60" y1="52" x2="200" y2="210">
-            <stop offset="0%" stop-color="#E4E0FF"/><stop offset="46%" stop-color="#A79FFF"/><stop offset="100%" stop-color="#7E75F8"/>
+            <stop offset="0%" stop-color="#7C6FFF"/><stop offset="46%" stop-color="#5B54F2"/><stop offset="100%" stop-color="#332CA8"/>
           </linearGradient>
           <linearGradient id="o-sheen" gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">
-            <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".46"/><stop offset="38%" stop-color="#FFFFFF" stop-opacity=".05"/><stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+            <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".24"/><stop offset="38%" stop-color="#FFFFFF" stop-opacity=".05"/><stop offset="100%" stop-color="#000000" stop-opacity="0"/>
           </linearGradient>
-          <linearGradient id="o-edge" gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
-            <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".8"/><stop offset="52%" stop-color="#FFFFFF" stop-opacity=".18"/><stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+          <linearGradient id="o-shade" gradientUnits="userSpaceOnUse" x1="52" y1="48" x2="238" y2="240">
+            <stop offset="0%" stop-color="#1B1550" stop-opacity="0"/><stop offset="50%" stop-color="#1B1550" stop-opacity="0"/><stop offset="100%" stop-color="#1B1550" stop-opacity=".14"/>
+          </linearGradient>
+          <linearGradient id="o-arc" gradientUnits="userSpaceOnUse" x1="62" y1="50" x2="206" y2="212">
+            <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".95"/><stop offset="24%" stop-color="#FFFFFF" stop-opacity=".38"/><stop offset="50%" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="72%" stop-color="#0A0626" stop-opacity="0"/><stop offset="100%" stop-color="#0A0626" stop-opacity=".36"/>
           </linearGradient>
           <radialGradient id="o-core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
-            <stop offset="0%" stop-color="#FFFFFF"/><stop offset="44%" stop-color="#9CF4FF"/><stop offset="100%" stop-color="#22D6EF"/>
+            <stop offset="0%" stop-color="#F2FFFF"/><stop offset="44%" stop-color="#8AF0FD"/><stop offset="100%" stop-color="#1FC5E6"/>
           </radialGradient>
           <linearGradient id="o-rim" gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">
             <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".88"/><stop offset="46%" stop-color="#FFFFFF" stop-opacity=".2"/><stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
@@ -72,7 +75,8 @@ const OFFLINE_HTML = `<!doctype html>
         </defs>
         <path fill="url(#o-ink)" d="M203.34 148.19C197.23 163.86 185.91 177.37 171.36 185.8C157.91 193.57 141.9 196.82 126.55 194.48C112.47 192.34 99.09 185.46 89.46 174.96C80.7 165.41 75.11 152.84 74.3 139.9C73.58 128.26 76.8 116.19 83.59 106.7C89.63 98.26 98.73 91.68 108.76 88.99C117.54 86.63 127.51 87.25 135.77 91.06C142.86 94.33 149.23 100.35 152.51 107.43C148.05 101.72 141.78 97.69 134.74 95.95C127.54 94.18 119.94 94.9 113.18 97.95C106.27 101.08 100.62 106.46 97.12 113.19C93.54 120.06 92.4 127.96 93.83 135.58C95.29 143.36 99.36 150.42 105.32 155.64C111.41 160.96 119.13 164.07 127.2 164.49C135.45 164.93 143.6 162.55 150.35 157.8C157.24 152.95 162.28 145.9 164.71 137.84A20 20 0 0 0 203.34 148.19Z" />
         <path fill="url(#o-sheen)" d="M203.34 148.19C197.23 163.86 185.91 177.37 171.36 185.8C157.91 193.57 141.9 196.82 126.55 194.48C112.47 192.34 99.09 185.46 89.46 174.96C80.7 165.41 75.11 152.84 74.3 139.9C73.58 128.26 76.8 116.19 83.59 106.7C89.63 98.26 98.73 91.68 108.76 88.99C117.54 86.63 127.51 87.25 135.77 91.06C142.86 94.33 149.23 100.35 152.51 107.43C148.05 101.72 141.78 97.69 134.74 95.95C127.54 94.18 119.94 94.9 113.18 97.95C106.27 101.08 100.62 106.46 97.12 113.19C93.54 120.06 92.4 127.96 93.83 135.58C95.29 143.36 99.36 150.42 105.32 155.64C111.41 160.96 119.13 164.07 127.2 164.49C135.45 164.93 143.6 162.55 150.35 157.8C157.24 152.95 162.28 145.9 164.71 137.84A20 20 0 0 0 203.34 148.19Z" />
-        <path fill="none" stroke="url(#o-edge)" stroke-width="1.4" d="M203.34 148.19C197.23 163.86 185.91 177.37 171.36 185.8C157.91 193.57 141.9 196.82 126.55 194.48C112.47 192.34 99.09 185.46 89.46 174.96C80.7 165.41 75.11 152.84 74.3 139.9C73.58 128.26 76.8 116.19 83.59 106.7C89.63 98.26 98.73 91.68 108.76 88.99C117.54 86.63 127.51 87.25 135.77 91.06C142.86 94.33 149.23 100.35 152.51 107.43C148.05 101.72 141.78 97.69 134.74 95.95C127.54 94.18 119.94 94.9 113.18 97.95C106.27 101.08 100.62 106.46 97.12 113.19C93.54 120.06 92.4 127.96 93.83 135.58C95.29 143.36 99.36 150.42 105.32 155.64C111.41 160.96 119.13 164.07 127.2 164.49C135.45 164.93 143.6 162.55 150.35 157.8C157.24 152.95 162.28 145.9 164.71 137.84A20 20 0 0 0 203.34 148.19Z" />
+        <path fill="url(#o-shade)" d="M203.34 148.19C197.23 163.86 185.91 177.37 171.36 185.8C157.91 193.57 141.9 196.82 126.55 194.48C112.47 192.34 99.09 185.46 89.46 174.96C80.7 165.41 75.11 152.84 74.3 139.9C73.58 128.26 76.8 116.19 83.59 106.7C89.63 98.26 98.73 91.68 108.76 88.99C117.54 86.63 127.51 87.25 135.77 91.06C142.86 94.33 149.23 100.35 152.51 107.43C148.05 101.72 141.78 97.69 134.74 95.95C127.54 94.18 119.94 94.9 113.18 97.95C106.27 101.08 100.62 106.46 97.12 113.19C93.54 120.06 92.4 127.96 93.83 135.58C95.29 143.36 99.36 150.42 105.32 155.64C111.41 160.96 119.13 164.07 127.2 164.49C135.45 164.93 143.6 162.55 150.35 157.8C157.24 152.95 162.28 145.9 164.71 137.84A20 20 0 0 0 203.34 148.19Z" />
+        <path fill="none" stroke="url(#o-arc)" stroke-width="1.5" d="M203.34 148.19C197.23 163.86 185.91 177.37 171.36 185.8C157.91 193.57 141.9 196.82 126.55 194.48C112.47 192.34 99.09 185.46 89.46 174.96C80.7 165.41 75.11 152.84 74.3 139.9C73.58 128.26 76.8 116.19 83.59 106.7C89.63 98.26 98.73 91.68 108.76 88.99C117.54 86.63 127.51 87.25 135.77 91.06C142.86 94.33 149.23 100.35 152.51 107.43C148.05 101.72 141.78 97.69 134.74 95.95C127.54 94.18 119.94 94.9 113.18 97.95C106.27 101.08 100.62 106.46 97.12 113.19C93.54 120.06 92.4 127.96 93.83 135.58C95.29 143.36 99.36 150.42 105.32 155.64C111.41 160.96 119.13 164.07 127.2 164.49C135.45 164.93 143.6 162.55 150.35 157.8C157.24 152.95 162.28 145.9 164.71 137.84A20 20 0 0 0 203.34 148.19Z" />
         <path fill="url(#o-core)" d="M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z" />
         <circle cx="128" cy="128" r="21.3" fill="none" stroke="url(#o-rim)" stroke-width="1"/>
         <ellipse cx="119" cy="113" rx="7.5" ry="6" fill="url(#o-spec)"/>

@@ -29,14 +29,16 @@ CORE_MD = "#8AF0FD"
 CORE_LO = "#1FC5E6"
 ACCENT = "#22D3EE"
 
-# ---- 深色底透明版：砖退场，笔弧整体提亮，核加高光 ----
-# 背景 slate-900 #0F172A 下：亮端 13.4:1 / 暗端 5.4:1，远超非文本 3:1
-ON_DARK_HI = "#E4E0FF"
-ON_DARK = "#A79FFF"
-ON_DARK_LO = "#7E75F8"
-CORE_DK_HI = "#FFFFFF"
-CORE_DK_MID = "#9CF4FF"
-CORE_DK_LO = "#22D6EF"
+# ---- 深色底透明版：无砖，笔弧本身就是一件金属件 ----
+# 早期版本把笔弧整体提亮（#E4E0FF→#7E75F8）来「发亮」，两处都错了：
+# 白底上只有 2.3:1 近乎隐形；深底上是一团发光体，没有体积。
+# 现在用品牌色，亮度改由「棱」给：同一支 arcEdge 笔画两条棱——
+# 左上白 .95（受光棱），右下深靛 .36（背光棱收口）；再压一层背光面给朝向。
+# 这样同一枚标记在白底 5.3:1 / slate-900 3.4:1 都立得住。
+ARC_HI, ARC_MID, ARC_DARK_OP = 0.95, 0.38, 0.36
+ARC_DARK = "#0A0626"              # 背光棱用深靛而非纯黑：深底上不会切出硬边
+ARC_W = 1.5
+ON_DARK_SHEEN = 0.24     # 斜向受光收窄：大面积加白会把彩度冲掉
 # 无砖时 viewBox 收到笔弧外接框（r78 → 50..206，留 6 边），不再替砖占位
 BARE_VIEWBOX = "44 44 168 168"
 
@@ -46,9 +48,8 @@ BARE_VIEWBOX = "44 44 168 168"
 SOFT_END, SOFT_HI = 64, 0.18      # 砖身柔光：贴顶起算，y=64 归零（够不到笔弧）
 SHADE = 0.14                      # 背光面：右下压深——体积的来源
 BEZEL_END, BEZEL_OP, BEZEL_W = 32, 0.92, 1.5  # 倒角亮线：一条窄而实的转折光
-SH_HI, SH_LO = 0.46, 0.0          # 笔弧斜向受光（仅深底透明版）
+SH_HI, SH_LO = 0.24, 0.0          # 笔弧斜向受光（仅透明版；SOFT/SHADE 管砖面）
 BOUNCE = 0.12                     # 砖底环境反光（像铝面映地面，很轻）
-EDGE_HI, EDGE_MID = 0.80, 0.18    # 笔弧轮廓光（沿路径描边，上亮下隐）
 LINELO, LINEHI = 0.05, 0.28       # 砖外缘暗线：左上几乎无、右下压重——把边界切出来
 RIM = 0.88                   # 核边缘光（上亮下隐）
 SPEC = 0.96                  # 核镜面高光点（更小更集中）
@@ -81,10 +82,14 @@ def _material_defs(p):
         f'      <stop offset="0%" stop-color="#C8DEFF" stop-opacity="0"/>\n'
         f'      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="{BOUNCE}"/>\n'
         '    </linearGradient>\n'
-        f'    <linearGradient id="{p}edge" gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">\n'
-        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{EDGE_HI}"/>\n'
-        f'      <stop offset="52%" stop-color="#FFFFFF" stop-opacity="{EDGE_MID}"/>\n'
-        f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        # 透明版的「利边」：一笔两棱。左上半段白色受光，右下段深靛收口，
+        # 中间透明过渡——描边只 1.5px，窄到像机加工的棱，而不是一层发光。
+        f'    <linearGradient id="{p}arc" gradientUnits="userSpaceOnUse" x1="62" y1="50" x2="206" y2="212">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{ARC_HI}"/>\n'
+        f'      <stop offset="24%" stop-color="#FFFFFF" stop-opacity="{ARC_MID}"/>\n'
+        '      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        f'      <stop offset="72%" stop-color="{ARC_DARK}" stop-opacity="0"/>\n'
+        f'      <stop offset="100%" stop-color="{ARC_DARK}" stop-opacity="{ARC_DARK_OP}"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}edgeLine" gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">\n'
         f'      <stop offset="0%" stop-color="#221C6E" stop-opacity="{LINELO}"/>\n'
@@ -142,18 +147,18 @@ def defs(prefix="", material=True):
 
 
 def defs_on_dark(prefix="", material=True):
-    """深色底的透明版渐变：无砖面，只有提亮的笔弧与更亮的核心。"""
+    """透明版渐变：无砖面。笔弧用品牌色，质感靠 arc/sheen/shade 三层打光。"""
     p = prefix
     body = (
         f'    <linearGradient id="{p}ink" gradientUnits="userSpaceOnUse" x1="60" y1="52" x2="200" y2="210">\n'
-        f'      <stop offset="0%" stop-color="{ON_DARK_HI}"/>\n'
-        f'      <stop offset="46%" stop-color="{ON_DARK}"/>\n'
-        f'      <stop offset="100%" stop-color="{ON_DARK_LO}"/>\n'
+        f'      <stop offset="0%" stop-color="{INK_HI}"/>\n'
+        f'      <stop offset="46%" stop-color="{INK}"/>\n'
+        f'      <stop offset="100%" stop-color="{INK_LO}"/>\n'
         '    </linearGradient>\n'
         f'    <radialGradient id="{p}core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">\n'
-        f'      <stop offset="0%" stop-color="{CORE_DK_HI}"/>\n'
-        f'      <stop offset="44%" stop-color="{CORE_DK_MID}"/>\n'
-        f'      <stop offset="100%" stop-color="{CORE_DK_LO}"/>\n'
+        f'      <stop offset="0%" stop-color="{CORE_HI}"/>\n'
+        f'      <stop offset="44%" stop-color="{CORE_MD}"/>\n'
+        f'      <stop offset="100%" stop-color="{CORE_LO}"/>\n'
         '    </radialGradient>\n'
     )
     if material:
@@ -221,7 +226,8 @@ def symbol_body(prefix="", on_dark=False, invert=False):
 
     浅底砖版：砖 → 贴顶柔光 → 右下背光面 → 砖底反光 → 外缘暗线 → 倒角亮线
               → 笔弧 → 核 → 窄边缘光 → 镜面点 → 核底反光
-    深底透明版：提亮笔弧 → 斜向受光 → 轮廓光 → 核 → 窄边缘光 → 镜面点 → 核底反光
+    透明版：品牌色笔弧 → 斜向受光 → 右下背光面 → 双棱描边
+            → 核 → 窄边缘光 → 镜面点 → 核底反光
     invert=True 为反白（白砖 + 品牌主色笔弧），用于深色底/照片的反相场景。
 
     图层顺序即显隐——后面的盖在前面上；全部用渐变与描边完成，不用 filter。
@@ -233,8 +239,9 @@ def symbol_body(prefix="", on_dark=False, invert=False):
     if on_dark:
         out.append(f'<path fill="url(#{p}ink)" d="{BAND}"/>')
         out.append(f'<path fill="url(#{p}sheen)" d="{BAND}"/>')
-        out.append(f'<path fill="none" stroke="url(#{p}edge)" stroke-width="1.4" d="{BAND}"/>')
-        rim_w, sx, sy = 1.0, 7.5, 6
+        out.append(f'<path fill="url(#{p}shade)" d="{BAND}"/>')
+        out.append(f'<path fill="none" stroke="url(#{p}arc)" stroke-width="{ARC_W}" d="{BAND}"/>')
+        rim_w, sx, sy = 1.5, 9, 7
     elif invert:
         out.append(f'<path fill="url(#{p}tile)" d="{TILE}"/>')
         out.append(f'<path fill="url(#{p}ink)" d="{BAND}"/>')
