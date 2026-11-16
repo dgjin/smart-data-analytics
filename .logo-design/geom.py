@@ -14,12 +14,13 @@ EN = "NL2SQL PRO"
 CN_FONT = "PingFang SC, Hiragino Sans GB, Heiti SC, Source Han Sans SC, sans-serif"
 EN_FONT = "Helvetica Neue, Arial, PingFang SC, sans-serif"
 
-# ---- 品牌色（H 方案：加深砖色，把白笔弧从砖上抬出来）----
-# 上一轮的毛病：左上被扫光与光斑抬到接近白，白笔弧在浅砖上糊成一团，整体发灰。
-# 「突出」的本质是白弧与砖的对比——砖加深到 5.3:1（原 3.5:1），玻璃质感反而更清楚。
+# ---- 品牌色（Apple 式材质：高光端保持高彩度，不向白靠）----
+# 前两版都栽在同一处：想把砖提亮，就往上加白，色饱和度被冲掉，观感变「灰」——
+# 用户要的「明亮有质感」实际是**饱和 + 明暗体积**，不是亮度。
+# 所以高光端用 #7C6FFF（同色相、高彩度），不再用 #AEA7FF 那种淡紫。
 INK = "#5B54F2"        # 品牌主色（单色退回 / 渐变中段 / 文字）
-INK_HI = "#AEA7FF"     # 光泽高光端（左上受光）
-INK_LO = "#3F37D2"     # 暗端下沉，压出重量
+INK_HI = "#7C6FFF"     # 受光端：同色相提亮，彩度不掉
+INK_LO = "#332CA8"     # 背光端：压深，给体积
 TILE_HI = "#FFFFFF"    # 白砖（仅反白版使用）：顶部纯白
 TILE_MD = "#FDFDFF"
 TILE_LO = "#F2F3FF"    # 砖底微冷，产生厚度感
@@ -39,44 +40,45 @@ CORE_DK_LO = "#22D6EF"
 # 无砖时 viewBox 收到笔弧外接框（r78 → 50..206，留 6 边），不再替砖占位
 BARE_VIEWBOX = "44 44 168 168"
 
-# ---- 玻璃光效：纯渐变实现（禁 filter / 禁位图）----
-# 砖色加深后，扫光与光斑必须同步收敛：再强会把砖重新抬灰，白弧就不跳了。
-SW_HI, SW_LO = 0.22, 0.0     # 砖面斜扫光（只提亮不压暗）
-SH_HI, SH_LO = 0.46, 0.0     # 笔弧斜向受光（仅深底透明版）
-TOPHL = 0.62                 # 砖顶 2px 内高光
-SPOT = 0.16                  # 砖面左上主光斑（径向，深砖上一点点就够）
-BOUNCE = 0.24                # 砖底环境反光（冷白，抬厚度）
-EDGE_HI, EDGE_MID = 0.80, 0.18  # 笔弧轮廓光（沿路径描边，上亮下隐）
-LINELO, LINEHI = 0.08, 0.30  # 砖外缘暗线：左上几乎无、右下压重——把边界托住
+# ---- 材质：Apple 的三条打光纪律（明暗双向 / 窄镜面 / 利边）----
+# 质感全在「边」上，不在「面」上。面上一大面积加白，彩度就被冲淡 → 发灰。
+# 所以砖面只留极缓的上下渐变，高光收成贴边倒角，背光面轻压。
+SOFT_END, SOFT_HI = 64, 0.18      # 砖身柔光：贴顶起算，y=64 归零（够不到笔弧）
+SHADE = 0.14                      # 背光面：右下压深——体积的来源
+BEZEL_END, BEZEL_OP, BEZEL_W = 32, 0.92, 1.5  # 倒角亮线：一条窄而实的转折光
+SH_HI, SH_LO = 0.46, 0.0          # 笔弧斜向受光（仅深底透明版）
+BOUNCE = 0.12                     # 砖底环境反光（像铝面映地面，很轻）
+EDGE_HI, EDGE_MID = 0.80, 0.18    # 笔弧轮廓光（沿路径描边，上亮下隐）
+LINELO, LINEHI = 0.05, 0.28       # 砖外缘暗线：左上几乎无、右下压重——把边界切出来
 RIM = 0.88                   # 核边缘光（上亮下隐）
 SPEC = 0.96                  # 核镜面高光点（更小更集中）
 CBOUNCE = 0.50               # 核底反光（背光面的一抹青）
 
 
 def _material_defs(p):
-    """玻璃光效的渐变定义，浅底砖版与深底透明版共用一份。
+    """材质渐变定义，浅底砖版与深底透明版共用一份。
 
-    暗端全部归零——光效只做加法。提亮靠基色，质感靠高光形状：
-    主光斑给出玻璃球的聚光区，底部反光抬厚度，轮廓光让笔弧「立」起来。
+    砖面只有三支渐变——贴顶柔光、右下背光面、砖底冷反光；质感交给描边：
+    倒角亮线负责「转折」，外缘暗线负责「边界」。前几版靠大面积光斑堆亮度，
+    面一加白彩度就掉，越改越灰；现在把光收回到边上。
     """
     return (
-        f'    <linearGradient id="{p}sweep" gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">\n'
-        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SW_HI}"/>\n'
-        f'      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
-        f'      <stop offset="100%" stop-color="#000000" stop-opacity="{SW_LO}"/>\n'
+        f'    <linearGradient id="{p}soft" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="{SOFT_END}">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SOFT_HI}"/>\n'
+        f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        '    </linearGradient>\n'
+        f'    <linearGradient id="{p}shade" gradientUnits="userSpaceOnUse" x1="52" y1="48" x2="238" y2="240">\n'
+        f'      <stop offset="0%" stop-color="#1B1550" stop-opacity="0"/>\n'
+        f'      <stop offset="50%" stop-color="#1B1550" stop-opacity="0"/>\n'
+        f'      <stop offset="100%" stop-color="#1B1550" stop-opacity="{SHADE}"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}sheen" gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">\n'
         f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SH_HI}"/>\n'
         f'      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.05"/>\n'
         f'      <stop offset="100%" stop-color="#000000" stop-opacity="{SH_LO}"/>\n'
         '    </linearGradient>\n'
-        f'    <radialGradient id="{p}spot" gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">\n'
-        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SPOT}"/>\n'
-        f'      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.05"/>\n'
-        f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
-        '    </radialGradient>\n'
-        f'    <linearGradient id="{p}bounce" gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">\n'
-        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
+        f'    <linearGradient id="{p}bounce" gradientUnits="userSpaceOnUse" x1="128" y1="180" x2="128" y2="240">\n'
+        f'      <stop offset="0%" stop-color="#C8DEFF" stop-opacity="0"/>\n'
         f'      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="{BOUNCE}"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}edge" gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">\n'
@@ -85,12 +87,12 @@ def _material_defs(p):
         f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}edgeLine" gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">\n'
-        f'      <stop offset="0%" stop-color="#2A2480" stop-opacity="{LINELO}"/>\n'
-        f'      <stop offset="55%" stop-color="#2A2480" stop-opacity="0.20"/>\n'
-        f'      <stop offset="100%" stop-color="#221C6E" stop-opacity="{LINEHI}"/>\n'
+        f'      <stop offset="0%" stop-color="#221C6E" stop-opacity="{LINELO}"/>\n'
+        f'      <stop offset="55%" stop-color="#221C6E" stop-opacity="{LINEHI * 0.65:.3f}"/>\n'
+        f'      <stop offset="100%" stop-color="#1A1458" stop-opacity="{LINEHI}"/>\n'
         '    </linearGradient>\n'
-        f'    <linearGradient id="{p}topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">\n'
-        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{TOPHL}"/>\n'
+        f'    <linearGradient id="{p}bezel" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="{BEZEL_END}">\n'
+        f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{BEZEL_OP}"/>\n'
         f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}rim" gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">\n'
@@ -120,7 +122,7 @@ def defs(prefix="", material=True):
     body = (
         f'    <linearGradient id="{p}ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">\n'
         f'      <stop offset="0%" stop-color="{INK_HI}"/>\n'
-        f'      <stop offset="46%" stop-color="{INK}"/>\n'
+        f'      <stop offset="45%" stop-color="{INK}"/>\n'
         f'      <stop offset="100%" stop-color="{INK_LO}"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">\n'
@@ -215,16 +217,16 @@ FAV_BAND, FAV_CORE = geometry(80, 40, 40, 24)  # 16–32px 简化版
 
 
 def symbol_body(prefix="", on_dark=False, invert=False):
-    """符号的完整图层序列（含玻璃光效），生成器直接嵌进 <svg> 即可。
+    """符号的完整图层序列（含材质描边），生成器直接嵌进 <svg> 即可。
 
-    浅底砖版：砖 → 斜扫光 → 主光斑 → 砖底反光 → 外缘暗线 → 砖顶内高光
+    浅底砖版：砖 → 贴顶柔光 → 右下背光面 → 砖底反光 → 外缘暗线 → 倒角亮线
               → 笔弧 → 核 → 窄边缘光 → 镜面点 → 核底反光
     深底透明版：提亮笔弧 → 斜向受光 → 轮廓光 → 核 → 窄边缘光 → 镜面点 → 核底反光
-    invert=True 为反白（白砖 + 品牌主色笔弧），用于照片与深色底/浅底互转的反相场景。
+    invert=True 为反白（白砖 + 品牌主色笔弧），用于深色底/照片的反相场景。
 
     图层顺序即显隐——后面的盖在前面上；全部用渐变与描边完成，不用 filter。
-    外缘暗线只加在砖版：左上越亮越像玻璃，但边界也越容易「融化」进浅底，
-    用一条左上几乎无、右下压重的暗线把轮廓托住。
+    外缘暗线与倒角亮线都只加在砖版：前者把边界从浅底里「切」出来，后者是
+    Apple 那种机加工转折——两道线一攻一守，砖面本身保持饱和。
     """
     p = prefix
     out = []
@@ -235,16 +237,15 @@ def symbol_body(prefix="", on_dark=False, invert=False):
         rim_w, sx, sy = 1.0, 7.5, 6
     elif invert:
         out.append(f'<path fill="url(#{p}tile)" d="{TILE}"/>')
-        out.append(f'<path fill="none" stroke="url(#{p}topHL)" stroke-width="2" d="{TILE}"/>')
         out.append(f'<path fill="url(#{p}ink)" d="{BAND}"/>')
         rim_w, sx, sy = 1.5, 9, 7
     else:
         out.append(f'<path fill="url(#{p}ink)" d="{TILE}"/>')
-        out.append(f'<path fill="url(#{p}sweep)" d="{TILE}"/>')
-        out.append(f'<path fill="url(#{p}spot)" d="{TILE}"/>')
+        out.append(f'<path fill="url(#{p}soft)" d="{TILE}"/>')
+        out.append(f'<path fill="url(#{p}shade)" d="{TILE}"/>')
         out.append(f'<path fill="url(#{p}bounce)" d="{TILE}"/>')
-        out.append(f'<path fill="none" stroke="url(#{p}edgeLine)" stroke-width="1.6" d="{TILE}"/>')
-        out.append(f'<path fill="none" stroke="url(#{p}topHL)" stroke-width="2" d="{TILE}"/>')
+        out.append(f'<path fill="none" stroke="url(#{p}edgeLine)" stroke-width="1.4" d="{TILE}"/>')
+        out.append(f'<path fill="none" stroke="url(#{p}bezel)" stroke-width="{BEZEL_W}" d="{TILE}"/>')
         out.append(f'<path fill="#FFFFFF" d="{BAND}"/>')
         rim_w, sx, sy = 1.0, 7.5, 6
     out.append(f'<path fill="url(#{p}core)" d="{CORE_D}"/>')

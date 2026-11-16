@@ -5,9 +5,9 @@
        单色与反白请用 lockup-horizontal.svg（currentColor）。 -->
   <defs>
     <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
-      <stop offset="0%" stop-color="#AEA7FF"/>
-      <stop offset="46%" stop-color="#5B54F2"/>
-      <stop offset="100%" stop-color="#3F37D2"/>
+      <stop offset="0%" stop-color="#7C6FFF"/>
+      <stop offset="45%" stop-color="#5B54F2"/>
+      <stop offset="100%" stop-color="#332CA8"/>
     </linearGradient>
     <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
       <stop offset="0%" stop-color="#FFFFFF"/>
@@ -19,24 +19,23 @@
       <stop offset="44%" stop-color="#8AF0FD"/>
       <stop offset="100%" stop-color="#1FC5E6"/>
     </radialGradient>
-    <linearGradient id="sweep" gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22"/>
-      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
+    <linearGradient id="soft" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="64">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="shade" gradientUnits="userSpaceOnUse" x1="52" y1="48" x2="238" y2="240">
+      <stop offset="0%" stop-color="#1B1550" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#1B1550" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1B1550" stop-opacity="0.14"/>
     </linearGradient>
     <linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.46"/>
       <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.05"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
     </linearGradient>
-    <radialGradient id="spot" gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
-      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="bounce" gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="0.24"/>
+    <linearGradient id="bounce" gradientUnits="userSpaceOnUse" x1="128" y1="180" x2="128" y2="240">
+      <stop offset="0%" stop-color="#C8DEFF" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="0.12"/>
     </linearGradient>
     <linearGradient id="edge" gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8"/>
@@ -44,12 +43,12 @@
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="edgeLine" gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
-      <stop offset="0%" stop-color="#2A2480" stop-opacity="0.08"/>
-      <stop offset="55%" stop-color="#2A2480" stop-opacity="0.20"/>
-      <stop offset="100%" stop-color="#221C6E" stop-opacity="0.3"/>
+      <stop offset="0%" stop-color="#221C6E" stop-opacity="0.05"/>
+      <stop offset="55%" stop-color="#221C6E" stop-opacity="0.182"/>
+      <stop offset="100%" stop-color="#1A1458" stop-opacity="0.28"/>
     </linearGradient>
-    <linearGradient id="topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.62"/>
+    <linearGradient id="bezel" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="32">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.92"/>
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">
@@ -68,11 +67,11 @@
   </defs>
   <svg x="28" y="32" width="192" height="192" viewBox="0 0 256 256">
     <path fill="url(#ink)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
-  <path fill="url(#sweep)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
-  <path fill="url(#spot)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+  <path fill="url(#soft)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+  <path fill="url(#shade)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
   <path fill="url(#bounce)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
-  <path fill="none" stroke="url(#edgeLine)" stroke-width="1.6" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
-  <path fill="none" stroke="url(#topHL)" stroke-width="2" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+  <path fill="none" stroke="url(#edgeLine)" stroke-width="1.4" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
+  <path fill="none" stroke="url(#bezel)" stroke-width="1.5" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
   <path fill="#FFFFFF" d="M203.34 148.19
            C197.23 163.86 185.91 177.37 171.36 185.8
            C157.91 193.57 141.9 196.82 126.55 194.48

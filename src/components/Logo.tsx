@@ -1,8 +1,8 @@
 /** 智能问数品牌标识（「一笔」）：方砖 + 盘绕笔弧 + 中心一颗点亮核，顶栏与登录页共用。
  *
  * - 符号语义：粗端=涌入的数据，沿绕收细=提炼，中心核=被点亮的判断；
- * - 上色：三层光泽渐变（砖面瓷面 / 笔弧金属 / 核心球面）+ 玻璃光效（主光斑、砖底反光、
- *   外缘暗线、笔弧轮廓光、核边缘光与镜面点），与小尺寸平面版同色系；
+ * - 上色：品牌色渐变 + 核心球面；质感靠「边」——贴顶柔光、倒角亮线、外缘暗线、
+ *   笔弧轮廓光、核边缘光与镜面点（全部纯渐变，不用 filter），与小尺寸平面版同色系；
  * - tone：dark=深色 UI 上的透明版（默认，无砖／提亮笔弧／高光核）；light=浅底上的砖版；
  * - size：md=顶栏 56px / lg=登录页 80px；pulse 控制核的呼吸（顶栏启用）；
  * - 与智能运维控制台的「脉冲徽章」同源——同一枚徽章，同一处隐藏信号。
@@ -37,12 +37,12 @@ const MARK_BAND = [
 
 /** 核（r22）：全标唯一的彩色点。 */
 const CORE_PATH = 'M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z';
-/** 品牌主色（H 方案）：砖加深，白笔弧与砖的对比 3.5:1→5.3:1。
- *  上一版的问题不是不够亮，而是砖被高光抬到接近白——白弧糊在砖里、整体发灰。
- *  小尺寸单色场景（favicon）用 BRAND_INK；大尺寸铺三层渐变产生光泽。 */
+/** 品牌主色（Apple 式材质）：高光端保持高彩度，不向白靠。
+ *  前两版都栽在同一处——想提亮就往上加白，色饱和度被冲掉，观感变「灰」。
+ *  提亮要用同色相的 #7C6FFF，不是淡紫；小尺寸单色场景（favicon）用 BRAND_INK。 */
 const BRAND_INK = '#5B54F2';
-const BRAND_INK_HI = '#AEA7FF';
-const BRAND_INK_LO = '#3F37D2';
+const BRAND_INK_HI = '#7C6FFF';
+const BRAND_INK_LO = '#332CA8';
 /** 核的球面：高光居中偏左上，边缘回落到青。 */
 const CORE_HI = '#F2FFFF';
 const CORE_MD = '#8AF0FD';
@@ -55,19 +55,22 @@ const ON_DARK_CORE_HI = '#FFFFFF';
 const ON_DARK_CORE_MID = '#9CF4FF';
 const ON_DARK_CORE_LO = '#22D6EF';
 
-/** 玻璃光效（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
- *  暗端全部归零——光效只做加法：提亮靠基色，质感靠高光形状。 */
-const SWEEP_HI = 0.22; // 砖面斜扫：左上提亮
-const SWEEP_LO = 0; // 砖面斜扫：右下不压暗（一压就重新变「暗」）
+/** 材质（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
+ *  Apple 的三条打光纪律——明暗双向、镜面是窄带、边缘要利。质感全在「边」上：
+ *  面上一大面积加白，彩度就掉，越改越灰。 */
+const SOFT_END = 64; // 砖身柔光衰减到 y=64（够不到笔弧，白弧对比不被吃掉）
+const SOFT_HI = 0.18;
+const SHADE = 0.14; // 背光面：右下压深——体积的来源
+const BEZEL_END = 32; // 倒角亮线：只亮顶端一段
+const BEZEL_OP = 0.92;
+const BEZEL_W = 1.5;
 const SHEEN_HI = 0.46; // 笔弧斜向受光（仅深底——白笔弧叠黑会发灰）
 const SHEEN_LO = 0;
-const TOP_HL = 0.62; // 砖顶 2px 内高光
-const SPOT = 0.16; // 砖面左上主光斑（径向，像玻璃球的聚光区）
-const BOUNCE = 0.24; // 砖底环境反光（冷白，抬厚度）
+const BOUNCE = 0.12; // 砖底环境反光（像铝面映地面，很轻）
 const EDGE_HI = 0.8; // 笔弧轮廓光：上缘最亮
 const EDGE_MID = 0.18;
-const LINE_LO = 0.08; // 砖外缘暗线：左上几乎无
-const LINE_HI = 0.3; // 右下压重——把过亮的边界托住
+const LINE_LO = 0.05; // 砖外缘暗线：左上几乎无
+const LINE_HI = 0.28; // 右下压重——把边界切出来
 const RIM = 0.88; // 核边缘光（上亮下隐）
 const SPEC = 0.96; // 核镜面高光点（更小更集中）
 const CBOUNCE = 0.5; // 核底反光（背光面的一抹青）
@@ -136,7 +139,7 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               y2={onDark ? 210 : 238}
             >
               <stop offset="0%" stopColor={onDark ? ON_DARK_HI : BRAND_INK_HI} />
-              <stop offset="46%" stopColor={onDark ? ON_DARK : BRAND_INK} />
+              <stop offset="45%" stopColor={onDark ? ON_DARK : BRAND_INK} />
               <stop offset="100%" stopColor={onDark ? ON_DARK_LO : BRAND_INK_LO} />
             </linearGradient>
             {/* 核心球面：高光偏左上，边缘回落到青 */}
@@ -145,24 +148,23 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <stop offset="44%" stopColor={onDark ? ON_DARK_CORE_MID : CORE_MD} />
               <stop offset="100%" stopColor={onDark ? ON_DARK_CORE_LO : CORE_LO} />
             </radialGradient>
-            {/* 玻璃光效：砖面斜扫 / 主光斑 / 砖底反光 / 笔弧轮廓光 / 外缘暗线 / 砖顶内高光 / 核边缘光 / 镜面点 / 核底反光 */}
-            <linearGradient id={`sweep-${uid}`} gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
-              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SWEEP_HI} />
-              <stop offset="38%" stopColor="#FFFFFF" stopOpacity="0" />
-              <stop offset="100%" stopColor="#000000" stopOpacity={SWEEP_LO} />
+            {/* 材质：贴顶柔光 / 右下背光面 / 砖底冷反光 / 倒角亮线 / 外缘暗线 / 笔弧轮廓光 / 核边缘光 / 镜面点 / 核底反光 */}
+            <linearGradient id={`soft-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2={SOFT_END}>
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SOFT_HI} />
+              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id={`shade-${uid}`} gradientUnits="userSpaceOnUse" x1="52" y1="48" x2="238" y2="240">
+              <stop offset="0%" stopColor="#1B1550" stopOpacity="0" />
+              <stop offset="50%" stopColor="#1B1550" stopOpacity="0" />
+              <stop offset="100%" stopColor="#1B1550" stopOpacity={SHADE} />
             </linearGradient>
             <linearGradient id={`sheen-${uid}`} gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SHEEN_HI} />
               <stop offset="38%" stopColor="#FFFFFF" stopOpacity="0.05" />
               <stop offset="100%" stopColor="#000000" stopOpacity={SHEEN_LO} />
             </linearGradient>
-            <radialGradient id={`spot-${uid}`} gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">
-              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SPOT} />
-              <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.05" />
-              <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
-            </radialGradient>
-            <linearGradient id={`bounce-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">
-              <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0" />
+            <linearGradient id={`bounce-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="180" x2="128" y2="240">
+              <stop offset="0%" stopColor="#C8DEFF" stopOpacity="0" />
               <stop offset="100%" stopColor="#C8DEFF" stopOpacity={BOUNCE} />
             </linearGradient>
             <linearGradient id={`edge-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
@@ -171,12 +173,12 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </linearGradient>
             <linearGradient id={`edgeLine-${uid}`} gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
-              <stop offset="0%" stopColor="#2A2480" stopOpacity={LINE_LO} />
-              <stop offset="55%" stopColor="#2A2480" stopOpacity="0.2" />
-              <stop offset="100%" stopColor="#221C6E" stopOpacity={LINE_HI} />
+              <stop offset="0%" stopColor="#221C6E" stopOpacity={LINE_LO} />
+              <stop offset="55%" stopColor="#221C6E" stopOpacity={LINE_HI * 0.65} />
+              <stop offset="100%" stopColor="#1A1458" stopOpacity={LINE_HI} />
             </linearGradient>
-            <linearGradient id={`topHL-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
-              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={TOP_HL} />
+            <linearGradient id={`bezel-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2={BEZEL_END}>
+              <stop offset="0%" stopColor="#FFFFFF" stopOpacity={BEZEL_OP} />
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </linearGradient>
             <linearGradient id={`rim-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">
@@ -203,14 +205,14 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
           ) : (
             <>
               <path fill={ink} d={TILE_PATH} />
-              <path fill={`url(#sweep-${uid})`} d={TILE_PATH} />
-              {/* 主光斑 + 底部反光：玻璃球的聚光区与环境回弹 */}
-              <path fill={`url(#spot-${uid})`} d={TILE_PATH} />
+              {/* 贴顶柔光 + 右下背光面：明暗双向才有体积，单向加白只会发灰 */}
+              <path fill={`url(#soft-${uid})`} d={TILE_PATH} />
+              <path fill={`url(#shade-${uid})`} d={TILE_PATH} />
               <path fill={`url(#bounce-${uid})`} d={TILE_PATH} />
-              {/* 外缘暗线托住边界：左上几乎无、右下压重（光从左上来的物理逻辑） */}
-              <path fill="none" stroke={`url(#edgeLine-${uid})`} strokeWidth="1.6" d={TILE_PATH} />
-              {/* 砖顶 2px 内高光：让方砖有厚度，不像一块贴纸 */}
-              <path fill="none" stroke={`url(#topHL-${uid})`} strokeWidth="2" d={TILE_PATH} />
+              {/* 外缘暗线把边界切出来：左上几乎无、右下压重（光从左上来的物理逻辑） */}
+              <path fill="none" stroke={`url(#edgeLine-${uid})`} strokeWidth="1.4" d={TILE_PATH} />
+              {/* 倒角亮线：只亮顶端一段，机加工转折的那道光 */}
+              <path fill="none" stroke={`url(#bezel-${uid})`} strokeWidth={BEZEL_W} d={TILE_PATH} />
               <path fill="#FFFFFF" d={MARK_BAND} />
             </>
           )}

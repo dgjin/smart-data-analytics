@@ -13,24 +13,23 @@
       <stop offset="44%" stop-color="#9CF4FF"/>
       <stop offset="100%" stop-color="#22D6EF"/>
     </radialGradient>
-    <linearGradient id="sweep" gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22"/>
-      <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
+    <linearGradient id="soft" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="64">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="shade" gradientUnits="userSpaceOnUse" x1="52" y1="48" x2="238" y2="240">
+      <stop offset="0%" stop-color="#1B1550" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#1B1550" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#1B1550" stop-opacity="0.14"/>
     </linearGradient>
     <linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="62" y1="54" x2="198" y2="208">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.46"/>
       <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0.05"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
     </linearGradient>
-    <radialGradient id="spot" gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
-      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.05"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="bounce" gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="0.24"/>
+    <linearGradient id="bounce" gradientUnits="userSpaceOnUse" x1="128" y1="180" x2="128" y2="240">
+      <stop offset="0%" stop-color="#C8DEFF" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="0.12"/>
     </linearGradient>
     <linearGradient id="edge" gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8"/>
@@ -38,12 +37,12 @@
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="edgeLine" gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
-      <stop offset="0%" stop-color="#2A2480" stop-opacity="0.08"/>
-      <stop offset="55%" stop-color="#2A2480" stop-opacity="0.20"/>
-      <stop offset="100%" stop-color="#221C6E" stop-opacity="0.3"/>
+      <stop offset="0%" stop-color="#221C6E" stop-opacity="0.05"/>
+      <stop offset="55%" stop-color="#221C6E" stop-opacity="0.182"/>
+      <stop offset="100%" stop-color="#1A1458" stop-opacity="0.28"/>
     </linearGradient>
-    <linearGradient id="topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.62"/>
+    <linearGradient id="bezel" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="32">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.92"/>
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="rim" gradientUnits="userSpaceOnUse" x1="128" y1="104" x2="128" y2="152">

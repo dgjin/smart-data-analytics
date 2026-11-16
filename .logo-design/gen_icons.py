@@ -17,13 +17,13 @@ SCALE = 1.15
 
 svg = f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="智能问数">
   <title>智能问数 — app icon</title>
-  <!-- 满版构图：品牌色瓷面渐变底（{INK} 为中段，叠斜扫光 + 左上主光斑 + 底部反光）
+  <!-- 满版构图：品牌色底（{INK} 为中段，贴顶柔光 + 右下背光面 + 底部冷反光）
        + 白笔弧 + 球面高光核，内容缩放 {SCALE}（占画布约 70%，满足 maskable 安全区）。
-       iOS 的圆角由系统裁切，因此不做圆角；也不加砖顶内高光与外缘暗线（会被裁成亮边）。 -->
+       iOS 的圆角由系统裁切，因此不做圆角；也不加倒角亮线与外缘暗线（会被裁成亮边）。 -->
   {defs()}
   <rect width="256" height="256" fill="url(#ink)"/>
-  <rect width="256" height="256" fill="url(#sweep)"/>
-  <rect width="256" height="256" fill="url(#spot)"/>
+  <rect width="256" height="256" fill="url(#soft)"/>
+  <rect width="256" height="256" fill="url(#shade)"/>
   <rect width="256" height="256" fill="url(#bounce)"/>
   <g transform="translate(128 128) scale({SCALE}) translate(-128 -128)">
     <path fill="#FFFFFF" d="{BAND}"/>
