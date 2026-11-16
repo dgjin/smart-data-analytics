@@ -14,18 +14,18 @@ EN = "NL2SQL PRO"
 CN_FONT = "PingFang SC, Hiragino Sans GB, Heiti SC, Source Han Sans SC, sans-serif"
 EN_FONT = "Helvetica Neue, Arial, PingFang SC, sans-serif"
 
-# ---- 品牌色（F 方案：提亮 + 玻璃质感）----
-# 破局点不在「整体加白」，而在拉大砖的受光跨度：左上接近白紫、右下仍饱和。
-# 主色仍落在品牌色相，但中段从 #6366F1 抬到 #7B7AF9（明度 65%→71%）。
-INK = "#7B7AF9"        # 品牌主色（单色退回 / 渐变中段 / 文字）
-INK_HI = "#C9C4FF"     # 光泽高光端（左上受光，接近白紫）
-INK_LO = "#5A5CF0"     # 暗端不下沉，保持饱和
-TILE_HI = "#FFFFFF"    # 瓷面砖：顶部纯白
+# ---- 品牌色（H 方案：加深砖色，把白笔弧从砖上抬出来）----
+# 上一轮的毛病：左上被扫光与光斑抬到接近白，白笔弧在浅砖上糊成一团，整体发灰。
+# 「突出」的本质是白弧与砖的对比——砖加深到 5.3:1（原 3.5:1），玻璃质感反而更清楚。
+INK = "#5B54F2"        # 品牌主色（单色退回 / 渐变中段 / 文字）
+INK_HI = "#AEA7FF"     # 光泽高光端（左上受光）
+INK_LO = "#3F37D2"     # 暗端下沉，压出重量
+TILE_HI = "#FFFFFF"    # 白砖（仅反白版使用）：顶部纯白
 TILE_MD = "#FDFDFF"
 TILE_LO = "#F2F3FF"    # 砖底微冷，产生厚度感
-CORE_HI = "#F6FFFF"    # 核心球面高光（中心偏左上）
-CORE_MD = "#8CF2FE"
-CORE_LO = "#1FCBE9"
+CORE_HI = "#F2FFFF"    # 核心球面高光（中心偏左上）
+CORE_MD = "#8AF0FD"
+CORE_LO = "#1FC5E6"
 ACCENT = "#22D3EE"
 
 # ---- 深色底透明版：砖退场，笔弧整体提亮，核加高光 ----
@@ -40,15 +40,14 @@ CORE_DK_LO = "#22D6EF"
 BARE_VIEWBOX = "44 44 168 168"
 
 # ---- 玻璃光效：纯渐变实现（禁 filter / 禁位图）----
-# 与上一版的关键差别：暗端全部归零——光效只做加法。提亮靠基色，质感靠高光形状。
-SW_HI, SW_LO = 0.34, 0.0     # 砖面斜扫光（只提亮不压暗）
+# 砖色加深后，扫光与光斑必须同步收敛：再强会把砖重新抬灰，白弧就不跳了。
+SW_HI, SW_LO = 0.22, 0.0     # 砖面斜扫光（只提亮不压暗）
 SH_HI, SH_LO = 0.46, 0.0     # 笔弧斜向受光（仅深底透明版）
 TOPHL = 0.62                 # 砖顶 2px 内高光
-SPOT = 0.24                  # 砖面左上主光斑（径向，像玻璃球的高光区）
-BOUNCE = 0.22                # 砖底环境反光（冷白，抬厚度）
+SPOT = 0.16                  # 砖面左上主光斑（径向，深砖上一点点就够）
+BOUNCE = 0.24                # 砖底环境反光（冷白，抬厚度）
 EDGE_HI, EDGE_MID = 0.80, 0.18  # 笔弧轮廓光（沿路径描边，上亮下隐）
-LINELO, LINEHI = 0.10, 0.38  # 砖外缘暗线：左上几乎无、右下压重——把边界托住
-BANDLINE = 0.30              # 白笔弧内缘倒角暗线：左上重、右下无——在亮砖上勾出尖端
+LINELO, LINEHI = 0.08, 0.30  # 砖外缘暗线：左上几乎无、右下压重——把边界托住
 RIM = 0.88                   # 核边缘光（上亮下隐）
 SPEC = 0.96                  # 核镜面高光点（更小更集中）
 CBOUNCE = 0.50               # 核底反光（背光面的一抹青）
@@ -73,7 +72,7 @@ def _material_defs(p):
         '    </linearGradient>\n'
         f'    <radialGradient id="{p}spot" gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">\n'
         f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{SPOT}"/>\n'
-        f'      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.07"/>\n'
+        f'      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.05"/>\n'
         f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
         '    </radialGradient>\n'
         f'    <linearGradient id="{p}bounce" gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">\n'
@@ -86,14 +85,9 @@ def _material_defs(p):
         f'      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}edgeLine" gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">\n'
-        f'      <stop offset="0%" stop-color="#3F3AA8" stop-opacity="{LINELO}"/>\n'
-        f'      <stop offset="55%" stop-color="#3F3AA8" stop-opacity="0.22"/>\n'
-        f'      <stop offset="100%" stop-color="#322D8C" stop-opacity="{LINEHI}"/>\n'
-        '    </linearGradient>\n'
-        f'    <linearGradient id="{p}bandLine" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">\n'
-        f'      <stop offset="0%" stop-color="#4A44A8" stop-opacity="{BANDLINE}"/>\n'
-        f'      <stop offset="55%" stop-color="#4A44A8" stop-opacity="0.12"/>\n'
-        f'      <stop offset="100%" stop-color="#322D8C" stop-opacity="0"/>\n'
+        f'      <stop offset="0%" stop-color="#2A2480" stop-opacity="{LINELO}"/>\n'
+        f'      <stop offset="55%" stop-color="#2A2480" stop-opacity="0.20"/>\n'
+        f'      <stop offset="100%" stop-color="#221C6E" stop-opacity="{LINEHI}"/>\n'
         '    </linearGradient>\n'
         f'    <linearGradient id="{p}topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">\n'
         f'      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="{TOPHL}"/>\n'
@@ -251,7 +245,7 @@ def symbol_body(prefix="", on_dark=False, invert=False):
         out.append(f'<path fill="url(#{p}bounce)" d="{TILE}"/>')
         out.append(f'<path fill="none" stroke="url(#{p}edgeLine)" stroke-width="1.6" d="{TILE}"/>')
         out.append(f'<path fill="none" stroke="url(#{p}topHL)" stroke-width="2" d="{TILE}"/>')
-        out.append(f'<path fill="#FFFFFF" stroke="url(#{p}bandLine)" stroke-width="0.9" d="{BAND}"/>')
+        out.append(f'<path fill="#FFFFFF" d="{BAND}"/>')
         rim_w, sx, sy = 1.0, 7.5, 6
     out.append(f'<path fill="url(#{p}core)" d="{CORE_D}"/>')
     out.append(f'<circle cx="128" cy="128" r="21.3" fill="none" stroke="url(#{p}rim)" stroke-width="{rim_w}"/>')

@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="智能问数">
   <title>智能问数</title>
-  <!-- 双色·光泽（D 方案）：砖面斜向瓷面渐变（#7B7AF9 为渐变中段）/ 白笔弧 / 核心球面高光。
+  <!-- 双色·光泽（D 方案）：砖面斜向瓷面渐变（#5B54F2 为渐变中段）/ 白笔弧 / 核心球面高光。
        薄光材质：砖面斜扫光 + 砖顶 2px 内高光 + 核边缘光 + 镜面高光点——全用渐变，无 filter。
        核是全标唯一的彩色点——数据汇聚成判断，判断被点亮。
        单色场景退回 symbol.svg；16–32px 用 favicon-source.svg 的平面色。 -->
   <defs>
     <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
-      <stop offset="0%" stop-color="#C9C4FF"/>
-      <stop offset="46%" stop-color="#7B7AF9"/>
-      <stop offset="100%" stop-color="#5A5CF0"/>
+      <stop offset="0%" stop-color="#AEA7FF"/>
+      <stop offset="46%" stop-color="#5B54F2"/>
+      <stop offset="100%" stop-color="#3F37D2"/>
     </linearGradient>
     <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="44" y1="20" x2="198" y2="240">
       <stop offset="0%" stop-color="#FFFFFF"/>
@@ -16,12 +16,12 @@
       <stop offset="100%" stop-color="#F2F3FF"/>
     </linearGradient>
     <radialGradient id="core" gradientUnits="userSpaceOnUse" cx="120" cy="117" r="30">
-      <stop offset="0%" stop-color="#F6FFFF"/>
-      <stop offset="44%" stop-color="#8CF2FE"/>
-      <stop offset="100%" stop-color="#1FCBE9"/>
+      <stop offset="0%" stop-color="#F2FFFF"/>
+      <stop offset="44%" stop-color="#8AF0FD"/>
+      <stop offset="100%" stop-color="#1FC5E6"/>
     </radialGradient>
     <linearGradient id="sweep" gradientUnits="userSpaceOnUse" x1="36" y1="18" x2="214" y2="250">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22"/>
       <stop offset="38%" stop-color="#FFFFFF" stop-opacity="0"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
     </linearGradient>
@@ -31,13 +31,13 @@
       <stop offset="100%" stop-color="#000000" stop-opacity="0.0"/>
     </linearGradient>
     <radialGradient id="spot" gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.24"/>
-      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.07"/>
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.05"/>
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="bounce" gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#C8DEFF" stop-opacity="0.24"/>
     </linearGradient>
     <linearGradient id="edge" gradientUnits="userSpaceOnUse" x1="128" y1="48" x2="128" y2="204">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8"/>
@@ -45,14 +45,9 @@
       <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="edgeLine" gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
-      <stop offset="0%" stop-color="#3F3AA8" stop-opacity="0.1"/>
-      <stop offset="55%" stop-color="#3F3AA8" stop-opacity="0.22"/>
-      <stop offset="100%" stop-color="#322D8C" stop-opacity="0.38"/>
-    </linearGradient>
-    <linearGradient id="bandLine" gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
-      <stop offset="0%" stop-color="#4A44A8" stop-opacity="0.3"/>
-      <stop offset="55%" stop-color="#4A44A8" stop-opacity="0.12"/>
-      <stop offset="100%" stop-color="#322D8C" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#2A2480" stop-opacity="0.08"/>
+      <stop offset="55%" stop-color="#2A2480" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#221C6E" stop-opacity="0.3"/>
     </linearGradient>
     <linearGradient id="topHL" gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
       <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.62"/>
@@ -78,7 +73,7 @@
   <path fill="url(#bounce)" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
   <path fill="none" stroke="url(#edgeLine)" stroke-width="1.6" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
   <path fill="none" stroke="url(#topHL)" stroke-width="2" d="M56 16H200A40 40 0 0 1 240 56V200A40 40 0 0 1 200 240H56A40 40 0 0 1 16 200V56A40 40 0 0 1 56 16Z"/>
-  <path fill="#FFFFFF" stroke="url(#bandLine)" stroke-width="0.9" d="M203.34 148.19
+  <path fill="#FFFFFF" d="M203.34 148.19
            C197.23 163.86 185.91 177.37 171.36 185.8
            C157.91 193.57 141.9 196.82 126.55 194.48
            C112.47 192.34 99.09 185.46 89.46 174.96

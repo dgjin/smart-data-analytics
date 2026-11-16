@@ -37,16 +37,16 @@ const MARK_BAND = [
 
 /** 核（r22）：全标唯一的彩色点。 */
 const CORE_PATH = 'M150 128A22 22 0 1 1 106 128A22 22 0 1 1 150 128Z';
-/** 品牌主色（F 方案）：明度 65%→71%。靠拉大受光跨度找回亮度——
- *  左上接近白紫、右下仍饱和，而不是整体加白（加白会让白笔弧失去对比）。
+/** 品牌主色（H 方案）：砖加深，白笔弧与砖的对比 3.5:1→5.3:1。
+ *  上一版的问题不是不够亮，而是砖被高光抬到接近白——白弧糊在砖里、整体发灰。
  *  小尺寸单色场景（favicon）用 BRAND_INK；大尺寸铺三层渐变产生光泽。 */
-const BRAND_INK = '#7B7AF9';
-const BRAND_INK_HI = '#C9C4FF';
-const BRAND_INK_LO = '#5A5CF0';
+const BRAND_INK = '#5B54F2';
+const BRAND_INK_HI = '#AEA7FF';
+const BRAND_INK_LO = '#3F37D2';
 /** 核的球面：高光居中偏左上，边缘回落到青。 */
-const CORE_HI = '#F6FFFF';
-const CORE_MD = '#8CF2FE';
-const CORE_LO = '#1FCBE9';
+const CORE_HI = '#F2FFFF';
+const CORE_MD = '#8AF0FD';
+const CORE_LO = '#1FC5E6';
 /** 深色底透明版：砖退场，笔弧提亮到 slate-900 上 13.4:1 → 5.4:1，核加高光。 */
 const ON_DARK_HI = '#E4E0FF';
 const ON_DARK = '#A79FFF';
@@ -57,18 +57,17 @@ const ON_DARK_CORE_LO = '#22D6EF';
 
 /** 玻璃光效（与 .logo-design/geom.py 同值）：纯渐变实现，不用 filter。
  *  暗端全部归零——光效只做加法：提亮靠基色，质感靠高光形状。 */
-const SWEEP_HI = 0.34; // 砖面斜扫：左上提亮
+const SWEEP_HI = 0.22; // 砖面斜扫：左上提亮
 const SWEEP_LO = 0; // 砖面斜扫：右下不压暗（一压就重新变「暗」）
 const SHEEN_HI = 0.46; // 笔弧斜向受光（仅深底——白笔弧叠黑会发灰）
 const SHEEN_LO = 0;
 const TOP_HL = 0.62; // 砖顶 2px 内高光
-const SPOT = 0.24; // 砖面左上主光斑（径向，像玻璃球的聚光区）
-const BOUNCE = 0.22; // 砖底环境反光（冷白，抬厚度）
+const SPOT = 0.16; // 砖面左上主光斑（径向，像玻璃球的聚光区）
+const BOUNCE = 0.24; // 砖底环境反光（冷白，抬厚度）
 const EDGE_HI = 0.8; // 笔弧轮廓光：上缘最亮
 const EDGE_MID = 0.18;
-const LINE_LO = 0.1; // 砖外缘暗线：左上几乎无
-const LINE_HI = 0.38; // 右下压重——把过亮的边界托住
-const BAND_LINE = 0.3; // 白笔弧内缘倒角暗线：左上重、右下无——在亮砖上勾出尖端
+const LINE_LO = 0.08; // 砖外缘暗线：左上几乎无
+const LINE_HI = 0.3; // 右下压重——把过亮的边界托住
 const RIM = 0.88; // 核边缘光（上亮下隐）
 const SPEC = 0.96; // 核镜面高光点（更小更集中）
 const CBOUNCE = 0.5; // 核底反光（背光面的一抹青）
@@ -159,7 +158,7 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
             </linearGradient>
             <radialGradient id={`spot-${uid}`} gradientUnits="userSpaceOnUse" cx="82" cy="66" r="130">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={SPOT} />
-              <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.07" />
+              <stop offset="55%" stopColor="#FFFFFF" stopOpacity="0.05" />
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </radialGradient>
             <linearGradient id={`bounce-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="168" x2="128" y2="240">
@@ -172,14 +171,9 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </linearGradient>
             <linearGradient id={`edgeLine-${uid}`} gradientUnits="userSpaceOnUse" x1="40" y1="40" x2="232" y2="232">
-              <stop offset="0%" stopColor="#3F3AA8" stopOpacity={LINE_LO} />
-              <stop offset="55%" stopColor="#3F3AA8" stopOpacity="0.22" />
-              <stop offset="100%" stopColor="#322D8C" stopOpacity={LINE_HI} />
-            </linearGradient>
-            <linearGradient id={`bandLine-${uid}`} gradientUnits="userSpaceOnUse" x1="42" y1="18" x2="214" y2="238">
-              <stop offset="0%" stopColor="#4A44A8" stopOpacity={BAND_LINE} />
-              <stop offset="55%" stopColor="#4A44A8" stopOpacity="0.12" />
-              <stop offset="100%" stopColor="#322D8C" stopOpacity="0" />
+              <stop offset="0%" stopColor="#2A2480" stopOpacity={LINE_LO} />
+              <stop offset="55%" stopColor="#2A2480" stopOpacity="0.2" />
+              <stop offset="100%" stopColor="#221C6E" stopOpacity={LINE_HI} />
             </linearGradient>
             <linearGradient id={`topHL-${uid}`} gradientUnits="userSpaceOnUse" x1="128" y1="16" x2="128" y2="104">
               <stop offset="0%" stopColor="#FFFFFF" stopOpacity={TOP_HL} />
@@ -217,7 +211,7 @@ export const Logo: React.FC<LogoProps> = ({ size = 'md', tone = 'dark', pulse = 
               <path fill="none" stroke={`url(#edgeLine-${uid})`} strokeWidth="1.6" d={TILE_PATH} />
               {/* 砖顶 2px 内高光：让方砖有厚度，不像一块贴纸 */}
               <path fill="none" stroke={`url(#topHL-${uid})`} strokeWidth="2" d={TILE_PATH} />
-              <path fill="#FFFFFF" stroke={`url(#bandLine-${uid})`} strokeWidth="0.9" d={MARK_BAND} />
+              <path fill="#FFFFFF" d={MARK_BAND} />
             </>
           )}
           {/* 核与玻璃层一起呼吸：单脉冲核会让高光悬空 */}
