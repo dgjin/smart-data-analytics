@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 精华版 · 片尾</title>
+<style>
+  :root { --bg: #070b14; --fg: #e8eef9; --dim: #8b98ad; --blue: #3b82f6; --violet: #8b5cf6; --cyan: #22d3ee; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 600px at 20% 4%, rgba(59, 130, 246, .15), transparent 60%),
+      radial-gradient(1000px 700px at 84% 96%, rgba(124, 58, 237, .14), transparent 60%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sq-cursor { display: none !important; }
+
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut .8s ease .5s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1600px; display: flex; flex-direction: column; align-items: center; }
+
+  .anim { opacity: 0; transform: translateY(18px); }
+  body.playing .anim { animation: rise .8s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  h1 { font-size: 60px; font-weight: 700; letter-spacing: 10px;
+       background: linear-gradient(180deg, #ffffff 30%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .divider { margin: 22px auto 0; width: 720px; height: 1px;
+             background: linear-gradient(90deg, transparent, rgba(139,152,173,.55), transparent);
+             transform: scaleX(0); }
+  body.playing .divider { animation: grow .9s cubic-bezier(.22,.61,.36,1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes grow { to { transform: scaleX(1); } }
+
+  /* 能力回顾四联 */
+  .caps { margin-top: 26px; display: flex; gap: 16px; }
+  .cap { padding: 12px 22px; border-radius: 12px; font-size: 19px; letter-spacing: 1px; color: #dbe7f7;
+         background: rgba(255,255,255,.035); border: 1px solid rgba(139,152,173,.27);
+         box-shadow: 0 8px 26px rgba(0,0,0,.3); }
+  .cap b { color: #9fbcff; font-weight: 600; }
+
+  /* 环境 / 技术栈 */
+  .row { margin-top: 22px; width: 100%; display: flex; align-items: center; gap: 20px;
+         padding: 14px 24px; border-radius: 14px; background: rgba(255,255,255,.028);
+         border: 1px solid rgba(139,152,173,.24); }
+  .row .label { flex: 0 0 108px; font-size: 16px; letter-spacing: 4px; color: var(--dim); }
+  .row .items { flex: 1; display: flex; flex-wrap: wrap; gap: 10px; }
+  .tag { padding: 6px 13px; border-radius: 8px; font-size: 15.5px; letter-spacing: .5px;
+         color: #cfe0f5; background: rgba(59,130,246,.10); border: 1px solid rgba(59,130,246,.34); }
+  .tag.v { color: #e2d9ff; background: rgba(139,92,246,.10); border-color: rgba(139,92,246,.36); }
+
+  .warn { margin-top: 22px; display: flex; align-items: center; justify-content: center; gap: 12px;
+          padding: 12px 28px; border-radius: 10px; font-size: 18px; letter-spacing: 1.2px; font-weight: 600;
+          color: #ffd48a; background: rgba(245,158,11,.1); border: 1.2px solid rgba(245,158,11,.6); }
+
+  .slogan { margin-top: 22px; font-size: 30px; letter-spacing: 3px; color: #e8eef9; }
+  .slogan b { background: linear-gradient(90deg, #8fb8ff, #a5f3fc);
+              -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .credit { margin-top: 12px; font-size: 14px; letter-spacing: 3px; color: var(--dim); }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <h1 class="anim" style="--d:.3s">感谢观看</h1>
+    <div class="divider" style="--d:1s"></div>
+
+    <!-- 句1（0.1-12.47s）：核心能力回顾 -->
+    <div class="caps">
+      <div class="cap anim" style="--d:2.2s">自然语言<b>问数</b></div>
+      <div class="cap anim" style="--d:4.2s"><b>决策报表</b>与看板</div>
+      <div class="cap anim" style="--d:6.2s"><b>灵活查询</b>自建报表</div>
+      <div class="cap anim" style="--d:8.2s"><b>数据治理</b>与三重闭环</div>
+    </div>
+
+    <!-- 句2（12.47-23.80s）：演示环境与技术栈 -->
+    <div class="row anim" style="--d:13s">
+      <div class="label">演示环境</div>
+      <div class="items">
+        <span class="tag">本地单机部署 · 一键启动</span>
+        <span class="tag">MySQL 演示库</span>
+        <span class="tag">本地 Ollama 主推理</span>
+        <span class="tag">云端引擎兜底</span>
+        <span class="tag">环境可随时复现</span>
+      </div>
+    </div>
+    <div class="row anim" style="--d:18s">
+      <div class="label">技术栈</div>
+      <div class="items">
+        <span class="tag v">React 19</span>
+        <span class="tag v">TypeScript</span>
+        <span class="tag v">Vite</span>
+        <span class="tag v">Node.js</span>
+        <span class="tag v">Express</span>
+        <span class="tag v">MySQL</span>
+        <span class="tag v">Redis</span>
+        <span class="tag v">Vitest · Playwright</span>
+      </div>
+    </div>
+
+    <!-- 句3（23.80-29.35s）：演示数据提示 + 收束 -->
+    <div class="warn anim" style="--d:24.2s"><span class="icon">⚠</span>所有数据均为演示数据，不涉及任何真实业务数据</div>
+    <div class="slogan anim" style="--d:26.4s"><b>智能问数数据分析系统</b> · 期待与您共同探索数据价值</div>
+    <div class="credit anim" style="--d:28.2s">智能问数数据分析系统项目组 · 2026</div>
+  </div>
+</body>
+</html>

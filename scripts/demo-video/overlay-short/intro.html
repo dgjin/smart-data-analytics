@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 精华版 · 片头</title>
+<style>
+  :root { --bg: #070b14; --fg: #e8eef9; --dim: #8b98ad; --accent: #3b82f6; --warn: #f59e0b; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(900px 600px at 18% 6%, rgba(59, 130, 246, .16), transparent 60%),
+      radial-gradient(1000px 700px at 86% 96%, rgba(124, 58, 237, .13), transparent 60%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sq-cursor { display: none !important; }
+
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut .8s ease .5s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1280px; text-align: center; padding: 0 40px; }
+
+  .anim { opacity: 0; transform: translateY(22px); }
+  body.playing .anim { animation: rise .8s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 8px 22px; border: 1px solid rgba(59,130,246,.4); border-radius: 999px; color: #9db8e8; font-size: 17px; letter-spacing: 2px; background: rgba(59,130,246,.08); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+
+  h1 { margin-top: 28px; font-size: 66px; font-weight: 700; letter-spacing: 6px;
+       background: linear-gradient(180deg, #ffffff 30%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { margin-top: 14px; font-size: 22px; letter-spacing: 12px; color: var(--accent); text-indent: 12px; }
+  .subtitle b { color: #bcd6ff; font-weight: 600; }
+
+  .divider { margin: 34px auto 0; width: 760px; height: 1px;
+             background: linear-gradient(90deg, transparent, rgba(139,152,173,.55), transparent);
+             transform: scaleX(0); }
+  body.playing .divider { animation: grow .9s cubic-bezier(.22,.61,.36,1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes grow { to { transform: scaleX(1); } }
+
+  .warn { margin: 30px auto 0; max-width: 1000px; display: flex; align-items: center; justify-content: center; gap: 14px;
+          padding: 16px 30px; border-radius: 12px; font-size: 22px; letter-spacing: 1.5px; font-weight: 600;
+          color: #ffd48a; background: rgba(245,158,11,.1); border: 1.5px solid rgba(245,158,11,.65);
+          box-shadow: 0 0 26px rgba(245,158,11,.16), inset 0 0 22px rgba(245,158,11,.06); }
+  .warn .icon { font-size: 25px; }
+
+  .team { margin-top: 30px; font-size: 18px; letter-spacing: 3px; color: var(--dim); }
+  .team b { color: #b9cbe6; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <div class="anim" style="--d:.3s"><span class="badge"><span class="dot"></span>NL2SQL 智能数据分析平台</span></div>
+    <h1 class="anim" style="--d:.6s">智能问数数据分析系统</h1>
+    <p class="subtitle anim" style="--d:1.2s">演示视频 · 约 <b>5 分钟</b></p>
+
+    <div class="divider" style="--d:1.7s"></div>
+
+    <div class="warn anim" style="--d:2.4s"><span class="icon">⚠</span>本视频所有数据均为演示数据，不涉及任何真实业务数据</div>
+
+    <div class="team anim" style="--d:4.8s">项目负责人 <b>金定国</b> · 数智化转型办公室 <b>高博伟 · 张弘毅</b> · 计划财务部 <b>尹茵</b> · 安徽省分公司 <b>鲁帆</b></div>
+  </div>
+</body>
+</html>

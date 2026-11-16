@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>智能问数数据分析系统 · 精华版 · 双闭环与统一记忆体</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --fg: #e8eef9;
+    --dim: #8b98ad;
+    --blue: #3b82f6;
+    --violet: #8b5cf6;
+    --cyan: #22d3ee;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+    color: var(--fg);
+    background:
+      radial-gradient(1000px 620px at 16% 4%, rgba(59, 130, 246, .16), transparent 62%),
+      radial-gradient(1000px 700px at 88% 98%, rgba(124, 58, 237, .14), transparent 62%),
+      var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 隐藏录制脚本注入的仿真光标（本幕无交互） */
+  .sq-cursor { display: none !important; }
+
+  /* 首帧退罩：遮蔽 Chromium 首帧渲染残留（与片头/片尾一致） */
+  #veil { position: fixed; inset: 0; background: #070b14; z-index: 9; pointer-events: none; }
+  body.playing #veil { animation: veilOut 1s ease 1s forwards; }
+  @keyframes veilOut { to { opacity: 0; visibility: hidden; } }
+
+  .stage { width: 1740px; display: flex; flex-direction: column; align-items: center; }
+
+  /* 动画基元：body.playing 由录制脚本在时间轴零点校准后添加，--delta 抵消页面加载耗时 */
+  .anim { opacity: 0; transform: translateY(20px); }
+  body.playing .anim { animation: rise .9s cubic-bezier(.22, .61, .36, 1) forwards; animation-delay: calc(var(--d, 0s) - var(--delta, 0s)); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* ── 标题 ── */
+  .badge { display: inline-flex; align-items: center; gap: 10px; padding: 7px 20px;
+           border: 1px solid rgba(59,130,246,.4); border-radius: 999px; color: #9db8e8;
+           font-size: 16px; letter-spacing: 2px; background: rgba(59,130,246,.08); }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue);
+                box-shadow: 0 0 12px var(--blue); }
+  h1 { margin-top: 18px; font-size: 50px; font-weight: 700; letter-spacing: 5px;
+       background: linear-gradient(180deg, #ffffff 30%, #a8c4ee 100%);
+       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .lede { margin-top: 10px; font-size: 16px; letter-spacing: 3px; color: var(--dim); }
+  .lede b { color: #a9c3ea; font-weight: 600; }
+
+  /* ── 双闭环面板 ── */
+  .grid { margin-top: 22px; width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .panel { position: relative; border-radius: 18px; padding: 20px 24px 16px;
+           background: rgba(255,255,255,.032); border: 1px solid rgba(139,152,173,.26);
+           box-shadow: 0 14px 44px rgba(0,0,0,.38); }
+  .panel.left { border-top: 2px solid rgba(59,130,246,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(59,130,246,.10); }
+  .panel.right { border-top: 2px solid rgba(139,92,246,.75); box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 34px rgba(139,92,246,.10); }
+
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+                padding-bottom: 12px; border-bottom: 1px solid rgba(139,152,173,.22); }
+  .panel-title { font-size: 25px; font-weight: 700; letter-spacing: 2px; }
+  .left .panel-title { color: #bcd6ff; text-shadow: 0 0 20px rgba(59,130,246,.35); }
+  .right .panel-title { color: #d8cbff; text-shadow: 0 0 20px rgba(139,92,246,.35); }
+  .kicker { font-size: 13px; letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
+
+  .steps { list-style: none; margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .step { display: grid; grid-template-columns: 38px 1fr; gap: 13px; align-items: center;
+          padding: 7px 12px; border-radius: 10px; background: rgba(255,255,255,.022);
+          border: 1px solid rgba(139,152,173,.12); }
+  .idx { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+         font-size: 16px; font-weight: 700; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .left .idx { color: #dbeafe; background: rgba(59,130,246,.16); border: 1px solid rgba(59,130,246,.55);
+               box-shadow: 0 0 14px rgba(59,130,246,.18); }
+  .right .idx { color: #ede9fe; background: rgba(139,92,246,.16); border: 1px solid rgba(139,92,246,.55);
+                box-shadow: 0 0 14px rgba(139,92,246,.18); }
+  .st { font-size: 19px; font-weight: 600; letter-spacing: 1px; color: #e6efff; }
+  .sd { margin-top: 2px; font-size: 14px; letter-spacing: .5px; color: var(--dim); }
+
+  .loopback { margin-top: 11px; display: flex; align-items: center; justify-content: center; gap: 10px;
+              padding: 8px 14px; border-radius: 999px; font-size: 13.5px; letter-spacing: 1px; }
+  .left .loopback { color: #9db8e8; background: rgba(59,130,246,.07); border: 1px dashed rgba(59,130,246,.5); }
+  .right .loopback { color: #c4b5fd; background: rgba(139,92,246,.07); border: 1px dashed rgba(139,92,246,.5); }
+  .loopback .rot { display: inline-block; font-size: 16px; animation: spin 7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 统一记忆体横条 ── */
+  .memory { margin-top: 16px; width: 100%; border-radius: 16px; padding: 14px 22px;
+            background: rgba(34,211,238,.045); border: 1px solid rgba(34,211,238,.32);
+            box-shadow: 0 10px 34px rgba(0,0,0,.34), inset 0 0 30px rgba(34,211,238,.05);
+            display: flex; align-items: center; gap: 22px; }
+  .mem-head { flex: 0 0 auto; }
+  .mem-title { font-size: 20px; font-weight: 700; letter-spacing: 2px; color: #a5f3fc; text-shadow: 0 0 18px rgba(34,211,238,.35); }
+  .mem-sub { margin-top: 4px; font-size: 12.5px; letter-spacing: 1px; color: var(--dim); }
+  .chips { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .chip { padding: 9px 12px; border-radius: 10px; background: rgba(255,255,255,.025);
+          border: 1px solid rgba(34,211,238,.22); }
+  .chip .ct { font-size: 15.5px; font-weight: 600; color: #d9fbff; letter-spacing: .5px; }
+  .chip .cs { margin-top: 3px; font-size: 12.5px; color: var(--dim); letter-spacing: .3px; }
+
+  /* ── 收束结论 ── */
+  .finale { margin-top: 18px; text-align: center; padding: 12px 38px; border-radius: 14px;
+            background: rgba(255,255,255,.03); border: 1px solid rgba(139,152,173,.3);
+            box-shadow: 0 0 26px rgba(59,130,246,.08); }
+  .f-main { font-size: 25px; letter-spacing: 3px; color: #e8eef9; }
+  .f-main .blue { color: #8fb8ff; font-weight: 700; }
+  .f-main .violet { color: #c4b5fd; font-weight: 700; }
+  .f-main .cyan { color: #a5f3fc; font-weight: 700; }
+  .f-main .sep { color: #4a5568; margin: 0 12px; }
+</style>
+</head>
+<body>
+  <div id="veil"></div>
+  <div class="stage">
+    <div class="anim" style="--d:.5s"><span class="badge"><span class="dot"></span>智能问数 × 智能运维</span></div>
+    <h1 class="anim" style="--d:.9s">双闭环与统一记忆体</h1>
+    <p class="lede anim" style="--d:1.6s">外接 <b>智能运维系统（AIOps Agent）</b> 与 <b>需求反馈基线</b>，再叠加推理链路的记忆体</p>
+
+    <!-- 时间轴按 s07.vtt 校准：句1（0.1-5.96s）总起 / 句2（5.91-21.09s）运维闭环 / 句3（21.09-30.40s）需求闭环 / 句4（30.40-40.77s）记忆体 / 句5（40.77-43.76s）结论 -->
+    <div class="grid">
+      <!-- 左：运维闭环 · 自我修复 -->
+      <section class="panel left anim" style="--d:6s">
+        <div class="panel-head">
+          <div class="panel-title">运维闭环 · 自我修复</div>
+          <div class="kicker">外接智能运维系统 · 标准接口双向对接</div>
+        </div>
+        <ul class="steps">
+          <li class="step anim" style="--d:7.2s">
+            <span class="idx">1</span>
+            <div><div class="st">监控与巡检</div><div class="sd">质量监控、异常巡检发现日志错误与服务异常</div></div>
+          </li>
+          <li class="step anim" style="--d:10.8s">
+            <span class="idx">2</span>
+            <div><div class="st">证据同步</div><div class="sd">日志证据、trace 链路与告警上下文实时同步</div></div>
+          </li>
+          <li class="step anim" style="--d:14.2s">
+            <span class="idx">3</span>
+            <div><div class="st">智能诊断与修复验证</div><div class="sd">根因分析、最小化补丁、沙箱验证与回归测试</div></div>
+          </li>
+          <li class="step anim" style="--d:17.6s">
+            <span class="idx">4</span>
+            <div><div class="st">灰度发布与回写</div><div class="sd">金丝雀观察、异常自动回滚、处置结果回写系统</div></div>
+          </li>
+        </ul>
+        <div class="loopback anim" style="--d:20.2s"><span class="rot">↻</span>发现 → 诊断 → 修复 → 验证 → 发布 → 持续监控</div>
+      </section>
+
+      <!-- 右：需求闭环 · 自我完善 -->
+      <section class="panel right anim" style="--d:6.4s">
+        <div class="panel-head">
+          <div class="panel-title">需求闭环 · 自我完善</div>
+          <div class="kicker">需求反馈 · 评估 · 版本基线</div>
+        </div>
+        <ul class="steps">
+          <li class="step anim" style="--d:21.8s">
+            <span class="idx">1</span>
+            <div><div class="st">提出</div><div class="sd">需求、建议、缺陷在线提交，随时可查</div></div>
+          </li>
+          <li class="step anim" style="--d:24.0s">
+            <span class="idx">2</span>
+            <div><div class="st">评估</div><div class="sd">管理员在线评审，给出采纳意见与优先级</div></div>
+          </li>
+          <li class="step anim" style="--d:26.2s">
+            <span class="idx">3</span>
+            <div><div class="st">基线</div><div class="sd">纳入版本基线，形成可分析的迭代清单</div></div>
+          </li>
+          <li class="step anim" style="--d:28.2s">
+            <span class="idx">4</span>
+            <div><div class="st">交付与同步</div><div class="sd">开发测试后发布上线，进度与结果实时回传</div></div>
+          </li>
+        </ul>
+        <div class="loopback anim" style="--d:29.8s"><span class="rot">↻</span>提出 → 评估 → 基线 → 交付 → 同步 → 持续完善</div>
+      </section>
+    </div>
+
+    <!-- 统一记忆体：s07 句4（30.40-40.77s） -->
+    <div class="memory anim" style="--d:30.6s">
+      <div class="mem-head">
+        <div class="mem-title">统一记忆体</div>
+        <div class="mem-sub">藏在推理链路里的第三重进化</div>
+      </div>
+      <div class="chips">
+        <div class="chip anim" style="--d:31.6s"><div class="ct">八类记忆并行召回</div><div class="cs">铁律 · 指标 · 纠错 · 知识 · 样例 · 沉淀 · 反例</div></div>
+        <div class="chip anim" style="--d:33.8s"><div class="ct">相关度与置信度融合</div><div class="cs">时效、来源权重统一排序，受 Token 预算约束</div></div>
+        <div class="chip anim" style="--d:36.2s"><div class="ct">点踩即生成纠正候选</div><div class="cs">选择错误类型、补充期望口径，自动入库待审</div></div>
+        <div class="chip anim" style="--d:38.4s"><div class="ct">确认后立即生效</div><div class="cs">管理员确认即注入，下一次提问优先召回</div></div>
+      </div>
+    </div>
+
+    <div class="finale anim" style="--d:40.9s">
+      <div class="f-main">运维闭环 <b class="blue">越用越稳</b><span class="sep">｜</span>需求闭环 <b class="violet">越用越好</b><span class="sep">｜</span>记忆体 <b class="cyan">越用越准</b></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -14,4 +14,11 @@ diag/
 diag-male/
 frames/
 scan/
+# 精华版（4–5 分钟）生成物，可由脚本重新生成
+audio-short/
+audio-short-male/
+videos-short/
+videos-short-male/
+out-short/
+out-short-male/
 node_modules/
