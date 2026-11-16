@@ -31,7 +31,9 @@ export default defineConfig(() => {
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify: file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
+      // 端口显式指定 24679：默认的 24678 在同机常被其它 Vite 项目占着，占用后本项目的
+      // HMR WebSocket 起不来——页面不报错，但改代码不会自动刷新，只能手动 F5。
+      hmr: process.env.DISABLE_HMR === 'true' ? false : { port: 24679 },
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       // 开发服务器配置 - 允许 CSP

@@ -124,7 +124,9 @@ export const Header: React.FC = () => {
     <header className="h-16 bg-slate-900 border-b border-slate-800 text-slate-100 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30 shadow-md">
       {/* Brand & Title */}
       <div className="flex items-center space-x-3 shrink-0">
-        <Logo size="md" pulse />
+        {/* tone="light"：实心砖版。深色顶栏用带底的徽章才有品牌识别度，透明笔弧在
+            slate-900 上会「散」开、压不住标题。 */}
+        <Logo size="md" tone="light" pulse />
         {/* 对齐：两行文字的视觉重心比盒中心高「副标行高/2」。副标 leading-none 即 12px，
             sm 以上文字块下移 6px，标题中线正好落在徽章中线上。改字号需同步这两个值。 */}
         <div className="sm:translate-y-1.5">
