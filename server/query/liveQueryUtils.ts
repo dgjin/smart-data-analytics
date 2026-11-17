@@ -42,6 +42,15 @@ export function collectSchemaColumnUnits(schema: SchemaTable[]): Record<string, 
 }
 
 /**
+ * 文件数据源是否已在导入时统一折算为「元」（v0.9.123）：
+ * 导入时用户选定表格金额单位并转换 → schema 表级 amountUnitNormalized=true，
+ * 该数据源此后与数据库源同口径（元 → 界面所选单位），不再走「源文件口径」保护。
+ */
+export function isYuanNormalizedSchema(schema: SchemaTable[]): boolean {
+  return Array.isArray(schema) && schema.some((t) => t?.amountUnitNormalized === true);
+}
+
+/**
  * 文件数据源金额单位约定（v0.9.122）。
  *
  * 上传文件是业务报表口径，字段单位不一定为「元」——沿用「元 → 所选单位」的固定除数

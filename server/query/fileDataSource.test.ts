@@ -12,10 +12,12 @@ vi.mock('../infra/db', () => ({ getPool: () => ({ query: (...args: any[]) => que
 vi.mock('../llm/llmClient', () => ({ callLLMJson: vi.fn(), sqlStageRoute: () => null }));
 
 import {
+  AMOUNT_UNIT_TO_YUAN,
   FILE_TABLE_PREFIX,
   MAX_FILE_BYTES,
   MAX_FILE_COLS,
   MAX_FILE_ROWS,
+  convertAmountColumnsToYuan,
   createFileTable,
   detectTableHeader,
   dropFileTable,
@@ -24,8 +26,10 @@ import {
   getFilePhysicalTables,
   inferFileColumnTypes,
   isFileDataSourceType,
+  normalizeImportAmountUnit,
   parseFileContent,
   parseFilePreview,
+  planAmountConversion,
   sanitizeColumns,
 } from './fileDataSource';
 
@@ -581,5 +585,65 @@ describe('上传约束常量', () => {
     expect(MAX_FILE_BYTES).toBe(7 * 1024 * 1024);
     expect(MAX_FILE_ROWS).toBe(20000);
     expect(MAX_FILE_COLS).toBe(100);
+  });
+});
+
+describe('导入时金额单位折算为元（v0.9.123）', () => {
+  it('单位乘数表与白名单归一（非法值不静默落默认）', () => {
+    expect(AMOUNT_UNIT_TO_YUAN).toEqual({ '元': 1, '万元': 10000, '百万元': 1000000, '亿元': 100000000 });
+    expect(normalizeImportAmountUnit('万元')).toBe('万元');
+    expect(normalizeImportAmountUnit(' 亿元 ')).toBe('亿元');
+    expect(normalizeImportAmountUnit('万')).toBeUndefined();
+    expect(normalizeImportAmountUnit(undefined)).toBeUndefined();
+  });
+
+  it('所选列按乘数放大：万元→元，空值与文本原样保留，百分比不换算', () => {
+    const rows = [
+      [1000, '1000', null, 'A'],
+      ['1,200.5', '', '高', 3],
+      ['15%', 0, 'n/a', 5],
+    ];
+    const out = convertAmountColumnsToYuan(rows, [0, 1], '万元');
+    expect(out.rows[0][0]).toBe(10000000);
+    expect(out.rows[0][1]).toBe(10000000);
+    expect(out.rows[1][0]).toBe(12005000);
+    expect(out.rows[1][1]).toBe('');
+    expect(out.rows[2][0]).toBe('15%');
+    expect(out.rows[2][1]).toBe(0);
+    // 未选列不动
+    expect(out.rows[0][3]).toBe('A');
+    expect(out.rows[2][3]).toBe(5);
+    expect(out.convertedCells).toBe(4);
+  });
+
+  it('单位=元时仅标记不篡改数值', () => {
+    const rows = [[1000, 'x']];
+    const out = convertAmountColumnsToYuan(rows, [0], '元');
+    expect(out.rows).toBe(rows);
+    expect(out.convertedCells).toBe(0);
+  });
+
+  const columns = [
+    { name: 'f1', description: '团队', sourceIndex: 0 },
+    { name: 'f2', description: '预计回现', sourceIndex: 1 },
+    { name: 'f3', description: '可能性', sourceIndex: 2 },
+  ];
+  const types: ('DOUBLE' | 'TEXT')[] = ['TEXT', 'DOUBLE', 'TEXT'];
+
+  it('按原表头下标定位列：非数值列计入 skipped', () => {
+    const plan = planAmountConversion('万元', [1, 2], columns, types);
+    expect(plan.error).toBeUndefined();
+    expect(plan.unit).toBe('万元');
+    expect(plan.targets).toEqual([1]);
+    expect(plan.skipped).toEqual(['可能性']);
+  });
+
+  it('成对必填与非法参数明确报错（不静默忽略）', () => {
+    expect(planAmountConversion(undefined, undefined, columns, types)).toEqual({ targets: [], skipped: [] });
+    expect(planAmountConversion('万元', undefined, columns, types).error).toContain('未指定需要折算的金额列');
+    expect(planAmountConversion(undefined, [1], columns, types).error).toContain('未选择表格金额单位');
+    expect(planAmountConversion('亿', [1], columns, types).error).toContain('金额单位仅支持');
+    expect(planAmountConversion('万元', ['1'], columns, types).error).toContain('下标数组');
+    expect(planAmountConversion('万元', [0, 2], columns, types).error).toContain('均不是数值列');
   });
 });

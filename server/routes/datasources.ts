@@ -17,12 +17,14 @@ import { computeDataVersion } from '../dataVersion';
 import { decryptSecret, encryptConfigPassword } from '../infra/secretsCrypto';
 import {
   MAX_FILE_BYTES,
+  convertAmountColumnsToYuan,
   createFileTable,
   dropFileTable,
   getFilePhysicalTables,
   inferFileColumnTypes,
   parseFileContent,
   parseFilePreview,
+  planAmountConversion,
   sanitizeColumns,
 } from '../query/fileDataSource';
 import type { HeaderSelection } from '../query/fileDataSource';
@@ -685,12 +687,15 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
 
 // POST /api/datasources/import-file（仅 ADMIN）：v0.9.34 上传 CSV/Excel/JSON 文件，
 // 服务端解析真实数据落应用库物理表（upl_*），登记为可真实问数/报表的数据源（不再走演示模式）。
-// body: { name?, fileType: 'csv'|'xlsx'|'json', fileName, fileBase64, headerRow?, headerRows?, dryRun? }
+// body: { name?, fileType: 'csv'|'xlsx'|'json', fileName, fileBase64, headerRow?, headerRows?, dryRun?,
+//         amountUnit?, amountColumns? }
 // - v0.9.120 自动识别表头；v0.9.121 支持 headerRow/headerRows 手动指定（用户在导入预览中点选）
+// - v0.9.123 金额单位：amountUnit（元/万元/百万元/亿元）+ amountColumns（原表头下标数组）成对提供，
+//   所选数值列按乘数折算为「元」后入库（表级标记 amountUnitNormalized），问数按「元 → 界面单位」统一换算
 // - dryRun=true：只解析并返回前 20 行与候选表头（不落库），供前端「确认表头后导入」
-// 响应附 stats：{ rows, columns, droppedSensitive, truncated, headerRow, headerRows, headerMode }（如实告知，不静默）
+// 响应附 stats：{ rows, columns, droppedSensitive, truncated, headerRow, headerRows, headerMode, amountUnit?, convertedColumns? }（如实告知，不静默）
 router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
-  const { name, fileType, fileName, fileBase64, headerRow, headerRows, dryRun } = req.body || {};
+  const { name, fileType, fileName, fileBase64, headerRow, headerRows, dryRun, amountUnit, amountColumns } = req.body || {};
   if (fileType !== 'csv' && fileType !== 'xlsx' && fileType !== 'json') {
     return res.status(400).json({ error: 'fileType 必须是 csv / xlsx / json' });
   }
@@ -734,12 +739,22 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
     return res.status(400).json({ error: '文件只有表头没有数据行' });
   }
   const types = inferFileColumnTypes(projected, columns.length);
+  // v0.9.123 金额单位折算：所选数值列按单位乘数折算为元后写入物理表
+  const amountPlan = planAmountConversion(amountUnit, amountColumns, columns, types);
+  if (amountPlan.error) {
+    return res.status(400).json({ error: amountPlan.error });
+  }
+  const amountConversion = amountPlan.unit
+    ? convertAmountColumnsToYuan(projected, amountPlan.targets, amountPlan.unit)
+    : { rows: projected, convertedCells: 0 };
+  const finalRows = amountConversion.rows;
+  const targetSet = new Set(amountPlan.targets);
 
   const id = `ds_${Date.now()}`;
   const physicalTable = `upl_${id.slice(3)}`;
   const safeFileName = fileName.trim().slice(0, 200);
   try {
-    await createFileTable(physicalTable, columns, types, projected);
+    await createFileTable(physicalTable, columns, types, finalRows);
   } catch (err) {
     logger.error('[DataSources] create file table failed:', err);
     return res.status(500).json({ error: '数据写入应用库失败' });
@@ -751,14 +766,16 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
       id: `tbl_${physicalTable}`,
       name: physicalTable,
       displayName: baseName,
-      description: `从文件 ${safeFileName} 导入的 ${projected.length} 行数据快照（静态数据，源文件变更后需重新导入）`,
-      rowCount: projected.length,
+      description: `从文件 ${safeFileName} 导入的 ${finalRows.length} 行数据快照（静态数据，源文件变更后需重新导入）`,
+      rowCount: finalRows.length,
+      // v0.9.123：金额列已按导入所选单位折算为元，问数按「元 → 界面单位」统一换算（不再走源文件口径保护）
+      ...(amountPlan.unit ? { amountUnitNormalized: true } : {}),
       columns: columns.map((c, i) => ({
         name: c.name,
         type: types[i] === 'DOUBLE' ? 'number' : 'string',
         description: c.description,
-        // v0.9.122 表头显式标注的金额单位（如「预计回现(万元)」）随列落库，供问数按源单位换算
-        ...(c.unit ? { unit: c.unit } : {}),
+        // v0.9.123 已折算列统一标记为「元」；v0.9.122 未折算列保留表头声明单位
+        ...(targetSet.has(i) ? { unit: '元' } : c.unit ? { unit: c.unit } : {}),
         ...deriveColumnRole(c.name, types[i] === 'DOUBLE' ? 'number' : 'string', false, types[i] === 'DOUBLE' ? 'double' : 'text', null),
       })),
     },
@@ -772,7 +789,7 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
         id,
         dsName,
         dsType,
-        JSON.stringify({ fileName: safeFileName, fileSize: `${(buf.length / 1024).toFixed(1)} KB`, fileType, physicalTable }),
+        JSON.stringify({ fileName: safeFileName, fileSize: `${(buf.length / 1024).toFixed(1)} KB`, fileType, physicalTable, ...(amountPlan.unit ? { amountUnit: amountPlan.unit, amountColumns: amountPlan.targets.map((i) => columns[i].name) } : {}) }),
         JSON.stringify(schemaTables),
         'connected',
         req.user!.username,
@@ -793,7 +810,7 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
       id,
       dataSource: rowToDataSource(rows[0]),
       stats: {
-        rows: projected.length,
+        rows: finalRows.length,
         columns: columns.length,
         droppedSensitive,
         truncated: parsed.truncated,
@@ -803,6 +820,15 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
         headerRows: parsed.headerRows ?? 1,
         // v0.9.121 表头来源：manual=用户点选，auto=系统识别
         headerMode: parsed.headerMode ?? 'auto',
+        // v0.9.123 金额折算结果：单位、已折算列（原表头）、被跳过的非数值列
+        ...(amountPlan.unit
+          ? {
+              amountUnit: amountPlan.unit,
+              convertedColumns: amountPlan.targets.map((i) => columns[i].description),
+              convertedCells: amountConversion.convertedCells,
+              ...(amountPlan.skipped.length > 0 ? { skippedAmountColumns: amountPlan.skipped } : {}),
+            }
+          : {}),
       },
       autoConfig: {
         analysisSummary: autoConfigReport.analysisSummary,

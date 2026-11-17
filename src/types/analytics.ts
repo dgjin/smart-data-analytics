@@ -47,6 +47,8 @@ export interface ColumnSchema {
   isPartition?: boolean;
   /** 强制过滤列（如核算版 BB='1'）：所有查询必须带该列过滤条件 */
   isFilter?: boolean;
+  /** v0.9.122 金额源单位：文件导入时表头显式标注（如「预计回现(万元)」）或折算后标记为「元」 */
+  unit?: '元' | '万元' | '百万元' | '亿元';
 }
 
 export interface TableSchema {
@@ -60,6 +62,8 @@ export interface TableSchema {
   businessNote?: string;
   /** PostgreSQL/Greenplum 对象类型：TABLE, VIEW, MATERIALIZED_VIEW, FOREIGN_TABLE, SEQUENCE 等 */
   tableType?: 'TABLE' | 'VIEW' | 'MATERIALIZED_VIEW' | 'FOREIGN_TABLE' | 'SEQUENCE' | 'PARTITIONED_TABLE' | 'UNKNOWN';
+  /** v0.9.123 文件导入时已将金额列折算为「元」（问数按「元 → 界面单位」统一换算） */
+  amountUnitNormalized?: boolean;
 }
 
 /**
@@ -196,7 +200,7 @@ export interface QueryResultData {
   amountUnit?: string;
   /** 结果数值是否已按 amountUnit 完成换算（服务端校验/兜底后置位） */
   amountUnitApplied?: boolean;
-  /** v0.9.122 单位口径来源：database=数据库源按「元→所选单位」换算；file=上传文件按表头声明的源单位换算/原值 */
+  /** v0.9.122 单位口径来源：database=按「元→所选单位」换算（含 v0.9.123 导入时已折算为元的文件源）；file=未折算的上传文件按表头单位/原值 */
   amountUnitSource?: 'database' | 'file';
   kpiMetrics?: {
     label: string;

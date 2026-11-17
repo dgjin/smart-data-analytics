@@ -228,7 +228,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
                     ? '上传文件数据源：仅表头标注单位的金额列按源单位换算，未标注的列按原值呈现（不默认当作「元」）'
                     : qr.amountUnit === '元'
                       ? '原值口径，无需换算'
-                      : '未识别到可换算的金额列，数值为数据库原值'
+                      : '未识别到可换算的金额列，数值为数据源原值'
               }
             >
               {qr.amountUnit}

@@ -64,6 +64,7 @@ import {
   buildFallbackAnalysis,
   coerceNumericColumns,
   collectSchemaColumnUnits,
+  isYuanNormalizedSchema,
   normalizeAmountUnit,
   rectifyChartKeys,
   resultSignature,
@@ -183,6 +184,7 @@ export {
   collectSchemaColumnUnits,
   detectSqlDivisor,
   isAmountResultColumn,
+  isYuanNormalizedSchema,
   normalizeAmountUnit,
   rectifyChartKeys,
   replaceIdentifiersWithChinese,
@@ -217,9 +219,13 @@ export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutc
   const { query, history, schema, guidance, dataSourceId, dsType, sensitiveRemoved } = input;
   // v0.9.122 文件数据源口径：上传文件的金额字段单位未知（报表常为万元），
   // 不能沿用「源单位为元」的固定除数——否则 1000 万元 / 1e8 直接变 0.00，整列看似全空。
+  // v0.9.123：导入时已按用户所选单位折算为元的文件源（schema 表级 amountUnitNormalized）
+  // 与数据库源同口径；只有未折算的文件源才走「源单位未知」保护。
   const fileSource = isFileDataSourceType(String(dsType || ''));
+  const fileYuanNormalized = fileSource && isYuanNormalizedSchema(schema);
+  const needsFileUnitPrompt = fileSource && !fileYuanNormalized;
   const requestedUnit = normalizeAmountUnit(input.amountUnit);
-  const columnUnits = collectSchemaColumnUnits(schema);
+  const columnUnits = needsFileUnitPrompt ? collectSchemaColumnUnits(schema) : {};
   const trace = (step: TraceStep) => {
     try {
       input.onTrace?.(step);
@@ -527,8 +533,8 @@ Schema: ${serializeSchemaForPrompt(schema)}
 
   // 阶段一 + 执行，失败时把原因回喂 LLM 重试一次（v0.4.15 D: 重试次数 2→3）
   for (let attempt = 0; attempt < 3; attempt++) {
-    // 文件源走源单位感知约定（未标注单位 → 原值直出）；数据库源保持「元 → 所选单位」既定口径
-    const unitPrefix = fileSource
+    // 文件源未折算时走源单位感知约定（未标注单位 → 原值直出）；数据库源与已折算文件源保持「元 → 所选单位」既定口径
+    const unitPrefix = needsFileUnitPrompt
       ? buildFileSourceUnitPrompt(requestedUnit, columnUnits)
       : buildAmountUnitPrompt(requestedUnit);
     const basePrompt =
@@ -767,9 +773,10 @@ Schema: ${serializeSchemaForPrompt(schema)}
     return { ok: false, error: 'SQL 契约校验失败', executedSql: exec.result.finalSql };
   }
 
-  // 文件源不做服务端兜底换算：单位依据来自表头声明，结果已由 SQL 按源单位算出，
+  // 未折算的文件源不做服务端兜底换算：单位依据来自表头声明，结果已由 SQL 按源单位算出，
   // 再套「元 → 所选单位」会把已正确的值二次换算（如实测的 /1e4 又被乘回）。
-  const unit = fileSource ? undefined : requestedUnit;
+  // 已折算为元的文件源（v0.9.123）与数据库源一致，仍走 applyAmountUnitToRows 确定性兜底。
+  const unit = needsFileUnitPrompt ? undefined : requestedUnit;
   const rawRows = coerceNumericColumns(exec.result.rows);
   const finalSql = exec.result.finalSql;
   const columnNames = buildColumnNames(rawRows, schema, plan.yAxisNames, plan.columnNames);
@@ -818,7 +825,7 @@ Schema: ${serializeSchemaForPrompt(schema)}
         // v0.9.122：空结果也下发单位口径，前端徽标不因无行而丢失
         ...(unit
           ? { amountUnit: unit, amountUnitApplied: unitApply.applied, amountUnitSource: 'database' as const }
-          : fileSource && requestedUnit
+          : needsFileUnitPrompt && requestedUnit
             ? { amountUnit: requestedUnit, amountUnitApplied: false, amountUnitSource: 'file' as const }
             : {}),
       }, schema),
@@ -831,8 +838,8 @@ Schema: ${serializeSchemaForPrompt(schema)}
   // v0.9.41：金额单位口径注入阶段二；v0.9.120 起按实际换算结果表述（未识别到金额列时不得声称已换算）
   const stage2Unit = unit;
   const stage2Applied = unitApply.applied;
-  // v0.9.122 文件数据源：金额列未按「元→所选单位」换算时必须如实告知口径，避免解读编造单位
-  const stage2FileNote = fileSource && requestedUnit
+  // v0.9.122 文件数据源（未折算为元）：金额列未按「元→所选单位」换算时必须如实告知口径，避免解读编造单位
+  const stage2FileNote = needsFileUnitPrompt && requestedUnit
     ? `金额单位口径：该数据源为上传文件，${Object.keys(columnUnits).length > 0 ? '仅表头标注单位的金额列已按源单位换算，未标注列保持原值' : `金额字段未标注单位，结果数值为原值（未按「${requestedUnit}」换算）`}，解读与 KPI 不得声称已折算为「${requestedUnit}」`
     : '';
   const stats = buildColumnStats(rows);
@@ -908,10 +915,11 @@ Schema: ${serializeSchemaForPrompt(schema)}
         : [],
       expertPersona: persona.label,
       // v0.9.120：单位口径随结果下发（前端展示「金额单位」并据此判断数值是否已换算）
-      // v0.9.122：文件数据源（unit 为空但用户选了单位）也下发，标记按源表头单位/原值呈现
+      // v0.9.122：未折算的文件数据源（unit 为空但用户选了单位）也下发，标记按源表头单位/原值呈现
+      // v0.9.123：导入时已折算为元的文件源与数据库源同口径（amountUnitSource=database）
       ...(stage2Unit
         ? { amountUnit: stage2Unit, amountUnitApplied: stage2Applied, amountUnitSource: 'database' as const }
-        : fileSource && requestedUnit
+        : needsFileUnitPrompt && requestedUnit
           ? { amountUnit: requestedUnit, amountUnitApplied: false, amountUnitSource: 'file' as const }
           : {}),
     }, schema),

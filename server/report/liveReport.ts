@@ -15,7 +15,7 @@
 import { analysisStageRoute, callLLMJson } from '../llm/llmClient';
 import { executeSafeSql, QueryScenario } from '../query/sqlExecutor';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
-import { buildColumnNames, buildColumnStats, coerceNumericColumns, collectSchemaColumnUnits, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildFileSourceUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese, applyAmountUnitToRows, normalizeAmountUnit } from '../query/liveQuery';
+import { buildColumnNames, buildColumnStats, coerceNumericColumns, collectSchemaColumnUnits, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildFileSourceUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese, applyAmountUnitToRows, isYuanNormalizedSchema, normalizeAmountUnit } from '../query/liveQuery';
 import { isFileDataSourceType } from '../query/fileDataSource';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from '../query/metrics';
@@ -250,8 +250,10 @@ async function generateStage1Plans(
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = null;
   let lastError = '';
   // v0.5.2 金额单位约定拼在用户消息首位（与问数链路口径一致）
-  // v0.9.122 文件数据源：按表头声明的源单位换算，未标注列原值输出（不默认当作「元」）
-  const unitPrompt = isFileDataSourceType(String(dsType || ''))
+  // v0.9.122 未折算的文件数据源：按表头声明的源单位换算，未标注列原值输出（不默认当作「元」）
+  // v0.9.123 导入时已折算为元的文件源与数据库源同口径
+  const needsFileUnitPrompt = isFileDataSourceType(String(dsType || '')) && !isYuanNormalizedSchema(schema);
+  const unitPrompt = needsFileUnitPrompt
     ? buildFileSourceUnitPrompt(amountUnit, collectSchemaColumnUnits(schema))
     : buildAmountUnitPrompt(amountUnit);
   // 语义层指标 + 铁律规则 + 知识库 RAG 并行检索（互不依赖，各自失败降级空串；v0.9.19 起报表与问数同一知识口径；v0.9.35 铁律全量恒注入）
@@ -391,7 +393,10 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   const charts: Record<string, unknown>[] = [];
   const chartDigests: string[] = [];
   let totalRows = 0;
-  const reportUnit = isFileDataSourceType(String(dsType || '')) ? undefined : normalizeAmountUnit(amountUnit);
+  const reportUnit =
+    isFileDataSourceType(String(dsType || '')) && !isYuanNormalizedSchema(schema)
+      ? undefined
+      : normalizeAmountUnit(amountUnit);
   let anyUnitApplied = false;
   for (const item of execResults) {
     if (!item) continue;

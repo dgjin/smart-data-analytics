@@ -12,6 +12,7 @@ import {
   detectSqlDivisor,
   inferChineseHeader,
   isAmountResultColumn,
+  isYuanNormalizedSchema,
   sanitizeQueryResultChinese,
 } from './liveQueryUtils';
 import type { SchemaTable } from './schemaTypes';
@@ -309,5 +310,19 @@ describe('文件数据源金额单位口径（v0.9.122）', () => {
   it('用户未选单位时不注入任何约定', () => {
     expect(buildFileSourceUnitPrompt(undefined, { f4: '万元' })).toBe('');
     expect(buildFileSourceUnitPrompt('万亿元', {})).toBe('');
+  });
+});
+
+describe('导入已折算为元的文件源判定（v0.9.123）', () => {
+  it('表级 amountUnitNormalized=true 才视为元口径', () => {
+    expect(isYuanNormalizedSchema([{ name: 'upl_1', amountUnitNormalized: true }])).toBe(true);
+    expect(isYuanNormalizedSchema([{ name: 'upl_1' }, { name: 'upl_2', amountUnitNormalized: true }])).toBe(true);
+  });
+
+  it('未折算/非布尔值/空 schema 均为 false（保持 v0.9.122 源文件口径保护）', () => {
+    expect(isYuanNormalizedSchema([{ name: 'upl_1', columns: [{ name: 'f1', unit: '万元' }] }])).toBe(false);
+    expect(isYuanNormalizedSchema([{ name: 'upl_1', amountUnitNormalized: 'yes' } as unknown as SchemaTable])).toBe(false);
+    expect(isYuanNormalizedSchema([])).toBe(false);
+    expect(isYuanNormalizedSchema(undefined as unknown as SchemaTable[])).toBe(false);
   });
 });

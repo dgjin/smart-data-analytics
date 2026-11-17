@@ -104,6 +104,107 @@ export function extractHeaderUnit(header: string): HeaderUnit | undefined {
   return (m?.[1] as HeaderUnit) || undefined;
 }
 
+/** 金额单位 → 「元」的乘数（v0.9.123 导入时统一折算口径；与问数金额单位选项同源） */
+export const AMOUNT_UNIT_TO_YUAN: Record<HeaderUnit, number> = {
+  '元': 1,
+  '万元': 10000,
+  '百万元': 1000000,
+  '亿元': 100000000,
+};
+
+/** 导入参数 amountUnit 白名单归一：非白名单值返回 undefined（不静默落默认单位） */
+export function normalizeImportAmountUnit(raw: unknown): HeaderUnit | undefined {
+  const s = String(raw ?? '').trim();
+  return Object.prototype.hasOwnProperty.call(AMOUNT_UNIT_TO_YUAN, s) ? (s as HeaderUnit) : undefined;
+}
+
+/** 单元格取数：数字原样，数字串（含千分位）解析，空/文本/百分比返回 null（不参与折算） */
+function numericCell(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v !== 'string') return null;
+  const s = v.trim().replace(/,/g, '');
+  if (!s || s.endsWith('%')) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 金额列统一折算为「元」（v0.9.123）：用户导入时选定表格金额单位（万元/百万元/亿元），
+ * 所选列按乘数放大后写入物理表；空单元格与文本原样保留。
+ * @param columnIndexes 行数组下标（投影后的列位置，非原表头下标）
+ */
+export function convertAmountColumnsToYuan(
+  rows: unknown[][],
+  columnIndexes: number[],
+  unit: HeaderUnit
+): { rows: unknown[][]; convertedCells: number } {
+  const mult = AMOUNT_UNIT_TO_YUAN[unit];
+  if (!Array.isArray(rows) || columnIndexes.length === 0 || !mult || mult === 1) {
+    return { rows, convertedCells: 0 };
+  }
+  let convertedCells = 0;
+  const converted = rows.map((row) => {
+    const next = row.slice();
+    for (const idx of columnIndexes) {
+      const n = numericCell(next[idx]);
+      if (n === null) continue;
+      // 保留 6 位消除浮点尾差（1000 万元 × 1e4 = 10000000 不产生误差）
+      next[idx] = Math.round(n * mult * 1e6) / 1e6;
+      convertedCells += 1;
+    }
+    return next;
+  });
+  return { rows: converted, convertedCells };
+}
+
+/** 导入金额折算计划：unit + 行数组下标；error 非空时调用方应 400 */
+export interface AmountConversionPlan {
+  unit?: HeaderUnit;
+  /** 行数组下标（投影后列位置） */
+  targets: number[];
+  /** 用户选中但不是数值列的列（原表头，供提示） */
+  skipped: string[];
+  error?: string;
+}
+
+/**
+ * 规划导入时的金额折算（v0.9.123）：amountUnit 与 amountColumns（原表头下标）必须成对提供；
+ * 只有推断为 DOUBLE 的列参与折算，非数值列计入 skipped；全部非数值时明确报错。
+ */
+export function planAmountConversion(
+  rawUnit: unknown,
+  rawColumns: unknown,
+  columns: { name: string; description: string; sourceIndex: number }[],
+  types: ('DOUBLE' | 'TEXT')[]
+): AmountConversionPlan {
+  const unitGiven = rawUnit !== undefined && rawUnit !== null && String(rawUnit).trim() !== '';
+  const colsGiven = rawColumns !== undefined && rawColumns !== null && !(Array.isArray(rawColumns) && rawColumns.length === 0);
+  if (!unitGiven && !colsGiven) return { targets: [], skipped: [] };
+  if (!unitGiven) return { targets: [], skipped: [], error: '已指定金额列，但未选择表格金额单位' };
+  if (!colsGiven) return { targets: [], skipped: [], error: '已选择表格金额单位，但未指定需要折算的金额列' };
+  const unit = normalizeImportAmountUnit(rawUnit);
+  if (!unit) return { targets: [], skipped: [], error: '金额单位仅支持：元、万元、百万元、亿元' };
+  if (!Array.isArray(rawColumns)) return { targets: [], skipped: [], error: 'amountColumns 应为原表头列下标数组' };
+  const wanted = new Set<number>();
+  for (const v of rawColumns) {
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
+      return { targets: [], skipped: [], error: 'amountColumns 应为原表头列下标数组' };
+    }
+    wanted.add(v);
+  }
+  const targets: number[] = [];
+  const skipped: string[] = [];
+  columns.forEach((c, i) => {
+    if (!wanted.has(c.sourceIndex)) return;
+    if (types[i] === 'DOUBLE') targets.push(i);
+    else skipped.push(c.description || c.name);
+  });
+  if (targets.length === 0) {
+    return { targets, skipped, error: `所选金额列均不是数值列，无法按单位折算：${skipped.join('、') || '（未匹配到任何列）'}` };
+  }
+  return { unit, targets, skipped };
+}
+
 export interface SanitizedColumns {
   columns: { name: string; description: string; sourceIndex: number; unit?: HeaderUnit }[];
   /** 因命中敏感词被整体剔除的表头（原样返回供提示） */

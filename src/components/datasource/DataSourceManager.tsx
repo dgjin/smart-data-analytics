@@ -65,6 +65,46 @@ interface FilePreviewView {
   truncated: boolean;
 }
 
+/** v0.9.123 导入金额单位选项：所选金额列按乘数折算为「元」后入库 */
+const IMPORT_AMOUNT_UNITS = [
+  { unit: '元', mult: 1 },
+  { unit: '万元', mult: 10000 },
+  { unit: '百万元', mult: 1000000 },
+  { unit: '亿元', mult: 100000000 },
+] as const;
+type ImportAmountUnit = (typeof IMPORT_AMOUNT_UNITS)[number]['unit'];
+
+/** 金额列启发式：表头含金额词，且不是比率/计数/序号类 */
+const AMOUNT_HEADER_RE = /金额|额|回现|去化|收入|成本|费用|价格|投资|利润|余额|资金|净值|回收|支出|营收|销售|单价|总价|款|税/;
+const NON_AMOUNT_HEADER_RE = /率|占比|比例|百分比|可能性|数量|笔数|个数|户数|人数|年龄|年份|年度|编号|序号|代码/i;
+
+/** 预览单元格是否为数值（与后端折算口径一致：千分位可解析，百分比不算） */
+function isNumericPreviewCell(v: string): boolean {
+  const s = String(v ?? '').trim().replace(/,/g, '');
+  if (!s || s.endsWith('%')) return false;
+  return Number.isFinite(Number(s));
+}
+
+/** 从预览行推断各列是否数值列 / 是否金额类（仅用于勾选默认值，最终以服务端类型推断为准） */
+function inspectPreviewColumns(headers: string[], rows: string[][], headerRow: number, headerRows: 1 | 2) {
+  const dataRows = rows.slice(headerRow - 1 + headerRows);
+  return headers.map((header, idx) => {
+    const values = dataRows.map((r) => r[idx]).filter((v) => v !== undefined && v !== null && String(v).trim() !== '');
+    const numeric = values.length > 0 && values.filter(isNumericPreviewCell).length / values.length >= 0.6;
+    const amountLike = AMOUNT_HEADER_RE.test(header) && !NON_AMOUNT_HEADER_RE.test(header);
+    return { idx, header, numeric, amountLike };
+  });
+}
+
+/** 表头自带的金额单位（如「预计回现(万元)」）：用于预选导入单位 */
+function detectHeaderAmountUnit(headers: string[]): ImportAmountUnit | undefined {
+  for (const h of headers) {
+    const m = String(h).match(/[（(]\s*(百万元|亿元|万元|元)\s*[）)]/) || String(h).match(/单位\s*[:：]\s*(百万元|亿元|万元|元)/);
+    if (m?.[1]) return m[1] as ImportAmountUnit;
+  }
+  return undefined;
+}
+
 /**
  * 图标操作按钮 + 悬停功能提示气泡：替代原生 title（原生提示延迟约 1 秒且样式类系统默认，
  * 深色主题下不明显）。纯 CSS group-hover 实现，悬停立即显示；气泡绝对定位不影响布局，
@@ -475,6 +515,9 @@ export const DataSourceManager: React.FC = () => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [selectedHeaderRow, setSelectedHeaderRow] = useState(1);
   const [selectedHeaderRows, setSelectedHeaderRows] = useState<1 | 2>(1);
+  // v0.9.123 导入时金额单位：所选金额列按单位折算为「元」后入库（「元」= 原值，仅标记单位）
+  const [importAmountUnit, setImportAmountUnit] = useState<ImportAmountUnit>('元');
+  const [importAmountCols, setImportAmountCols] = useState<number[]>([]);
 
   // 前端预检上限与服务端 MAX_FILE_BYTES 对齐（7MB 文件本体，base64 后走 10mb JSON 通道）
   const MAX_IMPORT_FILE_BYTES = 7 * 1024 * 1024;
@@ -551,6 +594,8 @@ export const DataSourceManager: React.FC = () => {
           fileName: file.name,
           fileBase64,
           ...(manual ? { headerRow: selectedHeaderRow, headerRows: selectedHeaderRows } : {}),
+          // v0.9.123 金额折算：amountUnit 与 amountColumns 成对提供（未选金额列则不折算）
+          ...(importAmountCols.length > 0 ? { amountUnit: importAmountUnit, amountColumns: importAmountCols } : {}),
         }),
       });
       const result = await res.json();
@@ -568,6 +613,15 @@ export const DataSourceManager: React.FC = () => {
         );
       }
       if (stats.truncated) extras.push('超出 2 万行 / 100 列上限的部分已截断');
+      const unitMult = IMPORT_AMOUNT_UNITS.find((u) => u.unit === stats.amountUnit)?.mult;
+      if (stats.amountUnit && Array.isArray(stats.convertedColumns) && stats.convertedColumns.length > 0) {
+        extras.push(
+          `金额列已按 1 ${stats.amountUnit} = ${unitMult ?? '-'} 元折算为元入库（${stats.convertedColumns.slice(0, 3).join('、')}${stats.convertedColumns.length > 3 ? ' 等' : ''}）`
+        );
+      }
+      if (Array.isArray(stats.skippedAmountColumns) && stats.skippedAmountColumns.length > 0) {
+        extras.push(`以下所选列不是数值列，未折算：${stats.skippedAmountColumns.slice(0, 3).join('、')}`);
+      }
       if (manual) {
         extras.push(
           `表头取自所选第 ${selectedHeaderRow} 行${selectedHeaderRows === 2 ? '起两行（两级表头已合并为「父-子」）' : ''}`
@@ -595,6 +649,24 @@ export const DataSourceManager: React.FC = () => {
       ? importPreview.data.candidates.find((c) => c.headerRow === selectedHeaderRow && c.headerRows === selectedHeaderRows)?.headers || []
       : previewDetected.headers
     : [];
+  // v0.9.123 可选金额列（预览中的数值列）；表头行变化时重算默认勾选
+  const previewAmountCandidates = importPreview
+    ? inspectPreviewColumns(previewHeaders, previewRows, selectedHeaderRow, selectedHeaderRows).filter((c) => c.numeric)
+    : [];
+  useEffect(() => {
+    if (!importPreview) return;
+    const { data } = importPreview;
+    const headers = data.supportsHeaderSelection
+      ? data.candidates.find((c) => c.headerRow === selectedHeaderRow && c.headerRows === selectedHeaderRows)?.headers || []
+      : data.detected.headers;
+    // 表头自带单位（如「预计回现(万元)」）则预选该单位；金额类数值列默认勾选
+    setImportAmountUnit(detectHeaderAmountUnit(headers) || '元');
+    setImportAmountCols(
+      inspectPreviewColumns(headers, data.rows, selectedHeaderRow, selectedHeaderRows)
+        .filter((c) => c.numeric && c.amountLike)
+        .map((c) => c.idx)
+    );
+  }, [importPreview, selectedHeaderRow, selectedHeaderRows]);
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-8 space-y-6">
@@ -1221,6 +1293,64 @@ export const DataSourceManager: React.FC = () => {
                 {Math.max(0, importPreview.data.totalRows - 1)} 行数据。
               </div>
             )}
+
+            {/* v0.9.123 表格金额单位：所选金额列按单位折算为元后入库，问数时再按界面单位统一换算 */}
+            <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] font-bold text-slate-300">
+                  表格金额单位
+                  <span className="ml-2 font-normal text-slate-500">所选金额列导入时折算为「元」，问数再按界面单位换算</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {IMPORT_AMOUNT_UNITS.map(({ unit }) => (
+                    <button
+                      key={unit}
+                      onClick={() => setImportAmountUnit(unit)}
+                      disabled={importing}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-colors ${
+                        importAmountUnit === unit
+                          ? 'bg-cyan-600 border-cyan-500 text-white'
+                          : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-cyan-500'
+                      }`}
+                    >
+                      {unit}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {previewAmountCandidates.length === 0 ? (
+                <p className="text-[10px] text-slate-500">未识别到数值列，将全部按原值导入，不做单位折算。</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {previewAmountCandidates.map((c) => {
+                    const checked = importAmountCols.includes(c.idx);
+                    return (
+                      <button
+                        key={c.idx}
+                        onClick={() =>
+                          setImportAmountCols((prev) => (prev.includes(c.idx) ? prev.filter((i) => i !== c.idx) : [...prev, c.idx]))
+                        }
+                        disabled={importing}
+                        className={`px-2 py-0.5 rounded-md border text-[10px] max-w-[14rem] truncate transition-colors ${
+                          checked
+                            ? 'bg-cyan-950 border-cyan-600 text-cyan-200'
+                            : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-cyan-600'
+                        }`}
+                        title={checked ? '点击取消折算（按原值导入）' : '点击选择并按左侧单位折算为元'}
+                      >
+                        {checked ? '✓ ' : ''}
+                        {c.header}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-500">
+                {importAmountCols.length === 0
+                  ? '未选择金额列：所有列按原值导入。'
+                  : `将折算为元入库：1 ${importAmountUnit} = ${IMPORT_AMOUNT_UNITS.find((u) => u.unit === importAmountUnit)?.mult} 元${importAmountUnit === '元' ? '（原值，仅标记为元）' : ''}；入库后统一按元存储，问数时再按界面单位换算。`}
+              </p>
+            </div>
 
             {/* Footer */}
             <div className="flex items-center justify-end space-x-2 border-t border-slate-800 pt-3">
