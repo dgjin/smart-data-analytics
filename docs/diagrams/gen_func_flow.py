@@ -21,7 +21,7 @@ s(f'  <rect width="{W}" height="{H}" fill="#ffffff"/>')
 
 # ---- Title ----
 s(f'  <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数分析系统 · 整体功能流程图</text>')
-s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.119 · React 19 + Vite + Tailwind CSS 4 前端 · Express 4 服务端 · 大小模型分工 AI（Qwen / Ollama / Gemini）· 172 测试文件 2438 用例 · 269 REST 端点</text>')
+s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.120 · React 19 + Vite + Tailwind CSS 4 前端 · Express 4 服务端 · 大小模型分工 AI（Qwen / Ollama / Gemini）· 172 测试文件 2448 用例 · 269 REST 端点</text>')
 
 # ---- User layer ----
 s(f'  <circle cx="560" cy="84" r="10" fill="#ffffff" stroke="#111827" stroke-width="1.5"/>')
@@ -212,8 +212,8 @@ s(f'  <line x1="436" y1="{ly}" x2="466" y2="{ly}" stroke="#6b7280" stroke-width=
 s(f'  <text x="474" y="{ly+4}" font-size="11.5" fill="#6b7280">留痕 / 回放</text>')
 s(f'  <line x1="556" y1="{ly}" x2="586" y2="{ly}" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#ao)"/>')
 s(f'  <text x="594" y="{ly+4}" font-size="11.5" fill="#6b7280">数据变化自主更新</text>')
-s(f'  <text x="1068" y="{ly+4}" font-size="10.5" fill="#9ca3af" text-anchor="end">v0.9.119 · 2026-10-23 · 紫色标签 = 权限受限 · 橙色 = v0.6+ 新增能力</text>')
-s(f'  <text x="40" y="{ly+26}" font-size="10.5" fill="#9ca3af">v0.7 – v0.9.119 新增：铁律规则库 · 专家角色 · Fallback 自愈 · 异步任务 · 断线续传 · 漂移检测 · 运行监控 · JSON 备份 · 文件落库 · 结果全屏 · 中文兜底 · 大小模型分工 · 首启向导 · 需求反馈 · 业务本体 · 上下文仲裁 · 评测双跑</text>')
+s(f'  <text x="1068" y="{ly+4}" font-size="10.5" fill="#9ca3af" text-anchor="end">v0.9.120 · 2026-11-17 · 紫色标签 = 权限受限 · 橙色 = v0.6+ 新增能力</text>')
+s(f'  <text x="40" y="{ly+26}" font-size="10.5" fill="#9ca3af">v0.7 – v0.9.120  新增：铁律规则库 · 专家角色 · Fallback 自愈 · 异步任务 · 断线续传 · 漂移检测 ·  运行监控 · JSON 备份 · 文件落库 · 结果全屏 · 中文兜底 · 大小模型分工 · 首启向导 · 需求反馈 · 业务本体 · 上下文仲裁 · 评测双跑 · 导入表头识别</text>')
 
 s('</svg>')
 

@@ -507,6 +507,10 @@ export const DataSourceManager: React.FC = () => {
         );
       }
       if (stats.truncated) extras.push('超出 2 万行 / 100 列上限的部分已截断');
+      // v0.9.120 表头识别结果如实告知：跳过了前置标题行 / 合并了两级表头
+      const headerRow = Number(stats.headerRow) || 1;
+      if (headerRow > 1) extras.push(`已自动跳过前 ${headerRow - 1} 行标题/说明，表头取自第 ${headerRow} 行`);
+      if (Number(stats.headerRows) === 2) extras.push('识别到两级表头，列名已合并为「父-子」');
       setImportNotice(
         `已导入「${file.name}」：${stats.rows ?? '-'} 行 × ${stats.columns ?? '-'} 列真实落库，可直接问数与生成报表。${extras.length ? `（${extras.join('；')}）` : ''}`
       );

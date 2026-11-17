@@ -17,6 +17,7 @@ import {
   MAX_FILE_COLS,
   MAX_FILE_ROWS,
   createFileTable,
+  detectTableHeader,
   dropFileTable,
   getFilePhysicalTable,
   getFilePhysicalTables,
@@ -246,6 +247,137 @@ describe('parseFileContent: XLSX', () => {
     const buf = Buffer.from(await wb.xlsx.writeBuffer());
     await expect(parseFileContent('xlsx', buf)).rejects.toThrow('没有数据行');
     await expect(parseFileContent('xlsx', Buffer.from('not a zip', 'utf8'))).rejects.toThrow();
+  });
+});
+
+describe('detectTableHeader: 表头自动识别（v0.9.120）', () => {
+  it('标准表格（首行即表头）零行为变化', () => {
+    const out = detectTableHeader(
+      [
+        ['机构名称', '投放金额'],
+        ['总部', 28.1],
+      ],
+      2,
+    );
+    expect(out).toEqual({
+      headers: ['机构名称', '投放金额'],
+      rows: [['总部', 28.1]],
+      headerRow: 1,
+      headerRows: 1,
+    });
+  });
+
+  it('合并标题行（ExcelJS 读取时整行填充同名值）→ 跳过并取下一行表头', () => {
+    const out = detectTableHeader(
+      [
+        ['2026 年三季度客户经营明细表', '2026 年三季度客户经营明细表', '2026 年三季度客户经营明细表'],
+        ['机构名称', '投放金额', '回收率'],
+        ['总部', 28.1, 1061.76],
+      ],
+      3,
+    );
+    expect(out.headers).toEqual(['机构名称', '投放金额', '回收率']);
+    expect(out.rows).toEqual([['总部', 28.1, 1061.76]]);
+    expect(out.headerRow).toBe(2);
+    expect(out.headerRows).toBe(1);
+  });
+
+  it('标题行 + 口径说明行 → 表头定位到第三行', () => {
+    const out = detectTableHeader(
+      [
+        ['客户经营分析'],
+        ['数据口径：含核销版；单位：万元'],
+        ['机构名称', '投放金额', '回收率'],
+        ['总部', 28.1, 1061.76],
+      ],
+      3,
+    );
+    expect(out.headers).toEqual(['机构名称', '投放金额', '回收率']);
+    expect(out.rows).toEqual([['总部', 28.1, 1061.76]]);
+    expect(out.headerRow).toBe(3);
+  });
+
+  it('两级表头 → 合并为「父-子」，子名以父名开头时不重复', () => {
+    const out = detectTableHeader(
+      [
+        ['机构名称', '投放情况', '投放情况', '回收'],
+        [null, '金额', '笔数', '回收率'],
+        ['总部', 28.1, 120, 1061.76],
+        ['华南', 12.5, 88, 980.2],
+      ],
+      4,
+    );
+    expect(out.headers).toEqual(['机构名称', '投放情况-金额', '投放情况-笔数', '回收率']);
+    expect(out.headerRows).toBe(2);
+    expect(out.rows).toHaveLength(2);
+    expect(out.rows[0]).toEqual(['总部', 28.1, 120, 1061.76]);
+  });
+
+  it('重复列名的真表头不被当成合并标题（宽表常见）', () => {
+    const out = detectTableHeader(
+      [
+        ['机构', '金额', '金额'],
+        ['总部', 10, 20],
+      ],
+      3,
+    );
+    expect(out.headers).toEqual(['机构', '金额', '金额']);
+    expect(out.headerRow).toBe(1);
+    expect(out.headerRows).toBe(1);
+  });
+
+  it('全文本数据表不误判断层（下一行全文本但没有数据行信号）', () => {
+    const out = detectTableHeader(
+      [
+        ['城市', '省份', '负责人'],
+        ['北京', '北京', '张三'],
+        ['上海', '上海', '李四'],
+      ],
+      3,
+    );
+    expect(out.headers).toEqual(['城市', '省份', '负责人']);
+    expect(out.headerRows).toBe(1);
+    expect(out.rows).toHaveLength(2);
+  });
+
+  it('单列表与仅表头（无数据行）保持可用', () => {
+    expect(detectTableHeader([['金额'], [10], [20]], 1).headers).toEqual(['金额']);
+    const headerOnly = detectTableHeader([['机构', '金额']], 2);
+    expect(headerOnly.headers).toEqual(['机构', '金额']);
+    expect(headerOnly.rows).toEqual([]);
+  });
+});
+
+describe('parseFileContent: 表头识别集成', () => {
+  it('XLSX：合并标题 + 两级表头组合场景端到端', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('报表');
+    ws.addRow(['2026 年三季度客户经营明细表']);
+    ws.mergeCells('A1:C1');
+    ws.addRow(['机构名称', '投放情况', null]);
+    ws.mergeCells('B2:C2');
+    ws.addRow([null, '金额', '笔数']);
+    ws.addRow(['总部', 28.1, 120]);
+    const out = await parseFileContent('xlsx', Buffer.from(await wb.xlsx.writeBuffer()));
+    expect(out.headers).toEqual(['机构名称', '投放情况-金额', '投放情况-笔数']);
+    expect(out.rows).toEqual([['总部', 28.1, 120]]);
+    expect(out.headerRow).toBe(2);
+    expect(out.headerRows).toBe(2);
+  });
+
+  it('CSV：标题行自动跳过（首列单值标题）', async () => {
+    const csv = '客户经营分析\n机构,金额,回收率\n总部,28.1,1061.76\n';
+    const out = await parseFileContent('csv', Buffer.from(csv, 'utf8'));
+    expect(out.headers).toEqual(['机构', '金额', '回收率']);
+    expect(out.rows).toEqual([['总部', '28.1', '1061.76']]);
+    expect(out.headerRow).toBe(2);
+  });
+
+  it('CSV：首行即表头时 headerRow 为 1（回归）', async () => {
+    const out = await parseFileContent('csv', Buffer.from('name,age\n张三,30\n', 'utf8'));
+    expect(out.headers).toEqual(['name', 'age']);
+    expect(out.headerRow).toBe(1);
+    expect(out.headerRows).toBe(1);
   });
 });
 

@@ -82,6 +82,10 @@ export interface ParsedFileData {
   rows: unknown[][];
   /** 行或列因超限被截断 */
   truncated: boolean;
+  /** 表头起始行（1-based，含自动跳过的标题/说明行）；1 表示首行即表头 */
+  headerRow?: number;
+  /** 表头行数：1=单行；2=两级表头已合并列名 */
+  headerRows?: number;
 }
 
 export interface SanitizedColumns {
@@ -155,6 +159,143 @@ function capData(headers: string[], rows: unknown[][]): ParsedFileData {
   };
 }
 
+/** 表头扫描窗口：只在前 20 行内找表头，再往后就不是「标题/说明行」而是数据了 */
+const HEADER_SCAN_ROWS = 20;
+/** 数值/百分比单元格（含千分位），用于区分表头标签与数据 */
+const NUMERIC_CELL_RE = /^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$/;
+/** 常见日期串（2026-01-02 / 2026/1/2 / 2026年1月2日） */
+const DATE_CELL_RE = /^\d{4}[-/年]\d{1,2}(?:[-/月]\d{1,2})?(?:[ T].*)?$/;
+
+const isBlankCell = (v: unknown): boolean => v === null || v === undefined || String(v).trim() === '';
+
+/** 数值或日期单元格：表头行几乎不含这类值，数据行通常以它们为主 */
+export function isMeasureCell(v: unknown): boolean {
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  return NUMERIC_CELL_RE.test(s) || DATE_CELL_RE.test(s);
+}
+
+/** 单元格文本（非字符串转字符串，空值返回空串） */
+function cellText(v: unknown): string {
+  if (isBlankCell(v)) return '';
+  return String(v).trim();
+}
+
+interface RowShape {
+  /** 非空单元格数 */
+  nonBlank: number;
+  /** 非空占列数比例 */
+  fill: number;
+  /** 非空单元格中「非数值/日期」占比 */
+  textRatio: number;
+  /** 不同值个数（合并标题行会退化为 1） */
+  unique: number;
+  /** 文本单元格中超 40 字的占比（说明行长句多） */
+  longRatio: number;
+}
+
+function shapeRow(row: unknown[] | undefined, colCount: number): RowShape {
+  const cells = Array.from({ length: colCount }, (_, i) => row?.[i]);
+  const nonBlankCells = cells.filter((v) => !isBlankCell(v));
+  const nonBlank = nonBlankCells.length;
+  const textCells = nonBlankCells.filter((v) => !isMeasureCell(v));
+  return {
+    nonBlank,
+    fill: nonBlank / colCount,
+    textRatio: nonBlank === 0 ? 0 : textCells.length / nonBlank,
+    unique: new Set(nonBlankCells.map((v) => String(v).trim())).size,
+    longRatio: textCells.length === 0 ? 0 : textCells.filter((v) => cellText(v).length > 40).length / textCells.length,
+  };
+}
+
+/**
+ * 形状上是否可能是一级表头：填充度 ≥60%、以短文本为主。
+ * 数值为主的行是数据行；只有一格有值的多为合并标题或说明行；长句为说明行。
+ */
+function looksLikeHeader(s: RowShape, colCount: number): boolean {
+  if (s.nonBlank === 0) return false;
+  if (colCount > 1 && s.nonBlank < 2) return false;
+  if (s.fill < 0.6) return false;
+  if (s.textRatio < 0.8) return false;
+  if (s.longRatio > 0.2) return false;
+  return true;
+}
+
+/**
+ * 下一行是否比当前行更像表头：合并标题行在 ExcelJS 读取时会填充整行且值唯一，
+ * 因此「唯一值更多」即可把标题行与真正的表头行区分开；其次比较填充度。
+ */
+function moreHeaderLike(cur: RowShape, next: RowShape): boolean {
+  if (next.unique > cur.unique) return true;
+  return next.unique === cur.unique && next.fill > cur.fill + 0.2;
+}
+
+export interface DetectedHeader {
+  headers: string[];
+  rows: unknown[][];
+  /** 表头起始行（1-based） */
+  headerRow: number;
+  /** 表头行数（1 或 2） */
+  headerRows: number;
+}
+
+/**
+ * 自动识别表头起始行（v0.9.120）。
+ *
+ * 背景：Excel 报表首行常是合并标题（「2026 年三季度客户经营明细表」）或口径说明行，
+ * 直接取 grid[0] 会把标题当列名（全列同名）、把真表头当数据写进物理表。
+ * 策略：
+ * 1) 在前 20 行内找「形状上是表头」的行（填充度、短文本、非数值）；
+ * 2) 若下一行更像表头（唯一值更多）则跳过——排除合并标题行；
+ * 3) 命中后若下一行仍是纯文本短标签、且再下一行才出现数值/日期，则视为两级表头，
+ *    列名合并为「父-子」（子名以父名开头时只用子名，避免「回收-回收率」这类冗余）；
+ * 4) 找不到合格行时回退首行，保证「首行即表头」的既有文件行为完全不变。
+ */
+export function detectTableHeader(grid: unknown[][], colCount: number): DetectedHeader {
+  const limit = Math.min(HEADER_SCAN_ROWS, Math.max(0, grid.length - 1));
+  let start = 0;
+  for (let i = 0; i < limit; i++) {
+    const cur = shapeRow(grid[i], colCount);
+    if (!looksLikeHeader(cur, colCount)) continue;
+    const next = shapeRow(grid[i + 1], colCount);
+    if (looksLikeHeader(next, colCount) && moreHeaderLike(cur, next)) continue;
+    start = i;
+    break;
+  }
+
+  const first = shapeRow(grid[start], colCount);
+  const second = shapeRow(grid[start + 1], colCount);
+  const after = grid[start + 2];
+  const afterHasMeasure = Array.isArray(after) && after.some((v) => isMeasureCell(v));
+  // 两级表头：父行必须有合并痕迹（重复值或空列），子行为纯文本短标签，数据从第三行开始
+  const hasMergeTrace = first.unique < first.nonBlank || first.nonBlank < colCount;
+  const headerRows =
+    hasMergeTrace && afterHasMeasure && second.fill >= 0.6 && second.textRatio >= 0.9 && second.longRatio <= 0.2
+      ? 2
+      : 1;
+
+  const headerCells = grid[start] || [];
+  const subCells = headerRows === 2 ? grid[start + 1] || [] : [];
+  const headers = Array.from({ length: colCount }, (_, j) => {
+    const parent = cellText(headerCells[j]);
+    if (headerRows === 1) return parent;
+    const child = cellText(subCells[j]);
+    if (!parent) return child;
+    if (!child || child === parent) return parent;
+    return child.startsWith(parent) ? child : `${parent}-${child}`;
+  });
+
+  return { headers, rows: grid.slice(start + headerRows), headerRow: start + 1, headerRows };
+}
+
+/** 识别表头后统一截断（保留 headerRow/headerRows 供端点如实告知跳过行数） */
+function capDetected(grid: unknown[][], colCount: number): ParsedFileData {
+  const detected = detectTableHeader(grid, colCount);
+  const capped = capData(detected.headers, detected.rows);
+  return { ...capped, headerRow: detected.headerRow, headerRows: detected.headerRows };
+}
+
 /** 解析上传文件为统一行列结构（csv→papaparse；xlsx→exceljs 首个工作表；json→对象数组或二维数组） */
 export async function parseFileContent(fileType: FileType, buf: Buffer): Promise<ParsedFileData> {
   if (fileType === 'csv') {
@@ -163,8 +304,9 @@ export async function parseFileContent(fileType: FileType, buf: Buffer): Promise
     const out = Papa.parse<string[]>(text, { skipEmptyLines: 'greedy' });
     const rows = (out.data || []).filter((r) => Array.isArray(r) && r.length > 0);
     if (rows.length === 0) throw new Error('CSV 文件没有可解析的数据行');
-    const headers = rows[0].map((h) => String(h ?? ''));
-    return capData(headers, rows.slice(1).map((r) => r.map((v) => (typeof v === 'string' ? v : String(v ?? '')))));
+    const grid = rows.map((r) => r.map((v) => (typeof v === 'string' ? v : String(v ?? ''))));
+    const colCount = Math.max(...grid.map((r) => r.length));
+    return capDetected(grid, colCount);
   }
   if (fileType === 'xlsx') {
     const wb = new ExcelJS.Workbook();
@@ -178,15 +320,15 @@ export async function parseFileContent(fileType: FileType, buf: Buffer): Promise
     });
     if (grid.length === 0) throw new Error('Excel 工作表中没有数据行');
     const colCount = Math.max(...grid.map((r) => r.length));
-    const headers = Array.from({ length: colCount }, (_, i) => String(grid[0][i] ?? ''));
-    return capData(headers, grid.slice(1));
+    return capDetected(grid, colCount);
   }
-  // json：数组 of 对象（表头为键并集，按出现顺序）或二维数组（首行为表头）
+  // json：数组 of 对象（表头为键并集，按出现顺序）或二维数组（自动识别表头行）
   const data: unknown = JSON.parse(buf.toString('utf8'));
   if (!Array.isArray(data) || data.length === 0) throw new Error('JSON 文件应为非空数组（对象数组或二维数组）');
   if (Array.isArray(data[0])) {
     const grid = data as unknown[][];
-    return capData(grid[0].map((h) => String(h ?? '')), grid.slice(1));
+    const colCount = Math.max(...grid.map((r) => (Array.isArray(r) ? r.length : 0)));
+    return capDetected(grid, colCount);
   }
   if (typeof data[0] === 'object' && data[0] !== null) {
     const headers: string[] = [];

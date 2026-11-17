@@ -1,7 +1,7 @@
 -- ============================================================================
 -- 智能问数据分析系统 · 数据库升级脚本（累计式 / 幂等 / 生成产物）
 -- ============================================================================
--- 适用版本：v0.9.119
+-- 适用版本：v0.9.120
 -- 生成来源：server/infra/schema.ts、server/infra/taskQueue.ts、server/anomalyPatrol.ts、
 --           server/infra/createAbTestTable.ts（建表）
 --           server/infra/migration.ts、server/infra/taskQueue.ts（存量列/索引迁移）

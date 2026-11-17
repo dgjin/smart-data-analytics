@@ -764,6 +764,10 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
         columns: columns.length,
         droppedSensitive,
         truncated: parsed.truncated,
+        // v0.9.120 表头识别结果：headerRow>1 表示已自动跳过前置标题/说明行，
+        // headerRows=2 表示两级表头已合并列名——如实告知，不静默猜测
+        headerRow: parsed.headerRow ?? 1,
+        headerRows: parsed.headerRows ?? 1,
       },
       autoConfig: {
         analysisSummary: autoConfigReport.analysisSummary,

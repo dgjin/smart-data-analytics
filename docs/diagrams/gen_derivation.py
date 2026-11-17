@@ -39,7 +39,7 @@ def arrow(x1, y1, x2, y2, color="#2563eb", marker="url(#ab)", dash=None):
 
 # Title
 s(f'  <text x="40" y="36" font-size="19" font-weight="700" fill="#111827">智能问数 · 详细推导过程（NL2SQL 双阶段流水线）</text>')
-s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.119 · 八源上下文并行 · 业务本体四段注入 · 上下文仲裁（铁律 &gt; 指标 &gt; 本体 &gt; 业务口径 &gt; 知识 · 6000 token） · 大小模型分工 · 中文强制兜底 · Fallback 自愈闭环 · query_trace 留痕 · 拒答/澄清/自省四契约</text>')
+s(f'  <text x="40" y="56" font-size="11.5" fill="#6b7280">v0.9.120 · 八源上下文并行 · 业务本体四段注入 · 上下文仲裁（铁律 &gt; 指标 &gt; 本体 &gt; 业务口径 &gt; 知识 · 6000 token） · 大小模型分工 · 中文强制兜底 · Fallback 自愈闭环 · query_trace 留痕 · 拒答/澄清/自省四契约</text>')
 
 # Step 0: User question
 box(460, 72, 280, 42, "用户自然语言提问", None, "#eff6ff", "#bfdbfe")

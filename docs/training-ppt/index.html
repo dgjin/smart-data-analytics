@@ -17,7 +17,7 @@
   <div style="position:absolute;right:4%;bottom:-130px;width:430px;height:430px;border-radius:50%;filter:blur(64px);background:rgba(217,119,6,0.12);"></div>
   <div style="display:grid;grid-template-columns:1.35fr 1fr;gap:34px;align-items:center;width:100%;">
     <div data-anim="fade-up">
-      <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.9.119</div>
+      <div class="kicker">INTERNAL TRAINING · NL2SQL PRO V0.9.120</div>
       <h1 style="font-size:58px;">智能问数分析系统<br>功能培训</h1>
       <p class="subtitle">用中文提问，让数据自己开口说话 —— 从自然语言到图表、报告、洞察与决策简报</p>
     </div>
@@ -30,7 +30,7 @@
     <div class="card flat"><div class="pill c3">培训时长</div><p class="lead" style="font-size:15px;margin-top:10px;">约 75 分钟 + 现场实操与答疑</p></div>
     <div class="card flat"><div class="pill c4">配套材料</div><p class="lead" style="font-size:15px;margin-top:10px;">系统内置「帮助」实时读取使用指南与更新日志</p></div>
   </div>
-  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，把真实查询结果变成图表、KPI 和洞察解读，还能一键产出完整分析报告和高管决策简报。今天的培训大约七十五分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容对齐系统内置帮助中心的功能说明书，覆盖到最新版本 v0.9.119——包括 Agent 多步编排、看板高级分析三件套、专家角色、灵活查询（v0.9.79 图形化表关系画布：拖字段拼装 SQL、拖表建关联）、报告模式、铁律规则库和 Fallback 对抗训练，以及治理资产统一入口、系统管理分类 Tab 化，和云端 DeepSeek 引擎接入。v0.9.110 重点新增业务本体：实体、值域释义、关联路径、业务层级四类资产，命中后先给圈表加权，再以四段提示词注入，并由上下文仲裁器按「铁律 > 指标 > 本体 > 业务口径 > 知识」排序去重、受 6000 token 预算约束；评测支持双跑均值与跌幅门禁，管理端可单次关闭本体做 A/B 对照。此后 0.9.111 到 0.9.119 又补了三块：业务本体从手工登记升级为「智能预填 + 一键开关」；链路追踪与混沌演练让慢问数和依赖故障都能举证；Redis 补齐 AOF 双持久化、落盘巡检与访问认证，帮助中心也把本体手册收了进去。此外还有首启初始化向导与需求收集反馈这些近期能力。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
+  <div class="notes">大家好，欢迎参加智能问数分析系统的功能培训。这个系统的定位一句话概括：你用中文提问，它自动理解语义、找到相关的表、生成并执行 SQL，把真实查询结果变成图表、KPI 和洞察解读，还能一键产出完整分析报告和高管决策简报。今天的培训大约七十五分钟，面向三类同事：做分析的、管数据的，以及需要看数决策的管理者。内容对齐系统内置帮助中心的功能说明书，覆盖到最新版本 v0.9.120——包括 Agent 多步编排、看板高级分析三件套、专家角色、灵活查询（v0.9.79 图形化表关系画布：拖字段拼装 SQL、拖表建关联）、报告模式、铁律规则库和 Fallback 对抗训练，以及治理资产统一入口、系统管理分类 Tab 化，和云端 DeepSeek 引擎接入。v0.9.110 重点新增业务本体：实体、值域释义、关联路径、业务层级四类资产，命中后先给圈表加权，再以四段提示词注入，并由上下文仲裁器按「铁律 > 指标 > 本体 > 业务口径 > 知识」排序去重、受 6000 token 预算约束；评测支持双跑均值与跌幅门禁，管理端可单次关闭本体做 A/B 对照。此后 0.9.111 到 0.9.119 又补了三块：业务本体从手工登记升级为「智能预填 + 一键开关」；链路追踪与混沌演练让慢问数和依赖故障都能举证；Redis 补齐 AOF 双持久化、落盘巡检与访问认证，帮助中心也把本体手册收了进去。此外还有首启初始化向导与需求收集反馈这些近期能力。学完之后，大家都能独立完成从登录到出报告的完整流程。我们开始。</div>
 </section>
 
 <!-- ============ P2 培训目标与议程 ============ -->
@@ -870,7 +870,7 @@
         <ul class="plain" style="font-size:13.5px;color:var(--text-2);line-height:1.72;">
           <li>· <b>自上而下九段</b>：客户端 → 前端应用层 → API 安全网关 → 业务逻辑层（45 路由模块 + 40+ 核心服务）→ AI 引擎层 → 数据与存储层 → 基础设施 / 部署 / 质量</li>
           <li>· <b>业务逻辑层按三类看</b>：编排（问数 / 报表 / 异步任务）、能力（Schema 两件套 / 执行器 / Fallback）、上下文治理（知识库 / 反馈闭环 / 指标 / 铁律 / 专家角色）</li>
-          <li>· <b>工程口径</b>：269 REST 端点 · 172 测试文件 / 2438 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
+          <li>· <b>工程口径</b>：269 REST 端点 · 172 测试文件 / 2448 用例 · pre-push 7 道质量门禁 · Git 双远程仓库</li>
           <li>· <b>部署形态</b>：Node 运行时一体的开发态 → esbuild 打包 + Docker 容器 → Prometheus / Grafana 监控</li>
           <li>· <b>图例</b>：蓝=主流程、绿=数据读写、紫=LLM 调用、灰=基础设施、橙=v0.6+ 新增能力</li>
         </ul>
@@ -961,7 +961,7 @@
   <div class="kicker">MODULE 04 · 质量与部署</div>
   <h2>质量保障与部署形态</h2>
   <div class="grid grid-4 anim-stagger-list" style="margin-top:16px;">
-    <div class="stat"><div class="v">2438</div><div class="l">单元测试全部通过（172 文件），覆盖 SQL 安全校验、权限注入、Fallback 对抗训练等核心链路</div></div>
+    <div class="stat"><div class="v">2448</div><div class="l">单元测试全部通过（172 文件），覆盖 SQL 安全校验、权限注入、Fallback 对抗训练等核心链路</div></div>
     <div class="stat"><div class="v">19</div><div class="l">端到端 E2E 用例（4 套套件），模拟真实用户完整操作路径</div></div>
     <div class="stat"><div class="v">269</div><div class="l">REST 端点全部通过 OpenAPI 契约校验，接口行为有据可查</div></div>
     <div class="stat"><div class="v">0</div><div class="l">TypeScript 三档严格编译错误 · ESLint any / console 规则零豁免</div></div>
