@@ -23,6 +23,8 @@ import { retrieveKnowledgeSnippets } from '../knowledge/knowledgeBase';
 import { searchExternalKnowledge } from '../knowledge/externalKnowledge';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from './metrics';
 import { loadActiveIronRules, buildIronRulesPrompt } from './ironRules';
+// v0.9.122 文件数据源（Excel/CSV/JSON 上传）金额单位口径：源单位未知时不得默认按「元」换算
+import { isFileDataSourceType } from './fileDataSource';
 // v0.9.110 M1/M2 业务本体：实体/绑定/值域/关系/层级软注入
 import {
   loadActiveOntology,
@@ -56,10 +58,12 @@ import { logger } from '../infra/logger';
 import {
   applyAmountUnitToRows,
   buildAmountUnitPrompt,
+  buildFileSourceUnitPrompt,
   buildColumnNames,
   buildColumnStats,
   buildFallbackAnalysis,
   coerceNumericColumns,
+  collectSchemaColumnUnits,
   normalizeAmountUnit,
   rectifyChartKeys,
   resultSignature,
@@ -170,11 +174,13 @@ export {
   VALID_STAGE1_CHARTS,
   applyAmountUnitToRows,
   buildAmountUnitPrompt,
+  buildFileSourceUnitPrompt,
   buildColumnNames,
   buildColumnStats,
   buildFallbackAnalysis,
   buildIdentifierNameMap,
   coerceNumericColumns,
+  collectSchemaColumnUnits,
   detectSqlDivisor,
   isAmountResultColumn,
   normalizeAmountUnit,
@@ -209,6 +215,11 @@ export {
  */
 export async function runLiveQuery(input: LiveQueryInput): Promise<LiveQueryOutcome> {
   const { query, history, schema, guidance, dataSourceId, dsType, sensitiveRemoved } = input;
+  // v0.9.122 文件数据源口径：上传文件的金额字段单位未知（报表常为万元），
+  // 不能沿用「源单位为元」的固定除数——否则 1000 万元 / 1e8 直接变 0.00，整列看似全空。
+  const fileSource = isFileDataSourceType(String(dsType || ''));
+  const requestedUnit = normalizeAmountUnit(input.amountUnit);
+  const columnUnits = collectSchemaColumnUnits(schema);
   const trace = (step: TraceStep) => {
     try {
       input.onTrace?.(step);
@@ -516,7 +527,10 @@ Schema: ${serializeSchemaForPrompt(schema)}
 
   // 阶段一 + 执行，失败时把原因回喂 LLM 重试一次（v0.4.15 D: 重试次数 2→3）
   for (let attempt = 0; attempt < 3; attempt++) {
-    const unitPrefix = buildAmountUnitPrompt(normalizeAmountUnit(input.amountUnit));
+    // 文件源走源单位感知约定（未标注单位 → 原值直出）；数据库源保持「元 → 所选单位」既定口径
+    const unitPrefix = fileSource
+      ? buildFileSourceUnitPrompt(requestedUnit, columnUnits)
+      : buildAmountUnitPrompt(requestedUnit);
     const basePrompt =
       attempt === 0
         ? `${unitPrefix}${query}`
@@ -753,7 +767,9 @@ Schema: ${serializeSchemaForPrompt(schema)}
     return { ok: false, error: 'SQL 契约校验失败', executedSql: exec.result.finalSql };
   }
 
-  const unit = normalizeAmountUnit(input.amountUnit);
+  // 文件源不做服务端兜底换算：单位依据来自表头声明，结果已由 SQL 按源单位算出，
+  // 再套「元 → 所选单位」会把已正确的值二次换算（如实测的 /1e4 又被乘回）。
+  const unit = fileSource ? undefined : requestedUnit;
   const rawRows = coerceNumericColumns(exec.result.rows);
   const finalSql = exec.result.finalSql;
   const columnNames = buildColumnNames(rawRows, schema, plan.yAxisNames, plan.columnNames);
@@ -799,6 +815,12 @@ Schema: ${serializeSchemaForPrompt(schema)}
         kpiMetrics: [],
         suggestedQuestions: [],
         expertPersona: persona.label,
+        // v0.9.122：空结果也下发单位口径，前端徽标不因无行而丢失
+        ...(unit
+          ? { amountUnit: unit, amountUnitApplied: unitApply.applied, amountUnitSource: 'database' as const }
+          : fileSource && requestedUnit
+            ? { amountUnit: requestedUnit, amountUnitApplied: false, amountUnitSource: 'file' as const }
+            : {}),
       }, schema),
     };
   }
@@ -809,13 +831,19 @@ Schema: ${serializeSchemaForPrompt(schema)}
   // v0.9.41：金额单位口径注入阶段二；v0.9.120 起按实际换算结果表述（未识别到金额列时不得声称已换算）
   const stage2Unit = unit;
   const stage2Applied = unitApply.applied;
+  // v0.9.122 文件数据源：金额列未按「元→所选单位」换算时必须如实告知口径，避免解读编造单位
+  const stage2FileNote = fileSource && requestedUnit
+    ? `金额单位口径：该数据源为上传文件，${Object.keys(columnUnits).length > 0 ? '仅表头标注单位的金额列已按源单位换算，未标注列保持原值' : `金额字段未标注单位，结果数值为原值（未按「${requestedUnit}」换算）`}，解读与 KPI 不得声称已折算为「${requestedUnit}」`
+    : '';
   const stats = buildColumnStats(rows);
   const sample = rows.slice(0, SAMPLE_ROWS_FOR_LLM);
   const stage2User = [
     `用户问题：${query}`,
     ...(stage2Unit
       ? [`金额单位口径：${stage2Applied ? `所有金额数值均已按「${stage2Unit}」输出（服务端已校验换算）` : `界面选定「${stage2Unit}」，但本次结果未识别到可换算的金额列，数值为数据库原值`}，解读与 KPI 必须沿用该口径`]
-      : []),
+      : stage2FileNote
+        ? [stage2FileNote]
+        : []),
     '',
     `真实查询结果：`,
     `- SQL: ${finalSql}`,
@@ -880,7 +908,12 @@ Schema: ${serializeSchemaForPrompt(schema)}
         : [],
       expertPersona: persona.label,
       // v0.9.120：单位口径随结果下发（前端展示「金额单位」并据此判断数值是否已换算）
-      ...(stage2Unit ? { amountUnit: stage2Unit, amountUnitApplied: stage2Applied } : {}),
+      // v0.9.122：文件数据源（unit 为空但用户选了单位）也下发，标记按源表头单位/原值呈现
+      ...(stage2Unit
+        ? { amountUnit: stage2Unit, amountUnitApplied: stage2Applied, amountUnitSource: 'database' as const }
+        : fileSource && requestedUnit
+          ? { amountUnit: requestedUnit, amountUnitApplied: false, amountUnitSource: 'file' as const }
+          : {}),
     }, schema),
   };
 }

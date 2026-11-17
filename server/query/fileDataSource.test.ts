@@ -19,6 +19,7 @@ import {
   createFileTable,
   detectTableHeader,
   dropFileTable,
+  extractHeaderUnit,
   getFilePhysicalTable,
   getFilePhysicalTables,
   inferFileColumnTypes,
@@ -129,6 +130,35 @@ describe('sanitizeColumns: 表头安全化', () => {
     const rawRow = ['北京', 'p@ss', '100.5'];
     const projected = columns.map((c) => rawRow[c.sourceIndex]);
     expect(projected).toEqual(['北京', '100.5']);
+  });
+});
+
+describe('extractHeaderUnit: 表头金额单位提取（v0.9.122）', () => {
+  it('括号标注与「单位：X」两种写法都能识别', () => {
+    expect(extractHeaderUnit('预计回现(万元)')).toBe('万元');
+    expect(extractHeaderUnit('预计回现（亿元）')).toBe('亿元');
+    expect(extractHeaderUnit('金额(百万元)')).toBe('百万元');
+    expect(extractHeaderUnit('余额（元）')).toBe('元');
+    expect(extractHeaderUnit('金额 单位：万元')).toBe('万元');
+  });
+
+  it('未显式标注 / 非单位语境不猜测', () => {
+    expect(extractHeaderUnit('预计回现')).toBeUndefined();
+    expect(extractHeaderUnit('单元名称')).toBeUndefined();
+    expect(extractHeaderUnit('项目金额（含税）')).toBeUndefined();
+    expect(extractHeaderUnit('')).toBeUndefined();
+  });
+
+  it('多级单位优先匹配更长的写法（百万元 不被 万元 抢占）', () => {
+    expect(extractHeaderUnit('金额（百万元）')).toBe('百万元');
+  });
+
+  it('sanitizeColumns 把表头单位写入列元数据，未标注的列不携带 unit', () => {
+    const { columns } = sanitizeColumns(['团队', '预计回现(万元)', '可能性']);
+    expect(columns.map((c) => c.name)).toEqual(['f1', 'f2', 'f3']);
+    expect(columns[1].unit).toBe('万元');
+    expect(columns[0].unit).toBeUndefined();
+    expect(columns[0]).not.toHaveProperty('unit');
   });
 });
 

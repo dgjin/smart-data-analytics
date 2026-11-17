@@ -757,6 +757,8 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
         name: c.name,
         type: types[i] === 'DOUBLE' ? 'number' : 'string',
         description: c.description,
+        // v0.9.122 表头显式标注的金额单位（如「预计回现(万元)」）随列落库，供问数按源单位换算
+        ...(c.unit ? { unit: c.unit } : {}),
         ...deriveColumnRole(c.name, types[i] === 'DOUBLE' ? 'number' : 'string', false, types[i] === 'DOUBLE' ? 'double' : 'text', null),
       })),
     },

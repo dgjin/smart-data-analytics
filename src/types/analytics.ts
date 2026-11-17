@@ -196,6 +196,8 @@ export interface QueryResultData {
   amountUnit?: string;
   /** 结果数值是否已按 amountUnit 完成换算（服务端校验/兜底后置位） */
   amountUnitApplied?: boolean;
+  /** v0.9.122 单位口径来源：database=数据库源按「元→所选单位」换算；file=上传文件按表头声明的源单位换算/原值 */
+  amountUnitSource?: 'database' | 'file';
   kpiMetrics?: {
     label: string;
     value: string | number;

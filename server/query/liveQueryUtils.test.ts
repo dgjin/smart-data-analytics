@@ -7,6 +7,8 @@ import { describe, it, expect } from 'vitest';
 import {
   applyAmountUnitToRows,
   buildColumnNames,
+  buildFileSourceUnitPrompt,
+  collectSchemaColumnUnits,
   detectSqlDivisor,
   inferChineseHeader,
   isAmountResultColumn,
@@ -258,5 +260,54 @@ describe('金额单位确定性换算（v0.9.120 服务端兜底）', () => {
     expect(applyAmountUnitToRows(rows, {}).rows).toBe(rows);
     expect(applyAmountUnitToRows([], { unit: '亿元' }).applied).toBe(false);
     expect(applyAmountUnitToRows([{ dim: 'A' }], { unit: '亿元' }).applied).toBe(false);
+  });
+});
+
+describe('文件数据源金额单位口径（v0.9.122）', () => {
+  const schema = [
+    {
+      name: 'upl_1',
+      columns: [
+        { name: 'f1', description: '团队' },
+        { name: 'f4', description: '预计回现', unit: '万元' },
+        { name: 'f5', description: '预计去化', unit: '非法单位' },
+        { name: 'f6', description: '预计收入' },
+      ],
+    },
+  ] as unknown as SchemaTable[];
+
+  it('collectSchemaColumnUnits 只收白名单单位，非法值忽略', () => {
+    expect(collectSchemaColumnUnits(schema)).toEqual({ f4: '万元' });
+    expect(collectSchemaColumnUnits([])).toEqual({});
+  });
+
+  it('未标注单位：禁止除任何单位除数，原值直出（回放实测全 0 缺陷）', () => {
+    const p = buildFileSourceUnitPrompt('亿元', {});
+    expect(p).toContain('未标注单位');
+    expect(p).toContain('禁止除以任何单位除数');
+    expect(p).toContain('按原值呈现');
+    // 不再出现数据库源的「统一除以 100000000」强制指令
+    expect(p).not.toContain('统一以「亿元」为单位输出');
+  });
+
+  it('已标注源单位：按「原值 × 目标除数 ÷ 源除数」给出换算提示', () => {
+    // 万元 → 亿元：除数比 1e4/1e8 = 1e-4 ⇒ 原值 / 10000
+    const p = buildFileSourceUnitPrompt('亿元', { f4: '万元' });
+    expect(p).toContain('f4 源单位「万元」');
+    expect(p).toContain('原值 / 10000');
+    expect(p).toContain('保留 6 位小数');
+    // 亿元 → 万元：放大 1e4 倍
+    expect(buildFileSourceUnitPrompt('万元', { f4: '亿元' })).toContain('原值 × 10000');
+  });
+
+  it('源单位与目标单位一致时无需换算，明确提示原值直出', () => {
+    const p = buildFileSourceUnitPrompt('万元', { f4: '万元' });
+    expect(p).toContain('已与目标单位「万元」一致');
+    expect(p).not.toContain('f4 源单位');
+  });
+
+  it('用户未选单位时不注入任何约定', () => {
+    expect(buildFileSourceUnitPrompt(undefined, { f4: '万元' })).toBe('');
+    expect(buildFileSourceUnitPrompt('万亿元', {})).toBe('');
   });
 });

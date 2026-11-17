@@ -15,7 +15,8 @@
 import { analysisStageRoute, callLLMJson } from '../llm/llmClient';
 import { executeSafeSql, QueryScenario } from '../query/sqlExecutor';
 import { safeParseJson } from '../../src/utils/queryResultNormalizer';
-import { buildColumnNames, buildColumnStats, coerceNumericColumns, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese, applyAmountUnitToRows, normalizeAmountUnit } from '../query/liveQuery';
+import { buildColumnNames, buildColumnStats, coerceNumericColumns, collectSchemaColumnUnits, dialectPromptOf, extractBusinessNotes, buildAmountUnitPrompt, buildFileSourceUnitPrompt, buildIdentifierNameMap, replaceIdentifiersWithChinese, applyAmountUnitToRows, normalizeAmountUnit } from '../query/liveQuery';
+import { isFileDataSourceType } from '../query/fileDataSource';
 import { getStateStore, isRedisEnabled } from '../infra/stateStore';
 import { loadActiveMetrics, matchMetrics, buildMetricPrompt } from '../query/metrics';
 import { loadActiveIronRules, buildIronRulesPrompt } from '../query/ironRules';
@@ -249,7 +250,10 @@ async function generateStage1Plans(
   let parsed: { reportTitle: string; plans: ReportQueryPlan[] } | null = null;
   let lastError = '';
   // v0.5.2 金额单位约定拼在用户消息首位（与问数链路口径一致）
-  const unitPrompt = buildAmountUnitPrompt(amountUnit);
+  // v0.9.122 文件数据源：按表头声明的源单位换算，未标注列原值输出（不默认当作「元」）
+  const unitPrompt = isFileDataSourceType(String(dsType || ''))
+    ? buildFileSourceUnitPrompt(amountUnit, collectSchemaColumnUnits(schema))
+    : buildAmountUnitPrompt(amountUnit);
   // 语义层指标 + 铁律规则 + 知识库 RAG 并行检索（互不依赖，各自失败降级空串；v0.9.19 起报表与问数同一知识口径；v0.9.35 铁律全量恒注入）
   const [metricPrompt, ironRulesPrompt, knowledgePrompt] = await Promise.all([
     buildReportMetricPrompt(dataSourceId, templateType, customPrompt),
@@ -387,7 +391,7 @@ export async function runLiveReport(input: LiveReportInput): Promise<LiveReportO
   const charts: Record<string, unknown>[] = [];
   const chartDigests: string[] = [];
   let totalRows = 0;
-  const reportUnit = normalizeAmountUnit(amountUnit);
+  const reportUnit = isFileDataSourceType(String(dsType || '')) ? undefined : normalizeAmountUnit(amountUnit);
   let anyUnitApplied = false;
   for (const item of execResults) {
     if (!item) continue;

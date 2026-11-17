@@ -90,8 +90,22 @@ export interface ParsedFileData {
   headerMode?: 'auto' | 'manual';
 }
 
+/** 金额源单位白名单（与问数金额单位选项同口径） */
+export type HeaderUnit = '元' | '万元' | '百万元' | '亿元';
+
+/**
+ * 表头金额单位提取（v0.9.122）：只认显式标注，不猜测。
+ * 命中「(万元)」「（亿元）」「单位:万元」等写法返回单位；未标注返回 undefined。
+ * 用于文件数据源问数时按源单位换算——未标注的金额列一律按原值呈现，不再默认当作「元」。
+ */
+export function extractHeaderUnit(header: string): HeaderUnit | undefined {
+  const s = String(header ?? '');
+  const m = s.match(/[（(]\s*(百万元|亿元|万元|元)\s*[）)]/) || s.match(/单位\s*[:：]\s*(百万元|亿元|万元|元)/);
+  return (m?.[1] as HeaderUnit) || undefined;
+}
+
 export interface SanitizedColumns {
-  columns: { name: string; description: string; sourceIndex: number }[];
+  columns: { name: string; description: string; sourceIndex: number; unit?: HeaderUnit }[];
   /** 因命中敏感词被整体剔除的表头（原样返回供提示） */
   droppedSensitive: string[];
 }
@@ -100,10 +114,11 @@ export interface SanitizedColumns {
  * 表头 → 安全列名：合法标识符且非保留字直接用；中文/非法字符/冲突 → f{列序号}（再冲突追加 _x 后缀）；
  * 空表头命名「列N」；命中敏感词的列整体剔除（不落库、不进 Schema）。
  * sourceIndex 记录原表头下标，供行数据投影对齐。
+ * v0.9.122：表头显式标注的金额单位（如「预计回现(万元)」）随列写入元数据。
  */
 export function sanitizeColumns(headers: string[]): SanitizedColumns {
   const used = new Set<string>();
-  const columns: { name: string; description: string; sourceIndex: number }[] = [];
+  const columns: { name: string; description: string; sourceIndex: number; unit?: HeaderUnit }[] = [];
   const droppedSensitive: string[] = [];
   headers.forEach((raw, i) => {
     const header = String(raw ?? '').trim().slice(0, 200) || `列${i + 1}`;
@@ -119,7 +134,8 @@ export function sanitizeColumns(headers: string[]): SanitizedColumns {
       while (used.has(name.toLowerCase())) name = `${name}_x`;
     }
     used.add(name.toLowerCase());
-    columns.push({ name, description: header, sourceIndex: i });
+    const unit = extractHeaderUnit(header);
+    columns.push({ name, description: header, sourceIndex: i, ...(unit ? { unit } : {}) });
   });
   return { columns, droppedSensitive };
 }

@@ -217,18 +217,28 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
             </span>
             <span
               className={`text-[11px] font-semibold shrink-0 ${
-                qr.amountUnitApplied || qr.amountUnit === '元' ? 'text-emerald-300' : 'text-amber-300'
+                qr.amountUnitApplied || (qr.amountUnitSource !== 'file' && qr.amountUnit === '元')
+                  ? 'text-emerald-300'
+                  : 'text-amber-300'
               }`}
               title={
                 qr.amountUnitApplied
                   ? '结果数值已按所选单位完成换算'
-                  : qr.amountUnit === '元'
-                    ? '原值口径，无需换算'
-                    : '未识别到可换算的金额列，数值为数据库原值'
+                  : qr.amountUnitSource === 'file'
+                    ? '上传文件数据源：仅表头标注单位的金额列按源单位换算，未标注的列按原值呈现（不默认当作「元」）'
+                    : qr.amountUnit === '元'
+                      ? '原值口径，无需换算'
+                      : '未识别到可换算的金额列，数值为数据库原值'
               }
             >
               {qr.amountUnit}
-              {qr.amountUnitApplied ? '（已换算）' : qr.amountUnit === '元' ? '（原值）' : '（原值·未换算）'}
+              {qr.amountUnitApplied
+                ? '（已换算）'
+                : qr.amountUnitSource === 'file'
+                  ? '（源文件口径）'
+                  : qr.amountUnit === '元'
+                    ? '（原值）'
+                    : '（原值·未换算）'}
             </span>
           </div>
         )}

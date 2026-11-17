@@ -73,6 +73,8 @@ export interface NormalizedQueryResult {
   amountUnit?: string;
   /** 结果数值是否已按 amountUnit 完成换算（服务端校验/兜底后置位） */
   amountUnitApplied?: boolean;
+  /** v0.9.122 单位口径来源：database=数据库源换算；file=上传文件按表头单位/原值 */
+  amountUnitSource?: 'database' | 'file';
 }
 
 /**
@@ -155,6 +157,9 @@ export function normalizeQueryResult(raw: unknown): NormalizedQueryResult | null
         ? src.amountUnit
         : undefined,
     amountUnitApplied: typeof src.amountUnitApplied === 'boolean' ? src.amountUnitApplied : undefined,
+    // v0.9.122 单位口径来源：只接受白名单值，旧响应缺省
+    amountUnitSource:
+      src.amountUnitSource === 'database' || src.amountUnitSource === 'file' ? src.amountUnitSource : undefined,
   };
 }
 

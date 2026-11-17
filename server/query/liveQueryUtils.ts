@@ -28,6 +28,46 @@ export function buildAmountUnitPrompt(unit?: string): string {
   return `【金额单位约定】本次查询所有金额类指标统一以「${opt.label}」为单位输出：SQL 中对金额列聚合结果除以 ${opt.divisor} 并用 ROUND 保留两位小数（如 ROUND(SUM(金额列)/${opt.divisor}, 2)），别名带 _${opt.suffix} 后缀，列名/图表/解读沿用该单位。该约定由用户在界面选定，等同于用户明确要求，优先于「金额原值保护」规则。必须在 JSON 的 amountKeys 中列出所有金额类结果列别名（数组，与 SQL 的 AS 别名逐字一致；计数/占比/比率列不得列入），服务端据此校验换算是否生效。${opt.divisor === 1 ? '「元」为原值口径：直接 ROUND(SUM(金额列), 2)，不要除以 1。' : ''}\n\n`;
 }
 
+/** 汇总 schema 中显式标注的金额源单位（列名 → 单位；仅认白名单值） */
+export function collectSchemaColumnUnits(schema: SchemaTable[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of Array.isArray(schema) ? schema : []) {
+    for (const c of t?.columns || []) {
+      if (!c || typeof c.name !== 'string') continue;
+      const unit = typeof c.unit === 'string' ? c.unit.trim() : '';
+      if (AMOUNT_UNIT_OPTIONS[unit] && !out[c.name]) out[c.name] = unit;
+    }
+  }
+  return out;
+}
+
+/**
+ * 文件数据源金额单位约定（v0.9.122）。
+ *
+ * 上传文件是业务报表口径，字段单位不一定为「元」——沿用「元 → 所选单位」的固定除数
+ * 会把万元级数据直接压成 0.00（实测：预计回现 1000 万元 / 1e8 → 0，整列看起来全是空的）。
+ * 因此：表头显式标注单位的列按「原值 × 目标除数 ÷ 源除数」换算，未标注的列一律原值输出。
+ * 返回空串表示不注入任何约定（用户未选单位）。
+ */
+export function buildFileSourceUnitPrompt(unit: string | undefined, columnUnits: Record<string, string>): string {
+  const opt = unit ? AMOUNT_UNIT_OPTIONS[unit] : undefined;
+  if (!opt) return '';
+  const head = '【金额单位约定·文件数据源】该数据源为上传文件，金额字段单位不得默认当作「元」。';
+  const declared = Object.entries(columnUnits).filter(([, u]) => AMOUNT_UNIT_OPTIONS[u] && u !== unit);
+  if (declared.length === 0) {
+    const sameUnit = Object.entries(columnUnits).filter(([, u]) => u === unit).map(([c]) => c);
+    if (sameUnit.length > 0) {
+      return `${head}金额列（${sameUnit.join('、')}）源单位已与目标单位「${opt.label}」一致，原值直出，不要做任何单位换算。\n\n`;
+    }
+    return `${head}本文件所有金额字段均未标注单位：SQL 必须直接输出字段原值，禁止除以任何单位除数（如 /100000000），不要把金额列换算成「${opt.label}」；thoughtProcess 需说明「源文件未标注金额单位，按原值呈现」。用户问题中出现的单位仅视为期望口径，不得据此自行换算。\n\n`;
+  }
+  const map = declared.map(([col, u]) => `${col} 源单位「${u}」`).join('；');
+  const [sampleCol, sampleUnit] = declared[0];
+  const ratio = AMOUNT_UNIT_OPTIONS[sampleUnit].divisor / opt.divisor;
+  const hint = ratio === 1 ? '原值直出' : ratio > 1 ? `原值 × ${ratio}` : `原值 / ${Math.round(1 / ratio)}`;
+  return `${head}已声明的列：${map}。换算到「${opt.label}」时按「原值 × 目标除数 ÷ 源除数」计算（例：${sampleCol} → ${hint}，ROUND 保留 6 位小数，避免小额数据被压成 0），别名带 _${opt.suffix} 后缀并列入 amountKeys；未声明的金额列按原值输出，不得换算。\n\n`;
+}
+
 // ---------- 真实 rows 后处理与统计 ----------
 
 /** 列统计摘要（buildColumnStats 产出）：数值列给 总计/均值/最小/最大，维度列给 去重取值数 */
