@@ -86,6 +86,8 @@ export interface ParsedFileData {
   headerRow?: number;
   /** 表头行数：1=单行；2=两级表头已合并列名 */
   headerRows?: number;
+  /** 表头来源：auto=系统自动识别，manual=用户在导入前手动指定（v0.9.121） */
+  headerMode?: 'auto' | 'manual';
 }
 
 export interface SanitizedColumns {
@@ -275,6 +277,22 @@ export function detectTableHeader(grid: unknown[][], colCount: number): Detected
       ? 2
       : 1;
 
+  return assembleHeader(grid, start, headerRows, colCount);
+}
+
+/** 手动表头选择（v0.9.121）：用户在导入预览中点选起始行与行数 */
+export interface HeaderSelection {
+  /** 表头起始行（1-based） */
+  headerRow?: number;
+  /** 表头行数：1=单行；2=两级表头合并列名 */
+  headerRows?: 1 | 2;
+}
+
+/**
+ * 按指定起始行与行数组装列名与数据行（自动识别与手动指定共用同一合并规则）：
+ * 两级表头列名合并为「父-子」；子名以父名开头时只取子名，避免「回收-回收率」冗余。
+ */
+function assembleHeader(grid: unknown[][], start: number, headerRows: 1 | 2, colCount: number): DetectedHeader {
   const headerCells = grid[start] || [];
   const subCells = headerRows === 2 ? grid[start + 1] || [] : [];
   const headers = Array.from({ length: colCount }, (_, j) => {
@@ -285,19 +303,45 @@ export function detectTableHeader(grid: unknown[][], colCount: number): Detected
     if (!child || child === parent) return parent;
     return child.startsWith(parent) ? child : `${parent}-${child}`;
   });
-
   return { headers, rows: grid.slice(start + headerRows), headerRow: start + 1, headerRows };
 }
 
-/** 识别表头后统一截断（保留 headerRow/headerRows 供端点如实告知跳过行数） */
-function capDetected(grid: unknown[][], colCount: number): ParsedFileData {
-  const detected = detectTableHeader(grid, colCount);
-  const capped = capData(detected.headers, detected.rows);
-  return { ...capped, headerRow: detected.headerRow, headerRows: detected.headerRows };
+/** 手动表头合法性校验：越界或非法行数明确报错，不静默回退自动识别 */
+function assembleManual(grid: unknown[][], colCount: number, selection: HeaderSelection): DetectedHeader {
+  const headerRow = selection.headerRow;
+  const headerRows = selection.headerRows ?? 1;
+  if (typeof headerRow !== 'number' || !Number.isInteger(headerRow) || headerRow < 1) {
+    throw new Error('表头行号必须是从 1 开始的整数');
+  }
+  if (headerRows !== 1 && headerRows !== 2) throw new Error('表头行数只能是 1 或 2');
+  if (headerRow + headerRows - 1 > grid.length) {
+    throw new Error(`表头行号超出文件范围（共 ${grid.length} 行，选择第 ${headerRow} 行${headerRows === 2 ? '起两行' : ''}）`);
+  }
+  return assembleHeader(grid, headerRow - 1, headerRows, colCount);
 }
 
-/** 解析上传文件为统一行列结构（csv→papaparse；xlsx→exceljs 首个工作表；json→对象数组或二维数组） */
-export async function parseFileContent(fileType: FileType, buf: Buffer): Promise<ParsedFileData> {
+/** 识别/指定表头后统一截断（保留 headerRow/headerRows/headerMode 供端点如实告知） */
+function capDetected(grid: unknown[][], colCount: number, selection?: HeaderSelection): ParsedFileData {
+  const manual = selection?.headerRow !== undefined;
+  const detected = manual ? assembleManual(grid, colCount, selection as HeaderSelection) : detectTableHeader(grid, colCount);
+  const capped = capData(detected.headers, detected.rows);
+  return {
+    ...capped,
+    headerRow: detected.headerRow,
+    headerRows: detected.headerRows,
+    headerMode: manual ? 'manual' : 'auto',
+  };
+}
+
+/** 原始网格（未选表头）：JSON 对象数组额外携带固定表头（键并集，不可手动选择） */
+interface ExtractedGrid {
+  grid: unknown[][];
+  colCount: number;
+  fixedHeader?: string[];
+}
+
+/** 从三种文件格式提取统一二维网格（不含表头识别，供导入解析与预览共用） */
+async function extractGrid(fileType: FileType, buf: Buffer): Promise<ExtractedGrid> {
   if (fileType === 'csv') {
     // 去 BOM；papaparse 自动识别分隔符，skipEmptyLines greedy 剔除空行
     const text = buf.toString('utf8').replace(/^\uFEFF/, '');
@@ -305,8 +349,7 @@ export async function parseFileContent(fileType: FileType, buf: Buffer): Promise
     const rows = (out.data || []).filter((r) => Array.isArray(r) && r.length > 0);
     if (rows.length === 0) throw new Error('CSV 文件没有可解析的数据行');
     const grid = rows.map((r) => r.map((v) => (typeof v === 'string' ? v : String(v ?? ''))));
-    const colCount = Math.max(...grid.map((r) => r.length));
-    return capDetected(grid, colCount);
+    return { grid, colCount: Math.max(...grid.map((r) => r.length)) };
   }
   if (fileType === 'xlsx') {
     const wb = new ExcelJS.Workbook();
@@ -319,16 +362,14 @@ export async function parseFileContent(fileType: FileType, buf: Buffer): Promise
       grid.push(values.map(cellToValue));
     });
     if (grid.length === 0) throw new Error('Excel 工作表中没有数据行');
-    const colCount = Math.max(...grid.map((r) => r.length));
-    return capDetected(grid, colCount);
+    return { grid, colCount: Math.max(...grid.map((r) => r.length)) };
   }
   // json：数组 of 对象（表头为键并集，按出现顺序）或二维数组（自动识别表头行）
   const data: unknown = JSON.parse(buf.toString('utf8'));
   if (!Array.isArray(data) || data.length === 0) throw new Error('JSON 文件应为非空数组（对象数组或二维数组）');
   if (Array.isArray(data[0])) {
     const grid = data as unknown[][];
-    const colCount = Math.max(...grid.map((r) => (Array.isArray(r) ? r.length : 0)));
-    return capDetected(grid, colCount);
+    return { grid, colCount: Math.max(...grid.map((r) => (Array.isArray(r) ? r.length : 0))) };
   }
   if (typeof data[0] === 'object' && data[0] !== null) {
     const headers: string[] = [];
@@ -337,9 +378,99 @@ export async function parseFileContent(fileType: FileType, buf: Buffer): Promise
       for (const k of Object.keys(row)) if (!headers.includes(k)) headers.push(k);
     }
     const rows = (data as Record<string, unknown>[]).map((r) => headers.map((h) => r[h]));
-    return capData(headers, rows);
+    // 对象数组的「表头」是键，合成首行供预览展示；fixedHeader 标记不允许手动改选
+    return { grid: [headers, ...rows], colCount: headers.length, fixedHeader: headers };
   }
   throw new Error('JSON 数组元素应为对象或数组');
+}
+
+/** 解析上传文件为统一行列结构（csv→papaparse；xlsx→exceljs 首个工作表；json→对象数组或二维数组） */
+export async function parseFileContent(
+  fileType: FileType,
+  buf: Buffer,
+  selection?: HeaderSelection
+): Promise<ParsedFileData> {
+  const { grid, colCount, fixedHeader } = await extractGrid(fileType, buf);
+  if (fixedHeader) {
+    // JSON 对象数组以键为列名，无「表头行」概念，忽略手动选择
+    return { ...capData(fixedHeader, grid.slice(1)), headerRow: 1, headerRows: 1, headerMode: 'auto' };
+  }
+  return capDetected(grid, colCount, selection);
+}
+
+/** 预览候选：前 20 行每行都给出「单行表头」与「两级表头」两种列名，供前端切换即时回显 */
+export interface HeaderCandidate {
+  headerRow: number;
+  headerRows: 1 | 2;
+  headers: string[];
+}
+
+export interface FilePreview {
+  /** 前 N 行原始单元格（文本化，列数已截断到 MAX_FILE_COLS） */
+  rows: string[][];
+  columns: number;
+  /** 原始总行数（含标题行） */
+  totalRows: number;
+  /** 自动识别结果 */
+  detected: { headerRow: number; headerRows: 1 | 2; headers: string[] };
+  candidates: HeaderCandidate[];
+  /** false = JSON 对象数组（键即列名），无需/不可选择表头 */
+  supportsHeaderSelection: boolean;
+  /** 导入时是否会触发行/列截断 */
+  truncated: boolean;
+}
+
+/** 预览展示行数（与表头扫描窗口一致） */
+const PREVIEW_ROWS = 20;
+
+/** 预览单元格文本化：空值空串、对象 JSON 串、统一截 200 字 */
+function previewCell(v: unknown): string {
+  if (isBlankCell(v)) return '';
+  if (typeof v === 'object') return JSON.stringify(v).slice(0, 200);
+  return String(v).trim().slice(0, 200);
+}
+
+/**
+ * 解析预览（v0.9.121）：返回前 20 行 + 自动识别结果 + 每行候选列名，不落库。
+ * 前端据此让用户点选真正的表头行（及是否两级表头），再带 headerRow/headerRows 正式导入。
+ */
+export async function parseFilePreview(fileType: FileType, buf: Buffer, limit = PREVIEW_ROWS): Promise<FilePreview> {
+  const { grid, colCount, fixedHeader } = await extractGrid(fileType, buf);
+  const cols = Math.min(colCount, MAX_FILE_COLS);
+  const rows = grid.slice(0, Math.max(1, limit)).map((r) => Array.from({ length: cols }, (_, j) => previewCell(r?.[j])));
+  let detected: FilePreview['detected'];
+  if (fixedHeader) {
+    detected = { headerRow: 1, headerRows: 1, headers: fixedHeader.slice(0, cols) };
+  } else {
+    const d = detectTableHeader(grid, colCount);
+    detected = { headerRow: d.headerRow, headerRows: d.headerRows as 1 | 2, headers: d.headers.slice(0, cols) };
+  }
+  const dataRows = grid.length - (detected.headerRow - 1 + detected.headerRows);
+  const candidates: HeaderCandidate[] = fixedHeader
+    ? []
+    : Array.from({ length: Math.min(PREVIEW_ROWS, grid.length) }, (_, i) => i).flatMap((i) => {
+        const one: HeaderCandidate = {
+          headerRow: i + 1,
+          headerRows: 1,
+          headers: assembleHeader(grid, i, 1, colCount).headers.slice(0, cols),
+        };
+        if (i + 1 >= grid.length) return [one];
+        const two: HeaderCandidate = {
+          headerRow: i + 1,
+          headerRows: 2,
+          headers: assembleHeader(grid, i, 2, colCount).headers.slice(0, cols),
+        };
+        return [one, two];
+      });
+  return {
+    rows,
+    columns: cols,
+    totalRows: grid.length,
+    detected,
+    candidates,
+    supportsHeaderSelection: !fixedHeader,
+    truncated: colCount > MAX_FILE_COLS || dataRows > MAX_FILE_ROWS,
+  };
 }
 
 /** 建物理表并参数化批量写入（先 DROP 同名残留——表名含唯一后缀，正常不会撞车） */

@@ -47,6 +47,25 @@ interface AutoConfigReportView {
 }
 
 /**
+ * v0.9.121 导入预览（import-file?dryRun=true 返回）：前 20 行 + 每行候选表头列名。
+ * 用户点选真正的表头行（可两级）后再正式导入；JSON 对象数组以字段名为表头，不可选。
+ */
+interface HeaderCandidateView {
+  headerRow: number;
+  headerRows: 1 | 2;
+  headers: string[];
+}
+interface FilePreviewView {
+  rows: string[][];
+  columns: number;
+  totalRows: number;
+  detected: { headerRow: number; headerRows: 1 | 2; headers: string[] };
+  candidates: HeaderCandidateView[];
+  supportsHeaderSelection: boolean;
+  truncated: boolean;
+}
+
+/**
  * 图标操作按钮 + 悬停功能提示气泡：替代原生 title（原生提示延迟约 1 秒且样式类系统默认，
  * 深色主题下不明显）。纯 CSS group-hover 实现，悬停立即显示；气泡绝对定位不影响布局，
  * 右对齐防溢出卡片。固定宽度 + 自动换行，避免长文案单行向左伸出被左侧导航栏遮挡。
@@ -446,6 +465,16 @@ export const DataSourceManager: React.FC = () => {
 
   // File Upload（v0.9.34：服务端真实解析并落应用库物理表，问数/报表走真实执行链路）
   const [importing, setImporting] = useState(false);
+  // v0.9.121 导入预览与手动表头：选文件后先解析前 20 行，用户确认（或改选）表头行后再正式导入
+  const [importPreview, setImportPreview] = useState<{
+    file: File;
+    fileType: 'csv' | 'xlsx' | 'json';
+    fileBase64: string;
+    data: FilePreviewView;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [selectedHeaderRow, setSelectedHeaderRow] = useState(1);
+  const [selectedHeaderRows, setSelectedHeaderRows] = useState<1 | 2>(1);
 
   // 前端预检上限与服务端 MAX_FILE_BYTES 对齐（7MB 文件本体，base64 后走 10mb JSON 通道）
   const MAX_IMPORT_FILE_BYTES = 7 * 1024 * 1024;
@@ -465,7 +494,7 @@ export const DataSourceManager: React.FC = () => {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || importing) return;
+    if (!file || importing || previewLoading) return;
 
     const fileExt = file.name.split('.').pop()?.toLowerCase();
     const fileType = fileExt === 'csv' ? 'csv' : fileExt === 'json' ? 'json' : fileExt === 'xlsx' ? 'xlsx' : null;
@@ -484,22 +513,54 @@ export const DataSourceManager: React.FC = () => {
       return;
     }
 
-    setImporting(true);
+    // 先 dryRun 预览：不落库，供用户确认表头行（v0.9.121）
+    setPreviewLoading(true);
     try {
       const fileBase64 = await readFileAsBase64(file);
       const res = await apiFetch('/api/datasources/import-file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileType, fileName: file.name, fileBase64 }),
+        body: JSON.stringify({ fileType, fileName: file.name, fileBase64, dryRun: true }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || '导入失败');
+      if (!res.ok || !data.success) throw new Error(data.error || '文件解析失败');
+      const pv = data.preview as FilePreviewView;
+      setImportPreview({ file, fileType, fileBase64, data: pv });
+      setSelectedHeaderRow(pv.detected.headerRow);
+      setSelectedHeaderRows(pv.detected.headerRows);
+    } catch (err) {
+      setActionError(getErrorMessage(err) || '文件预览失败');
+    } finally {
+      setPreviewLoading(false);
+      e.target.value = '';
+    }
+  };
 
-      addDataSource(data.dataSource as DataSource);
+  // 用户在预览弹窗确认后正式导入：带所选 headerRow/headerRows（JSON 对象数组不带）
+  const handleConfirmImport = async () => {
+    if (!importPreview || importing) return;
+    const { file, fileType, fileBase64, data } = importPreview;
+    const manual = data.supportsHeaderSelection;
+    setImporting(true);
+    try {
+      const res = await apiFetch('/api/datasources/import-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileType,
+          fileName: file.name,
+          fileBase64,
+          ...(manual ? { headerRow: selectedHeaderRow, headerRows: selectedHeaderRows } : {}),
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.error || '导入失败');
+
+      addDataSource(result.dataSource as DataSource);
       // 展示自动化配置报告（文件导入数据源同样自动完成能力接入与资产初始化）
-      if (data.autoConfig) setAutoConfigReport(data.autoConfig as AutoConfigReportView);
-      // 如实告知解析结果：敏感列剔除与超限截断不静默
-      const stats = data.stats || {};
+      if (result.autoConfig) setAutoConfigReport(result.autoConfig as AutoConfigReportView);
+      // 如实告知解析结果：敏感列剔除、超限截断与表头来源不静默
+      const stats = result.stats || {};
       const extras: string[] = [];
       if (Array.isArray(stats.droppedSensitive) && stats.droppedSensitive.length > 0) {
         extras.push(
@@ -507,20 +568,33 @@ export const DataSourceManager: React.FC = () => {
         );
       }
       if (stats.truncated) extras.push('超出 2 万行 / 100 列上限的部分已截断');
-      // v0.9.120 表头识别结果如实告知：跳过了前置标题行 / 合并了两级表头
-      const headerRow = Number(stats.headerRow) || 1;
-      if (headerRow > 1) extras.push(`已自动跳过前 ${headerRow - 1} 行标题/说明，表头取自第 ${headerRow} 行`);
-      if (Number(stats.headerRows) === 2) extras.push('识别到两级表头，列名已合并为「父-子」');
+      if (manual) {
+        extras.push(
+          `表头取自所选第 ${selectedHeaderRow} 行${selectedHeaderRows === 2 ? '起两行（两级表头已合并为「父-子」）' : ''}`
+        );
+      } else {
+        extras.push('JSON 对象数组以字段名为列名');
+      }
       setImportNotice(
         `已导入「${file.name}」：${stats.rows ?? '-'} 行 × ${stats.columns ?? '-'} 列真实落库，可直接问数与生成报表。${extras.length ? `（${extras.join('；')}）` : ''}`
       );
+      setImportPreview(null);
     } catch (err) {
       setActionError(getErrorMessage(err) || '文件导入失败');
     } finally {
       setImporting(false);
-      e.target.value = '';
     }
   };
+
+  // 预览弹窗派生状态：当前所选表头对应的列名 / 能否选两级表头
+  const previewRows = importPreview?.data.rows || [];
+  const previewDetected = importPreview?.data.detected;
+  const canTwoLevel = !!importPreview && selectedHeaderRow + 1 <= importPreview.data.totalRows;
+  const previewHeaders = previewDetected
+    ? importPreview.data.supportsHeaderSelection
+      ? importPreview.data.candidates.find((c) => c.headerRow === selectedHeaderRow && c.headerRows === selectedHeaderRows)?.headers || []
+      : previewDetected.headers
+    : [];
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-8 space-y-6">
@@ -543,20 +617,22 @@ export const DataSourceManager: React.FC = () => {
           {/* Upload Local File Button（v0.9.34 真实落库：服务端解析 CSV/Excel/JSON 写入应用库） */}
           <label
             className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold transition-colors ${
-              importing ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-700 cursor-pointer'
+              importing || previewLoading ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-700 cursor-pointer'
             }`}
           >
-            {importing ? (
+            {importing || previewLoading ? (
               <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
             ) : (
               <Upload className="w-4 h-4 text-cyan-400" />
             )}
-            <span>{importing ? '正在解析导入...' : '导入本地 CSV / Excel / JSON'}</span>
+            <span>
+              {importing ? '正在解析导入...' : previewLoading ? '正在解析文件...' : '导入本地 CSV / Excel / JSON'}
+            </span>
             <input
               type="file"
               accept=".csv,.json,.xlsx"
               onChange={handleFileUpload}
-              disabled={importing}
+              disabled={importing || previewLoading}
               className="hidden"
             />
           </label>
@@ -994,6 +1070,189 @@ export const DataSourceManager: React.FC = () => {
         onSave={handleSaveScope}
         onClose={() => setScopeDs(null)}
       />
+
+      {/* v0.9.121 导入预览与手动表头：选文件后先 dryRun 解析前 20 行，用户确认/改选表头行后再正式落库 */}
+      {importPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => {
+            if (!importing) setImportPreview(null);
+          }}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[88vh] overflow-y-auto bg-slate-900 border border-indigo-500/40 rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-cyan-600 text-white">
+                  <TableIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">确认表头后导入</h3>
+                  <p className="text-[11px] text-slate-400">
+                    {importPreview.file.name} · 共 {importPreview.data.totalRows} 行 × {importPreview.data.columns} 列
+                    {importPreview.data.truncated ? '（超出 2 万行 / 100 列上限的部分将被截断）' : ''}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setImportPreview(null)}
+                disabled={importing}
+                className="text-slate-400 hover:text-slate-200 disabled:opacity-40"
+                aria-label="关闭导入预览"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {importPreview.data.supportsHeaderSelection ? (
+              <>
+                {/* 选择提示 + 表头行数切换 */}
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="text-slate-400">
+                    点击左侧行号选择表头行，已默认选中自动识别结果（第 {previewDetected?.headerRow ?? 1} 行
+                    {(previewDetected?.headerRows ?? 1) === 2 ? '起两行' : ''}）。
+                  </span>
+                  <span className="text-slate-500">表头行数：</span>
+                  {([1, 2] as const).map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setSelectedHeaderRows(n)}
+                      disabled={n === 2 && !canTwoLevel}
+                      className={`px-2 py-1 rounded-lg border text-[11px] font-semibold transition-colors ${
+                        selectedHeaderRows === n
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      {n === 1 ? '1 行' : '2 行（两级表头）'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* 前 20 行预览：点行选表头 */}
+                <div className="max-h-72 overflow-auto rounded-xl border border-slate-800">
+                  <table className="w-full text-[11px] border-collapse">
+                    <tbody>
+                      {previewRows.map((row, idx) => {
+                        const rowNo = idx + 1;
+                        const isStart = rowNo === selectedHeaderRow;
+                        const isSub = selectedHeaderRows === 2 && rowNo === selectedHeaderRow + 1;
+                        const outOfRange = rowNo + selectedHeaderRows - 1 > importPreview.data.totalRows;
+                        return (
+                          <tr
+                            key={rowNo}
+                            onClick={() => {
+                              if (outOfRange) return;
+                              setSelectedHeaderRow(rowNo);
+                              // 两级表头需要下一行存在，越界时自动降为单行（不静默保留非法组合）
+                              if (selectedHeaderRows === 2 && rowNo + 1 > importPreview.data.totalRows) {
+                                setSelectedHeaderRows(1);
+                              }
+                            }}
+                            className={`transition-colors ${
+                              outOfRange
+                                ? 'opacity-40'
+                                : isStart
+                                  ? 'bg-indigo-950/70 cursor-pointer'
+                                  : isSub
+                                    ? 'bg-cyan-950/50 cursor-pointer'
+                                    : 'hover:bg-slate-800/60 cursor-pointer'
+                            }`}
+                          >
+                            <td
+                              className={`sticky left-0 min-w-[4.5rem] px-2 py-1.5 text-center font-mono text-[10px] border-r border-slate-800 whitespace-nowrap ${
+                                isStart
+                                  ? 'bg-indigo-600 text-white'
+                                  : isSub
+                                    ? 'bg-cyan-700 text-white'
+                                    : 'bg-slate-950 text-slate-500'
+                              }`}
+                            >
+                              {isStart ? '表头' : isSub ? '二级' : `第 ${rowNo} 行`}
+                            </td>
+                            {row.map((cell, ci) => (
+                              <td
+                                key={ci}
+                                className={`px-2 py-1.5 whitespace-nowrap border-r border-slate-800/60 ${
+                                  isStart ? 'text-indigo-200 font-semibold' : isSub ? 'text-cyan-200' : 'text-slate-300'
+                                }`}
+                              >
+                                {cell || <span className="text-slate-600">—</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* 所选表头的列名回显 */}
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-bold text-slate-300">
+                    列名预览（{previewHeaders.length} 列{previewHeaders.length > 12 ? '，仅显示前 12 个' : ''}）
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {previewHeaders.slice(0, 12).map((h, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-[10px] text-slate-300 max-w-[14rem] truncate"
+                      >
+                        {h}
+                      </span>
+                    ))}
+                    {previewHeaders.length > 12 && (
+                      <span className="px-2 py-0.5 text-[10px] text-slate-500">等 {previewHeaders.length} 列</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    预计导入{' '}
+                    {Math.max(0, importPreview.data.totalRows - (selectedHeaderRow - 1 + selectedHeaderRows))} 行数据；
+                    表头行本身不会作为数据行写入。
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400">
+                JSON 对象数组以字段名为列名，无需选择表头行；确认后将直接导入{' '}
+                {Math.max(0, importPreview.data.totalRows - 1)} 行数据。
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-end space-x-2 border-t border-slate-800 pt-3">
+              <button
+                onClick={() => setImportPreview(null)}
+                disabled={importing}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 text-xs font-semibold transition-colors disabled:opacity-60"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmImport}
+                disabled={importing}
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-60"
+              >
+                {importing ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4" />
+                )}
+                <span>
+                  {importing
+                    ? '正在导入...'
+                    : importPreview.data.supportsHeaderSelection
+                      ? '按所选表头导入'
+                      : '确认导入'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* v0.9.73 数据源自动化配置报告：展示自动接入的异常扫描能力、知识库骨架与待确认铁律模板
           （问数范围弹窗打开时延后展示，避免双弹层叠加） */}

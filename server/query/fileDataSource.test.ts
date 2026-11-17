@@ -24,6 +24,7 @@ import {
   inferFileColumnTypes,
   isFileDataSourceType,
   parseFileContent,
+  parseFilePreview,
   sanitizeColumns,
 } from './fileDataSource';
 
@@ -378,6 +379,117 @@ describe('parseFileContent: 表头识别集成', () => {
     expect(out.headers).toEqual(['name', 'age']);
     expect(out.headerRow).toBe(1);
     expect(out.headerRows).toBe(1);
+  });
+});
+
+describe('parseFileContent: 手动指定表头（v0.9.121）', () => {
+  const csv = '客户经营分析,,\n机构,金额,回收率\n总部,28.1,1061.76\n';
+
+  it('headerRow 覆盖自动识别：用户选的标题行即表头（不静默改回自动结果）', async () => {
+    const auto = await parseFileContent('csv', Buffer.from(csv, 'utf8'));
+    expect(auto.headerRow).toBe(2);
+    expect(auto.headerMode).toBe('auto');
+
+    const manual = await parseFileContent('csv', Buffer.from(csv, 'utf8'), { headerRow: 1 });
+    expect(manual.headerRow).toBe(1);
+    expect(manual.headerRows).toBe(1);
+    expect(manual.headerMode).toBe('manual');
+    expect(manual.headers).toEqual(['客户经营分析', '', '']);
+    expect(manual.rows).toEqual([
+      ['机构', '金额', '回收率'],
+      ['总部', '28.1', '1061.76'],
+    ]);
+  });
+
+  it('headerRows=2 两级表头：与自动识别共用「父-子」合并规则', async () => {
+    const grid = '机构名称,投放情况,投放情况\n,金额,笔数\n总部,28.1,120\n';
+    const out = await parseFileContent('csv', Buffer.from(grid, 'utf8'), { headerRow: 1, headerRows: 2 });
+    expect(out.headers).toEqual(['机构名称', '投放情况-金额', '投放情况-笔数']);
+    expect(out.rows).toEqual([['总部', '28.1', '120']]);
+    expect(out.headerRows).toBe(2);
+    expect(out.headerMode).toBe('manual');
+  });
+
+  it('越界/非法行号/非法行数明确报错（不回退自动识别）', async () => {
+    const buf = Buffer.from('机构,金额\n总部,28.1\n', 'utf8');
+    await expect(parseFileContent('csv', buf, { headerRow: 3 })).rejects.toThrow('表头行号超出文件范围');
+    await expect(parseFileContent('csv', buf, { headerRow: 2, headerRows: 2 })).rejects.toThrow('表头行号超出文件范围');
+    await expect(parseFileContent('csv', buf, { headerRow: 0 })).rejects.toThrow('表头行号必须是从 1 开始的整数');
+    await expect(parseFileContent('csv', buf, { headerRow: 1, headerRows: 3 as unknown as 1 })).rejects.toThrow(
+      '表头行数只能是 1 或 2'
+    );
+  });
+
+  it('JSON 对象数组以键为列名：忽略手动选择', async () => {
+    const json = JSON.stringify([
+      { 城市: '北京', 金额: 10 },
+      { 城市: '上海', 金额: 20 },
+    ]);
+    const out = await parseFileContent('json', Buffer.from(json, 'utf8'), { headerRow: 2, headerRows: 2 });
+    expect(out.headers).toEqual(['城市', '金额']);
+    expect(out.rows).toEqual([
+      ['北京', 10],
+      ['上海', 20],
+    ]);
+    expect(out.headerRow).toBe(1);
+    expect(out.headerMode).toBe('auto');
+  });
+});
+
+describe('parseFilePreview: 导入前预览与候选表头（v0.9.121）', () => {
+  it('CSV：返回行数据 + 自动识别结果 + 每行 1/2 行候选列名', async () => {
+    const csv = '客户经营分析\n机构,金额\n总部,28.1\n华南,12.5\n';
+    const pv = await parseFilePreview('csv', Buffer.from(csv, 'utf8'));
+    expect(pv.totalRows).toBe(4);
+    expect(pv.columns).toBe(2);
+    expect(pv.supportsHeaderSelection).toBe(true);
+    expect(pv.truncated).toBe(false);
+    expect(pv.rows[0]).toEqual(['客户经营分析', '']);
+    expect(pv.detected.headerRow).toBe(2);
+    expect(pv.detected.headers).toEqual(['机构', '金额']);
+    // 候选行的单行表头即该行自身
+    expect(pv.candidates.find((c) => c.headerRow === 1 && c.headerRows === 1)?.headers).toEqual(['客户经营分析', '']);
+    // 两级候选按「父-子」合并（与正式导入同一规则）
+    expect(pv.candidates.find((c) => c.headerRow === 2 && c.headerRows === 2)?.headers).toEqual(['机构-总部', '金额-28.1']);
+    // 最后一行没有下一行，只给单行候选
+    expect(pv.candidates.filter((c) => c.headerRow === 4)).toEqual([
+      { headerRow: 4, headerRows: 1, headers: ['华南', '12.5'] },
+    ]);
+  });
+
+  it('超过 20 行只预览前 20 行，候选也只覆盖前 20 行', async () => {
+    const lines = ['名称,值'];
+    for (let i = 1; i <= 30; i++) lines.push(`行${i},${i}`);
+    const pv = await parseFilePreview('csv', Buffer.from(`${lines.join('\n')}\n`, 'utf8'));
+    expect(pv.rows).toHaveLength(20);
+    expect(pv.totalRows).toBe(31);
+    expect(Math.max(...pv.candidates.map((c) => c.headerRow))).toBe(20);
+  });
+
+  it('JSON 对象数组：键即列名，不提供表头候选', async () => {
+    const json = JSON.stringify([
+      { 城市: '北京', 金额: 10 },
+      { 城市: '上海', 金额: 20 },
+    ]);
+    const pv = await parseFilePreview('json', Buffer.from(json, 'utf8'));
+    expect(pv.supportsHeaderSelection).toBe(false);
+    expect(pv.candidates).toEqual([]);
+    expect(pv.detected).toEqual({ headerRow: 1, headerRows: 1, headers: ['城市', '金额'] });
+    expect(pv.rows).toEqual([
+      ['城市', '金额'],
+      ['北京', '10'],
+      ['上海', '20'],
+    ]);
+    expect(pv.totalRows).toBe(3);
+  });
+
+  it('列数超上限：预览列截到 100 并标记 truncated', async () => {
+    const header = Array.from({ length: 105 }, (_, i) => `c${i}`).join(',');
+    const row = Array.from({ length: 105 }, () => '1').join(',');
+    const pv = await parseFilePreview('csv', Buffer.from(`${header}\n${row}\n`, 'utf8'));
+    expect(pv.columns).toBe(MAX_FILE_COLS);
+    expect(pv.rows[0]).toHaveLength(MAX_FILE_COLS);
+    expect(pv.truncated).toBe(true);
   });
 });
 

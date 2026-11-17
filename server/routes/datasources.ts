@@ -22,8 +22,10 @@ import {
   getFilePhysicalTables,
   inferFileColumnTypes,
   parseFileContent,
+  parseFilePreview,
   sanitizeColumns,
 } from '../query/fileDataSource';
+import type { HeaderSelection } from '../query/fileDataSource';
 import type { SchemaColumn, SchemaTable } from '../query/schemaTypes';
 import { logger } from '../infra/logger';
 import { getErrorMessage } from '../infra/errorUtils';
@@ -60,6 +62,22 @@ interface DbConnConfig {
 /** 提取异常消息（unknown 收窄；非 Error 兑底文案） */
 function errMsg(err: unknown, fallback = '未知错误'): string {
   return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/**
+ * 手动表头参数校验（v0.9.121）：两者都缺省时返回空对象走自动识别；
+ * 只给 headerRows 不给 headerRow 视为参数错误，避免「选了行数却不知道从哪行开始」的静默不一致。
+ */
+function parseHeaderSelection(rawRow: unknown, rawRows: unknown): { selection?: HeaderSelection; error?: string } {
+  const hasRow = rawRow !== undefined && rawRow !== null && rawRow !== '';
+  const hasRows = rawRows !== undefined && rawRows !== null && rawRows !== '';
+  if (!hasRow && !hasRows) return {};
+  if (!hasRow) return { error: '指定 headerRows 时必须同时提供起始行 headerRow' };
+  const row = Number(rawRow);
+  const rows = hasRows ? Number(rawRows) : 1;
+  if (!Number.isInteger(row) || row < 1) return { error: 'headerRow 必须是从 1 开始的整数' };
+  if (rows !== 1 && rows !== 2) return { error: 'headerRows 只能是 1（单行）或 2（两级表头）' };
+  return { selection: { headerRow: row, headerRows: rows as 1 | 2 } };
 }
 
 const router = Router();
@@ -667,10 +685,12 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
 
 // POST /api/datasources/import-file（仅 ADMIN）：v0.9.34 上传 CSV/Excel/JSON 文件，
 // 服务端解析真实数据落应用库物理表（upl_*），登记为可真实问数/报表的数据源（不再走演示模式）。
-// body: { name?, fileType: 'csv'|'xlsx'|'json', fileName, fileBase64 }
-// 响应附 stats：{ rows, columns, droppedSensitive, truncated }（敏感列剔除与超限截断如实告知，不静默）
+// body: { name?, fileType: 'csv'|'xlsx'|'json', fileName, fileBase64, headerRow?, headerRows?, dryRun? }
+// - v0.9.120 自动识别表头；v0.9.121 支持 headerRow/headerRows 手动指定（用户在导入预览中点选）
+// - dryRun=true：只解析并返回前 20 行与候选表头（不落库），供前端「确认表头后导入」
+// 响应附 stats：{ rows, columns, droppedSensitive, truncated, headerRow, headerRows, headerMode }（如实告知，不静默）
 router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
-  const { name, fileType, fileName, fileBase64 } = req.body || {};
+  const { name, fileType, fileName, fileBase64, headerRow, headerRows, dryRun } = req.body || {};
   if (fileType !== 'csv' && fileType !== 'xlsx' && fileType !== 'json') {
     return res.status(400).json({ error: 'fileType 必须是 csv / xlsx / json' });
   }
@@ -685,10 +705,21 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
   if (buf.length > MAX_FILE_BYTES) {
     return res.status(400).json({ error: `文件超过大小上限（${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB），请拆分或精简后重试` });
   }
+  const headerCheck = parseHeaderSelection(headerRow, headerRows);
+  if (headerCheck.error) return res.status(400).json({ error: headerCheck.error });
+
+  if (dryRun === true || dryRun === 'true') {
+    try {
+      const preview = await parseFilePreview(fileType, buf);
+      return res.json({ success: true, preview });
+    } catch (err) {
+      return res.status(400).json({ error: `文件解析失败：${errMsg(err, '格式无法识别')}` });
+    }
+  }
 
   let parsed;
   try {
-    parsed = await parseFileContent(fileType, buf);
+    parsed = await parseFileContent(fileType, buf, headerCheck.selection);
   } catch (err) {
     return res.status(400).json({ error: `文件解析失败：${errMsg(err, '格式无法识别')}` });
   }
@@ -768,6 +799,8 @@ router.post('/import-file', requireRole('ADMIN'), async (req, res) => {
         // headerRows=2 表示两级表头已合并列名——如实告知，不静默猜测
         headerRow: parsed.headerRow ?? 1,
         headerRows: parsed.headerRows ?? 1,
+        // v0.9.121 表头来源：manual=用户点选，auto=系统识别
+        headerMode: parsed.headerMode ?? 'auto',
       },
       autoConfig: {
         analysisSummary: autoConfigReport.analysisSummary,

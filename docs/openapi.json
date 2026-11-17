@@ -1638,7 +1638,7 @@
           "DataSources"
         ],
         "operationId": "importFileDatasource",
-        "summary": "上传 CSV/Excel/JSON 文件导入为数据源（仅 ADMIN）：服务端解析真实数据落应用库物理表 upl_*，问数/报表/指标/灵活查询走真实执行；≤7MB、≤2万行、≤100列（超限截断），敏感列自动剔除",
+        "summary": "上传 CSV/Excel/JSON 文件导入为数据源（仅 ADMIN）：dryRun=true 时先返回前 20 行预览与候选表头（不落库），可手动指定 headerRow/headerRows 后再导入；正式导入解析真实数据落应用库物理表 upl_*，问数/报表/指标/灵活查询走真实执行；≤7MB、≤2万行、≤100列（超限截断），敏感列自动剔除",
         "requestBody": {
           "required": true,
           "content": {
@@ -1670,6 +1670,20 @@
                   "fileBase64": {
                     "type": "string",
                     "description": "文件内容 base64（文件本体 ≤7MB）"
+                  },
+                  "headerRow": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "手动指定表头起始行（1-based，可选）；缺省时由系统自动识别"
+                  },
+                  "headerRows": {
+                    "type": "integer",
+                    "enum": [1, 2],
+                    "description": "表头行数：1=单行，2=两级表头（列名合并为「父-子」）；缺省为 1"
+                  },
+                  "dryRun": {
+                    "type": "boolean",
+                    "description": "true=只解析并返回前 20 行预览与候选表头（不落库），供前端确认表头后再正式导入"
                   }
                 }
               }
@@ -1677,8 +1691,22 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "dryRun=true 时返回 preview（不落库）：rows 前 20 行 / columns / totalRows / detected 自动识别表头 / candidates 每行单行与两级表头候选列名 / supportsHeaderSelection / truncated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "preview": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
           "201": {
-            "description": "导入成功：返回 dataSource 与 stats（rows/columns/droppedSensitive/truncated）"
+            "description": "导入成功：返回 dataSource 与 stats（rows/columns/droppedSensitive/truncated/headerRow/headerRows/headerMode）"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
